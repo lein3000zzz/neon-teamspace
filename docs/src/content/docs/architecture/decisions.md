@@ -186,6 +186,7 @@ app and these docs ship, is under a permissive license, such as MIT, Apache-2.0,
 or under MPL-2.0. None is under the GPL, AGPL, LGPL, SSPL or BUSL, or a commercial license.
 A copyleft dependency would decide the project's own license for it, and the license would
 stop being a choice; MPL-2.0's copyleft stops at the files it covers, so it leaves the rest
-free. `cargo-deny` checks the Rust crates against the allowed licenses in `deny.toml`.
-**Planned**: one check of the app's and these docs' JavaScript packages against the same
-list.
+free. `cargo-deny` checks the Rust crates against the allowed licenses in `deny.toml`, and
+`scripts/licenses.ts` checks the app's and these docs' JavaScript packages against the same
+list. The only named exceptions are data files, bundled fonts and packages used only at build
+time that never reach a shipped file.

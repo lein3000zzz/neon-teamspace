@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { fixture, manifest, OFL_TEXT } from "./fixture.ts";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { fixture, manifest, OFL_TEXT } from "../../../scripts/licenses/fixture.ts";
 import { collectNotices, cssImports, packageRoot } from "./notices.ts";
 
 describe("packageRoot", () => {
@@ -29,20 +29,23 @@ describe("cssImports", () => {
 
 /** A small app: one bundled package, two imported stylesheet packages and a font. */
 const app = (files: Record<string, string>) =>
-  fixture({
-    "public/fonts/face/Face.woff2": "",
-    "public/fonts/face/OFL.txt": OFL_TEXT,
-    "src/index.css": `@import "styles-pkg";\n@import "./more.css";`,
-    "src/more.css": `@import "@scope/more-styles/theme.css";\n@import "https://example.com/x.css";`,
-    "node_modules/styles-pkg/package.json": manifest("styles-pkg"),
-    "node_modules/styles-pkg/LICENSE": "styles-pkg license",
-    "node_modules/@scope/more-styles/package.json": manifest("@scope/more-styles", "ISC"),
-    "node_modules/@scope/more-styles/LICENSE.md": "more-styles license",
-    "node_modules/code/package.json": manifest("code", "MIT OR Apache-2.0"),
-    "node_modules/code/LICENSE-MIT": "code MIT license",
-    "node_modules/code/LICENSE-APACHE": "code Apache license",
-    ...files,
-  });
+  fixture(
+    {
+      "public/fonts/face/Face.woff2": "",
+      "public/fonts/face/OFL.txt": OFL_TEXT,
+      "src/index.css": `@import "styles-pkg";\n@import "./more.css";`,
+      "src/more.css": `@import "@scope/more-styles/theme.css";\n@import "https://example.com/x.css";`,
+      "node_modules/styles-pkg/package.json": manifest("styles-pkg"),
+      "node_modules/styles-pkg/LICENSE": "styles-pkg license",
+      "node_modules/@scope/more-styles/package.json": manifest("@scope/more-styles", "ISC"),
+      "node_modules/@scope/more-styles/LICENSE.md": "more-styles license",
+      "node_modules/code/package.json": manifest("code", "MIT OR Apache-2.0"),
+      "node_modules/code/LICENSE-MIT": "code MIT license",
+      "node_modules/code/LICENSE-APACHE": "code Apache license",
+      ...files,
+    },
+    onTestFinished,
+  );
 
 /** Notices for the app built by `app`, with its one bundled module. */
 const collect = (root: string, supplied: Record<string, string> = {}) =>

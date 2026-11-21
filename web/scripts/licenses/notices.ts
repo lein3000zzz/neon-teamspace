@@ -9,8 +9,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Plugin } from "vite";
-import { bundledFonts, FONT_LICENSE, fontLicenseText, fontProblem } from "./fonts.ts";
-import { declaredLicense } from "./spdx.ts";
+import {
+  bundledFonts,
+  FONT_LICENSE,
+  fontLicenseText,
+  fontProblem,
+} from "../../../scripts/licenses/fonts.ts";
+import { declaredLicense } from "../../../scripts/licenses/spdx.ts";
 
 const LICENSE_FILE = /^(?:licen[cs]e|copying)\b/i;
 const NODE_MODULES = "/node_modules/";

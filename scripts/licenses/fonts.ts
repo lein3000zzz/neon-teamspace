@@ -26,9 +26,11 @@ export interface BundledFont {
 
 /** Every directory under `publicDir` that holds font files, at any depth. */
 export function bundledFonts(publicDir: string): BundledFont[] {
-  const files = readdirSync(publicDir, { recursive: true, encoding: "utf8" }).map((file) =>
-    file.split("\\").join("/"),
-  );
+  // Sorted, so the lists come out in the same order whatever order the
+  // runtime reads the directory in.
+  const files = readdirSync(publicDir, { recursive: true, encoding: "utf8" })
+    .map((file) => file.split("\\").join("/"))
+    .toSorted();
   const dirs = new Set(
     files.filter((file) => FONT_FILE.test(file)).map((file) => posix.dirname(file)),
   );
@@ -37,7 +39,7 @@ export function bundledFonts(publicDir: string): BundledFont[] {
     return {
       dir,
       fonts: inDir.filter((file) => FONT_FILE.test(file)).map((file) => posix.basename(file)),
-      licenseFiles: inDir.filter((file) => LICENSE_FILE.test(posix.basename(file))).toSorted(),
+      licenseFiles: inDir.filter((file) => LICENSE_FILE.test(posix.basename(file))),
     };
   });
 }

@@ -18,6 +18,9 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
+| `web` | The web app: React, Vite and TanStack. |
+| `docs` | The documentation site, Astro Starlight. |
+| `scripts` | Tooling shared by the web app and the docs, such as the license check. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. Each crate's
 `Cargo.toml` lists what it may use, so the compiler enforces the direction.
@@ -29,43 +32,71 @@ Prerequisites:
 - Rust through [rustup](https://rustup.rs). `rust-toolchain.toml` pins the version.
 - [sqlx-cli](https://crates.io/crates/sqlx-cli), for migrations and the query cache:
   `cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls`
-- [Bun](https://bun.sh) for the web app and the docs.
-- Docker, for Postgres and the other local services.
+- [cargo-deny](https://crates.io/crates/cargo-deny), for the license and advisory checks:
+  `cargo install cargo-deny --locked`, then `cargo deny fetch` once, which downloads the
+  RustSec advisory database that `make check` reads offline.
+- [Bun](https://bun.sh), for the web app, the docs and `scripts/`.
+- Docker, for Postgres.
+- GNU make. The 3.81 that macOS ships is enough.
 
-Start Postgres and point the tools at it. The compose file binds Postgres to
-`127.0.0.1:55432` with credentials meant only for development. `.env` holds the matching
-URLs, and git ignores it.
+The root `Makefile` runs every task below. `make` on its own lists its targets.
+
+Start Postgres, then point the tools at it. The compose file binds Postgres to
+`127.0.0.1:55432` with credentials meant only for development, and `.env` holds the
+matching URLs. Git ignores `.env`.
 
 ```sh
-docker compose -f deployments/docker-compose.dev.yml up -d --wait
+make db-up                 # make db-down stops it and keeps the data
 cp .env.example .env
-set -a; . ./.env; set +a   # export the variables to this shell
+make migrate               # creates the tables
 ```
 
 Once `DATABASE_URL` is set, in the shell or in `.env`, the build checks every SQL query
-against that database, so the tables must exist before the first build. Create them:
+against that database, so the tables must exist before the first build. That is why
+`make migrate`, which runs sqlx-cli, comes first. Run it again after pulling a change that
+adds a migration. Without sqlx-cli, the server can apply them. It does not read `.env`
+itself, so export the file first; `SQLX_OFFLINE=true` builds from the query cache in `.sqlx/`
+instead of the database:
 
 ```sh
-sqlx migrate run
+set -a; . ./.env; set +a   # export the variables to this shell
+SQLX_OFFLINE=true cargo run -p neon-server -- migrate
 ```
 
-Without sqlx-cli, `SQLX_OFFLINE=true cargo run -p neon-server -- migrate` does the same: it
-builds from the query cache in `.sqlx/` instead of the database, then applies the
-migrations. Run `sqlx migrate run` again after pulling a change that adds a migration.
-
-Then build and run the server. It listens on `0.0.0.0:8080` and applies pending migrations
-when it starts. `neon migrate` applies them without serving.
+Then run the server. `make run` exports `.env` and starts `neon serve`, which listens on
+`0.0.0.0:8080`, applies pending migrations as it starts, and serves its admin listener
+(metrics, health checks) on `127.0.0.1:9090`.
 
 ```sh
-cargo run -p neon-server            # the same as `neon serve`
+make run
 curl localhost:8080/api/v1/meta
 ```
 
-Tests use the same Postgres. Each database test creates a fresh database through
-`DATABASE_URL`.
+The web app and the docs each run a development server that reloads as files change. Install
+their packages once; `make docs-install` also installs the headless Chromium that draws the
+docs' diagrams.
 
 ```sh
-cargo test --workspace
+make web-install
+make web-dev               # http://localhost:5173/, passing /api and the server's paths to :8080
+make docs-install
+make docs-dev              # http://localhost:4321/docs/
+```
+
+`make check` runs every check that needs no Docker and, once the crates, the packages and
+the advisory database are downloaded, no network: formatting, clippy, a build from the
+`.sqlx/` cache, the generated files, the web app's and the docs' checks, and the license and
+advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
+checked against the database instead of the cache. cargo-deny reads the advisory database it
+last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
+one. The Rust tests and the query cache check need Postgres. Each database test creates a
+fresh database through `DATABASE_URL`.
+
+```sh
+make check
+make test
+make sqlx-check
 ```
 
 The `neon` binary has these commands:
@@ -80,19 +111,27 @@ The `neon` binary has these commands:
 
 ### Generated files
 
-The repository commits two generated files. A test fails when `api/openapi.json` no longer
-matches the routes, and `cargo sqlx prepare --workspace --check` fails when `.sqlx/` no
-longer matches the queries.
+The repository commits these generated files. Each has a target that rewrites it and a check
+that fails when it is stale.
 
-```sh
-# api/openapi.json, after changing a route or a type it uses
-cargo run -p neon-server -- openapi --out api/openapi.json
+| File | Rewrite it after changing | Rewrite | Check |
+|---|---|---|---|
+| `api/openapi.json` | a route, or a type a route uses | `make api-spec` | `make api-check`, and a server test |
+| `web/src/api/schema.d.ts` | `api/openapi.json` | `make web-api` | `make web-check` |
+| `.sqlx/`, the query cache that lets the build check SQL without a database | a query or a migration | `make sqlx-prepare` | `make sqlx-check` |
+| `docs/src/content/docs/reference/settings.md` | a runtime setting, added or changed | `make docs-gen` | `make docs-check`, and a server test |
 
-# .sqlx/, the query cache that lets the build check SQL without a database,
-# after adding or changing a query or a migration
-cargo sqlx prepare --workspace
-SQLX_OFFLINE=true cargo build --workspace   # confirms the cache is complete
-```
+The web app's route tree, `web/src/routeTree.gen.ts`, is generated and committed too. It has
+no target: the TanStack Router plugin rewrites it whenever `make web-dev` or `make web-build`
+runs, so commit it with the route change.
+
+### Licenses
+
+Every dependency must be under a license that `deny.toml` allows. `make licenses` runs all of
+cargo-deny's checks on the crates (licenses, advisories, bans and sources), then checks the
+packages installed in `web/` and `docs/` with `scripts/licenses.ts`, which reads the same
+allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
+with the reason none of it ships.
 
 ### Configuration
 
