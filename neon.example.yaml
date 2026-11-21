@@ -27,8 +27,9 @@ database:
 observability:
   logging:
     # A filter directive, such as info or info,sqlx=warn. A level below info, such as
-    # debug, traces spans down to that level too, so their log lines carry trace ids.
-    level: info
+    # debug, traces spans down to that level too, so their log lines carry trace ids. The
+    # default keeps Postgres notices and OpenTelemetry's own messages to warnings.
+    level: info,sqlx::postgres::notice=warn,opentelemetry=warn
     # json for one object per line, or pretty for indented text to read in a terminal.
     format: json
   metrics:

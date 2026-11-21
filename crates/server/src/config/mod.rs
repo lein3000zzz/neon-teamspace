@@ -15,6 +15,7 @@
 //!
 //! The `observability` section is `neon-observability`'s own configuration. Its errors
 //! fail the load with the others; its warnings are logged once telemetry is installed.
+//! The server gives its `logging.level` a default of its own, [`DEFAULT_LOG_LEVEL`].
 
 mod database_url;
 mod env;
@@ -27,6 +28,7 @@ use std::path::PathBuf;
 
 use figment::Figment;
 use figment::error::{Actual, Kind, OneOf};
+use figment::providers::Serialized;
 use neon_app::jobs::LISTEN_CONNECTIONS;
 use neon_domain::settings::{Pinned, Problem, RawLayers, Registry};
 use serde::de::Error as _;
@@ -44,6 +46,12 @@ pub const CONFIG_ENV: &str = "NEON_CONFIG";
 
 /// The config file read when `NEON_CONFIG` is unset, if it exists.
 pub const DEFAULT_FILE: &str = "neon.yaml";
+
+/// `observability.logging.level` when neither the file nor the environment sets it.
+/// Postgres notices, such as "relation already exists, skipping" on every start, and
+/// OpenTelemetry's own messages, such as the one as its tracer is installed, are only
+/// worth seeing when they warn.
+pub const DEFAULT_LOG_LEVEL: &str = "info,sqlx::postgres::notice=warn,opentelemetry=warn";
 
 /// The fewest connections the server can work with: the job worker keeps its own to
 /// listen for new jobs, and queries need at least one more.
@@ -150,7 +158,10 @@ pub fn load(registry: &Registry) -> Result<Loaded, ConfigError> {
         .into_iter()
         .partition(|name| sets_a_key(name));
 
-    let mut figment = Figment::new();
+    let mut figment = Figment::from(Serialized::default(
+        "observability.logging.level",
+        DEFAULT_LOG_LEVEL,
+    ));
     if let Some(path) = &file {
         figment = figment.merge(YamlFile::new(path.clone()));
     }

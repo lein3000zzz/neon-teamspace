@@ -65,7 +65,7 @@ before anything else. Every key is optional.
 
 | Key | Default | What it sets |
 |---|---|---|
-| `logging.level` | `info` | A filter directive, such as `info` or `info,sqlx=warn`. It filters what is logged, not what is traced. A level below `info`, such as `debug`, also traces spans down to it. |
+| `logging.level` | `info,sqlx::postgres::notice=warn,opentelemetry=warn` | A filter directive, such as `info` or `info,sqlx=warn`. The default is `info` with Postgres notices and OpenTelemetry's own messages kept to warnings; a level that is set replaces it whole. It filters what is logged, not what is traced. A level below `info`, such as `debug`, also traces spans down to it. |
 | `logging.format` | `json` | `json`, one object per line, or `pretty`, indented text for reading in a terminal. |
 | `metrics.enabled` | `true` | Records metrics and serves them at `/metrics` on the admin listener. |
 | `tracing.enabled` | `false` | Exports spans over OTLP. Trace IDs exist and pass on to job rows either way. |

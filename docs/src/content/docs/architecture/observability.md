@@ -24,11 +24,15 @@ terminal during development, with `logging.format: pretty`. Each JSON line has `
 under `span`.
 
 The level, `logging.level`, is a filter directive, such as `info` or `info,sqlx=warn`, which
-sets a level for the server and quieter ones for chatty libraries. It filters what is
-written, not what is traced. Spans at `info` and above are always traced, so a quiet level
-never costs trace IDs. A more verbose level, such as `debug` or `info,neon_server=debug`,
-lowers the traced level with it, down to the most verbose level the directive names, so
-lines logged inside `debug` spans carry IDs too.
+sets a level for the server and quieter ones for chatty libraries. The default,
+`info,sqlx::postgres::notice=warn,opentelemetry=warn`, is `info` with Postgres notices, such
+as the one about the migrations table on every start, and OpenTelemetry's own messages kept
+to warnings. A level that is set replaces the default whole.
+
+The level filters what is written, not what is traced. Spans at `info` and above are always
+traced, so a quiet level never costs trace IDs. A more verbose level, such as `debug` or
+`info,neon_server=debug`, lowers the traced level with it, down to the most verbose level
+the directive names, so lines logged inside `debug` spans carry IDs too.
 
 Every line written inside a span carries the span's `trace_id` and `span_id` at the top
 level, the same IDs the exported trace has. A log line found by searching leads to its

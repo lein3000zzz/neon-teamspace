@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use figment::Jail;
 use neon_app::settings::{INSTANCE_NAME, registry};
 use neon_domain::settings::{Problem, Source, Stored};
-use neon_observability::config::{LogFormat, ProfilingMode};
+use neon_observability::config::{LogFormat, LoggingConfig, ProfilingMode};
 use neon_server::config::{
-    self, ConfigError, DatabaseConfig, Loaded, MIN_CONNECTIONS, ServerConfig,
+    self, ConfigError, DEFAULT_LOG_LEVEL, DatabaseConfig, Loaded, MIN_CONNECTIONS, ServerConfig,
 };
 
 const URL: &str = "postgres://neon:hunter2@127.0.0.1:55432/neon";
@@ -57,6 +57,17 @@ fn instance_name(loaded: &Loaded) -> (String, Source) {
     (snapshot.get(INSTANCE_NAME).to_owned(), source)
 }
 
+/// The observability section the server reads when nothing sets it.
+fn default_observability() -> neon_observability::Config {
+    neon_observability::Config {
+        logging: LoggingConfig {
+            level: DEFAULT_LOG_LEVEL.to_owned(),
+            ..LoggingConfig::default()
+        },
+        ..neon_observability::Config::default()
+    }
+}
+
 fn addr(text: &str) -> SocketAddr {
     text.parse().expect("a socket address")
 }
@@ -75,6 +86,7 @@ fn defaults_apply_without_a_file() {
         assert_eq!(loaded.config.database.url.expose(), URL);
         assert_eq!(loaded.config.database.max_connections, 10);
         assert!(loaded.config.database.auto_migrate);
+        assert_eq!(loaded.config.observability, default_observability());
         assert_eq!(
             instance_name(&loaded),
             ("Neon Workspace".to_owned(), Source::Default)
@@ -576,7 +588,7 @@ fn config_check_shows_the_observability_section_and_its_warnings() {
         );
         for line in [
             "observability:",
-            "    level: info",
+            "    level: info,sqlx::postgres::notice=warn,opentelemetry=warn",
             "    endpoint: http://otel-lgtm:4318",
             "    trust_incoming: true",
             "    addr: 127.0.0.1:9090",
@@ -666,10 +678,7 @@ fn the_example_file_holds_the_defaults() {
                 ..DatabaseConfig::default()
             }
         );
-        assert_eq!(
-            loaded.config.observability,
-            neon_observability::Config::default()
-        );
+        assert_eq!(loaded.config.observability, default_observability());
         assert_eq!(instance_name(&loaded).1, Source::Default);
         Ok(())
     });
