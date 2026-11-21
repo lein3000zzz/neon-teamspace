@@ -8,7 +8,9 @@ touch input.
 
 ## Scripts
 
-Run them with `bun run <script>` from this directory, after `bun install`.
+Run them with `bun run <script>` from this directory, after `bun install`. From the repository's
+root, `make web-install`, `make web-dev`, `make web-check` and `make web-build` do the same for
+`bun install`, `dev`, `check` and `build`.
 
 | Script         | What it does                                                                                                        |
 | -------------- | ------------------------------------------------------------------------------------------------------------------- |

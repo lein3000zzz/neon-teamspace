@@ -21,38 +21,51 @@ and an observability stack.
 
 - Rust through [rustup](https://rustup.rs). The repository's `rust-toolchain.toml` pins the
   version, and rustup installs it on the first build.
+- [sqlx-cli](https://crates.io/crates/sqlx-cli), which applies the migrations and keeps the
+  query cache:
+  `cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls`
+- [cargo-deny](https://crates.io/crates/cargo-deny), for the license check:
+  `cargo install cargo-deny --locked`
 - [Bun](https://bun.sh), for the web app and these docs.
 - Docker, for Postgres.
+- GNU make. The 3.81 that macOS ships is enough.
+
+The steps below run the targets of the repository's `Makefile`, from the repository's root.
+`make` on its own lists them all, each with a line on what it does.
 
 ## Postgres
 
-The repository's development Compose file runs Postgres 18 with its data in a named volume.
-From the repository's root:
+The repository's development Compose file runs Postgres 18 with its data in a named volume:
 
 ```sh
-docker compose -f deployments/docker-compose.dev.yml up -d
+make db-up
 ```
 
 It listens on `127.0.0.1:55432`, reachable from this machine only, on a port that does not
 clash with a Postgres installed the usual way. The user, password and database are all
-`neon`, for development only. `docker compose -f deployments/docker-compose.dev.yml down`
-stops it and keeps the data; adding `--volumes` deletes the data too.
+`neon`, for development only. `make db-down` stops it and keeps the data;
+`docker compose -p neon-dev -f deployments/docker-compose.dev.yml down --volumes` deletes the
+data too.
 
 ## The server
 
-Copy `.env.example` to `.env`, which git ignores:
+Copy `.env.example` to `.env`, which git ignores, then create the tables:
 
 ```sh
 cp .env.example .env
+make migrate
 ```
 
-It sets `DATABASE_URL`, which sqlx's tools and the tests read from `.env` themselves, and
-`NEON_DATABASE__URL`, the database the server uses. The server does not read `.env`, so
-export the file into the shell it runs from, then start it from the repository's root:
+`.env` sets `DATABASE_URL`, which sqlx's tools and the tests read from `.env` themselves, and
+`NEON_DATABASE__URL`, the database the server uses. With `DATABASE_URL` set, the build checks
+every SQL query against that database, so the tables must exist before the first build:
+`make migrate` applies the migrations with sqlx-cli. Run it again after pulling a change that
+adds one.
+
+The server does not read `.env` itself. `make run` exports it, then starts the server:
 
 ```sh
-set -a; . ./.env; set +a
-cargo run --bin neon -- serve
+make run
 ```
 
 Instead of the environment, the server can be told where the database is in `neon.yaml`, in
@@ -85,7 +98,7 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 |---|---|
 | `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
-| `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. `--out api/openapi.json` refreshes the committed copy. |
+| `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 
@@ -99,9 +112,8 @@ The app is in `web/`. Install its packages once, then start Vite's development s
 reloads as files change:
 
 ```sh
-cd web
-bun install
-bun run dev
+make web-install
+make web-dev
 ```
 
 It is then at `http://localhost:5173/`. The development server passes `/api` and the
@@ -111,26 +123,48 @@ API share one origin.
 ## These docs
 
 The docs are in `docs/`. Their diagrams are drawn as the docs build, in a headless Chromium
-that Playwright runs, so install that once too:
+that Playwright runs, so installing their packages installs that too:
 
 ```sh
-cd docs
-bun install
-bun run chromium
-bun run dev
+make docs-install
+make docs-dev
 ```
 
-They are then at `http://localhost:4321/docs/`. `docs/README.md` lists the other commands.
+They are then at `http://localhost:4321/docs/`. `make docs-build` builds them into
+`docs/dist/`, and `docs/README.md` covers the rest.
 
 ## Checks
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+make check
+```
+
+`make check` runs everything that needs neither Docker nor, once the crates and packages are
+installed, the network: `cargo fmt --check`, clippy with warnings as errors, a build, the
+checks that `api/openapi.json`, the web app's API types and the settings reference are
+current, the web app's and the docs' own checks, and the license check. Its build checks the
+SQL against the committed `.sqlx/` cache instead of a database; see
+[Data and storage](/docs/architecture/data/#queries).
+
+Two checks need Postgres:
+
+```sh
+make test
+make sqlx-check
 ```
 
 Tests that use the database each get a fresh one, which `#[sqlx::test]` creates on the
-server `DATABASE_URL` points at, so Postgres must be running for them. A build with
-`SQLX_OFFLINE=true` needs no database. It checks the SQL against the committed `.sqlx/`
-cache instead; see [Data and storage](/docs/architecture/data/#queries).
+server `DATABASE_URL` points at. `make sqlx-check` fails when `.sqlx/` no longer matches the
+queries.
+
+## Generated files
+
+The repository commits a few files generated from the code. A check fails when one of them
+falls behind, and a target rewrites it:
+
+| File | Rewrite | After changing |
+|---|---|---|
+| `api/openapi.json` | `make api-spec` | a route, or a type a route uses |
+| `web/src/api/schema.d.ts` | `make web-api` | `api/openapi.json` |
+| `.sqlx/` | `make sqlx-prepare` | a query or a migration |
+| `docs/src/content/docs/reference/settings.md` | `make docs-gen` | a runtime setting, added or changed |

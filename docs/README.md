@@ -13,6 +13,9 @@ bun run chromium   # once: the headless Chromium that draws the diagrams
 bun run dev        # http://localhost:4321/docs/
 ```
 
+From the repository's root, `make docs-install` does the first two and `make docs-dev` the
+third. `make docs-build` and `make docs-check` run the build and the check below.
+
 | Script | What it does |
 |---|---|
 | `bun run dev` | Starts the development server, which reloads as pages change. |
