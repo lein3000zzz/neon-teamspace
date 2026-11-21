@@ -1,0 +1,68 @@
+# web
+
+The browser UI of Neon Workspace. It is a single-page app built with React 19, Vite, TanStack
+Router and Query, Tailwind CSS v4 and shadcn/ui components. The `neon` server and this app share
+one origin, so the UI calls `/api/v1/...` directly and session cookies need no CORS setup. The
+mobile and desktop shells load the same UI, which is why every screen works from 360px wide with
+touch input.
+
+## Scripts
+
+Run them with `bun run <script>` from this directory, after `bun install`.
+
+| Script         | What it does                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `dev`          | Vite dev server. It proxies `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known` to the server on `127.0.0.1:8080`.   |
+| `build`        | Type-checks, then writes the production bundle to `dist/`.                                                          |
+| `preview`      | Serves `dist/` locally.                                                                                             |
+| `gen:api`      | Regenerates `src/api/schema.d.ts` from `../api/openapi.json`. Commit the result.                                    |
+| `check:api`    | Fails when `schema.d.ts` is out of date with the spec.                                                              |
+| `lint`         | oxlint. Warnings fail too.                                                                                          |
+| `format`       | prettier, which also sorts Tailwind classes.                                                                        |
+| `format:check` | prettier without writing.                                                                                           |
+| `test`         | vitest with jsdom, Testing Library and MSW.                                                                         |
+| `licenses`     | Fails when any installed package, dev dependencies included, has a license outside the allowlist in `../deny.toml`. |
+| `check`        | `tsc -b`, lint, format check, API check and tests, in that order.                                                   |
+
+TypeScript stays on 6.x. `openapi-typescript` builds its output with the TypeScript compiler
+API, and the 7.x native compiler does not ship that API.
+
+The license check reads the allowlist from `../deny.toml`, so Rust and JS dependencies follow
+one policy. A package outside it needs an entry in `EXCEPTIONS` in `scripts/licenses.ts` with its
+exact license and a reason. The check also fails on an exception nothing uses any more.
+`bunfig.toml` pins the hoisted `node_modules` layout that the check walks.
+
+## Theming
+
+Four attributes on `<html>` drive the whole theme:
+
+- `data-palette` is `nothing`, `soft` or `warm`.
+- `data-mode` is the resolved mode, `light` or `dark`. The "system" choice resolves here and
+  follows `prefers-color-scheme` live.
+- `data-ui-font` is `default` (the system sans stack) or `mono` (iA Writer Mono, bundled in
+  `public/fonts`).
+- the `--accent-h` custom property holds the accent hue, 0 to 359.
+
+`src/styles/palettes.css` sets raw tokens per palette and mode, then derives the shadcn
+variables (`--background`, `--primary`, `--ring`, ...) from them. `src/styles/index.css` maps
+those into Tailwind's `@theme`, so utilities such as `bg-primary` or `text-muted-foreground`
+follow the theme. The default Tailwind colours and shadows are removed on purpose. A colour
+that is not a token cannot creep in.
+
+The accent is `oklch(var(--accent-l) var(--accent-c) var(--accent-h))`. The user picks only the
+hue. Lightness and chroma are fixed per palette and mode, chosen so accent text on the page and
+dark or light ink on an accent fill stay at 4.5:1 or better at every hue. Dark modes use a
+brighter, more saturated accent and give hue-carrying elements a glow (`shadow-glow`). The glow
+is zero in light modes. Anything that is not a focus ring, a primary action, a presence dot or
+the active item stays flat.
+
+An element can carry another entity's hue instead of the user's accent. Set `data-hue` and
+`--accent-h` on it (see `hueScope` in `src/components/nodes/hue.ts`), and the accent tokens
+re-derive inside it. `hueFor(id)` in `src/lib/hue.ts` computes an entity's hue from its id with
+FNV-1a, the same way as lein3000.dev. `src/lib/hue-vectors.json` holds test vectors that any
+other implementation must match.
+
+Preferences live in `localStorage` under `neon.theme`. `public/theme.js` applies them before
+first paint. It loads as a same-origin file rather than an inline script, so a strict
+Content-Security-Policy works. `src/theme/preferences.ts` holds the same rules in TypeScript,
+and `boot-script.test.ts` checks that the two agree.
