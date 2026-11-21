@@ -1,0 +1,249 @@
+# The checks, on each pull request into dev or main and on each push to them. A job runs only
+# when a file it checks changed; the secret scan always runs. A newer push cancels the run
+# before it on the same branch or pull request. Branch protection needs one required check,
+# `All checks`, which passes when every other job passed or was skipped.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # the pull request's files come from the API
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      # A push is compared, in git, with the commit the branch pointed to before it. The
+      # whole history is fetched here, as without credentials the filter cannot fetch that
+      # commit later.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ github.ref }}
+          # Every job runs its checks through the Makefile, so a change to it, or to a
+          # workflow, runs them all.
+          filters: |
+            shared: &shared
+              - .github/workflows/**
+              - Makefile
+            rust:
+              - *shared
+              - crates/**
+              - migrations/**
+              - .sqlx/**
+              - Cargo.toml
+              - Cargo.lock
+              - rust-toolchain.toml
+              - clippy.toml
+              - rustfmt.toml
+              - deny.toml
+              - api/**
+              # Read by the server's tests: the config test loads the example, and a test
+              # compares the settings page with the settings registry.
+              - neon.example.yaml
+              - docs/src/content/docs/reference/settings.md
+            web:
+              - *shared
+              - web/**
+              - api/openapi.json
+              - scripts/**
+              - deny.toml
+              - .editorconfig # Prettier reads it
+            docs:
+              - *shared
+              - docs/**
+              - api/openapi.json
+              - scripts/**
+              - deny.toml
+
+  rust:
+    name: Rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      # As deployments/docker-compose.dev.yml runs it, on the runner's port 5432.
+      postgres:
+        image: postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
+        env:
+          POSTGRES_USER: neon
+          POSTGRES_PASSWORD: neon
+          POSTGRES_DB: neon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neon -d neon"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      # The query macros check each query against this database as they compile, sqlx-cli
+      # migrates it, and each #[sqlx::test] creates a database of its own on its server.
+      DATABASE_URL: postgres://neon:neon@localhost:5432/neon
+      NEON_DATABASE__URL: postgres://neon:neon@localhost:5432/neon
+      CARGO_TERM_COLOR: always
+      # Line tables keep test backtraces readable; without full debug info the build, and
+      # the cache restored before it, are much smaller.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # With no argument, rustup installs the toolchain rust-toolchain.toml names, with its
+      # components. Before the cache, whose key includes the compiler's version.
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      # One cache for every step below: clippy, the tests, the query cache check and the
+      # OpenAPI check all build from the same dependencies. Pull requests read the cache that
+      # the last push to their base branch saved, and save none of their own.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      # The version and features the README gives. The cache keeps the binary, so this
+      # compiles only when the cache is cold.
+      - name: sqlx-cli
+        run: cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.22.0
+          fallback: none
+      - name: Formatting
+        run: make fmt-check
+      # Licenses, advisories, bans and sources, as make licenses checks them. Before anything
+      # compiles, as it only reads the dependency graph and the advisory database.
+      - name: cargo-deny
+        run: cargo deny check
+      # The query macros need the tables before anything compiles against the database.
+      - name: Migrations
+        run: make migrate
+      - name: Clippy
+        run: make lint
+      - name: Tests
+        run: make test
+      - name: Query cache is current
+        run: make sqlx-check
+      - name: OpenAPI description is current
+        run: make api-check
+
+  web:
+    name: Web app
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Bun that docs/package.json pins in packageManager, for the whole repository.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make web-install
+      - name: Types, lint, formatting, API types, tests
+        run: make web-check
+      - name: Build, with the third-party notices
+        run: make web-build
+      - name: Licenses of the installed packages
+        run: bun scripts/licenses.ts web
+
+  docs:
+    name: Docs
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # The Makefile sets it for its targets; the check step below runs Astro without make.
+      ASTRO_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      # The packages, and the headless Chromium that draws the diagrams. The runner image
+      # already has the system libraries Chromium needs; the build fails if one is missing.
+      - run: make docs-install
+      # The first half of make docs-check. Its second half compares the settings page with
+      # the output of the neon binary, which would compile the server a second time: the
+      # Rust job's tests make the same comparison, and run whenever the page changes.
+      - name: Types and the docs' script tests
+        working-directory: docs
+        run: bun run check
+      - name: Build, with the Content-Security-Policy
+        run: make docs-build
+      - name: Licenses of the installed packages
+        run: bun scripts/licenses.ts docs
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      # Gitleaks from its own image: the CLI needs no license key. A pull request's commits,
+      # or those a push added; the whole history when the push created the branch or
+      # rewrote it, as there is then no earlier commit to start from.
+      - name: Gitleaks
+        env:
+          GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            range="$BASE..$HEAD"
+          else
+            range="$HEAD"
+          fi
+          echo "Scanning $(git rev-list --count "$range") commit(s): $range"
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" \
+            git --no-banner --redact --verbose --log-opts="$range" .
+
+  # The one check for branch protection to require, so that skipped jobs pass it.
+  all:
+    name: All checks
+    if: always()
+    needs: [changes, rust, web, docs, secrets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
+          if [ -n "$failed" ]; then
+            echo "$failed"
+            exit 1
+          fi
+          echo "Every job passed or was skipped."
