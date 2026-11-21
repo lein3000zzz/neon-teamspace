@@ -1,6 +1,6 @@
 // Applies the stored theme before first paint. Loaded blocking from <head> as a
-// same-origin file, so a CSP without 'unsafe-inline' still runs it. Mirrors
-// src/theme/preferences.ts; boot-script.test.ts keeps the two in step.
+// same-origin file, so script-src 'self' runs it without 'unsafe-inline'.
+// Mirrors src/theme/preferences.ts; boot-script.test.ts keeps the two in step.
 (function () {
   "use strict";
 

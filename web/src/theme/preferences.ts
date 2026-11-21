@@ -117,10 +117,7 @@ export function resolveMode(preference: ModePreference, systemPrefersDark: boole
   return preference;
 }
 
-/**
- * Writes the theme onto an element. The hue goes through CSSOM rather than a
- * style attribute, which a strict CSP without 'unsafe-inline' still allows.
- */
+/** Writes the theme onto an element: the attributes and the accent hue. */
 export function applyTheme(element: HTMLElement, preferences: ThemePreferences, mode: Mode) {
   element.dataset["palette"] = preferences.palette;
   element.dataset["mode"] = mode;
