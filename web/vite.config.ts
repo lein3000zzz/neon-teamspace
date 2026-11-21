@@ -4,8 +4,22 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-/** The `neon` server's app port; the dev server forwards everything it owns there. */
-const backend = "http://127.0.0.1:8080";
+/**
+ * The `neon` server's app port. The dev server forwards the paths the server
+ * owns there and keeps the browser's Host header, as Caddy does in production,
+ * so anything the server derives from Host behaves the same in both.
+ */
+const forward = { target: "http://127.0.0.1:8080", changeOrigin: false } as const;
+
+/**
+ * A proxy key for a path and everything below it, but not a longer name:
+ * /api and /api/v1/meta, never /apiary. Vite reads keys starting with ^ as
+ * regular expressions, tested against the path and query.
+ */
+function under(path: string): string {
+  const literal = path.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return `^${literal}(?:[/?]|$)`;
+}
 
 export default defineConfig({
   plugins: [
@@ -19,11 +33,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": backend,
-      "/ws": { target: backend, ws: true },
-      "/mcp": backend,
-      "/hooks": backend,
-      "/.well-known": backend,
+      [under("/api")]: forward,
+      [under("/ws")]: { ...forward, ws: true },
+      [under("/mcp")]: forward,
+      [under("/hooks")]: forward,
+      [under("/.well-known")]: forward,
     },
   },
   build: {
