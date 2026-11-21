@@ -4,6 +4,8 @@
 CARGO ?= cargo
 BUN   ?= bun
 SQLX  ?= sqlx
+# Options for cargo-deny, before its command. check adds --offline.
+DENY_FLAGS ?=
 
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
@@ -11,6 +13,8 @@ SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
 DEV_COMPOSE   := docker compose -p neon-dev -f deployments/docker-compose.dev.yml
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
+# Where check builds, so that its offline build never reuses one checked against a database.
+OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
 
 # Astro reports usage over the network unless told not to.
 export ASTRO_TELEMETRY_DISABLED := 1
@@ -140,19 +144,24 @@ docs-check: ## Type-check the docs and test their scripts; fail if the settings 
 ## Checks
 
 .PHONY: licenses
-# cargo-deny's advisories check is left out: it fetches the advisory database.
-licenses: ## Check licenses against deny.toml: crates (with cargo-deny's bans and sources), web, docs
-	$(CARGO) deny check bans licenses sources
+# Without --offline, cargo-deny first updates its copy of the RustSec advisory database.
+licenses: ## Run cargo-deny's license, advisory, ban and source checks; check web's and docs' licenses
+	$(CARGO) deny $(DENY_FLAGS) check
 	$(BUN) scripts/licenses.ts web
 	$(BUN) scripts/licenses.ts docs
 
 .PHONY: check
-# Offline: the build checks SQL against the committed .sqlx/ cache, not a database.
+# Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
+# a target directory of its own: cargo does not rebuild a crate when only SQLX_OFFLINE changes,
+# so in target/ it would reuse queries last checked against the database. cargo-deny reads the
+# advisory database it last fetched, and fails when that copy is more than 90 days old.
 check: export SQLX_OFFLINE := true
+check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
+check: DENY_FLAGS := --offline
 check: fmt-check lint build api-check web-check docs-check licenses ## Every check that needs no Docker or network (all but sqlx-check and test)
 	@echo "all checks passed"
 
 .PHONY: clean
 clean: ## Remove build output: target/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
 	$(CARGO) clean
-	rm -rf web/dist docs/dist docs/.astro docs/csp.caddy
+	rm -rf "$(OFFLINE_TARGET_DIR)" web/dist docs/dist docs/.astro docs/csp.caddy

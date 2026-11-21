@@ -24,8 +24,9 @@ and an observability stack.
 - [sqlx-cli](https://crates.io/crates/sqlx-cli), which applies the migrations and keeps the
   query cache:
   `cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls`
-- [cargo-deny](https://crates.io/crates/cargo-deny), for the license check:
-  `cargo install cargo-deny --locked`
+- [cargo-deny](https://crates.io/crates/cargo-deny), for the license and advisory checks:
+  `cargo install cargo-deny --locked`, then `cargo deny fetch` once, which downloads the
+  RustSec advisory database that `make check` reads offline.
 - [Bun](https://bun.sh), for the web app and these docs.
 - Docker, for Postgres.
 - GNU make. The 3.81 that macOS ships is enough.
@@ -139,12 +140,16 @@ They are then at `http://localhost:4321/docs/`. `make docs-build` builds them in
 make check
 ```
 
-`make check` runs everything that needs neither Docker nor, once the crates and packages are
-installed, the network: `cargo fmt --check`, clippy with warnings as errors, a build, the
-checks that `api/openapi.json`, the web app's API types and the settings reference are
-current, the web app's and the docs' own checks, and the license check. Its build checks the
-SQL against the committed `.sqlx/` cache instead of a database; see
-[Data and storage](/docs/architecture/data/#queries).
+`make check` runs everything that needs neither Docker nor, once the crates, the packages and
+the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
+as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
+settings reference are current, the web app's and the docs' own checks, and the license and
+advisory checks. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+database; see [Data and storage](/docs/architecture/data/#queries). It builds in
+`target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
+in `target/`, it could reuse queries last checked against the database instead of the cache.
+cargo-deny reads the advisory database it last fetched and fails once that copy is more than
+90 days old; `make licenses` fetches a new one.
 
 Two checks need Postgres:
 

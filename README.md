@@ -32,8 +32,9 @@ Prerequisites:
 - Rust through [rustup](https://rustup.rs). `rust-toolchain.toml` pins the version.
 - [sqlx-cli](https://crates.io/crates/sqlx-cli), for migrations and the query cache:
   `cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls`
-- [cargo-deny](https://crates.io/crates/cargo-deny), for the license check:
-  `cargo install cargo-deny --locked`
+- [cargo-deny](https://crates.io/crates/cargo-deny), for the license and advisory checks:
+  `cargo install cargo-deny --locked`, then `cargo deny fetch` once, which downloads the
+  RustSec advisory database that `make check` reads offline.
 - [Bun](https://bun.sh), for the web app, the docs and `scripts/`.
 - Docker, for Postgres.
 - GNU make. The 3.81 that macOS ships is enough.
@@ -77,11 +78,15 @@ make docs-install
 make docs-dev              # http://localhost:4321/docs/
 ```
 
-`make check` runs every check that needs no Docker and, once the crates and packages are
-installed, no network: formatting, clippy, a build from the `.sqlx/` cache, the generated
-files, the web app's and the docs' checks, and the licenses. The Rust tests and the query
-cache check need Postgres. Each database test creates a fresh database through
-`DATABASE_URL`.
+`make check` runs every check that needs no Docker and, once the crates, the packages and
+the advisory database are downloaded, no network: formatting, clippy, a build from the
+`.sqlx/` cache, the generated files, the web app's and the docs' checks, and the license and
+advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
+checked against the database instead of the cache. cargo-deny reads the advisory database it
+last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
+one. The Rust tests and the query cache check need Postgres. Each database test creates a
+fresh database through `DATABASE_URL`.
 
 ```sh
 make check
@@ -113,10 +118,11 @@ that fails when it is stale.
 
 ### Licenses
 
-Every dependency must be under a license that `deny.toml` allows. `make licenses` checks the
-crates with cargo-deny, and the packages installed in `web/` and `docs/` with
-`scripts/licenses.ts`, which reads the same allow list. A package outside it needs a
-build-only exception in `scripts/licenses/policy.ts`, with the reason none of it ships.
+Every dependency must be under a license that `deny.toml` allows. `make licenses` runs all of
+cargo-deny's checks on the crates (licenses, advisories, bans and sources), then checks the
+packages installed in `web/` and `docs/` with `scripts/licenses.ts`, which reads the same
+allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
+with the reason none of it ships.
 
 ### Configuration
 
