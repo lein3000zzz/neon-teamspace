@@ -67,7 +67,8 @@
   --neon-accent-c: 0.18;
 
   --neon-bg: #ffffff;
-  --neon-raised: #f5f5f5;
+  /* White, as in the app's Nothing palette: 1px rules set raised surfaces apart. */
+  --neon-raised: #ffffff;
   --neon-fg: #000000;
   /* Darker than the source's #7a7a7a, which is 4.3:1 on white, short of 4.5:1. */
   --neon-muted: #6e6e6e;
