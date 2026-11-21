@@ -27,6 +27,8 @@ Dependencies only point inward: `server` → `app` → `store` → `domain`. Eac
 Prerequisites:
 
 - Rust through [rustup](https://rustup.rs). `rust-toolchain.toml` pins the version.
+- [sqlx-cli](https://crates.io/crates/sqlx-cli), for migrations and the query cache:
+  `cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls`
 - [Bun](https://bun.sh) for the web app and the docs.
 - Docker, for Postgres and the other local services.
 
@@ -35,17 +37,26 @@ Start Postgres and point the tools at it. The compose file binds Postgres to
 URLs, and git ignores it.
 
 ```sh
-docker compose -f deployments/docker-compose.dev.yml up -d
+docker compose -f deployments/docker-compose.dev.yml up -d --wait
 cp .env.example .env
 set -a; . ./.env; set +a   # export the variables to this shell
 ```
 
-The server listens on `0.0.0.0:8080` and applies pending migrations when it starts.
-`neon migrate` applies them without serving.
+Once `DATABASE_URL` is set, in the shell or in `.env`, the build checks every SQL query
+against that database, so the tables must exist before the first build. Create them:
 
 ```sh
-cargo build
-cargo run -p neon-server -- migrate
+sqlx migrate run
+```
+
+Without sqlx-cli, `SQLX_OFFLINE=true cargo run -p neon-server -- migrate` does the same: it
+builds from the query cache in `.sqlx/` instead of the database, then applies the
+migrations. Run `sqlx migrate run` again after pulling a change that adds a migration.
+
+Then build and run the server. It listens on `0.0.0.0:8080` and applies pending migrations
+when it starts. `neon migrate` applies them without serving.
+
+```sh
 cargo run -p neon-server            # the same as `neon serve`
 curl localhost:8080/api/v1/meta
 ```
@@ -90,7 +101,10 @@ names. [`neon.example.yaml`](neon.example.yaml) lists every key with its default
 to `neon.yaml`, which git ignores.
 
 An environment variable can set any key. Its name is `NEON_` followed by the key's path in
-capitals, with `__` between levels, so `database.url` is `NEON_DATABASE__URL`.
+capitals, with `__` between levels, so `database.url` is `NEON_DATABASE__URL`. Other tools
+use the `NEON_` prefix too, such as Neon's Postgres tooling with `NEON_API_KEY`, so a
+variable that sets no key only gets a warning naming it. An unknown key in the file, or
+an unknown `NEON_SETTINGS__` variable, stops the start, since it is almost always a typo.
 
 For the `server` and `database` sections, the environment wins over the file, and the file
 wins over the defaults. Runtime settings, under `settings`, have one more layer. They
