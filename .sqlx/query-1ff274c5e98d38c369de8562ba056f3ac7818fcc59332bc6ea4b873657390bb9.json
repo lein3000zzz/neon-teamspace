@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM jobs\n         WHERE status IN ('done', 'dead') AND updated_at < now() - make_interval(secs => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ff274c5e98d38c369de8562ba056f3ac7818fcc59332bc6ea4b873657390bb9"
+}

@@ -9,6 +9,19 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+neon-domain.workspace = true
+neon-store.workspace = true
+arc-swap.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

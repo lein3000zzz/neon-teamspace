@@ -1,0 +1,6 @@
+dist
+bun.lock
+public/fonts
+# Generated: compared byte for byte by check:api and rewritten by the router plugin.
+src/api/schema.d.ts
+src/routeTree.gen.ts
