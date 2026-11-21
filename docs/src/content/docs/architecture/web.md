@@ -141,8 +141,8 @@ the default accent.
   A page carries no script for them, and they follow the theme.
 - The [API reference](/docs/reference/api/) is generated from `api/openapi.json` by
   `starlight-openapi`. The [settings reference](/docs/reference/settings/) holds the table
-  `neon settings docs` prints from the server's settings registry, copied by hand for now;
-  **planned**, the command generates the page.
+  `neon settings docs` prints from the server's settings registry. `make docs-gen` writes it,
+  and a server test fails when the committed page is stale.
 - Search is Pagefind's, an index built with the docs that runs in the browser.
 - Their Content-Security-Policy allows the pages' few inline scripts by their hashes, worked
   out after each build, and no other inline script.
