@@ -7,7 +7,7 @@ mod meta;
 mod openapi;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::body::Bytes;
@@ -19,12 +19,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use neon_app::settings::SettingsService;
 use neon_domain::duration;
+use neon_observability::http::HttpLayer;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
-use tower_http::trace::TraceLayer;
+use tracing::{debug, error};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -47,9 +48,11 @@ fn api() -> OpenApiRouter<AppState> {
     )
 }
 
-/// The server's HTTP service.
-pub fn router(state: AppState) -> Router {
-    app(api(), Limits::default()).with_state(state)
+/// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
+/// whether requests continue the trace context their callers send.
+pub fn router(state: AppState, trust_incoming: bool) -> Router {
+    let telemetry = HttpLayer::new().trust_incoming(trust_incoming);
+    app(api(), Limits::default(), telemetry).with_state(state)
 }
 
 /// Bounds on each request.
@@ -72,7 +75,13 @@ impl Default for Limits {
 }
 
 /// The routes plus the description route, the fallbacks and the middleware.
-fn app(api: OpenApiRouter<AppState>, limits: Limits) -> Router<AppState> {
+///
+/// `Router::layer` wraps each route, after routing, so `telemetry` sees the route template.
+/// It sits outside the layers that answer for the handler, the panic catcher and the time
+/// limit, so its spans and RED metrics record the status the client gets, a 500 for a
+/// panic and a 503 for a timeout included. Everything inside it logs within the request's
+/// span, so those lines carry its trace id.
+fn app(api: OpenApiRouter<AppState>, limits: Limits, telemetry: HttpLayer) -> Router<AppState> {
     let (router, spec) = api.split_for_parts();
     let spec = Bytes::from(openapi::render(&spec));
 
@@ -90,7 +99,8 @@ fn app(api: OpenApiRouter<AppState>, limits: Limits) -> Router<AppState> {
                     AUTHORIZATION,
                     COOKIE,
                 ]))
-                .layer(TraceLayer::new_for_http())
+                .layer(telemetry)
+                .layer(middleware::from_fn(log_answer))
                 .layer(SetSensitiveResponseHeadersLayer::new([SET_COOKIE]))
                 .layer(CatchPanicLayer::custom(error::panicked))
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
@@ -100,18 +110,36 @@ fn app(api: OpenApiRouter<AppState>, limits: Limits) -> Router<AppState> {
         )
 }
 
+/// Logs every answer at `debug`. The span already names the route and the request id.
+async fn log_answer(request: Request, next: Next) -> Response {
+    let started = Instant::now();
+    let response = next.run(request).await;
+    debug!(
+        status = response.status().as_u16(),
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        "request answered"
+    );
+    response
+}
+
 async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response {
     match tokio::time::timeout(timeout, next.run(request)).await {
         Ok(response) => response,
-        Err(_) => ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "timeout",
-            format!(
-                "the server did not answer within {}",
-                duration::format(timeout)
-            ),
-        )
-        .into_response(),
+        Err(_) => {
+            error!(
+                timeout = %duration::format(timeout),
+                "a request handler did not answer in time"
+            );
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "timeout",
+                format!(
+                    "the server did not answer within {}",
+                    duration::format(timeout)
+                ),
+            )
+            .into_response()
+        }
     }
 }
 

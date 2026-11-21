@@ -12,6 +12,10 @@
 //! The file's `settings` section and the `NEON_SETTINGS__*` variables are runtime
 //! settings. The settings registry parses them, and a value set there pins its setting,
 //! so the admin page cannot change it.
+//!
+//! The `observability` section is `neon-observability`'s own configuration. Its errors
+//! fail the load with the others; its warnings are logged once telemetry is installed.
+//! The server gives its `logging.level` a default of its own, [`DEFAULT_LOG_LEVEL`].
 
 mod database_url;
 mod env;
@@ -24,9 +28,10 @@ use std::path::PathBuf;
 
 use figment::Figment;
 use figment::error::{Actual, Kind, OneOf};
+use figment::providers::Serialized;
 use neon_app::jobs::LISTEN_CONNECTIONS;
 use neon_domain::settings::{Pinned, Problem, RawLayers, Registry};
-use serde::de::{Error as _, IgnoredAny};
+use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value as Json};
 use url::Url;
@@ -41,6 +46,12 @@ pub const CONFIG_ENV: &str = "NEON_CONFIG";
 
 /// The config file read when `NEON_CONFIG` is unset, if it exists.
 pub const DEFAULT_FILE: &str = "neon.yaml";
+
+/// `observability.logging.level` when neither the file nor the environment sets it.
+/// Postgres notices, such as "relation already exists, skipping" on every start, and
+/// OpenTelemetry's own messages, such as the one as its tracer is installed, are only
+/// worth seeing when they warn.
+pub const DEFAULT_LOG_LEVEL: &str = "info,sqlx::postgres::notice=warn,opentelemetry=warn";
 
 /// The fewest connections the server can work with: the job worker keeps its own to
 /// listen for new jobs, and queries need at least one more.
@@ -57,10 +68,9 @@ pub struct Config {
     /// Parsed by [`load`] into [`Loaded::settings`].
     #[serde(default)]
     settings: SettingsTree,
-    /// Accepted and ignored until the observability configuration is read from it, so
-    /// files and variables written for it already load.
+    /// Logs, metrics, traces, profiles and the admin listener.
     #[serde(default)]
-    pub observability: IgnoredAny,
+    pub observability: neon_observability::Config,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -148,7 +158,10 @@ pub fn load(registry: &Registry) -> Result<Loaded, ConfigError> {
         .into_iter()
         .partition(|name| sets_a_key(name));
 
-    let mut figment = Figment::new();
+    let mut figment = Figment::from(Serialized::default(
+        "observability.logging.level",
+        DEFAULT_LOG_LEVEL,
+    ));
     if let Some(path) = &file {
         figment = figment.merge(YamlFile::new(path.clone()));
     }
@@ -232,6 +245,12 @@ impl Config {
             && let Err(message) = check_public_url(url)
         {
             report("server.public_url", message);
+        }
+        // Its warnings are logged as telemetry starts, which checks the section again.
+        if let Err(invalid) = self.observability.validate() {
+            for problem in invalid.errors {
+                report(problem.field, problem.message);
+            }
         }
 
         problems

@@ -12,7 +12,10 @@ database.
 ## Postgres
 
 The server keeps one connection pool, sized by `database.max_connections`, and shares it
-between the HTTP handlers and the job queue's workers. Work that must happen together runs in
+between the HTTP handlers and the job queue's workers. The job worker holds one more
+connection of its own, outside the pool, to listen for new jobs. The pool's connections, idle
+and in use, are gauges on `/metrics`, and `/readyz` pings the database through the pool; see
+[Observability](/docs/architecture/observability/#gauges). Work that must happen together runs in
 one transaction. A use case in `neon-app` opens it and passes it, as `&mut Transaction`, to
 each repository it calls in `neon-store`, so what commits together is decided in one place,
 the use case, and never inside a repository.
@@ -130,11 +133,19 @@ transaction commits, and never when it rolls back, so workers wake as soon as a 
 seen, without polling every moment. They also look for due jobs at a steady interval, which
 picks up jobs delayed by a retry and any notification missed while a connection was down.
 
-### Traced across the queue
+### Traced and measured across the queue
 
-Each job row keeps the W3C `traceparent` of the request that queued it, and the worker makes
-it the parent of the run's span, so the run continues the request's trace; see
-[Observability](/docs/architecture/observability/#traces).
+Queueing a job stores the W3C `traceparent` of the current span in its row, unless the caller
+passes one. A job queued while handling a request keeps the request's trace that way. The
+worker runs each job in a span named `job <kind>` whose parent comes from the row, so the run
+continues the request's trace, however much later it runs. A job queued outside any span has
+no `traceparent`, and its run starts a trace of its own.
+
+Each run also counts in the RED metrics of the `jobs` subsystem, with the job's kind as the
+operation. A failed run that will be retried is an expected error: its span keeps an unset
+status and it counts as `ok`. A run that leaves the job dead, panics or is cancelled is an
+error. The queue's depth by status is a gauge. Both are described in
+[Observability](/docs/architecture/observability/#red-metrics).
 
 ## Settings
 

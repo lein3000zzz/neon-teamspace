@@ -23,6 +23,50 @@ database:
   # Apply pending migrations when the server starts. `neon migrate` applies them too.
   auto_migrate: true
 
+# Logs, metrics, traces, profiles and the internal admin listener. Read once, at start.
+observability:
+  logging:
+    # A filter directive, such as info or info,sqlx=warn. A level below info, such as
+    # debug, traces spans down to that level too, so their log lines carry trace ids. The
+    # default keeps Postgres notices and OpenTelemetry's own messages to warnings.
+    level: info,sqlx::postgres::notice=warn,opentelemetry=warn
+    # json for one object per line, or pretty for indented text to read in a terminal.
+    format: json
+  metrics:
+    # Record metrics and serve them at /metrics on the admin listener.
+    enabled: true
+  tracing:
+    # Export spans over OTLP. Trace ids exist and pass on to jobs either way.
+    enabled: false
+    # The collector's base URL, such as http://otel-lgtm:4318. Unset uses the standard
+    # OTEL_EXPORTER_OTLP_* variables, then http://localhost:4318.
+    endpoint:
+    # The OTLP transport. Only http, OTLP/HTTP with protobuf, is built in.
+    protocol: http
+    # The share of new traces sampled, from 0 to 1.
+    sample_ratio: 1.0
+    # Continue the traceparent and keep the baggage that callers send. Only when every
+    # caller is trusted, such as behind a proxy that strips these headers.
+    trust_incoming: false
+  profiling:
+    # off, pull to serve profiles at /debug/pprof/* on the admin listener, or push to
+    # send them to Pyroscope.
+    mode: off
+    # The profiles to collect: cpu, heap, or both. Heap profiles work on Linux only.
+    profiles: [cpu]
+    push:
+      # The Pyroscope server, such as http://pyroscope:4040. Required in push mode.
+      server_address:
+      # Seconds between uploads.
+      upload_interval_seconds: 10
+      # Labels added to every profile, such as env: prod.
+      tags: {}
+  admin:
+    # Serve /metrics, /livez, /readyz and profiles on an internal listener.
+    enabled: true
+    # Its address. Keep it on loopback or a private network, never public.
+    addr: 127.0.0.1:9090
+
 # Runtime settings. They apply without a restart, and admins change them on the admin
 # page. A value set here or in the environment wins, and the admin page cannot change it.
 # `neon settings docs` lists every setting.

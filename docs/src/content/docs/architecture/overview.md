@@ -27,7 +27,9 @@ flowchart LR
 
 - **The server** is the `neon` binary. It runs the API and the job queue's workers in one
   process, and serves metrics, health and profiles on an internal admin listener that Caddy
-  never exposes.
+  never exposes. It starts its telemetry first, then the admin listener, then connects to
+  Postgres and starts the job worker and the HTTP server; it stops them in the reverse
+  order, as [Observability](/docs/architecture/observability/#shutdown) describes.
 - **Caddy** serves the app and the docs, proxies the server's paths on the same origin, gets
   the TLS certificate, and sets the security headers. **Planned**, with the Docker images; in
   development the server is reached on its own port, 8080.
@@ -61,6 +63,8 @@ A crate can use only what its `Cargo.toml` lists, so the compiler holds the dire
 in `neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
 nothing in `neon-store` can call a use case. `neon-observability` stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
+`neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure
+job runs, and `neon-server` for everything else.
 
 ### Ports
 
@@ -101,13 +105,15 @@ sequenceDiagram
 
 1. Caddy passes the request on, keeping the client's address only when it comes through a
    proxy it trusts.
-2. `neon-server`'s HTTP layer continues the trace the request carries, if any, and starts
-   the HTTP metrics for its route. The handler turns the request into the use case's typed
-   input.
+2. `neon-server`'s HTTP layer opens the request's span, named after its route, and starts
+   the HTTP metrics for that route. The span starts a new trace that links to the one the
+   request carries, if any, or continues it when `tracing.trust_incoming` is on. The
+   handler turns the request into the use case's typed input.
 3. The use case in `neon-app` checks the rules in `neon-domain`, opens a transaction, and
    calls the repositories in `neon-store` with it.
 4. Work that happens after the request, such as a mail, goes into the job queue in the same
-   transaction. A rollback leaves no job, and a commit always leaves one; see
+   transaction, with the request's `traceparent`, so the job's run joins the request's
+   trace. A rollback leaves no job, and a commit always leaves one; see
    [the job queue](/docs/architecture/data/#the-job-queue).
 5. The handler answers with JSON. Errors share one shape, `{"error": {"code", "message"}}`:
    `code` is stable, for programs to act on, and `message` is for people.

@@ -26,6 +26,8 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
+metrics = "0.24.6"
+metrics-util = { version = "0.20.4", default-features = false, features = ["debugging"] }
 rand = "0.10.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.2.0"
@@ -47,9 +49,8 @@ time = "0.3.55"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net"] }
 tokio-util = "0.7.20"
 tower = "0.5.3"
-tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers", "trace"] }
+tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 url = "2.5.9"
 utoipa = "6.0.0"
 utoipa-axum = "0.3.0"
