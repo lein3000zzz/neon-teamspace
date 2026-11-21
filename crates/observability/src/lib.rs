@@ -54,6 +54,14 @@
 //!   subsystem's preset or a default, so they aggregate across instances.
 //! - **Unbounded label values.** HTTP metrics use route templates, a fixed `unmatched` route
 //!   and `_OTHER` for unknown methods, never raw paths.
+//! - **Secrets in URLs.** Request spans, and so every log line inside a request, record the
+//!   route template as `url.path` and never the query string, because paths carry webhook
+//!   tokens and invite codes.
+//! - **Forged trace context.** The public port does not continue a caller's `traceparent` or
+//!   keep its `baggage` unless `tracing.trust_incoming` says so: a stranger's sampled flag
+//!   would override `sample_ratio`, and its baggage would travel on to job rows and webhooks.
+//! - **Cancelled requests that look fine.** A request dropped before its response fails its
+//!   span and counts as a RED error.
 //! - **Two CPU profilers at once.** Profiling is off, pull or push, never two of them.
 //! - **Lost last words.** Telemetry flushes are registered first and therefore run last, after
 //!   every component registered later had the chance to log its own shutdown.

@@ -6,6 +6,10 @@
 //!
 //! Setting a parent only works on a span that has not been entered yet; do it right after
 //! creating the span.
+//!
+//! Continue a trace only from carriers the deployment wrote itself or trusts, such as job
+//! rows. A continued trace keeps the carrier's sampling decision and baggage, so for public
+//! callers record their context as a link with [`link_from_headers`] instead.
 
 use std::collections::HashMap;
 
@@ -74,11 +78,24 @@ pub fn set_parent_from_traceparent(span: &Span, traceparent: &str) {
     set_parent(span, TraceContextPropagator::new().extract(&carrier));
 }
 
-/// Continues the trace of an incoming HTTP request with `span`.
+/// Continues the trace of an incoming HTTP request with `span`, and keeps its baggage.
+///
+/// Only for trusted callers. For anyone else use [`link_from_headers`].
 pub fn set_parent_from_headers(span: &Span, headers: &HeaderMap) {
     let cx =
         global::get_text_map_propagator(|propagator| propagator.extract(&HeaderExtractor(headers)));
     set_parent(span, cx);
+}
+
+/// Records the `traceparent` of an incoming HTTP request as a link on `span`, which stays in
+/// its own trace. The caller's sampled flag and baggage are ignored, so an untrusted caller
+/// can neither force sampling nor inject baggage that later hops forward.
+pub fn link_from_headers(span: &Span, headers: &HeaderMap) {
+    // An empty base context, so only what the headers carry can become the link.
+    let cx = TraceContextPropagator::new()
+        .extract_with_context(&Context::new(), &HeaderExtractor(headers));
+    // Invalid span contexts are ignored by `add_link`.
+    span.add_link(cx.span().span_context().clone());
 }
 
 /// A carrier without a valid trace context leaves the span's own parent, so a missing header
@@ -126,7 +143,7 @@ impl Extractor for HeaderExtractor<'_> {
 
 #[cfg(test)]
 mod tests {
-    use opentelemetry::trace::TraceId;
+    use opentelemetry::trace::{SpanId, TraceId};
 
     use super::*;
     use crate::testing::Traces;
@@ -240,6 +257,46 @@ mod tests {
             child.in_scope(|| inject_map(&mut out));
             assert_eq!(out.get("baggage").map(String::as_str), Some("tenant=acme"));
         });
+    }
+
+    #[test]
+    fn a_link_keeps_the_span_in_its_own_trace_and_drops_baggage() {
+        install_propagator();
+        let traces = Traces::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(TRACEPARENT, HeaderValue::from_static(REMOTE));
+        headers.insert("baggage", HeaderValue::from_static("role=admin"));
+        traces.run(|| {
+            let span = tracing::info_span!("request");
+            link_from_headers(&span, &headers);
+
+            let mut out = HashMap::new();
+            span.in_scope(|| inject_map(&mut out));
+            assert!(!out.contains_key("baggage"), "{out:?}");
+            assert_ne!(
+                trace_id(&span).to_string(),
+                "4bf92f3577b34da6a3ce929d0e0e4736"
+            );
+        });
+
+        let span = traces.only_span();
+        assert_eq!(span.parent_span_id, SpanId::INVALID);
+        assert_eq!(span.links.len(), 1);
+        let linked = &span.links[0].span_context;
+        assert_eq!(
+            linked.trace_id().to_string(),
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
+        assert_eq!(linked.span_id().to_string(), "00f067aa0ba902b7");
+    }
+
+    #[test]
+    fn no_link_without_a_valid_traceparent() {
+        let traces = Traces::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(TRACEPARENT, HeaderValue::from_static("garbage"));
+        traces.run(|| link_from_headers(&tracing::info_span!("request"), &headers));
+        assert!(traces.only_span().links.is_empty());
     }
 
     #[test]

@@ -18,7 +18,7 @@ pub struct Config {
     pub logging: LoggingConfig,
     /// The Prometheus recorder.
     pub metrics: MetricsConfig,
-    /// Trace export over OTLP.
+    /// Trace sampling, export over OTLP and trust in incoming trace context.
     pub tracing: TracingConfig,
     /// CPU and heap profiles.
     pub profiling: ProfilingConfig,
@@ -75,7 +75,7 @@ impl Default for MetricsConfig {
     }
 }
 
-/// Trace export over OTLP.
+/// Trace sampling, export over OTLP and trust in incoming trace context.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TracingConfig {
@@ -88,9 +88,19 @@ pub struct TracingConfig {
     pub endpoint: Option<String>,
     /// The OTLP transport.
     pub protocol: OtlpProtocol,
-    /// Share of new traces to sample, from 0 to 1. Traces started elsewhere follow the
-    /// caller's sampling decision.
+    /// Share of new traces to sample, from 0 to 1. A continued trace, from a job row or from
+    /// a trusted caller (see `trust_incoming`), keeps the sampling decision it started with.
     pub sample_ratio: f64,
+    /// Continues the trace and keeps the baggage that HTTP callers send in `traceparent` and
+    /// `baggage`.
+    ///
+    /// Off by default because the app port is public. A trusted `traceparent` lets any client
+    /// force sampling past `sample_ratio` with its sampled flag and attach spans to someone
+    /// else's trace, and trusted baggage is copied into job rows and outgoing webhooks. While
+    /// off, every request starts a new trace that records the caller's context, when valid,
+    /// as a span link, and incoming baggage is dropped. Turn it on only when every caller is
+    /// trusted, for example behind a proxy that removes or rewrites these headers.
+    pub trust_incoming: bool,
 }
 
 impl Default for TracingConfig {
@@ -100,6 +110,7 @@ impl Default for TracingConfig {
             endpoint: None,
             protocol: OtlpProtocol::Http,
             sample_ratio: 1.0,
+            trust_incoming: false,
         }
     }
 }
@@ -450,6 +461,7 @@ mod tests {
         assert_eq!(config.logging.format, LogFormat::Json);
         assert!(config.metrics.enabled);
         assert!(!config.tracing.enabled);
+        assert!(!config.tracing.trust_incoming);
         assert_eq!(config.profiling.mode, ProfilingMode::Off);
         assert!(config.admin.enabled);
         assert_eq!(config.admin.addr.to_string(), "127.0.0.1:9090");
@@ -458,10 +470,12 @@ mod tests {
     #[test]
     fn partial_sections_keep_defaults() {
         let config: Config = serde_json::from_str(
-            r#"{"tracing": {"enabled": true, "sample_ratio": 0.25}, "profiling": {"mode": "pull"}}"#,
+            r#"{"tracing": {"enabled": true, "sample_ratio": 0.25, "trust_incoming": true},
+                "profiling": {"mode": "pull"}}"#,
         )
         .unwrap();
         assert!(config.tracing.enabled);
+        assert!(config.tracing.trust_incoming);
         assert!((config.tracing.sample_ratio - 0.25).abs() < f64::EPSILON);
         assert_eq!(config.tracing.protocol, OtlpProtocol::Http);
         assert_eq!(config.profiling.mode, ProfilingMode::Pull);

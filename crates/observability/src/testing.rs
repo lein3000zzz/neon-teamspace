@@ -25,6 +25,11 @@ impl Traces {
         Self::build(SdkTracerProvider::builder())
     }
 
+    /// Samples new traces like [`init`](crate::init) does with `sample_ratio`.
+    pub(crate) fn with_sample_ratio(ratio: f64) -> Self {
+        Self::build(SdkTracerProvider::builder().with_sampler(traces::sampler(ratio)))
+    }
+
     fn build(builder: opentelemetry_sdk::trace::TracerProviderBuilder) -> Self {
         let exporter = InMemorySpanExporter::default();
         let provider = builder.with_simple_exporter(exporter.clone()).build();
