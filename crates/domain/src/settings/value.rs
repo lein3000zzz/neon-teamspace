@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use serde_json::Value as Json;
 
+use crate::duration;
+
 /// Shown instead of a secret wherever a value is displayed, logged or audited.
 pub const REDACTED: &str = "[redacted]";
 
@@ -14,7 +16,7 @@ pub enum Kind {
     String,
     /// A string limited to the listed options.
     Enum(&'static [&'static str]),
-    /// Written the way people type it: `30s`, `1h 30m`, `7days`.
+    /// Written the way people type it: `30s`, `1h 30m`, `7 days`.
     Duration,
     /// A string that is never displayed, logged or audited.
     Secret,
@@ -86,9 +88,9 @@ fn parse_option(options: &[&str], raw: &str) -> Result<Value, String> {
 }
 
 fn parse_duration(raw: &str) -> Result<Value, String> {
-    humantime::parse_duration(raw.trim())
+    duration::parse(raw)
         .map(Value::Duration)
-        .map_err(|_| format!("{raw:?} is not a duration like 30s or 1h 30m"))
+        .ok_or_else(|| format!("{raw:?} is not a duration like 30s or 1h 30m"))
 }
 
 /// A secret setting value. `Debug` and `Display` print [`REDACTED`], so a secret cannot
@@ -135,7 +137,7 @@ impl Value {
             Self::Bool(b) => Json::Bool(*b),
             Self::Integer(n) => Json::from(*n),
             Self::String(s) => Json::String(s.clone()),
-            Self::Duration(d) => Json::String(humantime::format_duration(*d).to_string()),
+            Self::Duration(d) => Json::String(duration::format(*d)),
             Self::Secret(s) => Json::String(s.expose().to_owned()),
         }
     }
@@ -157,7 +159,7 @@ impl fmt::Display for Value {
             Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(n) => write!(f, "{n}"),
             Self::String(s) => f.write_str(s),
-            Self::Duration(d) => write!(f, "{}", humantime::format_duration(*d)),
+            Self::Duration(d) => f.write_str(&duration::format(*d)),
             Self::Secret(s) => write!(f, "{s}"),
         }
     }
@@ -173,7 +175,10 @@ mod tests {
     fn text_parses_every_kind() {
         assert_eq!(Kind::Bool.parse_text(" TRUE "), Ok(Value::Bool(true)));
         assert_eq!(Kind::Integer.parse_text("42"), Ok(Value::Integer(42)));
-        assert_eq!(Kind::String.parse_text("  hi "), Ok(Value::String("hi".into())));
+        assert_eq!(
+            Kind::String.parse_text("  hi "),
+            Ok(Value::String("hi".into()))
+        );
         assert_eq!(
             Kind::Enum(&["a", "b"]).parse_text("b"),
             Ok(Value::String("b".into()))
@@ -228,7 +233,10 @@ mod tests {
     fn durations_round_trip_through_json() {
         let value = Value::Duration(Duration::from_secs(5400));
         assert_eq!(value.to_stored_json(), json!("1h 30m"));
-        assert_eq!(Kind::Duration.parse_json(&value.to_stored_json()), Ok(value));
+        assert_eq!(
+            Kind::Duration.parse_json(&value.to_stored_json()),
+            Ok(value)
+        );
     }
 
     #[test]
@@ -239,6 +247,9 @@ mod tests {
         assert!(!format!("{value:?}").contains("hunter2"));
         assert_eq!(value.to_display_json(), json!(REDACTED));
         assert_eq!(value.to_stored_json(), json!("hunter2"));
-        assert_eq!(Value::Secret(Secret::default()).to_display_json(), json!(""));
+        assert_eq!(
+            Value::Secret(Secret::default()).to_display_json(),
+            json!("")
+        );
     }
 }

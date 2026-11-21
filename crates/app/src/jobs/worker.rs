@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::FutureExt as _;
+use neon_domain::duration;
 use neon_domain::jobs::Backoff;
 use neon_store::jobs::{self, CHANNEL, Job};
 use sqlx::PgPool;
@@ -325,7 +326,7 @@ impl Inner {
                 .unwrap_or_else(|_| {
                     Err(JobError::retry(format!(
                         "timed out after {}",
-                        humantime::format_duration(timeout)
+                        duration::format(timeout)
                     )))
                 })
         });

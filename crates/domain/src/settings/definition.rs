@@ -118,7 +118,12 @@ impl Definition {
     }
 
     pub fn integer(key: Key<i64>, default: i64, description: &'static str) -> Self {
-        Self::new(key.name(), Kind::Integer, Value::Integer(default), description)
+        Self::new(
+            key.name(),
+            Kind::Integer,
+            Value::Integer(default),
+            description,
+        )
     }
 
     pub fn string(key: Key<str>, default: &str, description: &'static str) -> Self {
@@ -145,7 +150,12 @@ impl Definition {
     }
 
     pub fn duration(key: Key<Duration>, default: Duration, description: &'static str) -> Self {
-        Self::new(key.name(), Kind::Duration, Value::Duration(default), description)
+        Self::new(
+            key.name(),
+            Kind::Duration,
+            Value::Duration(default),
+            description,
+        )
     }
 
     /// A secret starts empty: a default would be a secret in the source code.
@@ -175,8 +185,9 @@ impl Definition {
         T: SettingType + ?Sized,
         F: Fn(&T) -> Result<(), String> + Send + Sync + 'static,
     {
-        self.checks
-            .push(Arc::new(move |value| T::from_value(value).map_or(Ok(()), &check)));
+        self.checks.push(Arc::new(move |value| {
+            T::from_value(value).map_or(Ok(()), &check)
+        }));
         self
     }
 

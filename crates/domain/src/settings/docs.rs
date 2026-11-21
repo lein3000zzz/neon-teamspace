@@ -96,7 +96,7 @@ mod tests {
             rows,
             [
                 "| `auth.registration` | enum: open, invite, closed | `invite` | `NEON_SETTINGS__AUTH__REGISTRATION` | Who may sign up. |",
-                "| `auth.session_idle` | duration | `7days` | `NEON_SETTINGS__AUTH__SESSION_IDLE` | Idle sign-out. |",
+                "| `auth.session_idle` | duration | `7d` | `NEON_SETTINGS__AUTH__SESSION_IDLE` | Idle sign-out. |",
                 "| `instance.name` | string | `Neon Workspace` | `NEON_SETTINGS__INSTANCE__NAME` | The name \\| shown. |",
                 "| `mail.password` | secret | empty | `NEON_SETTINGS__MAIL__PASSWORD` | The password. |",
             ]

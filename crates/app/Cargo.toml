@@ -14,7 +14,6 @@ neon-store.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-humantime.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

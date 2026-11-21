@@ -174,7 +174,10 @@ mod tests {
 
         assert_eq!(
             raw.env.into_iter().collect::<Vec<_>>(),
-            [("NEON_SETTINGS__INSTANCE__NAME".to_owned(), "Neon".to_owned())]
+            [(
+                "NEON_SETTINGS__INSTANCE__NAME".to_owned(),
+                "Neon".to_owned()
+            )]
         );
     }
 

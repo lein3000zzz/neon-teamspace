@@ -85,7 +85,10 @@ impl RegistryBuilder {
         // Keys are paths in one YAML tree, so `a` and `a.b` cannot both be settings.
         for outer in definitions.keys() {
             for inner in definitions.keys() {
-                if inner.strip_prefix(outer).is_some_and(|rest| rest.starts_with('.')) {
+                if inner
+                    .strip_prefix(outer)
+                    .is_some_and(|rest| rest.starts_with('.'))
+                {
                     return Err(RegistryError::Overlap(outer, inner));
                 }
             }
@@ -190,10 +193,9 @@ impl Registry {
                     Ok(value) => {
                         stored.insert(def.key(), value);
                     }
-                    Err(message) => warnings.push(Problem::new(
-                        key,
-                        format!("saved value ignored: {message}"),
-                    )),
+                    Err(message) => {
+                        warnings.push(Problem::new(key, format!("saved value ignored: {message}")))
+                    }
                 },
                 None => warnings.push(Problem::new(key, "saved value ignored: no such setting")),
             }
