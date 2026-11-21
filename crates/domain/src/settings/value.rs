@@ -24,18 +24,22 @@ pub enum Kind {
 
 impl Kind {
     /// Parses an environment variable, where every value arrives as text.
+    ///
+    /// Errors here and in [`parse_json`](Self::parse_json) say what is wanted without
+    /// repeating the value: it may be a secret, such as a database URL, set on the wrong
+    /// variable, and these messages reach logs.
     pub(crate) fn parse_text(self, raw: &str) -> Result<Value, String> {
         match self {
             Self::Bool => match raw.trim().to_ascii_lowercase().as_str() {
                 "true" => Ok(Value::Bool(true)),
                 "false" => Ok(Value::Bool(false)),
-                _ => Err(format!("{raw:?} is not true or false")),
+                _ => Err(WANT_BOOL.to_owned()),
             },
             Self::Integer => raw
                 .trim()
                 .parse()
                 .map(Value::Integer)
-                .map_err(|_| format!("{raw:?} is not a whole number")),
+                .map_err(|_| WANT_INTEGER.to_owned()),
             Self::String => Ok(Value::String(raw.trim().to_owned())),
             Self::Enum(options) => parse_option(options, raw),
             Self::Duration => parse_duration(raw),
@@ -47,18 +51,17 @@ impl Kind {
     pub(crate) fn parse_json(self, raw: &Json) -> Result<Value, String> {
         match (self, raw) {
             (Self::Bool, Json::Bool(b)) => Ok(Value::Bool(*b)),
-            (Self::Bool, _) => Err("want true or false".to_owned()),
-            (Self::Integer, Json::Number(n)) => n
+            (Self::Bool, _) => Err(WANT_BOOL.to_owned()),
+            (Self::Integer, json) => json
                 .as_i64()
                 .map(Value::Integer)
-                .ok_or_else(|| format!("{n} is not a whole number")),
-            (Self::Integer, _) => Err("want a whole number".to_owned()),
+                .ok_or_else(|| WANT_INTEGER.to_owned()),
             (Self::String, Json::String(s)) => Ok(Value::String(s.trim().to_owned())),
             (Self::String, _) => Err("want text".to_owned()),
             (Self::Enum(options), Json::String(s)) => parse_option(options, s),
-            (Self::Enum(options), _) => Err(format!("want one of {}", options.join(", "))),
+            (Self::Enum(options), _) => Err(want_option(options)),
             (Self::Duration, Json::String(s)) => parse_duration(s),
-            (Self::Duration, _) => Err("want a duration like 30s or 1h 30m".to_owned()),
+            (Self::Duration, _) => Err(WANT_DURATION.to_owned()),
             (Self::Secret, Json::String(s)) => Ok(Value::Secret(Secret::new(s.as_str()))),
             (Self::Secret, _) => Err("want text".to_owned()),
         }
@@ -78,19 +81,27 @@ impl fmt::Display for Kind {
     }
 }
 
+const WANT_BOOL: &str = "want true or false";
+const WANT_INTEGER: &str = "want a whole number";
+const WANT_DURATION: &str = "want a duration like 30s or 1h 30m";
+
+fn want_option(options: &[&str]) -> String {
+    format!("want one of {}", options.join(", "))
+}
+
 fn parse_option(options: &[&str], raw: &str) -> Result<Value, String> {
     let raw = raw.trim();
     if options.contains(&raw) {
         Ok(Value::String(raw.to_owned()))
     } else {
-        Err(format!("{raw:?} is not one of {}", options.join(", ")))
+        Err(want_option(options))
     }
 }
 
 fn parse_duration(raw: &str) -> Result<Value, String> {
     duration::parse(raw)
         .map(Value::Duration)
-        .ok_or_else(|| format!("{raw:?} is not a duration like 30s or 1h 30m"))
+        .ok_or_else(|| WANT_DURATION.to_owned())
 }
 
 /// A secret setting value. `Debug` and `Display` print [`REDACTED`], so a secret cannot
@@ -194,22 +205,29 @@ mod tests {
     }
 
     #[test]
-    fn text_errors_quote_the_value() {
+    fn errors_say_what_is_wanted_without_the_value() {
+        let url = "postgres://neon:hunter2@db/neon";
+
+        assert_eq!(Kind::Bool.parse_text(url), Err("want true or false".into()));
         assert_eq!(
-            Kind::Bool.parse_text("yes"),
-            Err("\"yes\" is not true or false".into())
+            Kind::Integer.parse_text(url),
+            Err("want a whole number".into())
         );
         assert_eq!(
-            Kind::Integer.parse_text("1.5"),
-            Err("\"1.5\" is not a whole number".into())
+            Kind::Enum(&["a", "b"]).parse_text(url),
+            Err("want one of a, b".into())
         );
         assert_eq!(
-            Kind::Enum(&["a", "b"]).parse_text("c"),
-            Err("\"c\" is not one of a, b".into())
+            Kind::Duration.parse_text(url),
+            Err("want a duration like 30s or 1h 30m".into())
         );
         assert_eq!(
-            Kind::Duration.parse_text("soon"),
-            Err("\"soon\" is not a duration like 30s or 1h 30m".into())
+            Kind::Duration.parse_json(&json!(url)),
+            Err("want a duration like 30s or 1h 30m".into())
+        );
+        assert_eq!(
+            Kind::Integer.parse_json(&json!(1.5)),
+            Err("want a whole number".into())
         );
     }
 

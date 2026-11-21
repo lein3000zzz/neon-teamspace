@@ -100,8 +100,9 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Setting values from the environment and the YAML file, not yet parsed.
-#[derive(Debug, Clone, Default, PartialEq)]
+/// Setting values from the environment and the YAML file, not yet parsed. Until they are,
+/// a secret's value is plain text here, so `Debug` lists only the variable names and keys.
+#[derive(Clone, Default, PartialEq)]
 pub struct RawLayers {
     /// By environment variable name, such as `NEON_SETTINGS__INSTANCE__NAME`.
     pub env: BTreeMap<String, String>,
@@ -146,6 +147,15 @@ impl RawLayers {
     }
 }
 
+impl fmt::Debug for RawLayers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RawLayers")
+            .field("env", &self.env.keys().collect::<Vec<_>>())
+            .field("yaml", &self.yaml.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 /// Parsed values from the environment and the YAML file. They are read once at start and
 /// pin their settings.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -179,6 +189,23 @@ mod tests {
                 "Neon".to_owned()
             )]
         );
+    }
+
+    #[test]
+    fn debug_shows_names_but_no_values() {
+        let tree = json!({ "mail": { "password": "hunter2" } });
+        let Json::Object(tree) = tree else {
+            unreachable!()
+        };
+        let raw = RawLayers::default()
+            .with_env([("NEON_SETTINGS__MAIL__PASSWORD".into(), "hunter2".into())])
+            .with_yaml(&tree);
+
+        let shown = format!("{raw:?}");
+
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(shown.contains("NEON_SETTINGS__MAIL__PASSWORD"), "{shown}");
+        assert!(shown.contains("mail.password"), "{shown}");
     }
 
     #[test]

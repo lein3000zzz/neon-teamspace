@@ -456,7 +456,7 @@ mod tests {
             )]),
             Err(RegistryError::InvalidDefault {
                 key: "a.mode",
-                message: "\"auto\" is not one of on, off".into()
+                message: "want one of on, off".into()
             })
         );
     }
