@@ -3,8 +3,9 @@
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop, the database pool closes, the admin listener stops, and the telemetry
-//! flushes last, so what the other parts log while stopping is still written.
+//! the gauges stop if metrics are on, the database pool closes, the admin listener stops,
+//! and the telemetry flushes last, so what the other parts log while stopping is still
+//! written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -171,7 +172,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         AppState { settings },
         config.observability.tracing.trust_incoming,
     );
-    start_parts(shutdown, &pool, worker, listener, router).await?;
+    let sample_gauges = config.observability.metrics.enabled;
+    start_parts(shutdown, &pool, sample_gauges, worker, listener, router).await?;
     Ok(pool)
 }
 
@@ -190,16 +192,20 @@ fn close_on_shutdown(shutdown: &Shutdown, pool: PgPool) {
 
 /// Starts the parts that run on the pool, in the reverse of the order they stop in: the
 /// gauges, the job worker, then the HTTP server, which stops first so no request is cut
-/// off by the parts behind it.
+/// off by the parts behind it. The gauges are sampled only when `sample_gauges` is set,
+/// since with metrics off nothing records them.
 async fn start_parts(
     shutdown: &Shutdown,
     pool: &PgPool,
+    sample_gauges: bool,
     worker: Worker,
     listener: TcpListener,
     router: Router,
 ) -> anyhow::Result<()> {
-    let gauges = Gauges::spawn(pool.clone(), gauges::INTERVAL);
-    on_stop(shutdown, "gauges", DEFAULT_HOOK_TIMEOUT, gauges.stop());
+    if sample_gauges {
+        let gauges = Gauges::spawn(pool.clone(), gauges::INTERVAL);
+        on_stop(shutdown, "gauges", DEFAULT_HOOK_TIMEOUT, gauges.stop());
+    }
 
     let worker = worker.start().await.context("starting the job worker")?;
     let bound = worker.stop_timeout() + STOP_MARGIN;
@@ -728,7 +734,7 @@ mod tests {
         )
         .handler(SlowJob);
         close_on_shutdown(shutdown, pool.clone());
-        start_parts(shutdown, &pool, worker, listener, router)
+        start_parts(shutdown, &pool, true, worker, listener, router)
             .await
             .expect("the parts start");
         started.get_or_init(|| pool.clone());

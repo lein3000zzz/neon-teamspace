@@ -91,9 +91,9 @@ sum by (operation) (rate(neon_http_operations_total{status="error"}[5m]))
 
 ### Gauges
 
-Beside the RED metrics, gauges show the state of what the server holds. A background task
-samples them as the server starts and every 15 seconds after, and stops before the database
-pool closes:
+Beside the RED metrics, gauges show the state of what the server holds. While metrics are
+on, a background task samples them as the server starts and every 15 seconds after, and
+stops before the database pool closes:
 
 | Metric | Labels | What it shows |
 |---|---|---|
@@ -235,7 +235,7 @@ first. On SIGTERM, or Ctrl-C in a terminal, it runs:
    up to 30 seconds, then closes any still open.
 3. The job worker claims no more jobs and gives those it is running up to 30 seconds. A job
    still running then is cancelled and queued again, and the attempt does not count.
-4. The gauges stop sampling.
+4. The gauges stop sampling, when metrics are on.
 5. The database pool closes, as everything before it uses it until it stops.
 6. The admin listener stops, so `/metrics` stays up while the rest drains.
 7. The telemetry flushes last: the profiler stops, the trace exporter sends the spans it
