@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Instance metadata
-         * @description The instance name and the server version. Needs no authentication.
+         * @description The instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.
          */
         get: operations["get_meta"];
         put?: never;
@@ -28,20 +28,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        Meta: {
-            /** @description The instance name. */
-            name: string;
-            /** @description The server version. */
-            version: string;
-        };
+        /** @description Every error response's body. */
         ErrorBody: {
             error: components["schemas"]["ErrorDetail"];
         };
+        /** @description What went wrong. */
         ErrorDetail: {
-            /** @description A stable, machine-readable error code. */
+            /**
+             * @description Stable and meant for programs, such as `not_found` or `invalid_json`.
+             * @example not_found
+             */
             code: string;
-            /** @description A human-readable message. */
+            /**
+             * @description What went wrong, for people.
+             * @example no such route
+             */
             message: string;
+        };
+        Meta: {
+            /**
+             * @description The instance's name, from the `instance.name` setting.
+             * @example Neon Workspace
+             */
+            name: string;
+            /**
+             * @description The server's version.
+             * @example 0.1.0
+             */
+            version: string;
         };
     };
     responses: never;
@@ -61,13 +75,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Instance metadata */
+            /** @description Instance metadata. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Meta"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
