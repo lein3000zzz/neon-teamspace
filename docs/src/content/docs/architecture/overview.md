@@ -1,0 +1,136 @@
+---
+title: How Neon Workspace works
+description: The parts Neon Workspace is made of, the crates of its server, and the way a request takes through them.
+---
+
+Neon Workspace is a Rust server, a TypeScript single-page app, and Postgres. The server is
+one binary, `neon`: the HTTP API, and, as they arrive, real-time editing over WebSocket, the
+MCP endpoint for agents and webhooks. In a deployment, Caddy serves the app and these docs
+as files and passes everything else to the server, so the browser sees one origin.
+
+## The parts
+
+```mermaid
+flowchart LR
+  person((Person)) --> caddy
+  agent((Agent)) -- "/mcp" --> caddy
+  subgraph caddy [Caddy]
+    app[The web app]
+    docs[These docs]
+  end
+  caddy -- "/api, /ws, /mcp, /hooks, /.well-known/oauth-*" --> server[neon]
+  server --> pg[(Postgres 18)]
+  server --> files[(Attachments: local disk or S3)]
+  server --> mail[Mail server]
+  ops((Operator)) -- "127.0.0.1:9090" --> server
+```
+
+- **The server** is the `neon` binary. It runs the API and the job queue's workers in one
+  process, and serves metrics, health and profiles on an internal admin listener that Caddy
+  never exposes.
+- **Caddy** serves the app and the docs, proxies the server's paths on the same origin, gets
+  the TLS certificate, and sets the security headers. **Planned**, with the Docker images; in
+  development the server is reached on its own port, 8080.
+- **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
+- **Attachments**, the mail server and the agents' endpoint are **planned**.
+
+## The crates
+
+The server is a cargo workspace of five crates:
+
+| Crate | What it holds |
+|---|---|
+| `neon-domain` | Types, validation and permission rules. No I/O, no async, no database. |
+| `neon-store` | The Postgres repositories, with sqlx. |
+| `neon-app` | The use cases. They own transactions and define the ports for side effects. |
+| `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
+| `neon-server` | The `neon` binary: the HTTP API, and later real-time sync, MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
+
+Dependencies point inward. An arrow reads "depends on":
+
+```mermaid
+flowchart LR
+  server[neon-server] --> app[neon-app] --> store[neon-store] --> domain[neon-domain]
+  server --> obs[neon-observability]
+  app --> obs
+  store --> obs
+```
+
+Each crate's `Cargo.toml` lists what it may use, so the compiler holds the direction: code in
+`neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
+nothing in `neon-store` can call a use case. `neon-observability` stands alone, and every
+crate but `neon-domain` reports through it.
+
+### Ports
+
+A use case calls the store's repositories directly, with the transaction passed in as
+`&mut Transaction`, so the use case decides what commits together. There is no trait over
+the repositories: tests run them against a real Postgres, a fresh database for each test.
+
+Traits are kept for side effects outside the database, the **ports**: `Mailer`, `BlobStore`,
+`Broadcaster`, `RateLimiter` and `WebhookSender`. `neon-app` declares them, `neon-server`
+provides the adapters, such as SMTP and object storage, and tests use fakes. They are held as
+`Arc<dyn Trait>`. Each port arrives with the feature that needs it, from accounts on.
+
+## A request's way
+
+A request that changes data takes this way through the crates:
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant C as Caddy
+  participant H as neon-server
+  participant A as neon-app
+  participant R as neon-store
+  participant P as Postgres
+  B->>C: POST /api/v1/...
+  C->>H: same origin
+  H->>A: typed input and the caller
+  A->>P: BEGIN
+  A->>R: change rows, with the transaction
+  R->>P: SQL checked at compile time
+  A->>R: enqueue the follow-up job
+  R->>P: INSERT into the job queue
+  A->>P: COMMIT
+  A-->>H: a result or an error
+  H-->>C: JSON
+  C-->>B: the response
+```
+
+1. Caddy passes the request on, keeping the client's address only when it comes through a
+   proxy it trusts.
+2. The handler in `neon-server` continues the trace the request carries, if any, starts the
+   HTTP metrics for its route, and turns the request into the use case's typed input.
+3. The use case in `neon-app` checks the rules in `neon-domain`, opens a transaction, and
+   calls the repositories in `neon-store` with it.
+4. Work that happens after the request, such as a mail, goes into the job queue in the same
+   transaction. A rollback leaves no job, and a commit always leaves one; see
+   [the job queue](/docs/architecture/data/#the-job-queue).
+5. The handler answers with JSON. Errors share one shape, `{"error": {"code", "message"}}`:
+   `code` is stable, for programs to act on, and `message` is for people.
+
+## One origin
+
+The app, the docs and the API share one origin. The session cookie then needs no cross-site
+settings, the server's origin check has one origin to compare with, and there is no CORS to
+configure. Under it:
+
+| Path | Goes to |
+|---|---|
+| `/api/v1` | The JSON API. Its description is at `/api/v1/openapi.json`. |
+| `/ws` | Real-time editing, **planned**. |
+| `/mcp` | Agents, **planned**. |
+| `/hooks/*` | Incoming webhooks, **planned**. |
+| `/.well-known/oauth-*` | OAuth metadata for agents, **planned**. |
+| `/docs` | These docs. |
+| Anything else | The web app. |
+
+The admin listener is not on this origin: it binds `127.0.0.1:9090` by default, apart from
+the app's port.
+
+## Reading on
+
+[Data and storage](/docs/architecture/data/), [Observability](/docs/architecture/observability/),
+[The web app](/docs/architecture/web/), and the [key decisions](/docs/architecture/decisions/)
+behind them.
