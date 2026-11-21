@@ -21,6 +21,7 @@ afterEach(() => {
   server.resetHandlers();
   // Before touching storage, which a test may have blocked with a spy.
   vi.restoreAllMocks();
+  vi.useRealTimers();
   window.localStorage.clear();
   const root = document.documentElement;
   for (const name of root.getAttributeNames()) {
