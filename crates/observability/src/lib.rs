@@ -63,6 +63,9 @@
 //! - **Cancelled requests that look fine.** A request dropped before its response fails its
 //!   span and counts as a RED error.
 //! - **Two CPU profilers at once.** Profiling is off, pull or push, never two of them.
+//! - **Empty heap profiles.** Heap profiles answer `501` and are not pushed unless the binary
+//!   runs on `profiling::Jemalloc`, the Linux allocator that reports it is in use; see
+//!   [`profiling`].
 //! - **Lost last words.** Telemetry flushes are registered first and therefore run last, after
 //!   every component registered later had the chance to log its own shutdown.
 //! - **Public diagnostics.** The admin listener defaults to loopback and warns when bound

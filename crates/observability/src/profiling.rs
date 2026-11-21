@@ -29,12 +29,19 @@
 //!
 //! # Heap profiles
 //!
-//! Heap profiles come from jemalloc's sampling profiler and only work on Linux. Two things are
-//! needed, and missing either one turns the heap endpoint into a `501` and the heap push agent
-//! into a warning:
+//! Heap profiles come from jemalloc's sampling profiler and only work on Linux, where this
+//! crate always links jemalloc. Three things are needed:
 //!
-//! 1. The binary uses jemalloc as its global allocator, through the re-export here, so it needs
-//!    no allocator dependency of its own:
+//! 1. The build stage has a C compiler and `make`, because every Linux build of this crate
+//!    compiles jemalloc from its C sources, whether heap profiles are used or not. The
+//!    `rust:*-slim` images ship gcc but not make:
+//!
+//!    ```dockerfile
+//!    RUN apt-get update && apt-get install -y --no-install-recommends make
+//!    ```
+//!
+//! 2. The binary uses `Jemalloc` from this module as its global allocator, so it needs no
+//!    allocator dependency of its own:
 //!
 //!    ```no_run
 //!    #[cfg(target_os = "linux")]
@@ -44,7 +51,12 @@
 //!    # fn main() {}
 //!    ```
 //!
-//! 2. The process starts with profiling switched on in jemalloc, which it reads once at
+//!    Without it jemalloc is linked but serves no allocation, so its profiles would be empty.
+//!    `Jemalloc` records that it is in use; while it is not, the heap endpoint answers `501`
+//!    and the heap push agent is skipped with a warning. Declaring
+//!    `tikv_jemallocator::Jemalloc` directly counts as not in use.
+//!
+//! 3. The process starts with profiling switched on in jemalloc, which reads it once at
 //!    startup. In the Dockerfile:
 //!
 //!    ```dockerfile
@@ -52,8 +64,9 @@
 //!    ```
 //!
 //!    [`MALLOC_CONF_ENV`] and [`MALLOC_CONF`] hold the same name and value. `lg_prof_sample:19`
-//!    samples one allocation per 512 KiB on average, which keeps the overhead small. Other
-//!    allocators ignore the variable.
+//!    samples one allocation per 512 KiB on average, which keeps the overhead small. Without
+//!    the variable the heap endpoint answers `501` and the heap push agent is skipped with a
+//!    warning. Other allocators ignore it.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -80,7 +93,10 @@ use crate::config::{Profile, ProfilingConfig};
 use crate::shutdown::Shutdown;
 
 #[cfg(target_os = "linux")]
-pub use tikv_jemallocator::Jemalloc;
+mod jemalloc;
+
+#[cfg(target_os = "linux")]
+pub use jemalloc::Jemalloc;
 
 /// The variable jemalloc reads its options from in this build, where its symbols carry the
 /// `_rjem_` prefix.
@@ -233,6 +249,9 @@ async fn dump_heap() -> Response {
 
 #[cfg(target_os = "linux")]
 async fn dump_heap() -> Response {
+    if !Jemalloc::in_use() {
+        return unavailable(ALLOCATOR_HINT);
+    }
     let Some(control) = jemalloc_pprof::PROF_CTL.as_ref() else {
         return unavailable(heap_setup_hint());
     };
@@ -264,11 +283,15 @@ async fn dump_heap() -> Response {
     }
 }
 
+/// Why heap profiles are unavailable when jemalloc is linked but not the global allocator.
+#[cfg(target_os = "linux")]
+const ALLOCATOR_HINT: &str = "heap profiles need neon_observability::profiling::Jemalloc as the \
+    global allocator; without it jemalloc serves no allocation and its profiles would be empty";
+
 #[cfg(target_os = "linux")]
 fn heap_setup_hint() -> String {
     format!(
-        "jemalloc heap profiling is off; use neon_observability::profiling::Jemalloc as the \
-         global allocator and start the process with {MALLOC_CONF_ENV}={MALLOC_CONF}"
+        "jemalloc heap profiling is off; start the process with {MALLOC_CONF_ENV}={MALLOC_CONF}"
     )
 }
 
@@ -406,6 +429,10 @@ fn backend(profile: Profile) -> Option<BackendImpl<BackendUninitialized>> {
 
 #[cfg(target_os = "linux")]
 fn heap_backend() -> Option<BackendImpl<BackendUninitialized>> {
+    if !Jemalloc::in_use() {
+        tracing::warn!("{ALLOCATOR_HINT}; heap profiles are not pushed");
+        return None;
+    }
     let active = jemalloc_pprof::PROF_CTL
         .as_ref()
         .and_then(|control| control.try_lock().ok().map(|control| control.activated()))
@@ -490,6 +517,22 @@ mod tests {
         let (status, body) = get(&pull, "/debug/pprof/heap").await;
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
         assert!(body.contains("jemalloc"), "{body}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn heap_without_the_jemalloc_global_allocator_answers_501() {
+        // Test binaries run on the system allocator, with jemalloc linked but unused.
+        assert!(!Jemalloc::in_use());
+        let (pull, _) = pull(vec![Profile::Heap]);
+        let (status, body) = get(&pull, "/debug/pprof/heap").await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(body, ALLOCATOR_HINT);
+    }
+
+    #[test]
+    fn heap_push_is_skipped_when_heap_profiles_are_unavailable() {
+        assert!(backend(Profile::Heap).is_none());
     }
 
     #[tokio::test]

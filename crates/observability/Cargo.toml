@@ -31,7 +31,8 @@ tracing-opentelemetry = { version = "0.34.0", default-features = false, features
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.3", features = ["v7"] }
 
-# Heap profiles come from jemalloc, which only produces usable backtraces on Linux.
+# Heap profiles come from jemalloc, which only produces usable backtraces on Linux. It is built
+# from its C sources, so Linux builds need a C compiler and make.
 [target.'cfg(target_os = "linux")'.dependencies]
 jemalloc_pprof = { version = "0.9.0", features = ["symbolize"] }
 pyroscope = { version = "2.1.5", default-features = false, features = ["backend-jemalloc"] }
