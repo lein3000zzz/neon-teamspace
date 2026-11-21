@@ -1104,6 +1104,8 @@ dependencies = [
  "clap",
  "figment",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "neon-app",
  "neon-domain",
  "neon-store",
