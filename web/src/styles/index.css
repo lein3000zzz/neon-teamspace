@@ -1,0 +1,182 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./fonts.css";
+@import "./palettes.css";
+
+/* data-mode carries the resolved mode, so shadcn's dark: variants follow it
+   rather than the OS setting. */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+@theme inline {
+  /* Only token colours and no shadows: colour comes from the accent and the
+     palette, and the surface stays flat. */
+  --color-*: initial;
+  --shadow-*: initial;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-raised: var(--raised);
+  --color-neon: var(--neon);
+  --color-neon-soft: var(--neon-soft);
+  --color-ok: var(--ok);
+  --color-bad: var(--bad);
+
+  /* font-sans follows the UI-font preference; font-default is always the
+     system sans, for showing that choice next to mono. */
+  --font-sans: var(--font-ui);
+  --font-default: var(--font-stack-sans);
+  --font-serif: var(--font-stack-serif);
+  --font-mono: var(--font-stack-mono);
+
+  /* Scaled rather than offset, so Nothing's zero radius stays square at every size. */
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+
+  /* For hue-carrying elements only: zero in light mode. */
+  --shadow-glow: var(--glow);
+}
+
+/* Control heights. Precise pointers get a compact interface; as soon as any
+   input is coarse (a touchscreen, even next to a trackpad) every control grows
+   to a 44px target. */
+:root {
+  --tap-sm: 2rem;
+  --tap: 2.25rem;
+  --tap-lg: 2.75rem;
+}
+
+@media (any-pointer: coarse) {
+  :root {
+    --tap-sm: 2.75rem;
+    --tap: 2.75rem;
+    --tap-lg: 3rem;
+  }
+}
+
+/* Padding plus the device's safe-area inset (notch, rounded corners, home
+   indicator), which is non-zero once the viewport runs edge to edge. */
+@utility safe-top-* {
+  padding-top: calc(var(--spacing) * --value(number) + env(safe-area-inset-top, 0px));
+}
+
+@utility safe-bottom-* {
+  padding-bottom: calc(var(--spacing) * --value(number) + env(safe-area-inset-bottom, 0px));
+}
+
+@utility safe-left-* {
+  padding-left: calc(var(--spacing) * --value(number) + env(safe-area-inset-left, 0px));
+}
+
+@utility safe-right-* {
+  padding-right: calc(var(--spacing) * --value(number) + env(safe-area-inset-right, 0px));
+}
+
+/* The dot grid from lein3000.dev, drawn from the palette's --dot so every
+   palette and mode gets its own without per-palette image files. */
+@utility dot-grid {
+  background-image: radial-gradient(circle, var(--dot) 0.75px, transparent 1.25px);
+  background-size: 16px 16px;
+}
+
+/* The full hue wheel at the current palette's lightness and chroma: what each
+   slider position will look like. */
+@utility hue-spectrum {
+  background-image: linear-gradient(
+    to right,
+    oklch(var(--accent-l) var(--accent-c) 0),
+    oklch(var(--accent-l) var(--accent-c) 30),
+    oklch(var(--accent-l) var(--accent-c) 60),
+    oklch(var(--accent-l) var(--accent-c) 90),
+    oklch(var(--accent-l) var(--accent-c) 120),
+    oklch(var(--accent-l) var(--accent-c) 150),
+    oklch(var(--accent-l) var(--accent-c) 180),
+    oklch(var(--accent-l) var(--accent-c) 210),
+    oklch(var(--accent-l) var(--accent-c) 240),
+    oklch(var(--accent-l) var(--accent-c) 270),
+    oklch(var(--accent-l) var(--accent-c) 300),
+    oklch(var(--accent-l) var(--accent-c) 330),
+    oklch(var(--accent-l) var(--accent-c) 360)
+  );
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+
+  html {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  body {
+    @apply dot-grid;
+    min-height: 100dvh;
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+  }
+
+  /* One focus style everywhere: an accent outline that also glows in dark
+     mode. Outline rather than box-shadow alone, so forced-colors mode keeps it. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: var(--focus-glow);
+  }
+
+  /* Targets focused by script, like <main> after the skip link, are not
+     controls and would otherwise get a ring around the whole page. */
+  [tabindex="-1"]:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+
+  ::selection {
+    background-color: var(--neon-soft);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

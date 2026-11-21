@@ -1,0 +1,55 @@
+/* iA Writer Mono, bundled under the SIL Open Font License (see
+   public/fonts/ia-writer-mono/LICENSE.md). Served from public/ so the license
+   ships next to the files and the URLs stay same-origin. */
+
+@font-face {
+  font-family: "iA Writer Mono";
+  src: url("/fonts/ia-writer-mono/iAWriterMonoS-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  src: url("/fonts/ia-writer-mono/iAWriterMonoS-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  src: url("/fonts/ia-writer-mono/iAWriterMonoS-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  src: url("/fonts/ia-writer-mono/iAWriterMonoS-BoldItalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* Notion's system stack: native UI faces first, emoji fonts after the
+     generic family so emoji never pick up a text face's glyphs. */
+  --font-stack-sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI",
+    Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-stack-serif:
+    ui-serif, "New York", Charter, "Iowan Old Style", Georgia, Cambria, "Times New Roman", Times,
+    serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-stack-mono:
+    "iA Writer Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  --font-ui: var(--font-stack-sans);
+}
+
+[data-ui-font="mono"] {
+  --font-ui: var(--font-stack-mono);
+}
