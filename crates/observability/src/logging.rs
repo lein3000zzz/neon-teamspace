@@ -3,7 +3,9 @@
 //! JSON records carry `timestamp` (RFC 3339, UTC), `level`, `target`, `message`, the event's
 //! `fields`, the current `span` with its fields and, inside a span, top-level `trace_id` and
 //! `span_id`. Those two come from the active OpenTelemetry context, so they match the
-//! exported trace and are present even when export is off.
+//! exported trace and are present even when export is off. The OpenTelemetry layer follows
+//! the log filter down to its most verbose level, so this holds for `debug` and `trace` spans
+//! as well.
 
 use std::fmt;
 
@@ -23,19 +25,25 @@ use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 use crate::config::{LogFormat, LoggingConfig};
 
-/// The fmt layer for `config`, filtered by its level. The filter applies to this layer only,
-/// so it never hides spans from the OpenTelemetry layer.
+/// The filter of the configured log level. The OpenTelemetry layer reads its most verbose
+/// level before [`layer`] takes it.
+pub(crate) fn filter(config: &LoggingConfig) -> Result<EnvFilter, ParseError> {
+    EnvFilter::builder().parse(&config.level)
+}
+
+/// The fmt layer writing `format` to `writer`, filtered by `filter`. The filter applies to
+/// this layer only, so it never hides spans from the OpenTelemetry layer.
 pub(crate) fn layer<S, W>(
-    config: &LoggingConfig,
+    format: LogFormat,
+    filter: EnvFilter,
     writer: W,
     ansi: bool,
-) -> Result<impl Layer<S> + Send + Sync + 'static + use<S, W>, ParseError>
+) -> impl Layer<S> + Send + Sync + 'static + use<S, W>
 where
     S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
-    let filter = EnvFilter::builder().parse(&config.level)?;
-    let layer = match config.format {
+    let layer = match format {
         LogFormat::Json => tracing_subscriber::fmt::layer()
             .fmt_fields(JsonFields::new())
             .event_format(JsonFormat)
@@ -47,7 +55,7 @@ where
             .with_writer(writer)
             .boxed(),
     };
-    Ok(layer.with_filter(filter))
+    layer.with_filter(filter)
 }
 
 /// One JSON object per event, keys in a fixed order.
@@ -196,20 +204,22 @@ mod tests {
     use super::*;
     use crate::testing::{Capture, Traces};
 
-    fn config(level: &str, format: LogFormat) -> LoggingConfig {
-        LoggingConfig {
+    /// Logs at `level` into `capture` and traces into `traces`, wired the way `init` does.
+    fn with_logs<T>(level: &str, traces: &Traces, capture: &Capture, f: impl FnOnce() -> T) -> T {
+        let config = LoggingConfig {
             level: level.to_owned(),
-            format,
-        }
+            format: LogFormat::Json,
+        };
+        let filter = filter(&config).unwrap();
+        let subscriber = tracing_subscriber::registry()
+            .with(traces.layer_following(&filter))
+            .with(layer(config.format, filter, capture.clone(), false));
+        tracing::subscriber::with_default(subscriber, f)
     }
 
     fn capture_json(level: &str, f: impl FnOnce()) -> Vec<Value> {
         let capture = Capture::default();
-        let traces = Traces::new();
-        let subscriber = tracing_subscriber::registry()
-            .with(traces.layer())
-            .with(layer(&config(level, LogFormat::Json), capture.clone(), false).unwrap());
-        tracing::subscriber::with_default(subscriber, f);
+        with_logs(level, &Traces::new(), &capture, f);
         capture.json_lines()
     }
 
@@ -242,10 +252,7 @@ mod tests {
     fn ids_match_the_exported_span() {
         let capture = Capture::default();
         let traces = Traces::new();
-        let subscriber = tracing_subscriber::registry()
-            .with(traces.layer())
-            .with(layer(&config("info", LogFormat::Json), capture.clone(), false).unwrap());
-        tracing::subscriber::with_default(subscriber, || {
+        with_logs("info", &traces, &capture, || {
             tracing::info_span!("job").in_scope(|| tracing::info!("running"));
         });
 
@@ -253,6 +260,29 @@ mod tests {
         let span = traces.only_span();
         assert_eq!(line["trace_id"], span.span_context.trace_id().to_string());
         assert_eq!(line["span_id"], span.span_context.span_id().to_string());
+    }
+
+    #[test]
+    fn lines_inside_spans_below_info_carry_ids_when_the_level_lets_them_log() {
+        let capture = Capture::default();
+        let traces = Traces::new();
+        let traceparent = with_logs("warn,neon_jobs=debug", &traces, &capture, || {
+            let sweep = tracing::debug_span!(target: "neon_jobs", "sweep");
+            let _entered = sweep.enter();
+            tracing::warn!("inside a debug root span");
+            crate::propagation::current_traceparent()
+        });
+
+        let lines = capture.json_lines();
+        assert_eq!(lines.len(), 1);
+        let line = &lines[0];
+        assert_eq!(line["span"]["name"], "sweep");
+        let span = traces.only_span();
+        assert_eq!(line["trace_id"], span.span_context.trace_id().to_string());
+        assert_eq!(line["span_id"], span.span_context.span_id().to_string());
+        assert!(is_hex(&line["trace_id"], 32), "{line}");
+        assert!(is_hex(&line["span_id"], 16), "{line}");
+        assert!(traceparent.is_some(), "no traceparent inside a debug span");
     }
 
     #[test]
@@ -282,10 +312,7 @@ mod tests {
     fn level_filters_logs_but_not_spans() {
         let capture = Capture::default();
         let traces = Traces::new();
-        let subscriber = tracing_subscriber::registry()
-            .with(traces.layer())
-            .with(layer(&config("warn", LogFormat::Json), capture.clone(), false).unwrap());
-        tracing::subscriber::with_default(subscriber, || {
+        with_logs("warn", &traces, &capture, || {
             tracing::info_span!("request").in_scope(|| {
                 tracing::info!("hidden");
                 tracing::warn!("shown");
@@ -319,8 +346,13 @@ mod tests {
     #[test]
     fn pretty_format_writes_text() {
         let capture = Capture::default();
-        let subscriber = tracing_subscriber::registry()
-            .with(layer(&config("info", LogFormat::Pretty), capture.clone(), false).unwrap());
+        let filter = EnvFilter::new("info");
+        let subscriber = tracing_subscriber::registry().with(layer(
+            LogFormat::Pretty,
+            filter,
+            capture.clone(),
+            false,
+        ));
         tracing::subscriber::with_default(subscriber, || tracing::info!("readable"));
 
         assert!(capture.text().contains("readable"));
@@ -328,11 +360,10 @@ mod tests {
 
     #[test]
     fn rejects_an_invalid_level() {
-        let invalid = layer::<tracing_subscriber::Registry, _>(
-            &config("info,=nonsense=", LogFormat::Json),
-            Capture::default(),
-            false,
-        );
-        assert!(invalid.is_err());
+        let config = LoggingConfig {
+            level: "info,=nonsense=".to_owned(),
+            format: LogFormat::Json,
+        };
+        assert!(filter(&config).is_err());
     }
 }

@@ -32,7 +32,9 @@ pub struct Config {
 pub struct LoggingConfig {
     /// An `EnvFilter` directive such as `info` or `info,sqlx=warn`. It only filters log
     /// output: traces always record spans at `info` and above, so lowering the log volume
-    /// never breaks trace ids or `traceparent` propagation.
+    /// never breaks trace ids or `traceparent` propagation. A more verbose directive, such as
+    /// `info,neon_app=debug`, lowers the traced level to its most verbose level for every
+    /// target, so lines logged inside `debug` and `trace` spans carry trace ids too.
     pub level: String,
     /// JSON lines for machines or multi-line text for people.
     pub format: LogFormat,

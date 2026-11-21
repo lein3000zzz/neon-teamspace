@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use opentelemetry::Value;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use tracing::Subscriber;
-use tracing_subscriber::Layer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::{ServiceInfo, traces};
 
@@ -20,20 +20,39 @@ pub(crate) struct Traces {
 }
 
 impl Traces {
+    /// Records every span.
     pub(crate) fn new() -> Self {
+        Self::build(SdkTracerProvider::builder())
+    }
+
+    fn build(builder: opentelemetry_sdk::trace::TracerProviderBuilder) -> Self {
         let exporter = InMemorySpanExporter::default();
-        let provider = SdkTracerProvider::builder()
-            .with_simple_exporter(exporter.clone())
-            .build();
+        let provider = builder.with_simple_exporter(exporter.clone()).build();
         Self { provider, exporter }
     }
 
-    /// The crate's own OpenTelemetry layer, wired to this provider.
+    /// The crate's own OpenTelemetry layer, wired to this provider, next to an `info` log
+    /// filter.
     pub(crate) fn layer<S>(&self) -> impl Layer<S> + Send + Sync + 'static + use<S>
     where
         S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
     {
-        traces::layer(&self.provider, &ServiceInfo::new("test", "0.0.0"))
+        self.layer_following(&EnvFilter::new("info"))
+    }
+
+    /// The crate's own OpenTelemetry layer next to the log filter `log_filter`.
+    pub(crate) fn layer_following<S>(
+        &self,
+        log_filter: &EnvFilter,
+    ) -> impl Layer<S> + Send + Sync + 'static + use<S>
+    where
+        S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    {
+        traces::layer(
+            &self.provider,
+            &ServiceInfo::new("test", "0.0.0"),
+            log_filter,
+        )
     }
 
     /// Runs `f` with a thread-local subscriber that only has the OpenTelemetry layer.
@@ -68,8 +87,7 @@ pub(crate) struct Capture(Arc<Mutex<Vec<u8>>>);
 impl Capture {
     /// Every line written so far, parsed as JSON.
     pub(crate) fn json_lines(&self) -> Vec<serde_json::Value> {
-        String::from_utf8(self.0.lock().unwrap().clone())
-            .unwrap()
+        self.text()
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()

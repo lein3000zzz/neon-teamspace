@@ -43,7 +43,8 @@
 //! - **Logs without trace ids.** JSON log lines inside a span carry top-level `trace_id` and
 //!   `span_id` taken from the OpenTelemetry context, so they match the exported trace.
 //! - **A quiet log level hiding spans.** The level filters log output only. Spans at `info`
-//!   and above always reach the tracer.
+//!   and above always reach the tracer, and a more verbose level lowers the traced level with
+//!   it, so lines logged inside `debug` spans carry ids as well.
 //! - **Expected errors failing spans.** Only `ERROR` events and [`errors::record_unexpected`]
 //!   set the span status to error. A `warn!` with an `error` field, a 4xx response or
 //!   [`errors::record_expected`] leave it unset.
@@ -201,7 +202,14 @@ pub fn init(
     let (writer, log_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .thread_name("neon-log-writer")
         .finish(std::io::stdout());
-    let logs = logging::layer(&config.logging, writer, std::io::stdout().is_terminal())?;
+    let log_filter = logging::filter(&config.logging)?;
+    let spans = traces::layer(&provider, &service, &log_filter);
+    let logs = logging::layer(
+        config.logging.format,
+        log_filter,
+        writer,
+        std::io::stdout().is_terminal(),
+    );
     let recorder = config
         .metrics
         .enabled
@@ -212,9 +220,7 @@ pub fn init(
         ProfilingMode::Off | ProfilingMode::Pull => None,
     };
 
-    let subscriber = tracing_subscriber::registry()
-        .with(traces::layer(&provider, &service))
-        .with(logs);
+    let subscriber = tracing_subscriber::registry().with(spans).with(logs);
     let metrics = match install(recorder, subscriber) {
         Ok(metrics) => metrics,
         Err(error) => {
