@@ -27,14 +27,15 @@ type that cannot be null does not compile.
 
 The answers are kept in `.sqlx/`, one file per query, committed with the code. Builds use
 them instead of a database when `SQLX_OFFLINE=true` is set, or when `DATABASE_URL` is not, so
-CI and a fresh checkout build with no Postgres running. After a query changes, with the
-database running and migrated:
+a fresh checkout builds with no Postgres running. After a query changes, with the database
+running and migrated:
 
 ```sh
 cargo sqlx prepare --workspace
 ```
 
-rewrites the cache. CI checks that the committed cache matches the queries.
+rewrites the cache, and `cargo sqlx prepare --workspace --check` fails when the committed
+cache no longer matches the queries.
 
 There is no ORM and no query builder. A query reads as the SQL that runs, and features such
 as `FOR UPDATE SKIP LOCKED`, `jsonb` operators and full-text search are used directly.
@@ -67,8 +68,9 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail, outgoing
-webhooks, cleanup, exports and search indexing will all be jobs, **planned** with the
-features that need them; the queue itself exists.
+webhooks, cleanup and exports will be jobs, **planned** with the features that need them;
+the queue itself exists. Nothing else goes through it: edits apply live, and search text is
+updated with the page it comes from; see [Content](#content).
 
 The queue is a Postgres table, `jobs`. Each row has a kind, a JSON payload, a status
 (`queued`, `running`, `done` or `dead`), the time it is next due, how many attempts it has
@@ -118,7 +120,8 @@ that running it twice does the same as running it once.
 A job that fails is queued again, due later, and the delay grows with each attempt, so a
 service that is down is not called in a tight loop. A job that fails its last attempt, or
 fails in a way a retry cannot fix, such as a payload it cannot read, is marked `dead` and
-kept with its error to be looked at.
+kept with its error, to be looked at. Dead jobs and done ones are deleted seven days after
+they finished.
 
 ### Woken by LISTEN and NOTIFY
 
@@ -129,8 +132,9 @@ picks up jobs delayed by a retry and any notification missed while a connection 
 
 ### Traced across the queue
 
-Each job row keeps the W3C `traceparent` of the request that queued it, so its run continues
-the same trace; see [Observability](/docs/architecture/observability/#traces).
+Each job row keeps the W3C `traceparent` of the request that queued it, and the worker makes
+it the parent of the run's span, so the run continues the request's trace; see
+[Observability](/docs/architecture/observability/#traces).
 
 ## Settings
 
@@ -150,7 +154,8 @@ file is in [Configuration](/docs/self-hosting/configuration/).
   so views filter, sort and group them in SQL.
 - **Search** uses Postgres full-text search with the `simple` configuration, which does not
   stem words and so works the same for any language, together with `pg_trgm` for partial
-  words and typos. The index is kept up to date by jobs.
+  words and typos. A page's search text is updated in the same transaction that stores its
+  snapshot, so search never waits on the job queue.
 - **Attachments** go through an object store: a directory on local disk by default, or any
   S3-compatible service, such as SeaweedFS. They count toward the workspace's storage limit.
 

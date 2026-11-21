@@ -20,10 +20,10 @@ rendering server to run beside it.
 
 **Five crates, dependencies pointing inward.** `neon-domain` holds the types and the rules,
 `neon-store` the SQL, `neon-app` the use cases, `neon-server` the HTTP, the command line and
-the wiring, and `neon-observability` stands to the side, used by all but the domain. Each
-crate's `Cargo.toml` lists what it may use, so the direction is kept by the compiler rather
-than by discipline. The domain cannot reach the database because it does not depend on sqlx.
-[More](/docs/architecture/overview/#the-crates).
+the wiring, and `neon-observability` stands to the side, open to all but the domain and
+installed by the server as it starts. A crate can use only what its `Cargo.toml` lists, so
+the direction is kept by the compiler rather than by discipline. The domain cannot reach the
+database because it does not depend on sqlx. [More](/docs/architecture/overview/#the-crates).
 
 **Traits only for side effects.** Use cases call the repositories directly, with the
 transaction passed in. A trait over every repository would double each signature, and a fake
@@ -36,9 +36,10 @@ parameters out of every type that holds one.
 
 **The API is code first.** Each route and its OpenAPI entry are declared in one call, with
 `utoipa` and `utoipa-axum`, so a route cannot exist without its description or the other way
-round. The description is committed as `api/openapi.json`, the app's client types and the
-[API reference](/docs/reference/api/) are generated from it, and CI fails when any of them is
-stale.
+round. The description is committed as `api/openapi.json`, and the app's client types and
+the [API reference](/docs/reference/api/) are generated from it. The server's tests fail
+when the committed description no longer matches the routes, and the app's checks fail when
+its types no longer match the description.
 
 **One origin.** The app, these docs, the API, real-time sync, agents' endpoint and webhooks
 all share one origin behind Caddy. There is no CORS to configure, and the session cookie and
@@ -169,7 +170,10 @@ A workspace at a limit takes no more uploads or invitations, and its members go 
 **Planned.**
 
 **English, on the web.** The interface is in English, with its strings in one place for
-translations to follow. It is a responsive web app, with no native apps.
+translations to follow. It is a responsive web app. The desktop and mobile apps, **planned**,
+are thin Tauri shells: a person enters their server's address, as in Bitwarden's apps, and
+the shell loads the web UI that server serves. An app then never falls behind its server,
+and there is no second client to build. No app-store release is planned yet.
 
 ## The license
 
@@ -179,8 +183,9 @@ anyone may read, run, change and self-host it, for any purpose that is not comme
 
 **Dependencies stay permissive.** Every dependency the server links, and every package the
 app and these docs ship, is under a permissive license, such as MIT, Apache-2.0, BSD or ISC,
-or under MPL-2.0. None is under the GPL, AGPL, LGPL, SSPL or BUSL, or a commercial license. A copyleft dependency would
-decide the project's own license for it, and the license would stop being a choice; MPL-2.0's
-copyleft stops at the files it covers, so it leaves the rest free. `cargo-deny` enforces this
-for the Rust crates, with the list of allowed licenses in `deny.toml`, and a license check
-does the same for the JavaScript packages.
+or under MPL-2.0. None is under the GPL, AGPL, LGPL, SSPL or BUSL, or a commercial license.
+A copyleft dependency would decide the project's own license for it, and the license would
+stop being a choice; MPL-2.0's copyleft stops at the files it covers, so it leaves the rest
+free. `cargo-deny` checks the Rust crates against the allowed licenses in `deny.toml`.
+**Planned**: one check of the app's and these docs' JavaScript packages against the same
+list.

@@ -46,7 +46,8 @@ The server is a cargo workspace of five crates:
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `neon-server` | The `neon` binary: the HTTP API, and later real-time sync, MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
 
-Dependencies point inward. An arrow reads "depends on":
+Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
+further in, never one further out:
 
 ```mermaid
 flowchart LR
@@ -56,10 +57,10 @@ flowchart LR
   store --> obs
 ```
 
-Each crate's `Cargo.toml` lists what it may use, so the compiler holds the direction: code in
-`neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
-nothing in `neon-store` can call a use case. `neon-observability` stands alone, and every
-crate but `neon-domain` reports through it.
+A crate can use only what its `Cargo.toml` lists, so the compiler holds the direction: code
+in `neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
+nothing in `neon-store` can call a use case. `neon-observability` stands alone.
+Any crate but `neon-domain` may use it, and the server installs it as it starts.
 
 ### Ports
 
@@ -100,8 +101,9 @@ sequenceDiagram
 
 1. Caddy passes the request on, keeping the client's address only when it comes through a
    proxy it trusts.
-2. The handler in `neon-server` continues the trace the request carries, if any, starts the
-   HTTP metrics for its route, and turns the request into the use case's typed input.
+2. `neon-server`'s HTTP layer continues the trace the request carries, if any, and starts
+   the HTTP metrics for its route. The handler turns the request into the use case's typed
+   input.
 3. The use case in `neon-app` checks the rules in `neon-domain`, opens a transaction, and
    calls the repositories in `neon-store` with it.
 4. Work that happens after the request, such as a mail, goes into the job queue in the same

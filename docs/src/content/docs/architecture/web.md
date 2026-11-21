@@ -25,8 +25,13 @@ Its core is licensed MPL-2.0. Its XL packages are licensed GPL-3.0 and are not u
 [the license](/docs/architecture/decisions/#the-license).
 
 The interface is in English, with every string kept in one module, so a translation can
-follow without hunting through components. The app is responsive and works on a phone's
-browser; there are no native apps.
+follow without hunting through components. The app is responsive and works in a phone's
+browser.
+
+**Planned.** Desktop and mobile apps, as thin [Tauri](https://tauri.app) shells around this
+same app. A person enters their server's address, as in Bitwarden's apps, and the shell loads
+the web UI that server serves, so an app is never out of step with its server. No app-store
+release is planned yet.
 
 ## Types from the server
 
@@ -45,9 +50,10 @@ flowchart LR
 
 `openapi-typescript` turns the description into TypeScript types, which are committed too,
 and `openapi-fetch` checks each call against them. A path the server does not have, a missing
-parameter or a field it does not send is a type error in the app. CI fails when the committed
-description is stale against the server, or the types against the description, so the three
-cannot drift apart.
+parameter or a field it does not send is a type error in the app. The server's tests,
+`cargo test`, fail when the committed description no longer matches its routes, and the
+app's checks, `bun run check` in `web/`, fail when the committed types no longer match the
+description, so the three cannot drift apart unnoticed.
 
 ## The theme model
 
@@ -79,11 +85,14 @@ corners, as its only curves are circles and pills; Soft and Warm round theirs a 
 ### The accent
 
 The accent is a colour in OKLCH, a colour space in which equal steps of lightness look
-equal across hues:
+equal across hues. In the app's CSS it is `--neon`:
 
 ```css
---accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+--neon: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
 ```
+
+shadcn's `--primary` and `--ring` take it. shadcn's own `--accent` is not the accent: it is
+the neutral surface under a hovered item.
 
 Only the hue, `--accent-h`, is the person's. The lightness and chroma are fixed for each
 palette and mode, at values where accent text on the page, and text on an accent fill, keep a
@@ -131,9 +140,11 @@ the default accent.
 - Diagrams are Mermaid, drawn into inline SVG as the docs build, by a headless Chromium.
   A page carries no script for them, and they follow the theme.
 - The [API reference](/docs/reference/api/) is generated from `api/openapi.json` by
-  `starlight-openapi`. The [settings reference](/docs/reference/settings/) is generated from
-  the server's settings registry by `neon settings docs`.
+  `starlight-openapi`. The [settings reference](/docs/reference/settings/) holds the table
+  `neon settings docs` prints from the server's settings registry, copied by hand for now;
+  **planned**, the command generates the page.
 - Search is Pagefind's, an index built with the docs that runs in the browser.
 - Their Content-Security-Policy allows the pages' few inline scripts by their hashes, worked
   out after each build, and no other inline script.
-- Every link between pages, and every anchor, is checked on each build.
+- Every link between pages, and every anchor, is checked on each build, except links into
+  the generated API reference.

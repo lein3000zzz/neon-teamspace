@@ -3,9 +3,10 @@ title: Observability
 description: The server's logs, metrics, traces and profiles, its internal admin listener, and how it shuts down.
 ---
 
-The server reports through one crate, `neon-observability`, which every crate but
-`neon-domain` uses. It is built on the Rust ecosystem's own facades: `tracing` for logs and
-spans, `metrics` for counters, gauges and histograms, and OpenTelemetry for exporting traces.
+The server reports through one crate, `neon-observability`, which any crate but
+`neon-domain` may use and the server installs as it starts. It is built on the Rust
+ecosystem's own facades: `tracing` for logs and spans, `metrics` for counters, gauges and
+histograms, and OpenTelemetry for exporting traces.
 Code reports through the facades, and the crate decides once, at start, where it all goes.
 Its settings are under `observability` in [the configuration](/docs/self-hosting/configuration/),
 in five sections: `logging`, `metrics`, `tracing`, `profiling` and `admin`.
@@ -40,7 +41,7 @@ Each subsystem times its operations the same way, with three metrics for **r**at
 `status` is `ok` or `error`. `operation` is a short, fixed name, such as a route template or
 a job's kind, never a value from a request, so the number of label sets stays small.
 
-The subsystems are the HTTP API, use cases and jobs, and, as they arrive, MCP tools and
+The subsystems are the HTTP API and jobs, and, **planned**, use cases, MCP tools and
 real-time sync. The buckets of each histogram are chosen for what it times, from operations
 that take microseconds to jobs that take minutes.
 
@@ -82,8 +83,8 @@ flowchart LR
 - **Incoming HTTP.** A request that carries `traceparent` continues its caller's trace;
   one that does not starts a new trace.
 - **Jobs.** A job row keeps the `traceparent` of the request that queued it, and its run
-  continues that trace, minutes or hours later. A mail sent because of a request shows up in
-  the request's trace.
+  continues that trace, minutes or hours later. Once mail exists, a mail sent because of a
+  request shows up in the request's trace.
 - **Outgoing webhooks**, **planned**, carry `traceparent`, so a receiver that traces can join
   the trace too.
 
@@ -125,7 +126,7 @@ profile holds the process for its duration.
 |---|---|
 | `/metrics` | The metrics, in Prometheus's text format. |
 | `/livez` | `200` while the process runs. A failing check means it should be restarted. |
-| `/readyz` | `200` while the server can take requests, its database reachable; `503` otherwise, and once it begins to shut down. A failing check means traffic should go elsewhere for now. |
+| `/readyz` | `200` while the server can take requests, its database reachable; `503` otherwise. A failing check means traffic should go elsewhere for now. |
 | `/debug/pprof/*` | Profiles, in `pull` mode. |
 
 Keeping these apart from the app's port means the public origin has no metrics, probes or
@@ -133,19 +134,22 @@ profiles to protect, and a scraper or an orchestrator reaches them without crede
 
 ## Shutdown
 
-On SIGTERM, or Ctrl-C in a terminal, the server shuts down in order. Each part registers how
-it stops as it starts, and the registry stops them in the reverse order, the last started
-first:
+On SIGTERM, or Ctrl-C in a terminal, the server stops its parts in order, each one after the
+parts that use it:
 
-1. `/readyz` turns to `503`, and the HTTP server stops accepting connections and lets the
-   requests in flight finish.
-2. The job workers finish the jobs they are running and claim no more.
-3. The database pool closes.
-4. The trace exporter sends the spans it still holds, so the shutdown itself is traced.
+1. The HTTP server stops accepting connections and lets the requests in flight finish, for
+   up to 30 seconds, then closes any still open.
+2. The job worker claims no more jobs and gives those it is running up to 30 seconds. A job
+   still running then is cancelled and queued again, and the attempt does not count.
+3. The database pool closes, last, as the other two use it until they stop.
 
-Every step runs even when one before it fails, and their errors are reported together, so a
-failed flush does not leave the rest of the process unstopped. Shutting down twice does
-nothing the second time.
+**Planned.** The steps move into `neon-observability`'s shutdown registry. Each part
+registers how it stops as it starts, and the registry stops them in the reverse order, the
+last started first. `/readyz` turns to `503` before the HTTP server stops, so traffic goes
+elsewhere first, and the trace exporter goes last, sending the spans it still holds, so the
+shutdown itself is traced. Every step runs even when one before it fails, and their errors
+are reported together, so a failed flush does not leave the rest of the process unstopped.
+Shutting down twice does nothing the second time.
 
 ## The stack
 

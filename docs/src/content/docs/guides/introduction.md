@@ -39,8 +39,8 @@ the features build on:
   [Configuration](/docs/self-hosting/configuration/).
 - Postgres access with SQL checked at compile time, migrations, and a job queue in Postgres;
   see [Data and storage](/docs/architecture/data/).
-- Logs, metrics, traces and profiles, an internal admin listener and ordered shutdown; see
-  [Observability](/docs/architecture/observability/).
+- An ordered shutdown, and the observability crate: logs, metrics, traces and profiles, and
+  an internal admin listener; see [Observability](/docs/architecture/observability/).
 - The HTTP API's skeleton with its first endpoint, `GET /api/v1/meta`, and its OpenAPI
   description; see the [API reference](/docs/reference/api/).
 - The web app's shell, with its palettes, modes and accent hue; see
@@ -60,12 +60,16 @@ in the order it is built:
 5. Comments, mentions and an inbox, page history, search and attachments.
 6. Agents over MCP, and webhooks in and out.
 7. Docker images, signed releases and the first version, 0.1.0.
+8. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+   from the server a person names.
 
 ## What it is not
 
 - It has no billing. Instance admins set limits per workspace instead.
 - Its interface is in English, with its strings kept in one place so translations can follow.
-- It is a responsive web app, with no native apps.
+- It has no native clients of its own. It is a responsive web app, and the desktop and
+  mobile apps, **planned**, only load it from a server, so they never fall behind it. No
+  app-store release is planned yet.
 - It runs as one server process beside Postgres. The reasons are in
   [Key decisions](/docs/architecture/decisions/#one-process-no-redis).
 
