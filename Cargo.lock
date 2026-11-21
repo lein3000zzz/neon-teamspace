@@ -3,5 +3,21 @@
 version = 4
 
 [[package]]
-name = "neon-workspace"
+name = "neon-app"
+version = "0.1.0"
+
+[[package]]
+name = "neon-domain"
+version = "0.1.0"
+
+[[package]]
+name = "neon-observability"
+version = "0.1.0"
+
+[[package]]
+name = "neon-server"
+version = "0.1.0"
+
+[[package]]
+name = "neon-store"
 version = "0.1.0"
