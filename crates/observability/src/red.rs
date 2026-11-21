@@ -406,22 +406,34 @@ mod tests {
         }
     }
 
+    /// The literals of redkit's `definitions.go`, so dashboards built for either line up.
     #[test]
     fn bucket_presets_match_redkit() {
-        assert_eq!(Buckets::Micro.values().len(), 9);
-        assert_eq!(Buckets::Medium.values()[0], 0.005);
-        assert_eq!(Buckets::MediumLong.values().last(), Some(&10.0));
-        assert_eq!(Buckets::Long.values().last(), Some(&120.0));
-        assert_eq!(Buckets::XLong.values().last(), Some(&300.0));
-        for preset in [
-            Buckets::Micro,
-            Buckets::Short,
-            Buckets::Medium,
-            Buckets::MediumLong,
-            Buckets::Long,
-            Buckets::XLong,
-        ] {
-            assert!(preset.values().is_sorted(), "{preset:?} is not sorted");
-        }
+        assert_eq!(
+            Buckets::Micro.values(),
+            &[0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
+        );
+        assert_eq!(
+            Buckets::Short.values(),
+            &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        );
+        assert_eq!(
+            Buckets::Medium.values(),
+            &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+        );
+        assert_eq!(
+            Buckets::MediumLong.values(),
+            &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
+            ]
+        );
+        assert_eq!(
+            Buckets::Long.values(),
+            &[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+        );
+        assert_eq!(
+            Buckets::XLong.values(),
+            &[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
+        );
     }
 }

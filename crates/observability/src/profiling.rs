@@ -456,12 +456,22 @@ fn heap_backend() -> Option<BackendImpl<BackendUninitialized>> {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::{Body, to_bytes};
+    use std::collections::BTreeMap;
+    use std::future::IntoFuture as _;
+    use std::io::Read as _;
+    use std::sync::Mutex;
+
+    use axum::body::{Body, Bytes, to_bytes};
+    use axum::routing::post;
     use http::Request;
+    use pyroscope::encode::r#gen::push::PushRequest;
     use tower::ServiceExt as _;
 
     use super::*;
-    use crate::config::ProfilingMode;
+    use crate::config::{ProfilingMode, PushConfig};
+
+    /// The CPU profiler is process-wide, so the tests that run it take turns.
+    static PROFILER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn pull(profiles: Vec<Profile>) -> (Arc<Pull>, Shutdown) {
         let shutdown = Shutdown::new();
@@ -543,9 +553,9 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
     }
 
-    /// The only test that runs the real profiler, so no two profiles race in one process.
     #[tokio::test]
     async fn shutdown_cuts_a_cpu_profile_short_and_returns_pprof() {
+        let _profiler = PROFILER.lock().await;
         let (pull, shutdown) = pull(vec![Profile::Cpu]);
         let request = tokio::spawn({
             let pull = Arc::clone(&pull);
@@ -570,5 +580,68 @@ mod tests {
         assert!(profile.duration_nanos > 0);
         let slot = Arc::clone(&pull.cpu_slot).try_acquire_owned();
         assert!(slot.is_ok(), "the profiler slot was not released");
+    }
+
+    /// A Pyroscope stand-in that keeps the decoded body of every push.
+    async fn pyroscope() -> (String, Arc<Mutex<Vec<PushRequest>>>) {
+        let pushes = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&pushes);
+        let app = Router::new().route(
+            "/push.v1.PusherService/Push",
+            post(move |body: Bytes| async move {
+                let mut protobuf = Vec::new();
+                flate2::read::GzDecoder::new(body.as_ref())
+                    .read_to_end(&mut protobuf)
+                    .unwrap();
+                let request = PushRequest::decode(protobuf.as_slice()).unwrap();
+                recorded.lock().unwrap().push(request);
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(axum::serve(listener, app).into_future());
+        (address, pushes)
+    }
+
+    #[tokio::test]
+    async fn push_runs_one_agent_per_profile_type_and_flushes_on_stop() {
+        let _profiler = PROFILER.lock().await;
+        let (address, pushes) = pyroscope().await;
+        let config = ProfilingConfig {
+            mode: ProfilingMode::Push,
+            profiles: vec![Profile::Cpu, Profile::Cpu],
+            push: PushConfig {
+                server_address: Some(address),
+                upload_interval_seconds: 1,
+                tags: BTreeMap::from([("env".to_owned(), "test".to_owned())]),
+            },
+        };
+        let service = ServiceInfo::new("neon-test", "0.0.0");
+
+        let push = Push::start(&config, &service).unwrap();
+        assert_eq!(
+            push.agents
+                .iter()
+                .map(|(profile, _)| *profile)
+                .collect::<Vec<_>>(),
+            vec![Profile::Cpu]
+        );
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        // Stopping waits for the agents' last upload, so it runs on a blocking thread, as it
+        // does on shutdown.
+        tokio::task::spawn_blocking(move || push.stop())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let pushes = pushes.lock().unwrap();
+        assert!(!pushes.is_empty(), "no profile was pushed");
+        let labels: BTreeMap<_, _> = pushes[0].series[0]
+            .labels
+            .iter()
+            .map(|label| (label.name.as_str(), label.value.as_str()))
+            .collect();
+        assert_eq!(labels.get("service_name"), Some(&"neon-test"));
+        assert_eq!(labels.get("env"), Some(&"test"));
     }
 }
