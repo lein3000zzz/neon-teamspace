@@ -1,0 +1,114 @@
+//! The `neon` command line.
+
+use std::io::{self, Write as _};
+use std::path::PathBuf;
+
+use anyhow::Context as _;
+use clap::{Parser, Subcommand};
+use neon_app::settings::registry;
+
+use crate::{config, http, logging, runtime};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "neon",
+    version,
+    about = "Neon Workspace, a self-hosted team workspace."
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Run the server. This is the default when no command is given.
+    Serve,
+    /// Apply pending database migrations, then exit.
+    Migrate,
+    /// Print the OpenAPI description of the HTTP API.
+    Openapi {
+        /// Write it to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+    },
+    /// Runtime settings.
+    #[command(subcommand)]
+    Settings(SettingsCommand),
+    /// The configuration from the config file and the environment.
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum SettingsCommand {
+    /// Print the settings reference as a markdown page.
+    Docs,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    /// Load and check the configuration, then print it with secrets redacted.
+    Check,
+}
+
+pub async fn run(cli: Cli) -> anyhow::Result<()> {
+    match cli.command.unwrap_or(Command::Serve) {
+        Command::Serve => {
+            logging::init();
+            runtime::serve(config::load(&registry())?).await
+        }
+        Command::Migrate => {
+            logging::init();
+            runtime::migrate(config::load(&registry())?).await
+        }
+        Command::Openapi { out: Some(path) } => std::fs::write(&path, http::spec_json())
+            .with_context(|| format!("writing {}", path.display())),
+        Command::Openapi { out: None } => print(&http::spec_json()),
+        Command::Settings(SettingsCommand::Docs) => print(&registry().reference_markdown()),
+        Command::Config(ConfigCommand::Check) => {
+            let registry = registry();
+            let loaded = config::load(&registry)?;
+            print(&loaded.render(&registry)?)
+        }
+    }
+}
+
+/// Writes command output. Unlike `print!`, a closed pipe, as in `neon openapi | head`,
+/// is an error to report rather than a panic.
+fn print(text: &str) -> anyhow::Result<()> {
+    let mut stdout = io::stdout().lock();
+    stdout.write_all(text.as_bytes())?;
+    stdout.flush()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory as _;
+
+    use super::*;
+
+    #[test]
+    fn the_command_line_is_well_formed() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn serve_is_the_default() {
+        let cli = Cli::try_parse_from(["neon"]).expect("parses");
+
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn openapi_takes_an_output_path() {
+        let cli =
+            Cli::try_parse_from(["neon", "openapi", "--out", "api/openapi.json"]).expect("parses");
+
+        assert!(matches!(
+            cli.command,
+            Some(Command::Openapi { out: Some(path) }) if path.to_str() == Some("api/openapi.json")
+        ));
+    }
+}
