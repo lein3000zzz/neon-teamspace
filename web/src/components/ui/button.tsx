@@ -22,18 +22,19 @@ const buttonVariants = cva(
         ghost: "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         link: "border-transparent text-primary underline-offset-4 hover:underline",
       },
-      // Heights come from the --tap tokens, so every size is a 44px target
-      // on touch screens.
+      // Heights and minimum widths come from the --tap tokens, so every size
+      // is at least a 44px square on touch screens, even with a short label.
       size: {
-        default: "h-(--tap) px-4",
-        sm: "h-(--tap-sm) px-3 text-xs",
-        lg: "h-(--tap-lg) px-6 text-base",
+        default: "h-(--tap) min-w-(--tap) px-4",
+        sm: "h-(--tap-sm) min-w-(--tap-sm) px-3 text-xs",
+        lg: "h-(--tap-lg) min-w-(--tap-lg) px-6 text-base",
         icon: "size-(--tap)",
         "icon-sm": "size-(--tap-sm)",
       },
     },
-    // After the size classes, so a link keeps its text metrics at any size.
-    compoundVariants: [{ variant: "link", className: "h-auto px-0" }],
+    // After the size classes: a link sizes to its text, but never below the
+    // touch target.
+    compoundVariants: [{ variant: "link", className: "h-auto min-h-(--tap) px-0" }],
     defaultVariants: {
       variant: "default",
       size: "default",
