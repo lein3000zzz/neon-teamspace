@@ -48,7 +48,6 @@ export const strings = {
     accentHint: "Primary actions, focus and selection take this hue.",
     accentSlider: "Accent hue",
     accentValue: (hue: number) => `${hue} degrees`,
-    presets: "Presets",
     preview: "Preview",
     previewPrimary: "Primary",
     previewPill: "Pill",
