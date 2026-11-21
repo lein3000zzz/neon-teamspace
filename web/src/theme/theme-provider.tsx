@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   applyTheme,
+  browserStorage,
   clearPreferences,
   DARK_QUERY,
   DEFAULT_PREFERENCES,
@@ -49,7 +50,7 @@ function systemPrefersDark() {
  * changes made in other tabs.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preferences, setPreferences] = useState(() => loadPreferences(window.localStorage));
+  const [preferences, setPreferences] = useState(() => loadPreferences(browserStorage()));
   // Only the user's own changes are written back. Values loaded from storage
   // are not, so someone who never chose keeps following the defaults.
   const pendingWrite = useRef<"save" | "clear" | null>(null);
@@ -64,16 +65,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const write = pendingWrite.current;
     pendingWrite.current = null;
     if (write === "save") {
-      savePreferences(window.localStorage, preferences);
+      savePreferences(browserStorage(), preferences);
     } else if (write === "clear") {
-      clearPreferences(window.localStorage);
+      clearPreferences(browserStorage());
     }
   }, [preferences]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === STORAGE_KEY || event.key === null) {
-        setPreferences(loadPreferences(window.localStorage));
+        setPreferences(loadPreferences(browserStorage()));
       }
     };
     window.addEventListener("storage", onStorage);

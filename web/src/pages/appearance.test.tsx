@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { mockColorScheme } from "@/test/color-scheme";
 import { renderApp } from "@/test/render-app";
+import { blockStorage, fillStorage } from "@/test/storage";
 import { DEFAULT_PREFERENCES, STORAGE_KEY } from "@/theme/preferences";
 
 const html = () => document.documentElement;
@@ -87,5 +88,20 @@ describe("appearance settings", () => {
     expect(html().dataset).toMatchObject({ palette: "nothing", mode: "light", uiFont: "default" });
     expect(html().style.getPropertyValue("--accent-h")).toBe(String(DEFAULT_PREFERENCES.accentHue));
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it.each([
+    ["refuses storage", blockStorage],
+    ["has no room left in storage", fillStorage],
+  ])("renders and applies changes when the browser %s", async (_, breakStorage) => {
+    mockColorScheme("light");
+    breakStorage();
+    const { user } = await renderAppearance();
+    expect(html().dataset).toMatchObject({ palette: "nothing", mode: "light", uiFont: "default" });
+
+    await user.click(within(group("Palette")).getByRole("radio", { name: "Warm" }));
+    expect(html().dataset["palette"]).toBe("warm");
+    await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
+    expect(html().dataset["palette"]).toBe("nothing");
   });
 });

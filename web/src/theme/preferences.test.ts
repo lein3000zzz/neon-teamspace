@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { blockStorage } from "@/test/storage";
 import {
   applyTheme,
+  browserStorage,
   DEFAULT_PREFERENCES,
   loadPreferences,
   parsePreferences,
@@ -87,6 +89,12 @@ describe("storage", () => {
 
   it("survives having no storage at all", () => {
     expect(loadPreferences(undefined)).toEqual(DEFAULT_PREFERENCES);
+  });
+
+  it("finds no storage where reading window.localStorage throws", () => {
+    expect(browserStorage()).toBe(window.localStorage);
+    blockStorage();
+    expect(browserStorage()).toBeUndefined();
   });
 });
 

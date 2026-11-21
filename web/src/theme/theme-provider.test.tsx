@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { mockColorScheme } from "@/test/color-scheme";
+import { blockStorage, fillStorage } from "@/test/storage";
 import { STORAGE_KEY } from "./preferences";
 import { ThemeProvider, useTheme } from "./theme-provider";
 
@@ -88,6 +89,34 @@ describe("ThemeProvider", () => {
       window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
     });
     expect(html().dataset["palette"]).toBe("warm");
+  });
+
+  it("runs on in-memory defaults when the browser refuses storage", async () => {
+    mockColorScheme("dark");
+    blockStorage();
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(html().dataset).toMatchObject({ palette: "nothing", mode: "dark", uiFont: "default" });
+
+    await userEvent.click(screen.getByRole("button", { name: "light" }));
+    expect(html().dataset["mode"]).toBe("light");
+  });
+
+  it("keeps a choice for this visit when storage is full", async () => {
+    mockColorScheme("dark");
+    fillStorage();
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "light" }));
+    expect(html().dataset["mode"]).toBe("light");
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("works where matchMedia does not exist", () => {

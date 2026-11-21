@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./server";
 
 // Radix measures its slider thumb with ResizeObserver, which jsdom lacks.
@@ -19,6 +19,8 @@ beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  // Before touching storage, which a test may have blocked with a spy.
+  vi.restoreAllMocks();
   window.localStorage.clear();
   const root = document.documentElement;
   for (const name of root.getAttributeNames()) {

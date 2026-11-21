@@ -71,6 +71,19 @@ export function parsePreferences(raw: string | null): ThemePreferences {
   };
 }
 
+/**
+ * This page's localStorage, or undefined where the browser refuses it. With
+ * site data blocked (a browser setting, some sandboxed frames) reading the
+ * property itself throws, before any method is called.
+ */
+export function browserStorage(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Storage can throw: private windows, blocked site data, a full quota. */
 export function loadPreferences(storage: Storage | undefined): ThemePreferences {
   try {

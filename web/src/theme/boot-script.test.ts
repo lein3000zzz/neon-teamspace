@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import bootScript from "../../public/theme.js?raw";
 import { mockColorScheme } from "@/test/color-scheme";
-import { applyTheme, loadPreferences, resolveMode, STORAGE_KEY } from "./preferences";
+import { blockStorage, fillStorage } from "@/test/storage";
+import {
+  applyTheme,
+  browserStorage,
+  DEFAULT_PREFERENCES,
+  loadPreferences,
+  resolveMode,
+  STORAGE_KEY,
+} from "./preferences";
 
 /** Runs public/theme.js the way the browser does: once, against the live document. */
 function runBootScript() {
@@ -43,9 +51,31 @@ describe("public/theme.js", () => {
       const fromScript = snapshot(document.documentElement);
 
       const expected = document.createElement("div");
-      const preferences = loadPreferences(window.localStorage);
+      const preferences = loadPreferences(browserStorage());
       applyTheme(expected, preferences, resolveMode(preferences.mode, scheme === "dark"));
       expect(fromScript).toEqual(snapshot(expected));
     });
+  });
+
+  it("applies the defaults when the browser refuses storage", () => {
+    mockColorScheme("dark");
+    blockStorage();
+
+    expect(runBootScript).not.toThrow();
+    expect(snapshot(document.documentElement)).toEqual({
+      palette: DEFAULT_PREFERENCES.palette,
+      mode: "dark",
+      uiFont: DEFAULT_PREFERENCES.uiFont,
+      hue: String(DEFAULT_PREFERENCES.accentHue),
+    });
+  });
+
+  it("still reads the stored theme when storage is full", () => {
+    mockColorScheme("light");
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ palette: "warm", mode: "dark" }));
+    fillStorage();
+
+    runBootScript();
+    expect(snapshot(document.documentElement)).toMatchObject({ palette: "warm", mode: "dark" });
   });
 });
