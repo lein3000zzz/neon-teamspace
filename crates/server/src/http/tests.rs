@@ -37,6 +37,20 @@ async fn panics() -> StatusCode {
     panic!("handler bug")
 }
 
+/// Which of the request's credential headers arrive marked sensitive, answered with a
+/// cookie for the response side.
+async fn sensitive_headers(headers: header::HeaderMap) -> impl IntoResponse {
+    let sensitive = |name| headers.get(name).map(header::HeaderValue::is_sensitive);
+    (
+        [(header::SET_COOKIE, "session=hunter2")],
+        Json(json!({
+            "authorization": sensitive(header::AUTHORIZATION),
+            "cookie": sensitive(header::COOKIE),
+            "accept": sensitive(header::ACCEPT),
+        })),
+    )
+}
+
 /// The API plus routes that exercise the extractors and the middleware.
 fn test_app(state: AppState, limits: Limits) -> Router {
     let routes = OpenApiRouter::new()
@@ -58,6 +72,7 @@ fn test_app(state: AppState, limits: Limits) -> Router {
             ),
         )
         .route("/api/v1/test/panic", get(panics))
+        .route("/api/v1/test/headers", get(sensitive_headers))
         .route(
             "/api/v1/test/slow",
             get(|| async {
@@ -232,6 +247,32 @@ async fn a_panicking_handler_answers_500_in_the_error_shape(pool: PgPool) {
     assert_eq!(
         body,
         json!({"error": {"code": "internal", "message": "internal error"}})
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn credential_headers_are_marked_sensitive(pool: PgPool) {
+    let app = test_app(state(pool).await, Limits::default());
+    let request = Request::get("/api/v1/test/headers")
+        .header(header::AUTHORIZATION, "Bearer hunter2")
+        .header(header::COOKIE, "session=hunter2")
+        .header(header::ACCEPT, "application/json")
+        .body(Body::empty())
+        .expect("a request");
+
+    let response = app.oneshot(request).await.expect("a response");
+
+    assert!(response.headers()[header::SET_COOKIE].is_sensitive());
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    let seen: Value = serde_json::from_slice(&body).expect("JSON");
+    assert_eq!(
+        seen,
+        json!({"authorization": true, "cookie": true, "accept": false})
     );
 }
 
