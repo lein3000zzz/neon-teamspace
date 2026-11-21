@@ -16,11 +16,20 @@ struct Shown<'a> {
 impl Loaded {
     /// The configuration as YAML with secrets redacted, followed by every runtime
     /// setting as the environment and the file leave it, each marked with its source.
+    /// Ignored `NEON_` variables are listed by name.
     pub fn render(&self, registry: &Registry) -> Result<String, serde_saphyr::SerializeError> {
         let mut out = match &self.file {
             Some(path) => format!("# Read from {} and the environment.\n", path.display()),
             None => "# No config file: defaults and the environment only.\n".to_owned(),
         };
+        if !self.ignored_vars.is_empty() {
+            // Writing to a String cannot fail.
+            let _ = writeln!(
+                out,
+                "# Ignored, as they set no configuration key: {}.",
+                self.ignored_vars.join(", ")
+            );
+        }
         out.push_str(&serde_saphyr::to_string(&Shown {
             server: &self.config.server,
             database: &self.config.database,

@@ -2,7 +2,12 @@
 //!
 //! Values come from the defaults, then the YAML file, then `NEON_` environment variables,
 //! the last one that sets a value winning. The file is `neon.yaml` in the working
-//! directory, or the path in `NEON_CONFIG`.
+//! directory, or the path in `NEON_CONFIG`. An unknown key in the file fails the load,
+//! since it is almost always a typo. An unknown `NEON_` variable is only reported: other
+//! tools use the prefix too, such as Neon's Postgres tooling with `NEON_API_KEY`.
+//!
+//! Neither errors nor `Debug` output show a configured value, since one set under the
+//! wrong key may be the database URL with its password.
 //!
 //! The file's `settings` section and the `NEON_SETTINGS__*` variables are runtime
 //! settings. The settings registry parses them, and a value set there pins its setting,
@@ -18,9 +23,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use figment::Figment;
+use figment::error::{Actual, Kind, OneOf};
+use neon_app::jobs::LISTEN_CONNECTIONS;
 use neon_domain::settings::{Pinned, Problem, RawLayers, Registry};
-use serde::de::IgnoredAny;
-use serde::{Deserialize, Serialize};
+use serde::de::{Error as _, IgnoredAny};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value as Json};
 use url::Url;
 
@@ -34,6 +41,10 @@ pub const CONFIG_ENV: &str = "NEON_CONFIG";
 
 /// The config file read when `NEON_CONFIG` is unset, if it exists.
 pub const DEFAULT_FILE: &str = "neon.yaml";
+
+/// The fewest connections the server can work with: the job worker keeps its own to
+/// listen for new jobs, and queries need at least one more.
+pub const MIN_CONNECTIONS: u32 = LISTEN_CONNECTIONS + 1;
 
 /// The configuration as the file and the environment set it.
 #[derive(Debug, Deserialize)]
@@ -58,6 +69,7 @@ pub struct ServerConfig {
     /// The address the HTTP API listens on.
     pub listen: SocketAddr,
     /// Where users reach the server, such as `https://neon.example.com`.
+    #[serde(deserialize_with = "optional_url")]
     pub public_url: Option<Url>,
 }
 
@@ -75,7 +87,8 @@ impl Default for ServerConfig {
 pub struct DatabaseConfig {
     /// The Postgres URL. Required.
     pub url: DatabaseUrl,
-    /// The most connections the pool keeps open.
+    /// The most connections the server opens to Postgres, counting the one the job
+    /// worker listens on. At least [`MIN_CONNECTIONS`].
     pub max_connections: u32,
     /// Whether the server applies pending migrations when it starts.
     pub auto_migrate: bool,
@@ -111,15 +124,19 @@ pub struct Loaded {
     pub settings: Pinned,
     /// The config file that was read, if any.
     pub file: Option<PathBuf>,
+    /// `NEON_` variables that set no configuration key, by name. They are ignored, and
+    /// listed so a misspelt one does not go unnoticed.
+    pub ignored_vars: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("{CONFIG_ENV} names {}, which does not exist", .0.display())]
     MissingFile(PathBuf),
-    /// The file is not YAML, or a value has the wrong type or an unknown key.
+    /// The file is not YAML, or a value has the wrong type or an unknown key. The errors
+    /// describe values by their type only.
     #[error("{}", list_figment(.0))]
-    Read(Box<figment::Error>),
+    Read(Vec<figment::Error>),
     #[error("invalid configuration:{}", list(.0))]
     Invalid(Vec<Problem>),
 }
@@ -127,15 +144,18 @@ pub enum ConfigError {
 /// Reads the configuration and checks all of it, reporting every problem at once.
 pub fn load(registry: &Registry) -> Result<Loaded, ConfigError> {
     let file = config_file()?;
+    let (vars, ignored_vars) = env::candidates()
+        .into_iter()
+        .partition(|name| sets_a_key(name));
 
     let mut figment = Figment::new();
     if let Some(path) = &file {
         figment = figment.merge(YamlFile::new(path.clone()));
     }
     let config: Config = figment
-        .merge(EnvVars)
+        .merge(EnvVars::new(vars))
         .extract()
-        .map_err(|error| ConfigError::Read(Box::new(error)))?;
+        .map_err(read_error)?;
 
     let raw = RawLayers::default()
         .with_env(env::settings_vars())
@@ -154,8 +174,21 @@ pub fn load(registry: &Registry) -> Result<Loaded, ConfigError> {
             config,
             settings,
             file,
+            ignored_vars,
         }),
         _ => Err(ConfigError::Invalid(problems)),
+    }
+}
+
+/// Whether a `NEON_` variable sets a configuration key. Each one is tried on its own, so
+/// the configuration types decide which keys exist and a new section needs no list here.
+/// A value of the wrong type still sets a key; the load then reports it.
+fn sets_a_key(name: &str) -> bool {
+    match Figment::from(EnvVars::new(vec![name.to_owned()])).extract::<Config>() {
+        Ok(_) => true,
+        Err(error) => !error
+            .into_iter()
+            .any(|error| matches!(error.kind, Kind::UnknownField(..))),
     }
 }
 
@@ -186,8 +219,14 @@ impl Config {
         if let Err(message) = self.database.url.check() {
             report("database.url", message);
         }
-        if self.database.max_connections == 0 {
-            report("database.max_connections", "must be at least 1".to_owned());
+        if self.database.max_connections < MIN_CONNECTIONS {
+            report(
+                "database.max_connections",
+                format!(
+                    "must be at least {MIN_CONNECTIONS}: the job worker keeps one connection \
+                     to listen for new jobs, and queries need at least one more"
+                ),
+            );
         }
         if let Some(url) = &self.server.public_url
             && let Err(message) = check_public_url(url)
@@ -197,6 +236,18 @@ impl Config {
 
         problems
     }
+}
+
+/// Parses a URL as `Url`'s own `Deserialize` does, except that the error leaves out the
+/// text, which `url` quotes. Custom errors are passed on as they are, so every type read
+/// from the configuration must keep values out of its own.
+fn optional_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Url>, D::Error> {
+    let Some(text) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    Url::parse(&text)
+        .map(Some)
+        .map_err(|error| D::Error::custom(format!("not a URL: {error}")))
 }
 
 /// The public URL is an origin: browsers compare it with the `Origin` header, and the
@@ -226,7 +277,50 @@ fn list(problems: &[Problem]) -> String {
         .collect()
 }
 
-fn list_figment(error: &figment::Error) -> String {
-    let lines: Vec<String> = error.clone().into_iter().map(|e| e.to_string()).collect();
+fn list_figment(errors: &[figment::Error]) -> String {
+    let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
     lines.join("\n")
+}
+
+/// Splits figment's chain of errors and replaces every value they quote with its type.
+/// The key path and the file or variable it came from are kept.
+fn read_error(error: figment::Error) -> ConfigError {
+    ConfigError::Read(
+        error
+            .into_iter()
+            .map(|mut error| {
+                error.kind = without_value(error.kind);
+                error
+            })
+            .collect(),
+    )
+}
+
+fn without_value(kind: Kind) -> Kind {
+    match kind {
+        Kind::InvalidType(actual, expected) => Kind::InvalidType(type_of(actual), expected),
+        Kind::InvalidValue(actual, expected) => Kind::InvalidValue(type_of(actual), expected),
+        Kind::Unsupported(actual) => Kind::Unsupported(type_of(actual)),
+        Kind::UnsupportedKey(actual, expected) => Kind::UnsupportedKey(type_of(actual), expected),
+        Kind::UnknownVariant(_, expected) => {
+            Kind::Message(format!("unknown value: expected {}", OneOf(expected)))
+        }
+        Kind::ISizeOutOfRange(_) | Kind::USizeOutOfRange(_) => {
+            Kind::Message("a number is out of range".to_owned())
+        }
+        other => other,
+    }
+}
+
+fn type_of(actual: Actual) -> Actual {
+    let name = match actual {
+        Actual::Bool(_) => "a boolean",
+        Actual::Unsigned(_) | Actual::Signed(_) | Actual::Float(_) => "a number",
+        Actual::Char(_) => "a character",
+        Actual::Str(_) => "a string",
+        Actual::Bytes(_) => "bytes",
+        Actual::Other(_) => "a value",
+        other => return other,
+    };
+    Actual::Other(name.to_owned())
 }

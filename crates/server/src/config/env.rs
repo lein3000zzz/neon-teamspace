@@ -5,14 +5,23 @@ use figment::value::{Dict, Map, Uncased, UncasedStr};
 use figment::{Error, Metadata, Profile, Provider};
 use neon_domain::settings::ENV_PREFIX as SETTINGS_PREFIX;
 
+use super::CONFIG_ENV;
+
 /// Starts every variable the server reads.
 const PREFIX: &str = "NEON_";
 
-/// The bootstrap variables, `__` separating levels: `NEON_DATABASE__URL` sets
-/// `database.url`. Blank variables count as unset, so compose files can pass optional
-/// ones through. `NEON_CONFIG` names the file instead, and `NEON_SETTINGS__*` are left to
-/// the settings registry, which parses them by each setting's type.
-pub(super) struct EnvVars;
+/// Bootstrap variables, `__` separating levels: `NEON_DATABASE__URL` sets
+/// `database.url`. Only the variables named here are read, so a `NEON_` variable that
+/// belongs to another tool never reaches the configuration.
+pub(super) struct EnvVars {
+    names: Vec<String>,
+}
+
+impl EnvVars {
+    pub(super) fn new(names: Vec<String>) -> Self {
+        Self { names }
+    }
+}
 
 impl Provider for EnvVars {
     fn metadata(&self) -> Metadata {
@@ -21,22 +30,34 @@ impl Provider for EnvVars {
     }
 
     fn data(&self) -> Result<Map<Profile, Dict>, Error> {
-        Env::raw().filter_map(bootstrap_key).data()
+        let names: Vec<&str> = self.names.iter().map(String::as_str).collect();
+        Env::raw().only(&names).filter_map(bootstrap_key).data()
     }
 }
 
-/// The dotted key a variable sets, or `None` when it is not a bootstrap variable.
+/// The `NEON_` variables that may set a bootstrap key, by name. Blank ones count as
+/// unset, so compose files can pass optional ones through. `NEON_CONFIG` names the file
+/// instead, and `NEON_SETTINGS__*` are left to the settings registry, which parses them
+/// by each setting's type.
+pub(super) fn candidates() -> Vec<String> {
+    let mut names: Vec<String> = std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let name = name.into_string().ok()?;
+            let rest = strip_prefix(&name, PREFIX)?;
+            let skip = rest.is_empty()
+                || name.eq_ignore_ascii_case(CONFIG_ENV)
+                || strip_prefix(&name, SETTINGS_PREFIX).is_some()
+                || value.to_string_lossy().trim().is_empty();
+            (!skip).then_some(name)
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// The dotted key a bootstrap variable sets.
 fn bootstrap_key(name: &UncasedStr) -> Option<Uncased<'_>> {
-    let name = name.as_str();
-    let rest = strip_prefix(name, PREFIX)?;
-    let top = rest.split("__").next().unwrap_or_default();
-    if top.eq_ignore_ascii_case("CONFIG") || top.eq_ignore_ascii_case("SETTINGS") {
-        return None;
-    }
-    let value = std::env::var_os(name)?;
-    if value.to_string_lossy().trim().is_empty() {
-        return None;
-    }
+    let rest = strip_prefix(name.as_str(), PREFIX)?;
     Some(rest.replace("__", ".").into())
 }
 
@@ -82,5 +103,13 @@ mod tests {
         );
         assert_eq!(strip_prefix("NEON", PREFIX), None);
         assert_eq!(strip_prefix("OTHER_X", PREFIX), None);
+    }
+
+    #[test]
+    fn keys_nest_at_double_underscores() {
+        assert_eq!(
+            bootstrap_key(UncasedStr::new("NEON_DATABASE__MAX_CONNECTIONS")),
+            Some(Uncased::from("DATABASE.MAX_CONNECTIONS"))
+        );
     }
 }

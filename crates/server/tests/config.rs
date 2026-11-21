@@ -12,9 +12,14 @@ use std::path::PathBuf;
 use figment::Jail;
 use neon_app::settings::{INSTANCE_NAME, registry};
 use neon_domain::settings::{Problem, Source, Stored};
-use neon_server::config::{self, ConfigError, DatabaseConfig, Loaded, ServerConfig};
+use neon_server::config::{
+    self, ConfigError, DatabaseConfig, Loaded, MIN_CONNECTIONS, ServerConfig,
+};
 
 const URL: &str = "postgres://neon:hunter2@127.0.0.1:55432/neon";
+
+/// The database password in [`URL`], which no error or debug output may show.
+const PASSWORD: &str = "hunter2";
 
 /// Runs `test` in a temporary working directory with an empty environment.
 fn jailed(test: impl FnOnce(&mut Jail) -> figment::Result<()>) {
@@ -63,6 +68,7 @@ fn defaults_apply_without_a_file() {
         let loaded = load().expect("valid configuration");
 
         assert_eq!(loaded.file, None);
+        assert!(loaded.ignored_vars.is_empty());
         assert_eq!(loaded.config.server.listen, addr("0.0.0.0:8080"));
         assert_eq!(loaded.config.server.public_url, None);
         assert_eq!(loaded.config.database.url.expose(), URL);
@@ -221,7 +227,8 @@ fn every_problem_is_reported_at_once() {
                 ),
                 Problem::new(
                     "database.max_connections (NEON_DATABASE__MAX_CONNECTIONS)",
-                    "must be at least 1"
+                    "must be at least 2: the job worker keeps one connection to listen \
+                     for new jobs, and queries need at least one more"
                 ),
                 Problem::new(
                     "server.public_url (NEON_SERVER__PUBLIC_URL)",
@@ -277,10 +284,129 @@ fn unknown_keys_and_wrong_types_are_errors() {
             "{message}"
         );
 
+        Ok(())
+    });
+}
+
+#[test]
+fn the_pool_needs_a_connection_beside_the_listener() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+
+        jail.set_env("NEON_DATABASE__MAX_CONNECTIONS", MIN_CONNECTIONS - 1);
+        let problems = invalid(load());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(
+            problems[0].key,
+            "database.max_connections (NEON_DATABASE__MAX_CONNECTIONS)"
+        );
+
+        jail.set_env("NEON_DATABASE__MAX_CONNECTIONS", MIN_CONNECTIONS);
+        load().expect("valid configuration");
+        Ok(())
+    });
+}
+
+#[test]
+fn neon_variables_that_set_no_key_are_ignored_and_listed() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        // Neon's Postgres tooling, a Kubernetes service named `neon`, and a typo.
+        jail.set_env("NEON_API_KEY", "napi_hunter2");
+        jail.set_env("NEON_PROJECT_ID", "hunter2-project");
+        jail.set_env("NEON_PORT", "tcp://10.96.0.12:8080");
+        jail.set_env("NEON_SERVICE_HOST", "10.96.0.12");
+        jail.set_env("NEON_DATABASE__URLL", "hunter2");
+        jail.set_env("NEON_SERVER__LISTEN", "127.0.0.1:9100");
+        let registry = registry();
+
+        let loaded = config::load(&registry).expect("valid configuration");
+        let shown = loaded.render(&registry).expect("renders");
+
+        assert_eq!(
+            loaded.ignored_vars,
+            [
+                "NEON_API_KEY",
+                "NEON_DATABASE__URLL",
+                "NEON_PORT",
+                "NEON_PROJECT_ID",
+                "NEON_SERVICE_HOST",
+            ]
+        );
+        assert_eq!(loaded.config.server.listen, addr("127.0.0.1:9100"));
+        assert!(
+            shown.contains(
+                "# Ignored, as they set no configuration key: NEON_API_KEY, \
+                 NEON_DATABASE__URLL, NEON_PORT, NEON_PROJECT_ID, NEON_SERVICE_HOST."
+            ),
+            "{shown}"
+        );
+        assert!(!shown.contains(PASSWORD), "{shown}");
+        assert!(!format!("{loaded:?}").contains(PASSWORD));
+        Ok(())
+    });
+}
+
+#[test]
+fn unknown_settings_variables_are_errors_that_do_not_show_their_value() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_SETTINGS__MAIL__PASSWORD", PASSWORD);
+
+        let result = load();
+        let message = result.as_ref().expect_err("invalid").to_string();
+
+        assert_eq!(
+            invalid(result),
+            [Problem::new(
+                "NEON_SETTINGS__MAIL__PASSWORD",
+                "no such setting"
+            )]
+        );
+        assert!(!message.contains(PASSWORD), "{message}");
+        Ok(())
+    });
+}
+
+#[test]
+fn errors_describe_values_without_showing_them() {
+    jailed(|jail| {
+        let check = |result: Result<Loaded, ConfigError>, key: &str| {
+            let debug = format!("{result:?}");
+            let message = read_error(result);
+            assert!(!message.contains(PASSWORD), "{message}");
+            assert!(!debug.contains(PASSWORD), "{debug}");
+            assert!(message.contains(key), "{message}");
+            message
+        };
+
+        // The URL set on the section instead of on its key.
+        jail.set_env("NEON_DATABASE", URL);
+        let message = check(load(), "NEON_DATABASE");
+        assert!(
+            message.starts_with(
+                "invalid type: found a string, expected struct DatabaseConfig for key"
+            ),
+            "{message}"
+        );
+        jail.set_env("NEON_DATABASE", "");
+
+        jail.set_env("NEON_DATABASE__MAX_CONNECTIONS", URL);
+        check(load(), "NEON_DATABASE__MAX_CONNECTIONS");
         jail.set_env("NEON_DATABASE__MAX_CONNECTIONS", "");
-        jail.set_env("NEON_DATABSE__URL", URL);
-        let message = read_error(load());
-        assert!(message.contains("databse"), "{message}");
+
+        jail.set_env("NEON_SERVER__PUBLIC_URL", format!("neon {PASSWORD}"));
+        check(load(), "NEON_SERVER__PUBLIC_URL");
+        jail.set_env("NEON_SERVER__PUBLIC_URL", "");
+
+        jail.create_file("neon.yaml", &format!("database: {URL}\n"))?;
+        check(load(), "database");
+
+        jail.create_file("neon.yaml", &format!("database:\n  auto_migrate: {URL}\n"))?;
+        check(load(), "database.auto_migrate");
+
+        jail.create_file("neon.yaml", &format!("{URL}\n"))?;
+        check(load(), "neon.yaml");
         Ok(())
     });
 }
@@ -307,7 +433,8 @@ fn the_observability_section_is_accepted() {
         jail.set_env("NEON_DATABASE__URL", URL);
         jail.set_env("NEON_OBSERVABILITY__ADMIN__ADDR", "127.0.0.1:9090");
 
-        load().expect("valid configuration");
+        let loaded = load().expect("valid configuration");
+        assert!(loaded.ignored_vars.is_empty(), "{:?}", loaded.ignored_vars);
         Ok(())
     });
 }
@@ -322,8 +449,11 @@ fn secrets_are_redacted_when_the_configuration_is_shown() {
         let loaded = config::load(&registry).expect("valid configuration");
         let shown = loaded.render(&registry).expect("renders");
 
-        assert!(!format!("{loaded:?}").contains("hunter2"));
-        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(!format!("{loaded:?}").contains(PASSWORD));
+        assert!(!format!("{:?}", loaded.config).contains(PASSWORD));
+        assert!(!format!("{:?}", loaded.config.database).contains(PASSWORD));
+        assert!(!format!("{:?}", loaded.config.database.url).contains(PASSWORD));
+        assert!(!shown.contains(PASSWORD), "{shown}");
         assert!(
             shown.contains("postgres://neon:redacted@127.0.0.1:55432/neon"),
             "{shown}"

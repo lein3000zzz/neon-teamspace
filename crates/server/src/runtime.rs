@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use axum::Router;
-use neon_app::jobs::{Worker, WorkerConfig, WorkerHandle};
+use neon_app::jobs::{LISTEN_CONNECTIONS, Worker, WorkerConfig, WorkerHandle};
 use neon_app::settings::{SettingsService, registry};
 use neon_domain::duration;
 use neon_domain::settings::Pinned;
@@ -37,10 +37,25 @@ pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
 
 /// Applies pending migrations, then closes the connection.
 pub async fn migrate(loaded: Loaded) -> anyhow::Result<()> {
-    let pool = connect(&loaded.config.database).await?;
+    report(&loaded);
+    let pool = connect(&loaded.config.database, 1).await?;
     apply_migrations(&pool).await?;
     pool.close().await;
     Ok(())
+}
+
+/// Logs where the configuration came from, and the variables it ignored.
+fn report(loaded: &Loaded) {
+    match &loaded.file {
+        Some(path) => info!(file = %path.display(), "configuration read"),
+        None => info!("no config file; using the defaults and the environment"),
+    }
+    if !loaded.ignored_vars.is_empty() {
+        warn!(
+            variables = %loaded.ignored_vars.join(", "),
+            "ignoring NEON_ environment variables that set no configuration key"
+        );
+    }
 }
 
 /// The running parts.
@@ -52,17 +67,19 @@ struct Server {
 
 impl Server {
     async fn start(loaded: Loaded) -> anyhow::Result<Self> {
+        report(&loaded);
         let Loaded {
-            config,
-            settings,
-            file,
+            config, settings, ..
         } = loaded;
-        match &file {
-            Some(path) => info!(file = %path.display(), "configuration read"),
-            None => info!("no config file; using the defaults and the environment"),
-        }
 
-        let pool = connect(&config.database).await?;
+        // The job worker opens its listening connection beside the pool, so the pool
+        // gets the rest of the configured connections.
+        let pool_size = config
+            .database
+            .max_connections
+            .saturating_sub(LISTEN_CONNECTIONS)
+            .max(1);
+        let pool = connect(&config.database, pool_size).await?;
         if config.database.auto_migrate {
             apply_migrations(&pool).await?;
         }
@@ -90,10 +107,10 @@ impl Server {
     }
 }
 
-async fn connect(database: &DatabaseConfig) -> anyhow::Result<PgPool> {
+async fn connect(database: &DatabaseConfig, max_connections: u32) -> anyhow::Result<PgPool> {
     neon_store::connect(PoolConfig {
         url: database.url.expose(),
-        max_connections: database.max_connections,
+        max_connections,
     })
     .await
     // The URL's Display hides its password.
