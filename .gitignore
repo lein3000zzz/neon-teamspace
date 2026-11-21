@@ -1,6 +1,30 @@
+# Build output
 /target
-.idea
-/local
+node_modules/
+dist/
+.astro/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Editors and OS files
+.idea/
+.vscode/
+*.swp
 .DS_Store
+
+# Local-only files: notes, configs and secrets never leave the machine
+/local
+/.worktrees
 /brag-output
 .env
+.env.*
+!.env.example
+neon.yaml
+*.local.yaml
+*.local.yml
+.claude/settings.local.json
+*.pem
+*.key
+*.p12

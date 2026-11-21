@@ -1,6 +1,35 @@
-[package]
-name = "neon-workspace"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.100"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/lein3000zzz/neon-workspace"
+publish = false
 
-[dependencies]
+[workspace.dependencies]
+neon-domain = { path = "crates/domain" }
+neon-store = { path = "crates/store" }
+neon-app = { path = "crates/app" }
+neon-observability = { path = "crates/observability" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Line tables keep profiles and backtraces readable at a small size cost.
+debug = "line-tables-only"

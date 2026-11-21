@@ -1,0 +1,18 @@
+[package]
+name = "neon-server"
+description = "The neon binary: HTTP API, realtime sync, MCP, webhooks and wiring."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "neon"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true
