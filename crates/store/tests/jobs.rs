@@ -96,7 +96,9 @@ async fn concurrent_claims_skip_locked_rows(pool: PgPool) {
 
     // The first claim keeps its rows locked until its transaction ends.
     let mut tx = pool.begin().await.unwrap();
-    let first = jobs::claim(&mut *tx, "worker-a", &kinds(), 3).await.unwrap();
+    let first = jobs::claim(&mut *tx, "worker-a", &kinds(), 3)
+        .await
+        .unwrap();
     let second = jobs::claim(&pool, "worker-b", &kinds(), 10).await.unwrap();
     tx.commit().await.unwrap();
 
@@ -108,7 +110,10 @@ async fn concurrent_claims_skip_locked_rows(pool: PgPool) {
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn complete_needs_the_current_lease(pool: PgPool) {
     let id = jobs::enqueue(&pool, &mail()).await.unwrap();
-    let job = jobs::claim(&pool, WORKER, &kinds(), 1).await.unwrap().remove(0);
+    let job = jobs::claim(&pool, WORKER, &kinds(), 1)
+        .await
+        .unwrap()
+        .remove(0);
 
     assert!(!jobs::complete(&pool, job.lease("worker-b")).await.unwrap());
     assert!(jobs::complete(&pool, job.lease(WORKER)).await.unwrap());
@@ -119,11 +124,19 @@ async fn complete_needs_the_current_lease(pool: PgPool) {
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn retry_queues_the_job_after_the_delay(pool: PgPool) {
     let id = jobs::enqueue(&pool, &mail()).await.unwrap();
-    let job = jobs::claim(&pool, WORKER, &kinds(), 1).await.unwrap().remove(0);
-
-    let retried = jobs::retry(&pool, job.lease(WORKER), Duration::from_secs(3600), "smtp down")
+    let job = jobs::claim(&pool, WORKER, &kinds(), 1)
         .await
-        .unwrap();
+        .unwrap()
+        .remove(0);
+
+    let retried = jobs::retry(
+        &pool,
+        job.lease(WORKER),
+        Duration::from_secs(3600),
+        "smtp down",
+    )
+    .await
+    .unwrap();
 
     assert!(retried);
     assert_eq!(
@@ -154,7 +167,10 @@ async fn retry_queues_the_job_after_the_delay(pool: PgPool) {
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn mark_dead_keeps_the_last_error(pool: PgPool) {
     let id = jobs::enqueue(&pool, &mail()).await.unwrap();
-    let job = jobs::claim(&pool, WORKER, &kinds(), 1).await.unwrap().remove(0);
+    let job = jobs::claim(&pool, WORKER, &kinds(), 1)
+        .await
+        .unwrap()
+        .remove(0);
 
     assert!(
         jobs::mark_dead(&pool, job.lease(WORKER), "bad address")
