@@ -1,11 +1,15 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::routing::{get, post};
 use http_body_util::BodyExt as _;
+use metrics_util::MetricKind;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_domain::settings::Pinned;
+use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -80,7 +84,7 @@ fn test_app(state: AppState, limits: Limits) -> Router {
                 "late"
             }),
         );
-    app(api().merge(routes), limits).with_state(state)
+    app(api().merge(routes), limits, HttpLayer::new()).with_state(state)
 }
 
 async fn send(app: Router, request: Request<Body>) -> (StatusCode, Value) {
@@ -119,7 +123,7 @@ fn error_code(body: &Value) -> &str {
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn meta_names_the_instance_and_the_version(pool: PgPool) {
     let state = state(pool).await;
-    let app = router(state.clone());
+    let app = router(state.clone(), false);
 
     let (status, body) = send(app.clone(), get_request("/api/v1/meta")).await;
     assert_eq!(status, StatusCode::OK);
@@ -142,7 +146,7 @@ async fn meta_names_the_instance_and_the_version(pool: PgPool) {
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn the_description_is_served(pool: PgPool) {
-    let app = router(state(pool).await);
+    let app = router(state(pool).await, false);
 
     let response = app
         .oneshot(get_request("/api/v1/openapi.json"))
@@ -162,7 +166,7 @@ async fn the_description_is_served(pool: PgPool) {
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn unknown_routes_and_methods_answer_in_the_error_shape(pool: PgPool) {
-    let app = router(state(pool).await);
+    let app = router(state(pool).await, false);
 
     let (status, body) = send(app.clone(), get_request("/api/v1/nope")).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -294,4 +298,68 @@ async fn a_slow_handler_times_out_in_the_error_shape(pool: PgPool) {
             "message": "the server did not answer within 50ms"
         }})
     );
+}
+
+/// `neon_http_operations_total` by operation and status. A snapshot resets the counters.
+fn request_counts(snapshotter: &Snapshotter) -> HashMap<(String, String), u64> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter_map(|(key, _, _, value)| {
+            let (kind, key) = key.into_parts();
+            let (MetricKind::Counter, DebugValue::Counter(count)) = (kind, value) else {
+                return None;
+            };
+            if key.name() != "neon_http_operations_total" {
+                return None;
+            }
+            let label = |name: &str| {
+                key.labels()
+                    .find(|label| label.key() == name)
+                    .map(|label| label.value().to_owned())
+            };
+            Some(((label("operation")?, label("status")?), count))
+        })
+        .collect()
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn red_metrics_count_the_status_the_client_gets(pool: PgPool) {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    // Tests run on a single-threaded runtime, so the recorder sees every request.
+    let _recording = metrics::set_default_local_recorder(&recorder);
+    let limits = Limits {
+        timeout: Duration::from_millis(50),
+        ..Limits::default()
+    };
+    let app = test_app(state(pool).await, limits);
+
+    for uri in [
+        "/api/v1/meta",
+        "/api/v1/test/items/7",
+        "/api/v1/test/items/abc",
+        "/api/v1/test/panic",
+        "/api/v1/test/slow",
+        "/api/v1/nope",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(get_request(uri))
+            .await
+            .expect("a response");
+        assert!(response.headers().contains_key(&X_REQUEST_ID), "{uri}");
+    }
+
+    let counts = request_counts(&snapshotter);
+    let expected = [
+        ("GET /api/v1/meta", "ok", 1),
+        ("GET /api/v1/test/items/{id}", "ok", 2),
+        ("GET /api/v1/test/panic", "error", 1),
+        ("GET /api/v1/test/slow", "error", 1),
+        ("GET unmatched", "ok", 1),
+    ]
+    .map(|(operation, status, count)| ((operation.to_owned(), status.to_owned()), count));
+    assert_eq!(counts, HashMap::from(expected));
 }

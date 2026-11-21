@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use figment::Jail;
 use neon_app::settings::{INSTANCE_NAME, registry};
 use neon_domain::settings::{Problem, Source, Stored};
+use neon_observability::config::{LogFormat, ProfilingMode};
 use neon_server::config::{
     self, ConfigError, DatabaseConfig, Loaded, MIN_CONNECTIONS, ServerConfig,
 };
@@ -424,17 +425,167 @@ fn yaml_syntax_errors_name_the_file() {
 }
 
 #[test]
-fn the_observability_section_is_accepted() {
+fn the_observability_section_is_read_from_the_file_and_the_environment() {
     jailed(|jail| {
         jail.create_file(
             "neon.yaml",
-            "observability:\n  logging:\n    level: debug\n",
+            "observability:\n  logging:\n    level: debug\n  tracing:\n    sample_ratio: 0.5\n\
+             \x20   trust_incoming: false\n  profiling:\n    mode: off\n",
         )?;
         jail.set_env("NEON_DATABASE__URL", URL);
-        jail.set_env("NEON_OBSERVABILITY__ADMIN__ADDR", "127.0.0.1:9090");
+        jail.set_env("NEON_OBSERVABILITY__ADMIN__ADDR", "0.0.0.0:9191");
+        jail.set_env("NEON_OBSERVABILITY__TRACING__TRUST_INCOMING", "true");
+        jail.set_env("NEON_OBSERVABILITY__LOGGING__FORMAT", "pretty");
+        jail.set_env("NEON_OBSERVABILITY__PROFILING__PUSH__TAGS__ENV", "prod");
 
         let loaded = load().expect("valid configuration");
+
         assert!(loaded.ignored_vars.is_empty(), "{:?}", loaded.ignored_vars);
+        let observability = &loaded.config.observability;
+        assert_eq!(observability.logging.level, "debug");
+        assert_eq!(observability.logging.format, LogFormat::Pretty);
+        assert!((observability.tracing.sample_ratio - 0.5).abs() < f64::EPSILON);
+        assert!(observability.tracing.trust_incoming);
+        assert_eq!(observability.profiling.mode, ProfilingMode::Off);
+        assert_eq!(
+            observability
+                .profiling
+                .push
+                .tags
+                .get("env")
+                .map(String::as_str),
+            Some("prod")
+        );
+        assert_eq!(observability.admin.addr, addr("0.0.0.0:9191"));
+        assert!(observability.admin.enabled);
+        Ok(())
+    });
+}
+
+#[test]
+fn observability_errors_are_reported_with_the_others() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__MAX_CONNECTIONS", 1);
+        jail.set_env("NEON_OBSERVABILITY__TRACING__SAMPLE_RATIO", 2);
+        jail.set_env("NEON_OBSERVABILITY__PROFILING__MODE", "push");
+
+        assert_eq!(
+            invalid(load()),
+            [
+                Problem::new("database.url (NEON_DATABASE__URL)", "is required"),
+                Problem::new(
+                    "database.max_connections (NEON_DATABASE__MAX_CONNECTIONS)",
+                    "must be at least 2: the job worker keeps one connection to listen \
+                     for new jobs, and queries need at least one more"
+                ),
+                Problem::new(
+                    "observability.tracing.sample_ratio \
+                     (NEON_OBSERVABILITY__TRACING__SAMPLE_RATIO)",
+                    "must be between 0 and 1, got 2"
+                ),
+                Problem::new(
+                    "observability.profiling.push.server_address \
+                     (NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS)",
+                    "is required in push mode"
+                ),
+            ]
+        );
+        Ok(())
+    });
+}
+
+#[test]
+fn observability_keys_are_checked_like_the_others() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_OBSERVABILITY__ADMN__ADDR", "127.0.0.1:9191");
+
+        let loaded = load().expect("valid configuration");
+        assert_eq!(loaded.ignored_vars, ["NEON_OBSERVABILITY__ADMN__ADDR"]);
+        assert_eq!(
+            loaded.config.observability.admin.addr,
+            addr("127.0.0.1:9090")
+        );
+
+        jail.create_file(
+            "neon.yaml",
+            "observability:\n  tracing:\n    sampel_ratio: 1\n",
+        )?;
+        let message = read_error(load());
+        assert!(message.contains("sampel_ratio"), "{message}");
+
+        jail.create_file("neon.yaml", "")?;
+        jail.set_env("NEON_OBSERVABILITY__ADMIN__ADDR", "everywhere");
+        let message = read_error(load());
+        assert!(
+            message.contains("NEON_OBSERVABILITY__ADMIN__ADDR"),
+            "{message}"
+        );
+        Ok(())
+    });
+}
+
+#[test]
+fn observability_errors_do_not_show_urls() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_OBSERVABILITY__TRACING__ENDPOINT", URL);
+        jail.set_env("NEON_OBSERVABILITY__PROFILING__MODE", "push");
+        jail.set_env(
+            "NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS",
+            format!("https://neon:{PASSWORD}@pyroscope:4040"),
+        );
+
+        let result = load();
+        let message = result.as_ref().expect_err("invalid").to_string();
+        let keys: Vec<String> = invalid(result).into_iter().map(|p| p.key).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "observability.tracing.endpoint (NEON_OBSERVABILITY__TRACING__ENDPOINT)",
+                "observability.profiling.push.server_address \
+                 (NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS)",
+            ]
+        );
+        assert!(!message.contains(PASSWORD), "{message}");
+        Ok(())
+    });
+}
+
+#[test]
+fn config_check_shows_the_observability_section_and_its_warnings() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env(
+            "NEON_OBSERVABILITY__TRACING__ENDPOINT",
+            "http://otel-lgtm:4318",
+        );
+        jail.set_env("NEON_OBSERVABILITY__TRACING__TRUST_INCOMING", "true");
+        let registry = registry();
+
+        let loaded = config::load(&registry).expect("valid configuration");
+        let shown = loaded.render(&registry).expect("renders");
+
+        assert!(
+            shown.contains(
+                "# Warning: observability.tracing.endpoint: is ignored while \
+                 tracing.enabled is false.\n"
+            ),
+            "{shown}"
+        );
+        for line in [
+            "observability:",
+            "    level: info",
+            "    endpoint: http://otel-lgtm:4318",
+            "    trust_incoming: true",
+            "    addr: 127.0.0.1:9090",
+        ] {
+            assert!(
+                shown.lines().any(|shown| shown == line),
+                "no {line:?} in {shown}"
+            );
+        }
         Ok(())
     });
 }
@@ -481,6 +632,10 @@ fn the_example_file_holds_the_defaults() {
                 url: loaded.config.database.url.clone(),
                 ..DatabaseConfig::default()
             }
+        );
+        assert_eq!(
+            loaded.config.observability,
+            neon_observability::Config::default()
         );
         assert_eq!(instance_name(&loaded).1, Source::Default);
         Ok(())

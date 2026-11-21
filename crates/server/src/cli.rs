@@ -7,7 +7,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use neon_app::settings::registry;
 
-use crate::{config, http, logging, runtime};
+use crate::{config, http, runtime};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -52,16 +52,15 @@ enum ConfigCommand {
     Check,
 }
 
+/// Runs a command. `serve` and `migrate` load the configuration, then install telemetry,
+/// which logs to stdout. `main` prints a returned error to stderr, which is the only
+/// place an invalid configuration is reported, as telemetry is not up yet. The other
+/// commands print their output to stdout and install no telemetry, so nothing else is
+/// written there.
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command.unwrap_or(Command::Serve) {
-        Command::Serve => {
-            logging::init();
-            runtime::serve(config::load(&registry())?).await
-        }
-        Command::Migrate => {
-            logging::init();
-            runtime::migrate(config::load(&registry())?).await
-        }
+        Command::Serve => runtime::serve(config::load(&registry())?).await,
+        Command::Migrate => runtime::migrate(config::load(&registry())?).await,
         Command::Openapi { out: Some(path) } => std::fs::write(&path, http::spec_json())
             .with_context(|| format!("writing {}", path.display())),
         Command::Openapi { out: None } => print(&http::spec_json()),

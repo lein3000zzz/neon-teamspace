@@ -11,12 +11,14 @@ use super::{DatabaseConfig, Loaded, ServerConfig};
 struct Shown<'a> {
     server: &'a ServerConfig,
     database: &'a DatabaseConfig,
+    observability: &'a neon_observability::Config,
 }
 
 impl Loaded {
     /// The configuration as YAML with secrets redacted, followed by every runtime
     /// setting as the environment and the file leave it, each marked with its source.
-    /// Ignored `NEON_` variables are listed by name.
+    /// Ignored `NEON_` variables and the observability section's warnings are listed
+    /// first, as comments.
     pub fn render(&self, registry: &Registry) -> Result<String, serde_saphyr::SerializeError> {
         let mut out = match &self.file {
             Some(path) => format!("# Read from {} and the environment.\n", path.display()),
@@ -30,9 +32,20 @@ impl Loaded {
                 self.ignored_vars.join(", ")
             );
         }
+        // A loaded configuration has no errors, so only warnings are left.
+        let warnings = self
+            .config
+            .observability
+            .validate()
+            .unwrap_or_else(|invalid| invalid.warnings);
+        for warning in warnings {
+            // Writing to a String cannot fail.
+            let _ = writeln!(out, "# Warning: {warning}.");
+        }
         out.push_str(&serde_saphyr::to_string(&Shown {
             server: &self.config.server,
             database: &self.config.database,
+            observability: &self.config.observability,
         })?);
 
         out.push_str(

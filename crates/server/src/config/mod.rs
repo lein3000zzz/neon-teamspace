@@ -12,6 +12,9 @@
 //! The file's `settings` section and the `NEON_SETTINGS__*` variables are runtime
 //! settings. The settings registry parses them, and a value set there pins its setting,
 //! so the admin page cannot change it.
+//!
+//! The `observability` section is `neon-observability`'s own configuration. Its errors
+//! fail the load with the others; its warnings are logged once telemetry is installed.
 
 mod database_url;
 mod env;
@@ -26,7 +29,7 @@ use figment::Figment;
 use figment::error::{Actual, Kind, OneOf};
 use neon_app::jobs::LISTEN_CONNECTIONS;
 use neon_domain::settings::{Pinned, Problem, RawLayers, Registry};
-use serde::de::{Error as _, IgnoredAny};
+use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value as Json};
 use url::Url;
@@ -57,10 +60,9 @@ pub struct Config {
     /// Parsed by [`load`] into [`Loaded::settings`].
     #[serde(default)]
     settings: SettingsTree,
-    /// Accepted and ignored until the observability configuration is read from it, so
-    /// files and variables written for it already load.
+    /// Logs, metrics, traces, profiles and the admin listener.
     #[serde(default)]
-    pub observability: IgnoredAny,
+    pub observability: neon_observability::Config,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -232,6 +234,12 @@ impl Config {
             && let Err(message) = check_public_url(url)
         {
             report("server.public_url", message);
+        }
+        // Its warnings are logged as telemetry starts, which checks the section again.
+        if let Err(invalid) = self.observability.validate() {
+            for problem in invalid.errors {
+                report(problem.field, problem.message);
+            }
         }
 
         problems
