@@ -16,7 +16,7 @@ bun run dev        # http://localhost:4321/docs/
 | Script | What it does |
 |---|---|
 | `bun run dev` | Starts the development server, which reloads as pages change. |
-| `bun run build` | Builds the site into `dist/`, then writes `csp.caddy`. Fails on a broken link or anchor. |
+| `bun run build` | Builds the site into `dist/`, then writes `csp.caddy`. Fails on a broken link or anchor; links into the generated API reference are not checked. |
 | `bun run preview` | Serves `dist/` as it was built. |
 | `bun run check` | Type-checks the site and its scripts, and runs the scripts' tests. |
 | `bun run chromium` | Installs Playwright's headless Chromium for the diagrams. |
@@ -56,11 +56,13 @@ The diagrams are drawn in black and white and inverted in dark mode by `custom.c
 
 The pages under Reference → API are generated from `../api/openapi.json` by
 [`starlight-openapi`](https://github.com/HiDeoo/starlight-openapi) on each build. The spec
-is written by the server (`neon openapi`), so the docs need no change when the API does:
-rebuild them.
+is written by the server (`neon openapi --out api/openapi.json`, from the repository's
+root), so the docs need no change when the API does: rebuild them.
 
-The settings reference, `src/content/docs/reference/settings.md`, is written by
-`neon settings docs` from the server's settings registry. Change the registry, not the page.
+The settings reference, `src/content/docs/reference/settings.md`, holds the table that
+`neon settings docs` prints from the server's settings registry. For now it is copied by
+hand, so a change to the registry needs the same change here. Generating the page with the
+command is planned.
 
 ## The Content-Security-Policy
 

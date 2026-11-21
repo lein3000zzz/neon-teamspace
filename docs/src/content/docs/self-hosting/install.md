@@ -83,10 +83,11 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 
 | Command | What it does |
 |---|---|
-| `neon serve` | Runs the server. |
+| `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
-| `neon openapi` | Writes the API's OpenAPI description, committed as `api/openapi.json`. |
-| `neon settings docs` | Writes the [settings reference](/docs/reference/settings/) from the server's settings registry. |
+| `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. `--out api/openapi.json` refreshes the committed copy. |
+| `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
+| `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 
 With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`.
 
