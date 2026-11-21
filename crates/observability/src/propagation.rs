@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use http::HeaderMap;
 use http::header::{HeaderName, HeaderValue};
+use opentelemetry::baggage::BaggageExt as _;
 use opentelemetry::propagation::{
     Extractor, Injector, TextMapCompositePropagator, TextMapPropagator as _,
 };
@@ -80,10 +81,12 @@ pub fn set_parent_from_headers(span: &Span, headers: &HeaderMap) {
     set_parent(span, cx);
 }
 
-/// A carrier without a valid context leaves the span's own parent, so a missing header never
-/// detaches a span from the trace it already belongs to.
+/// A carrier without a valid trace context leaves the span's own parent, so a missing header
+/// never detaches a span from the trace it already belongs to. Its baggage still applies:
+/// extraction starts from the current context, so such a carrier makes the span a child of
+/// the current context with the carrier's baggage added.
 fn set_parent(span: &Span, cx: Context) {
-    if !cx.span().span_context().is_valid() {
+    if !cx.span().span_context().is_valid() && cx.baggage().is_empty() {
         return;
     }
     match span.set_parent(cx) {
@@ -202,6 +205,40 @@ mod tests {
             let child = tracing::info_span!("child");
             set_parent_from_traceparent(&child, "not a traceparent");
             assert_eq!(trace_id(&child), trace_id(&parent));
+        });
+    }
+
+    #[test]
+    fn baggage_without_a_trace_context_is_kept() {
+        install_propagator();
+        let traces = Traces::new();
+        traces.run(|| {
+            let carrier = HashMap::from([("baggage".to_owned(), "tenant=acme".to_owned())]);
+            let job = tracing::info_span!("job");
+            set_parent_from_map(&job, &carrier);
+
+            let mut out = HashMap::new();
+            job.in_scope(|| inject_map(&mut out));
+            assert_eq!(out.get("baggage").map(String::as_str), Some("tenant=acme"));
+            assert!(out.contains_key(TRACEPARENT));
+        });
+    }
+
+    #[test]
+    fn baggage_without_a_trace_context_keeps_the_current_trace() {
+        install_propagator();
+        let traces = Traces::new();
+        traces.run(|| {
+            let parent = tracing::info_span!("parent");
+            let _entered = parent.enter();
+            let carrier = HashMap::from([("baggage".to_owned(), "tenant=acme".to_owned())]);
+            let child = tracing::info_span!("child");
+            set_parent_from_map(&child, &carrier);
+
+            assert_eq!(trace_id(&child), trace_id(&parent));
+            let mut out = HashMap::new();
+            child.in_scope(|| inject_map(&mut out));
+            assert_eq!(out.get("baggage").map(String::as_str), Some("tenant=acme"));
         });
     }
 
