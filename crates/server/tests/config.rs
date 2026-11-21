@@ -591,6 +591,39 @@ fn config_check_shows_the_observability_section_and_its_warnings() {
 }
 
 #[test]
+fn config_check_hides_credentials_in_observability_urls() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_OBSERVABILITY__TRACING__ENABLED", "true");
+        jail.set_env(
+            "NEON_OBSERVABILITY__TRACING__ENDPOINT",
+            format!("http://neon:{PASSWORD}@collector:4318"),
+        );
+        jail.set_env("NEON_OBSERVABILITY__PROFILING__MODE", "push");
+        jail.set_env(
+            "NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS",
+            format!("http://{PASSWORD}@pyroscope:4040"),
+        );
+        let registry = registry();
+
+        let loaded = config::load(&registry).expect("valid configuration");
+        let shown = loaded.render(&registry).expect("renders");
+
+        assert!(!shown.contains(PASSWORD), "{shown}");
+        for line in [
+            "    endpoint: http://neon:redacted@collector:4318/",
+            "      server_address: http://redacted@pyroscope:4040/",
+        ] {
+            assert!(
+                shown.lines().any(|shown| shown == line),
+                "no {line:?} in {shown}"
+            );
+        }
+        Ok(())
+    });
+}
+
+#[test]
 fn secrets_are_redacted_when_the_configuration_is_shown() {
     jailed(|jail| {
         jail.set_env("NEON_DATABASE__URL", URL);

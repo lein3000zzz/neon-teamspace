@@ -4,14 +4,16 @@ use std::fmt::Write as _;
 
 use neon_domain::settings::{Registry, Source, Stored};
 use serde::Serialize;
+use url::Url;
 
+use super::database_url::REDACTED;
 use super::{DatabaseConfig, Loaded, ServerConfig};
 
 #[derive(Serialize)]
 struct Shown<'a> {
     server: &'a ServerConfig,
     database: &'a DatabaseConfig,
-    observability: &'a neon_observability::Config,
+    observability: neon_observability::Config,
 }
 
 impl Loaded {
@@ -45,7 +47,7 @@ impl Loaded {
         out.push_str(&serde_saphyr::to_string(&Shown {
             server: &self.config.server,
             database: &self.config.database,
-            observability: &self.config.observability,
+            observability: without_credentials(&self.config.observability),
         })?);
 
         out.push_str(
@@ -71,5 +73,78 @@ impl Loaded {
         }
 
         Ok(out)
+    }
+}
+
+/// The observability section with the credentials in its collector and Pyroscope URLs
+/// replaced, as either may carry a user name and password.
+fn without_credentials(observability: &neon_observability::Config) -> neon_observability::Config {
+    let mut shown = observability.clone();
+    for url in [
+        &mut shown.tracing.endpoint,
+        &mut shown.profiling.push.server_address,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        *url = redacted(url);
+    }
+    shown
+}
+
+/// The URL with the password in its user part replaced, or the user name when there is no
+/// password, since a user name alone may be a token. A URL without either is shown as
+/// written, and one that does not parse is hidden whole, since where a secret would sit in
+/// it is unknown.
+fn redacted(text: &str) -> String {
+    let Ok(mut url) = Url::parse(text) else {
+        return format!("[{REDACTED}]");
+    };
+    // Both fail only for URLs that cannot have a user part, and this one has one.
+    if url.password().is_some() {
+        let _ = url.set_password(Some(REDACTED));
+    } else if !url.username().is_empty() {
+        let _ = url.set_username(REDACTED);
+    } else {
+        // Parsing would add a trailing slash to a bare host.
+        return text.to_owned();
+    }
+    url.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_in_urls_are_replaced() {
+        assert_eq!(
+            redacted("http://user:hunter2@collector:4318"),
+            "http://user:redacted@collector:4318/"
+        );
+        assert_eq!(
+            redacted("http://hunter2@pyroscope:4040/base"),
+            "http://redacted@pyroscope:4040/base"
+        );
+        assert_eq!(redacted("http://otel-lgtm:4318"), "http://otel-lgtm:4318");
+        assert_eq!(redacted("hunter2@collector"), "[redacted]");
+    }
+
+    #[test]
+    fn both_observability_urls_are_redacted() {
+        let mut config = neon_observability::Config::default();
+        config.tracing.endpoint = Some("http://user:hunter2@collector:4318".to_owned());
+        config.profiling.push.server_address = Some("http://user:hunter2@pyroscope".to_owned());
+
+        let shown = without_credentials(&config);
+
+        assert_eq!(
+            shown.tracing.endpoint.as_deref(),
+            Some("http://user:redacted@collector:4318/")
+        );
+        assert_eq!(
+            shown.profiling.push.server_address.as_deref(),
+            Some("http://user:redacted@pyroscope/")
+        );
     }
 }
