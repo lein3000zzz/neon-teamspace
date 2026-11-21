@@ -1,2 +1,6 @@
 /target
 .idea
+/local
+.DS_Store
+/brag-output
+.env
