@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use neon_observability::propagation;
 use serde_json::Value as Json;
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
@@ -17,6 +18,9 @@ pub const CHANNEL: &str = "neon_jobs";
 
 /// How many times a job runs before it is marked dead, unless it says otherwise.
 pub const DEFAULT_MAX_ATTEMPTS: i32 = 10;
+
+/// Every status a job can have, as the table's check constraint lists them.
+pub const STATUSES: [&str; 4] = ["queued", "running", "done", "dead"];
 
 /// A job to queue.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,8 +56,8 @@ impl NewJob {
         self
     }
 
-    /// The W3C `traceparent` of the request that queued the job, so its run joins the
-    /// same trace.
+    /// The W3C `traceparent` of the trace the job's run joins. Without one, [`enqueue`]
+    /// stores the current span's.
     pub fn traceparent(mut self, traceparent: Option<String>) -> Self {
         self.traceparent = traceparent;
         self
@@ -62,8 +66,15 @@ impl NewJob {
 
 /// Queues a job and returns its id. Workers listening on [`CHANNEL`] wake when the
 /// caller's transaction commits.
+///
+/// A job given no `traceparent` gets the current span's, so its run continues the trace
+/// of the request that queued it. Outside a span it has none and its run starts a trace.
 pub async fn enqueue(executor: impl PgExecutor<'_>, job: &NewJob) -> sqlx::Result<Uuid> {
     let id = Uuid::now_v7();
+    let traceparent = job
+        .traceparent
+        .clone()
+        .or_else(propagation::current_traceparent);
     sqlx::query!(
         "INSERT INTO jobs (id, kind, payload, max_attempts, run_at, traceparent)
          VALUES ($1, $2, $3, $4, COALESCE($5, now()), $6)",
@@ -72,11 +83,23 @@ pub async fn enqueue(executor: impl PgExecutor<'_>, job: &NewJob) -> sqlx::Resul
         job.payload,
         job.max_attempts,
         job.run_at,
-        job.traceparent,
+        traceparent,
     )
     .execute(executor)
     .await?;
     Ok(id)
+}
+
+/// How many jobs have each status, for the queue depth gauge. Statuses no job has are
+/// left out. Done and dead jobs count until they are deleted.
+pub async fn count_by_status(executor: impl PgExecutor<'_>) -> sqlx::Result<Vec<(String, i64)>> {
+    let rows = sqlx::query!(r#"SELECT status, count(*) AS "count!" FROM jobs GROUP BY status"#)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.status, row.count))
+        .collect())
 }
 
 /// A claimed job, ready to run.

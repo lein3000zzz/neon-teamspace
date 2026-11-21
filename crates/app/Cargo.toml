@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 neon-domain.workspace = true
+neon-observability.workspace = true
 neon-store.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
@@ -22,6 +23,10 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

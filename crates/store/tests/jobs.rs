@@ -302,3 +302,36 @@ async fn enqueue_notifies_listeners_on_commit_only(pool: PgPool) {
         .unwrap();
     assert_eq!(notification.payload(), "mail.send");
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn jobs_are_counted_by_status(pool: PgPool) {
+    assert_eq!(jobs::count_by_status(&pool).await.unwrap(), []);
+
+    for _ in 0..3 {
+        jobs::enqueue(&pool, &mail()).await.unwrap();
+    }
+    let claimed = jobs::claim(&pool, WORKER, &kinds(), 1).await.unwrap();
+    let done = jobs::enqueue(&pool, &mail()).await.unwrap();
+    sqlx::query("UPDATE jobs SET status = 'done' WHERE id = $1")
+        .bind(done)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut counts = jobs::count_by_status(&pool).await.unwrap();
+    counts.sort();
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(
+        counts,
+        [
+            ("done".to_owned(), 1),
+            ("queued".to_owned(), 2),
+            ("running".to_owned(), 1),
+        ]
+    );
+    assert!(
+        counts
+            .iter()
+            .all(|(status, _)| jobs::STATUSES.contains(&status.as_str()))
+    );
+}

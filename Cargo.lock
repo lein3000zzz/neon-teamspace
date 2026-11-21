@@ -1449,8 +1449,10 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
  "futures-util",
  "neon-domain",
+ "neon-observability",
  "neon-store",
  "rand 0.10.4",
  "serde_json",
@@ -1458,6 +1460,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tower",
  "tracing",
  "uuid",
 ]
@@ -1535,6 +1538,7 @@ dependencies = [
 name = "neon-store"
 version = "0.1.0"
 dependencies = [
+ "neon-observability",
  "serde_json",
  "sqlx",
  "time",
