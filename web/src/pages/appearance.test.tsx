@@ -38,6 +38,15 @@ describe("appearance settings", () => {
     expect(stored()).toMatchObject({ palette: "warm" });
   });
 
+  it("names the device's scheme in the hint while another mode is chosen", async () => {
+    mockColorScheme("dark");
+    const { user } = await renderAppearance();
+
+    await user.click(within(group("Mode")).getByRole("radio", { name: "Light" }));
+    expect(html().dataset["mode"]).toBe("light");
+    expect(screen.getByText(/currently Dark/)).toBeInTheDocument();
+  });
+
   it("switches the mode and keeps a choice when its button is pressed again", async () => {
     mockColorScheme("light");
     const { user } = await renderAppearance();

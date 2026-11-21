@@ -27,6 +27,8 @@ interface ThemeContextValue {
   preferences: ThemePreferences;
   /** The mode actually shown, with "system" resolved. */
   mode: Mode;
+  /** The device's colour scheme, whatever the user picked. */
+  systemMode: Mode;
   update: (patch: Partial<ThemePreferences>) => void;
   /** Back to the defaults, and forget the stored choice. */
   reset: () => void;
@@ -56,6 +58,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const pendingWrite = useRef<"save" | "clear" | null>(null);
   const prefersDark = useSyncExternalStore(subscribeToSystemMode, systemPrefersDark);
   const mode = resolveMode(preferences.mode, prefersDark);
+  const systemMode = resolveMode("system", prefersDark);
 
   useEffect(() => {
     applyTheme(document.documentElement, preferences, mode);
@@ -92,8 +95,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ preferences, mode, update, reset }),
-    [preferences, mode, update, reset],
+    () => ({ preferences, mode, systemMode, update, reset }),
+    [preferences, mode, systemMode, update, reset],
   );
 
   return <ThemeContext value={value}>{children}</ThemeContext>;

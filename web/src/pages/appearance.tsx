@@ -27,7 +27,7 @@ const MODE_ICONS: Record<ModePreference, typeof Monitor> = {
  * is remembered on this device.
  */
 export function AppearancePage() {
-  const { preferences, mode, update, reset } = useTheme();
+  const { preferences, mode, systemMode, update, reset } = useTheme();
   const copy = strings.appearance;
 
   // A single-choice toggle group reports "" when its active item is pressed
@@ -64,7 +64,7 @@ export function AppearancePage() {
           )}
         </SettingSection>
 
-        <SettingSection title={copy.mode} hint={copy.modeHint(copy.modes[mode])}>
+        <SettingSection title={copy.mode} hint={copy.modeHint(copy.modes[systemMode])}>
           {(headingId) => (
             <ToggleGroup
               type="single"

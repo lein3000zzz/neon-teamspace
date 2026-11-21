@@ -42,7 +42,7 @@ export const strings = {
     paletteHint: "The ground, ink and rules everything else sits on.",
     palettes: { nothing: "Nothing", soft: "Soft", warm: "Warm" },
     mode: "Mode",
-    modeHint: (resolved: string) => `System follows your device, currently ${resolved}.`,
+    modeHint: (device: string) => `System follows your device, currently ${device}.`,
     modes: { system: "System", light: "Light", dark: "Dark" },
     accent: "Accent",
     accentHint: "Primary actions, focus and selection take this hue.",
