@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 25">
+  <style>
+    g { fill: #000000; }
+    @media (prefers-color-scheme: dark) { g { fill: #ffffff; } }
+  </style>
+  <g>
+    <circle cx="2.5" cy="2.5" r="2"/>
+    <circle cx="2.5" cy="7.5" r="2"/>
+    <circle cx="2.5" cy="12.5" r="2"/>
+    <circle cx="2.5" cy="17.5" r="2"/>
+    <circle cx="2.5" cy="22.5" r="2"/>
+    <circle cx="7.5" cy="7.5" r="2"/>
+    <circle cx="12.5" cy="12.5" r="2"/>
+    <circle cx="17.5" cy="17.5" r="2"/>
+    <circle cx="22.5" cy="2.5" r="2"/>
+    <circle cx="22.5" cy="7.5" r="2"/>
+    <circle cx="22.5" cy="12.5" r="2"/>
+    <circle cx="22.5" cy="17.5" r="2"/>
+    <circle cx="22.5" cy="22.5" r="2"/>
+  </g>
+</svg>
