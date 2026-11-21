@@ -1,0 +1,28 @@
+# Postgres for local development and tests.
+#
+#   docker compose -f deployments/docker-compose.dev.yml up -d
+#
+# The port is bound to 127.0.0.1 only, and is not 5432 so it does not clash with a
+# Postgres already installed on the machine. The credentials are for development only.
+name: neon-dev
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: neon
+      POSTGRES_PASSWORD: neon
+      POSTGRES_DB: neon
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      # Postgres 18 images keep their data under /var/lib/postgresql/18/docker.
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neon -d neon"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres:

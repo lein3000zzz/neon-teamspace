@@ -13,6 +13,34 @@ name = "neon"
 path = "src/main.rs"
 
 [dependencies]
+neon-app.workspace = true
+neon-domain.workspace = true
+neon-store.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+figment.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url = { workspace = true, features = ["serde"] }
+utoipa.workspace = true
+utoipa-axum.workspace = true
+
+[dev-dependencies]
+figment = { workspace = true, features = ["test"] }
+http-body-util.workspace = true
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

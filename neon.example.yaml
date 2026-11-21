@@ -1,0 +1,32 @@
+# Neon Workspace configuration.
+#
+# Copy this file to neon.yaml in the server's working directory, where git ignores it, or
+# set NEON_CONFIG to its path. Every value shown is the default.
+#
+# An environment variable can set any key, and wins over this file. Its name is NEON_
+# followed by the key's path in capitals, with __ between levels. server.listen is
+# NEON_SERVER__LISTEN, and settings.instance.name is NEON_SETTINGS__INSTANCE__NAME.
+
+server:
+  # The address the HTTP API listens on.
+  listen: 0.0.0.0:8080
+  # Where users reach the server, such as https://neon.example.com. Unset by default.
+  public_url:
+
+database:
+  # The Postgres URL. Required, and better set as NEON_DATABASE__URL, since it holds a
+  # password. For the dev compose file: postgres://neon:neon@127.0.0.1:55432/neon
+  url:
+  # The most connections the server opens to Postgres. The job worker keeps one to listen
+  # for new jobs and queries share the rest, so it must be at least 2.
+  max_connections: 10
+  # Apply pending migrations when the server starts. `neon migrate` applies them too.
+  auto_migrate: true
+
+# Runtime settings. They apply without a restart, and admins change them on the admin
+# page. A value set here or in the environment wins, and the admin page cannot change it.
+# `neon settings docs` lists every setting.
+settings:
+  instance:
+    # The instance's name, shown in the interface and in mail.
+    # name: Neon Workspace

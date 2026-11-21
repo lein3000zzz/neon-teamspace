@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH due AS (\n               SELECT id FROM jobs\n               WHERE status = 'queued' AND run_at <= now() AND kind = ANY($1)\n               ORDER BY run_at, id\n               LIMIT $2\n               FOR UPDATE SKIP LOCKED\n           )\n           UPDATE jobs\n           SET status = 'running', attempts = jobs.attempts + 1,\n               locked_at = now(), locked_by = $3, updated_at = now()\n           FROM due\n           WHERE jobs.id = due.id\n           RETURNING jobs.id, jobs.kind, jobs.payload, jobs.attempts AS attempt,\n                     jobs.max_attempts, jobs.traceparent, jobs.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attempt",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "max_attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "max_attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "traceparent",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "traceparent"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "005162670fbec55873d32599c0dba05f8ef23085ccd82512b815118c14022d32"
+}
