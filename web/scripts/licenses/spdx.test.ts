@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declaredLicense, parseSpdx, satisfies } from "./spdx";
+import { declaredLicense, parseSpdx, satisfies } from "./spdx.ts";
 
 const allowed = new Set(["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]);
 const ok = (text: string) => satisfies(parseSpdx(text), allowed);

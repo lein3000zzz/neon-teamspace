@@ -1,43 +1,32 @@
 /**
  * Fails when an installed package, production or dev, carries a license
- * outside the allowlist the Rust side enforces with cargo-deny. Walks
- * node_modules rather than the lockfile, so it checks what was really
- * installed, nested copies included.
+ * outside the allowlist the Rust side enforces with cargo-deny, or when a
+ * bundled font lacks its license. Walks node_modules rather than the
+ * lockfile, so it checks what was really installed, nested copies included.
  *
  * Usage: bun run licenses
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { declaredLicense, parseSpdx, satisfies } from "./licenses/spdx";
+import { bundledFonts, FONT_LICENSE, fontProblem } from "./licenses/fonts.ts";
+import { declaredLicense, parseSpdx, satisfies } from "./licenses/spdx.ts";
 
 const webRoot = resolve(import.meta.dir, "..");
 const denyToml = resolve(webRoot, "../deny.toml");
+const publicDir = resolve(webRoot, "public");
 
 /**
- * Packages allowed outside the allowlist, each by name and exact license, so
- * a relicensed version fails again. Keep every entry justified.
+ * Packages allowed outside the allowlist: data, never code, which deny.toml
+ * governs alone. Each is keyed by name and exact license, so a relicensed
+ * version fails again, and carries its reason.
  */
 const EXCEPTIONS: Record<string, { license: string; reason: string }> = {
   "caniuse-lite": {
     license: "CC-BY-4.0",
-    reason: "Browser support data used at build time by browserslist; data, not code.",
-  },
-  "graceful-fs": {
-    license: "BlueOak-1.0.0",
-    reason: "Permissive (Blue Oak Model License); build-time only, via @tailwindcss/node.",
-  },
-  "lru-cache": {
-    license: "BlueOak-1.0.0",
-    reason: "Permissive (Blue Oak Model License); test-only, via jsdom.",
-  },
-  argparse: {
-    license: "Python-2.0",
-    reason: "Permissive (PSF license); build-time only, via openapi-typescript.",
-  },
-  isbot: {
-    license: "Unlicense",
-    reason: "Public-domain dedication; shipped via @tanstack/react-router.",
+    reason:
+      "Browser support tables (with a small loader) read by browserslist, which " +
+      "@babel/core loads for the TanStack Router plugin at build time. Never in the bundle.",
   },
 };
 
@@ -130,6 +119,12 @@ function main(): number {
     )
     .map(([name, { license }]) => `${name} (${license})`);
 
+  const fonts = bundledFonts(publicDir);
+  const fontFailures = fonts.flatMap((font) => {
+    const problem = fontProblem(publicDir, font);
+    return problem === null ? [] : [`public/${font.dir}: ${problem}`];
+  });
+
   const counts = new Map<string, number>();
   for (const pkg of packages) {
     const key = pkg.license ?? "none";
@@ -140,6 +135,10 @@ function main(): number {
   );
   for (const [license, count] of [...counts].toSorted(([, a], [, b]) => b - a)) {
     console.log(`  ${String(count).padStart(4)}  ${license}`);
+  }
+  console.log(`Checked ${fonts.length} font director${fonts.length === 1 ? "y" : "ies"}:`);
+  for (const font of fonts) {
+    console.log(`  public/${font.dir}: ${font.fonts.length} files, ${FONT_LICENSE}`);
   }
 
   if (failures.length > 0) {
@@ -154,7 +153,13 @@ function main(): number {
       console.error(`  ${entry}`);
     }
   }
-  return failures.length > 0 || unused.length > 0 ? 1 : 0;
+  if (fontFailures.length > 0) {
+    console.error(`\nFonts that may not ship (only ${FONT_LICENSE}, with its text beside them):`);
+    for (const failure of fontFailures) {
+      console.error(`  ${failure}`);
+    }
+  }
+  return failures.length > 0 || unused.length > 0 || fontFailures.length > 0 ? 1 : 0;
 }
 
 process.exit(main());
