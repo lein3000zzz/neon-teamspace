@@ -39,8 +39,8 @@ and these docs. Pages say what exists today and mark the rest of the design as *
 - **[API](/docs/reference/api/)**: the HTTP API, from `api/openapi.json`.
 
 The API reference is generated from the server's description of its API as the docs build,
-so it matches the version it was built with. The settings table is copied from the server's
-settings registry; generating it from the registry too is **planned**.
+so it matches the version it was built with. The settings page is generated from the server's
+settings registry, and a test fails while the committed page differs from it.
 
 ## How it is built
 

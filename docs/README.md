@@ -60,10 +60,11 @@ The pages under Reference → API are generated from `../api/openapi.json` by
 is written by the server (`neon openapi --out api/openapi.json`, from the repository's
 root), so the docs need no change when the API does: rebuild them.
 
-The settings reference, `src/content/docs/reference/settings.md`, holds the table that
-`neon settings docs` prints from the server's settings registry. For now it is copied by
-hand, so a change to the registry needs the same change here. Generating the page with the
-command is planned.
+The settings reference, `src/content/docs/reference/settings.md`, is the output of
+`neon settings docs`, generated from the server's settings registry. It is not edited by
+hand: after a change to the registry, `make docs-gen`, from the repository's root, rewrites
+it. `make docs-check` and a server test fail while the committed page differs from the
+registry's.
 
 ## The Content-Security-Policy
 
