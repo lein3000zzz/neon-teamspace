@@ -9,18 +9,39 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "matched-path", "query", "tokio"] }
 http = "1.5.0"
 metrics = "0.24.6"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+opentelemetry = { version = "0.33.1", default-features = false, features = ["internal-logs", "trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "internal-logs", "reqwest-blocking-client", "trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["internal-logs", "trace"] }
+pin-project-lite = "0.2.18"
+prost = { version = "0.14.6", default-features = false, features = ["std"] }
+pyroscope = { version = "2.1.5", default-features = false, features = ["backend-pprof-rs"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["macros", "rt", "signal", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
+tower = "0.5.3"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2.5"
+tracing-log = "0.2.0"
+tracing-opentelemetry = { version = "0.34.0", default-features = false, features = ["tracing-log"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.29.3", features = ["v7"] }
+
+# Heap profiles come from jemalloc, which only produces usable backtraces on Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+jemalloc_pprof = { version = "0.9.0", features = ["symbolize"] }
+pyroscope = { version = "2.1.5", default-features = false, features = ["backend-jemalloc"] }
+tikv-jemallocator = { version = "0.7.0", features = ["profiling"] }
 
 [dev-dependencies]
 metrics-util = { version = "0.20.4", default-features = false, features = ["debugging"] }
-serde_json = "1.0.154"
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["testing", "trace"] }
 tokio = { version = "1.54.1", features = ["macros", "rt", "test-util"] }
+tower = { version = "0.5.3", features = ["util"] }
 
 [lints]
 workspace = true
