@@ -82,19 +82,29 @@ export function satisfies(expression: Expression, allowed: ReadonlySet<string>):
 }
 
 /**
- * The license a package.json declares, as one SPDX expression. The legacy
- * `licenses` array lists alternatives, so it becomes an OR.
+ * The license a package.json declares, as one SPDX expression. A list of
+ * licenses gives alternatives, so it becomes an OR: the legacy `licenses`
+ * array, or an array in `license`, as some old packages have.
  */
 export function declaredLicense(manifest: Record<string, unknown>): string | undefined {
   const { license, licenses } = manifest;
   if (typeof license === "string") {
     return license;
   }
-  const entries = Array.isArray(licenses) ? licenses : license === undefined ? [] : [license];
-  const types = entries
+  const types = licenseEntries(license, licenses)
     .map((entry: unknown) =>
       typeof entry === "object" && entry !== null && "type" in entry ? entry.type : entry,
     )
     .filter((type): type is string => typeof type === "string");
   return types.length === 0 ? undefined : types.map((type) => `(${type})`).join(" OR ");
+}
+
+function licenseEntries(license: unknown, licenses: unknown): unknown[] {
+  if (Array.isArray(license)) {
+    return license;
+  }
+  if (Array.isArray(licenses)) {
+    return licenses;
+  }
+  return license === undefined ? [] : [license];
 }

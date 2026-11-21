@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "bun:test";
 import { fixture, OFL_TEXT } from "./fixture.ts";
 import { bundledFonts, fontProblem } from "./fonts.ts";
 
+const tree = (files: Record<string, string>) => fixture(files, onTestFinished);
+
 describe("bundledFonts", () => {
   it("finds every directory holding font files, at any depth", () => {
-    const publicDir = fixture({
+    const publicDir = tree({
       "favicon.svg": "<svg/>",
       "fonts/mono/Mono-Regular.woff2": "",
       "fonts/mono/Mono-Bold.woff2": "",
@@ -24,7 +26,7 @@ describe("bundledFonts", () => {
 
 /** The font check's verdict on one font directory with the given files beside the font. */
 const check = (files: Record<string, string>) => {
-  const publicDir = fixture({ "fonts/face/Face.woff2": "", ...files });
+  const publicDir = tree({ "fonts/face/Face.woff2": "", ...files });
   const [font] = bundledFonts(publicDir);
   if (font === undefined) {
     throw new Error("fixture has no font");

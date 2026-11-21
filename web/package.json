@@ -9,11 +9,11 @@
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../api/openapi.json -o src/api/schema.d.ts",
     "check:api": "openapi-typescript ../api/openapi.json -o src/api/schema.d.ts --check",
-    "lint": "oxlint --deny-warnings",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "test": "vitest run",
-    "licenses": "bun scripts/licenses.ts",
+    "lint": "oxlint --deny-warnings && cd .. && oxlint --deny-warnings -c scripts/.oxlintrc.json scripts",
+    "format": "prettier --write . ../scripts",
+    "format:check": "prettier --check . ../scripts",
+    "test": "vitest run && bun test ../scripts",
+    "licenses": "bun ../scripts/licenses.ts .",
     "check": "tsc -b && bun run lint && bun run format:check && bun run check:api && bun run test"
   },
   "dependencies": {

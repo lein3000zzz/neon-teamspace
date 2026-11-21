@@ -17,10 +17,10 @@ Run them with `bun run <script>` from this directory, after `bun install`.
 | `preview`      | Serves `dist/` locally.                                                                                             |
 | `gen:api`      | Regenerates `src/api/schema.d.ts` from `../api/openapi.json`. Commit the result.                                    |
 | `check:api`    | Fails when `schema.d.ts` is out of date with the spec.                                                              |
-| `lint`         | oxlint. Warnings fail too.                                                                                          |
-| `format`       | prettier, which also sorts Tailwind classes.                                                                        |
+| `lint`         | oxlint, here and in `../scripts`. Warnings fail too.                                                                |
+| `format`       | prettier, here and in `../scripts`. It also sorts Tailwind classes.                                                 |
 | `format:check` | prettier without writing.                                                                                           |
-| `test`         | vitest with jsdom, Testing Library and MSW.                                                                         |
+| `test`         | vitest with jsdom, Testing Library and MSW, then the tests of `../scripts` with Bun.                                |
 | `licenses`     | Fails when any installed package, dev dependencies included, has a license outside the allowlist in `../deny.toml`. |
 | `check`        | `tsc -b`, lint, format check, API check and tests, in that order.                                                   |
 
@@ -32,12 +32,20 @@ The dev proxy forwards each of those paths and everything below it, but not a lo
 
 ## Licenses
 
-The license check reads the allowlist from `../deny.toml`, so Rust and JS dependencies follow
-one policy. Only data may sit outside it: such a package needs an entry in `EXCEPTIONS` in
-`scripts/licenses.ts` with its exact license and a reason, and the check fails on an exception
-nothing uses any more. Fonts are checked on their own. Every directory under `public/` that
-holds font files must carry its license file, and the SIL Open Font License 1.1 is accepted for
-fonts only. `bunfig.toml` pins the hoisted `node_modules` layout that the check walks.
+The license check is `../scripts/licenses.ts`, which the docs use too. It reads the allowlist
+from `../deny.toml`, so Rust and JS dependencies follow one policy. Only a package that never
+ships may sit outside it, used while building or never loaded: it needs a build-only exception
+in `../scripts/licenses/policy.ts` with its exact license and a reason, and the check fails on
+an exception nothing uses any more. A package whose `package.json` misstates its license gets a
+clarification there instead, for that one version. Fonts are checked on their own. Every directory under
+`public/` that holds font files must carry its license file, and the SIL Open Font License 1.1
+is accepted for fonts only. `bunfig.toml` pins the hoisted `node_modules` layout that the check
+walks.
+
+`../scripts` has no packages of its own, so this app's tools check it: `tsc -b` type-checks it
+through `tsconfig.node.json`, and `lint`, `format` and `test` cover it as well, with the
+configuration in `../scripts`. Its `package.json` only marks the scripts as ES modules, for the
+Vite config, which imports two of them.
 
 The minifier strips the license comments from the bundle, so the build writes
 `dist/THIRD_PARTY_NOTICES.txt` instead (`scripts/licenses/notices.ts`). It holds the license

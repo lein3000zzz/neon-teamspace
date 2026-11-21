@@ -2,8 +2,8 @@
 # Only permissive licenses and MPL-2.0 are allowed, so the project's own license
 # stays a free choice: no GPL or AGPL code is linked in.
 #
-# The license allow list is also the policy for the web app's JS packages:
-# web/scripts/licenses.ts reads it, so Rust and JS follow one list.
+# The license allow list is also the policy for the JS packages of the web app
+# and the docs: scripts/licenses.ts reads it, so Rust and JS follow one list.
 
 [graph]
 all-features = true

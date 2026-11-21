@@ -1,15 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { onTestFinished } from "vitest";
 
 /**
  * A throwaway directory tree for one test, written from a map of relative
- * paths to contents and removed when the test ends.
+ * paths to contents. `onFinished` is the test runner's `onTestFinished`, from
+ * bun:test or vitest, so the tree is removed when the test ends.
  */
-export function fixture(files: Record<string, string>): string {
+export function fixture(
+  files: Record<string, string>,
+  onFinished: (cleanup: () => void) => void,
+): string {
   const root = mkdtempSync(join(tmpdir(), "neon-licenses-"));
-  onTestFinished(() => rmSync(root, { recursive: true, force: true }));
+  onFinished(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), content);

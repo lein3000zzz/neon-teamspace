@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { declaredLicense, parseSpdx, satisfies } from "./spdx.ts";
 
 const allowed = new Set(["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]);
@@ -40,6 +40,10 @@ describe("declaredLicense", () => {
     expect(declaredLicense({ licenses: [{ type: "MIT" }, { type: "Apache-2.0" }] })).toBe(
       "(MIT) OR (Apache-2.0)",
     );
+  });
+
+  it("joins a list in the modern field as alternatives", () => {
+    expect(declaredLicense({ license: ["MIT", "Apache2"] })).toBe("(MIT) OR (Apache2)");
   });
 
   it("reads the legacy object form", () => {

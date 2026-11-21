@@ -8,7 +8,8 @@
     "build": "bun --bun astro build && bun scripts/csp.ts",
     "preview": "bun --bun astro preview",
     "check": "bun --bun astro check && bun test",
-    "chromium": "bun --bun playwright install --only-shell chromium"
+    "chromium": "bun --bun playwright install --only-shell chromium",
+    "licenses": "bun ../scripts/licenses.ts ."
   },
   "packageManager": "bun@1.4.4",
   "dependencies": {

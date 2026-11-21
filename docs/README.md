@@ -20,6 +20,7 @@ bun run dev        # http://localhost:4321/docs/
 | `bun run preview` | Serves `dist/` as it was built. |
 | `bun run check` | Type-checks the site and its scripts, and runs the scripts' tests. |
 | `bun run chromium` | Installs Playwright's headless Chromium for the diagrams. |
+| `bun run licenses` | Fails when any installed package, dev dependencies included, has a license outside the allowlist in `../deny.toml`, unless `../scripts/licenses/policy.ts` lists it as a build-only exception. |
 
 ## Layout
 
@@ -97,3 +98,20 @@ Images are served as they are, with Astro's passthrough image service. Astro's d
 service resizes them with `sharp`, whose libvips binary is LGPL-licensed; the docs have no
 images that need it, so it is never loaded. Astro still installs `sharp` as an optional
 dependency.
+
+## Licenses
+
+`bun run licenses` checks every installed package against the allow list in `../deny.toml`,
+the one cargo-deny enforces for the crates. Two packages are outside it, and the check
+allows them as build-only exceptions, by name and exact license, in
+`../scripts/licenses/policy.ts`:
+
+- `@img/sharp-libvips-*` (LGPL-3.0-or-later), above, which is never loaded.
+- `@fortawesome/fontawesome-free` (CC-BY-4.0 AND OFL-1.1 AND MIT). `rehype-mermaid` draws the
+  diagrams through `mermaid-isomorphic`, which adds Font Awesome's stylesheet to the page in
+  the headless Chromium. The diagrams reach `dist/` as SVG, and none of Font Awesome does.
+
+`khroma` 2.1.0, which Mermaid uses, declares no license in its `package.json`; a clarification
+in the same file records the MIT License of its license file, for that version only. The
+check fails on an exception or a clarification nothing installed needs any more.
+`bunfig.toml` pins the hoisted `node_modules` layout that it walks.

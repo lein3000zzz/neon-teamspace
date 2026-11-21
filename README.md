@@ -18,6 +18,9 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
+| `web` | The web app: React, Vite and TanStack. |
+| `docs` | The documentation site, Astro Starlight. |
+| `scripts` | Tooling shared by the web app and the docs, such as the license check. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. Each crate's
 `Cargo.toml` lists what it may use, so the compiler enforces the direction.
