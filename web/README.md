@@ -38,11 +38,11 @@ The license check is `../scripts/licenses.ts`, which the docs use too. It reads 
 from `../deny.toml`, so Rust and JS dependencies follow one policy. Only a package that never
 ships may sit outside it, used while building or never loaded: it needs a build-only exception
 in `../scripts/licenses/policy.ts` with its exact license and a reason, and the check fails on
-an exception nothing uses any more. A package whose `package.json` misstates its license gets a
-clarification there instead, for that one version. Fonts are checked on their own. Every directory under
-`public/` that holds font files must carry its license file, and the SIL Open Font License 1.1
-is accepted for fonts only. `bunfig.toml` pins the hoisted `node_modules` layout that the check
-walks.
+an exception nothing uses any more. A package whose `package.json` misstates its license gets
+a clarification there instead, for that one version. Fonts are checked on their own. Every
+directory under `public/` that holds font files must carry its license file, and the SIL Open
+Font License 1.1 is accepted for fonts only. `bunfig.toml` pins the hoisted `node_modules`
+layout that the check walks.
 
 `../scripts` has no packages of its own, so this app's tools check it: `tsc -b` type-checks it
 through `tsconfig.node.json`, and `lint`, `format` and `test` cover it as well, with the

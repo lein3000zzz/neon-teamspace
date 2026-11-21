@@ -54,9 +54,14 @@ make migrate               # creates the tables
 Once `DATABASE_URL` is set, in the shell or in `.env`, the build checks every SQL query
 against that database, so the tables must exist before the first build. That is why
 `make migrate`, which runs sqlx-cli, comes first. Run it again after pulling a change that
-adds a migration. Without sqlx-cli, `SQLX_OFFLINE=true cargo run -p neon-server -- migrate`
-does the same: it builds from the query cache in `.sqlx/` instead of the database, then
-applies the migrations.
+adds a migration. Without sqlx-cli, the server can apply them. It does not read `.env`
+itself, so export the file first; `SQLX_OFFLINE=true` builds from the query cache in `.sqlx/`
+instead of the database:
+
+```sh
+set -a; . ./.env; set +a   # export the variables to this shell
+SQLX_OFFLINE=true cargo run -p neon-server -- migrate
+```
 
 Then run the server. `make run` exports `.env` and starts `neon serve`, which listens on
 `0.0.0.0:8080`, applies pending migrations as it starts, and serves its admin listener
@@ -106,7 +111,7 @@ The `neon` binary has these commands:
 
 ### Generated files
 
-The repository commits four generated files. Each has a target that rewrites it and a check
+The repository commits these generated files. Each has a target that rewrites it and a check
 that fails when it is stale.
 
 | File | Rewrite it after changing | Rewrite | Check |
@@ -115,6 +120,10 @@ that fails when it is stale.
 | `web/src/api/schema.d.ts` | `api/openapi.json` | `make web-api` | `make web-check` |
 | `.sqlx/`, the query cache that lets the build check SQL without a database | a query or a migration | `make sqlx-prepare` | `make sqlx-check` |
 | `docs/src/content/docs/reference/settings.md` | a runtime setting, added or changed | `make docs-gen` | `make docs-check`, and a server test |
+
+The web app's route tree, `web/src/routeTree.gen.ts`, is generated and committed too. It has
+no target: the TanStack Router plugin rewrites it whenever `make web-dev` or `make web-build`
+runs, so commit it with the route change.
 
 ### Licenses
 

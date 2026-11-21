@@ -103,7 +103,9 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 
-With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`.
+With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`. Like
+`neon serve`, `neon migrate` and `neon config check` read the configuration, so run them with
+`.env` exported (`set -a; . ./.env; set +a`) or next to a `neon.yaml`.
 
 **Planned.** `neon admin create`, to create an instance admin from the command line.
 
