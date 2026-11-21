@@ -37,8 +37,9 @@ impl Provider for YamlFile {
 /// A file that is empty or holds only comments is an empty configuration. Errors give
 /// the line and column; figment prints them on one line, so without a source snippet.
 ///
-/// Booleans are only `true` and `false`, as in YAML 1.2. The YAML 1.1 spellings, such as
-/// `on`, `off`, `yes` and `no`, are strings, so `mode: off` names the mode `off`.
+/// Booleans are YAML 1.2's: `true` and `false`, also written `True`, `TRUE`, `False` or
+/// `FALSE`. The YAML 1.1 spellings, such as `on`, `off`, `yes` and `no`, are strings, so
+/// `mode: off` names the mode `off`.
 fn parse(text: &str) -> Result<Dict, serde_saphyr::Error> {
     let options = serde_saphyr::options! { with_snippet: false, strict_booleans: true };
     let dict: Option<Dict> = serde_saphyr::from_str_with_options(text, options)?;
@@ -71,11 +72,14 @@ mod tests {
     }
 
     #[test]
-    fn only_true_and_false_are_booleans() {
-        let dict = parse("on: true\noff: false\nmode: off\nanswer: yes\n").expect("valid YAML");
+    fn only_yaml_1_2_spellings_are_booleans() {
+        let dict = parse("on: true\noff: false\nup: True\ndown: FALSE\nmode: off\nanswer: yes\n")
+            .expect("valid YAML");
 
         assert_eq!(dict["on"].to_bool(), Some(true));
         assert_eq!(dict["off"].to_bool(), Some(false));
+        assert_eq!(dict["up"].to_bool(), Some(true));
+        assert_eq!(dict["down"].to_bool(), Some(false));
         assert_eq!(dict["mode"].as_str(), Some("off"));
         assert_eq!(dict["answer"].as_str(), Some("yes"));
     }

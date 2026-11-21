@@ -230,7 +230,9 @@ Each part of the server registers how it stops as it starts, with `neon-observab
 shutdown registry, and the registry stops them in the reverse order, the last started
 first. On SIGTERM, or Ctrl-C in a terminal, it runs:
 
-1. `/readyz` turns to `503` at once, so traffic goes elsewhere before anything stops.
+1. `/readyz` turns to `503`, so a load balancer that checks it stops sending traffic. The
+   server does not wait for it to notice: the next step follows at once, and connections
+   that arrive from then on are refused.
 2. The HTTP server stops accepting connections and lets the requests in flight finish, for
    up to 30 seconds, then closes any still open.
 3. The job worker claims no more jobs and gives those it is running up to 30 seconds. A job
@@ -243,10 +245,11 @@ first. On SIGTERM, or Ctrl-C in a terminal, it runs:
    logged while stopping, and the spans of the last requests and jobs, still go out.
 
 Every step runs even when one before it fails. Each failure is logged as it happens, and
-the process then exits with status 1, naming every step that failed. Each step has a time limit, 10 seconds, or 10
-seconds beyond its own 30 for the HTTP server and the job worker, so one that hangs is
-abandoned and the next one starts. Shutting down twice does nothing the second time. A
-server that fails while starting runs the same steps for the parts already started.
+the process then exits with status 1, naming every step that failed. Each step has a time
+limit, 10 seconds, or 10 seconds beyond its own 30 for the HTTP server and the job worker,
+so one that hangs is abandoned and the next one starts. Shutting down twice does nothing
+the second time. A server that fails while starting runs the same steps for the parts
+already started.
 
 ## The stack
 

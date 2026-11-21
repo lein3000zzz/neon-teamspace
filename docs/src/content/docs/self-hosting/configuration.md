@@ -54,9 +54,10 @@ settings:
 The repository's `.gitignore` keeps `neon.yaml` and `*.local.yaml` out of git, as they often
 hold a password. Secrets are better kept in the environment than in a file.
 
-The file is YAML 1.2, so only `true` and `false` are booleans. Words that older YAML read as
-booleans, such as `on`, `off`, `yes` and `no`, are plain words, and `mode: off` needs no
-quotes. `neon.example.yaml` in the repository lists every key with its default.
+The file is YAML 1.2, so the booleans are `true` and `false`, which may also be written
+`True`, `TRUE`, `False` or `FALSE`. Words that older YAML read as booleans, such as `on`,
+`off`, `yes` and `no`, are plain words, and `mode: off` needs no quotes.
+`neon.example.yaml` in the repository lists every key with its default.
 
 ## The observability section
 
