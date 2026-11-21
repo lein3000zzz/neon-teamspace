@@ -9,7 +9,7 @@ use neon_domain::duration;
 use neon_domain::jobs::Backoff;
 use neon_store::jobs::{self, CHANNEL, Job};
 use sqlx::PgPool;
-use sqlx::postgres::PgListener;
+use sqlx::postgres::{PgListener, PgPoolOptions};
 use tokio::sync::Notify;
 use tokio::task::{Id, JoinError, JoinHandle, JoinSet};
 use tokio::time::{MissedTickBehavior, interval, sleep};
@@ -21,6 +21,10 @@ use super::handler::{Handler, JobError, RunFuture, RunHook};
 
 /// How long to wait before listening again after the notification connection failed.
 const LISTEN_RETRY: Duration = Duration::from_secs(5);
+
+/// Connections a started worker opens beside the pool it is given: one that waits for
+/// notifications. It stays outside the pool so it never takes a connection queries need.
+pub const LISTEN_CONNECTIONS: u32 = 1;
 
 /// How a worker runs jobs.
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +150,15 @@ impl Worker {
         let mut kinds: Vec<String> = self.handlers.keys().map(|&k| k.to_owned()).collect();
         kinds.sort();
 
-        let mut listener = PgListener::connect_with(&self.pool).await?;
+        // A pool of one with the same options, as `PgListener::connect` builds, so the
+        // listener reconnects on its own. Its connection is held for the worker's life and
+        // never expires.
+        let listen_pool = PgPoolOptions::new()
+            .max_connections(LISTEN_CONNECTIONS)
+            .max_lifetime(None)
+            .idle_timeout(None)
+            .connect_lazy_with((*self.pool.connect_options()).clone());
+        let mut listener = PgListener::connect_with(&listen_pool).await?;
         listener.listen(CHANNEL).await?;
         let wake = Arc::new(Notify::new());
         let listening = tokio::spawn(listen(listener, kinds.clone(), Arc::clone(&wake)));
@@ -170,6 +182,7 @@ impl Worker {
             stop,
             running,
             listening,
+            listen_pool,
         })
     }
 }
@@ -186,6 +199,7 @@ pub struct WorkerHandle {
     stop: CancellationToken,
     running: JoinHandle<()>,
     listening: JoinHandle<()>,
+    listen_pool: PgPool,
 }
 
 impl WorkerHandle {
@@ -204,6 +218,7 @@ impl WorkerHandle {
         self.listening.abort();
         // The listener was cancelled; there is nothing to report.
         let _ = self.listening.await;
+        self.listen_pool.close().await;
         info!(worker = %self.id, "job worker stopped");
     }
 }

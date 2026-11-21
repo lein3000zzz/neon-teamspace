@@ -11,6 +11,7 @@ use neon_app::jobs::{
 use neon_domain::jobs::Backoff;
 use serde_json::json;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 const KIND: &str = "test.record";
@@ -334,6 +335,28 @@ async fn a_notification_wakes_the_worker_before_the_next_poll(pool: PgPool) {
     let id = enqueue(&pool, &job()).await.unwrap();
     wait_for_status(&pool, id, "done").await;
     worker.stop().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn listening_takes_no_connection_from_the_pool(pool: PgPool) {
+    let single = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(2))
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    let worker = Worker::new(single.clone(), config())
+        .handler(Recorder::new(Behavior::Succeed))
+        .start()
+        .await
+        .unwrap();
+
+    let id = enqueue(&single, &job())
+        .await
+        .expect("the pool's only connection is free");
+    wait_for_status(&pool, id, "done").await;
+    worker.stop().await;
+    single.close().await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

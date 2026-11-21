@@ -9,4 +9,4 @@ mod worker;
 
 pub use handler::{Handler, JobError, RunFuture, RunHook};
 pub use neon_store::jobs::{Job, NewJob, enqueue};
-pub use worker::{StartError, Worker, WorkerConfig, WorkerHandle};
+pub use worker::{LISTEN_CONNECTIONS, StartError, Worker, WorkerConfig, WorkerHandle};
