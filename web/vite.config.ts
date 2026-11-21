@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { thirdPartyNotices } from "./scripts/licenses/notices.ts";
 
 /**
  * The `neon` server's app port. The dev server forwards the paths the server
@@ -27,6 +28,8 @@ export default defineConfig({
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     react(),
     tailwindcss(),
+    // The shipped bundle carries its dependencies' and fonts' license notices.
+    thirdPartyNotices(),
   ],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },

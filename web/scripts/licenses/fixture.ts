@@ -17,5 +17,10 @@ export function fixture(files: Record<string, string>): string {
   return root;
 }
 
+/** A package.json for a fixture package. */
+export function manifest(name: string, license = "MIT", version = "1.0.0"): string {
+  return JSON.stringify({ name, version, license });
+}
+
 /** Enough of the OFL's text for the font check to recognise it. */
 export const OFL_TEXT = "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007";
