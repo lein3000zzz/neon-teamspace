@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use url::Url;
 
 /// Replaces a password in a shown URL.
-const REDACTED: &str = "redacted";
+pub(super) const REDACTED: &str = "redacted";
 
 /// The Postgres URL. It usually holds a password, so `Debug`, `Display` and `Serialize`
 /// all show it with the password replaced; [`expose`](Self::expose) is the one way to

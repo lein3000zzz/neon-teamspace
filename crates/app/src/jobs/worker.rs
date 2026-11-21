@@ -136,7 +136,8 @@ impl Worker {
     }
 
     /// Makes the span each run is recorded in, replacing a root span named `job`. This is
-    /// where a tracing integration makes the job's `traceparent` the span's parent.
+    /// where a tracing integration makes the job's `traceparent` the span's parent, as
+    /// [`run_span`](super::run_span) does.
     pub fn span(mut self, make: impl Fn(&Job) -> Span + Send + Sync + 'static) -> Self {
         self.span = Arc::new(make);
         self
@@ -174,11 +175,13 @@ impl Worker {
             hooks: self.hooks,
             span: self.span,
         });
+        let stop_timeout = inner.config.stop_timeout;
         let stop = CancellationToken::new();
         let running = tokio::spawn(inner.run(wake, stop.clone()).instrument(span));
 
         Ok(WorkerHandle {
             id,
+            stop_timeout,
             stop,
             running,
             listening,
@@ -196,6 +199,7 @@ fn default_span(job: &Job) -> Span {
 #[derive(Debug)]
 pub struct WorkerHandle {
     id: String,
+    stop_timeout: Duration,
     stop: CancellationToken,
     running: JoinHandle<()>,
     listening: JoinHandle<()>,
@@ -206,6 +210,11 @@ impl WorkerHandle {
     /// The name the worker claims jobs under, in the jobs table's `locked_by`.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// How long [`stop`](Self::stop) waits for running jobs before it cancels them.
+    pub fn stop_timeout(&self) -> Duration {
+        self.stop_timeout
     }
 
     /// Stops claiming jobs, waits up to the stop timeout for running ones, then cancels
@@ -447,7 +456,7 @@ fn finished(joined: Result<(Id, ()), JoinError>, running: &mut HashMap<Id, Uuid>
     }
 }
 
-fn panic_message(panic: &(dyn Any + Send)) -> &str {
+pub(super) fn panic_message(panic: &(dyn Any + Send)) -> &str {
     panic
         .downcast_ref::<&str>()
         .copied()

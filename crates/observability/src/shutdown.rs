@@ -21,7 +21,8 @@ pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 type HookFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type HookFn = Box<dyn FnOnce() -> HookFuture + Send>;
 
-/// How long one hook may run before it is abandoned and the next one starts.
+/// How long one hook may run before it is abandoned and the next one starts, unless it was
+/// registered with a timeout of its own.
 pub const DEFAULT_HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A cloneable registry of shutdown hooks. Clones share the same hooks.
@@ -44,17 +45,19 @@ struct State {
 
 struct Hook {
     name: Cow<'static, str>,
+    timeout: Duration,
     run: HookFn,
 }
 
 impl Shutdown {
-    /// A registry whose hooks each get [`DEFAULT_HOOK_TIMEOUT`].
+    /// A registry whose hooks each get [`DEFAULT_HOOK_TIMEOUT`] unless registered with their
+    /// own.
     #[must_use]
     pub fn new() -> Self {
         Self::with_hook_timeout(DEFAULT_HOOK_TIMEOUT)
     }
 
-    /// A registry whose hooks each get `timeout`.
+    /// A registry whose hooks each get `timeout` unless registered with their own.
     #[must_use]
     pub fn with_hook_timeout(timeout: Duration) -> Self {
         Self {
@@ -67,11 +70,29 @@ impl Shutdown {
     }
 
     /// Registers a hook that [`run`](Self::run) awaits before the hooks registered earlier.
+    /// It gets the registry's hook timeout.
     ///
     /// A hook registered after shutdown has begun would never run, so it is dropped with a
     /// warning instead of being silently lost.
     pub fn on_shutdown<F, Fut, E>(&self, name: impl Into<Cow<'static, str>>, hook: F)
     where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), E>> + Send + 'static,
+        E: Into<BoxError>,
+    {
+        self.on_shutdown_with_timeout(name, self.inner.hook_timeout, hook);
+    }
+
+    /// Registers a hook like [`on_shutdown`](Self::on_shutdown), with a timeout of its own
+    /// instead of the registry's. For a hook with a bounded wait inside, such as a server
+    /// that lets open requests finish for 30 seconds, pass more than that bound, so the hook
+    /// is not abandoned while it still waits.
+    pub fn on_shutdown_with_timeout<F, Fut, E>(
+        &self,
+        name: impl Into<Cow<'static, str>>,
+        timeout: Duration,
+        hook: F,
+    ) where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), E>> + Send + 'static,
         E: Into<BoxError>,
@@ -85,6 +106,7 @@ impl Shutdown {
         }
         state.hooks.push(Hook {
             name,
+            timeout,
             run: Box::new(move || Box::pin(async move { hook().await.map_err(Into::into) })),
         });
     }
@@ -115,7 +137,7 @@ impl Shutdown {
         let mut failures = Vec::new();
         for hook in hooks.into_iter().rev() {
             tracing::debug!(hook = %hook.name, "running shutdown hook");
-            if let Err(cause) = self.run_hook(hook.run).await {
+            if let Err(cause) = Self::run_hook(hook.run, hook.timeout).await {
                 tracing::error!(hook = %hook.name, error = %cause, "shutdown hook failed");
                 failures.push(HookFailure {
                     name: hook.name,
@@ -131,10 +153,10 @@ impl Shutdown {
         }
     }
 
-    async fn run_hook(&self, run: HookFn) -> Result<(), HookError> {
+    async fn run_hook(run: HookFn, timeout: Duration) -> Result<(), HookError> {
         let task = tokio::spawn(run());
         let abort = task.abort_handle();
-        match tokio::time::timeout(self.inner.hook_timeout, task).await {
+        match tokio::time::timeout(timeout, task).await {
             Ok(Ok(Ok(()))) => Ok(()),
             Ok(Ok(Err(error))) => Err(HookError::Failed(error)),
             Ok(Err(join)) if join.is_panic() => Err(HookError::Panicked(panic_message(
@@ -143,7 +165,7 @@ impl Shutdown {
             Ok(Err(_)) => Err(HookError::Cancelled),
             Err(_) => {
                 abort.abort();
-                Err(HookError::TimedOut(self.inner.hook_timeout))
+                Err(HookError::TimedOut(timeout))
             }
         }
     }
@@ -366,6 +388,34 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "shutdown hooks failed: stuck: timed out after 2s"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hook_with_its_own_timeout_outlasts_the_registry_timeout() {
+        let (log, _) = recorder();
+        let shutdown = Shutdown::with_hook_timeout(Duration::from_secs(2));
+        let slow = Arc::clone(&log);
+        shutdown.on_shutdown_with_timeout(
+            "draining",
+            Duration::from_secs(30),
+            move || async move {
+                tokio::time::sleep(Duration::from_secs(20)).await;
+                slow.lock().unwrap().push("draining");
+                Ok::<_, io::Error>(())
+            },
+        );
+        shutdown.on_shutdown_with_timeout("stuck", Duration::from_secs(5), || async {
+            std::future::pending::<()>().await;
+            Ok::<(), io::Error>(())
+        });
+
+        let error = shutdown.run().await.unwrap_err();
+
+        assert_eq!(*log.lock().unwrap(), ["draining"]);
+        assert_eq!(
+            error.to_string(),
+            "shutdown hooks failed: stuck: timed out after 5s"
         );
     }
 

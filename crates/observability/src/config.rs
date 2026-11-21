@@ -421,18 +421,20 @@ impl PushConfig {
 }
 
 /// Exporters only speak plain HTTP, so TLS belongs to a collector on the internal network.
+///
+/// Messages leave the value out: a URL may carry credentials, and a value set under the wrong
+/// key may be another service's URL with its password.
 fn check_http_url(value: &str) -> Result<(), String> {
     let uri: http::Uri = value
         .parse()
-        .map_err(|error| format!("{value:?} is not a URL: {error}"))?;
+        .map_err(|error| format!("is not a URL: {error}"))?;
     match uri.scheme_str() {
         Some("http") if uri.authority().is_some() => Ok(()),
-        Some("http") => Err(format!("{value:?} has no host")),
-        Some("https") => Err(format!(
-            "{value:?} uses https, which is not built in; send plain http to a collector \
-             or agent on the internal network and let it handle TLS"
-        )),
-        _ => Err(format!("{value:?} must start with http://")),
+        Some("http") => Err("has no host".to_owned()),
+        Some("https") => Err("uses https, which is not built in; send plain http to a \
+             collector or agent on the internal network and let it handle TLS"
+            .to_owned()),
+        _ => Err("must start with http://".to_owned()),
     }
 }
 
@@ -622,6 +624,19 @@ mod tests {
         assert!(check_http_url("otel-lgtm:4318").is_err());
         assert!(check_http_url("http://").is_err());
         assert!(check_http_url("not a url").is_err());
+    }
+
+    #[test]
+    fn url_errors_do_not_show_the_url() {
+        for value in [
+            "postgres://neon:hunter2@db/neon",
+            "https://user:hunter2@collector:4318",
+            "http://user:hunter2@",
+            "hunter2 is not a url",
+        ] {
+            let message = check_http_url(value).unwrap_err();
+            assert!(!message.contains("hunter2"), "{message}");
+        }
     }
 
     #[test]

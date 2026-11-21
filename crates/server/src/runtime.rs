@@ -1,10 +1,18 @@
 //! Starting the server's parts, and stopping them in order.
+//!
+//! Each part registers how it stops with the telemetry's shutdown registry as it starts,
+//! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
+//! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
+//! the gauges stop if metrics are on, the database pool closes, the admin listener stops,
+//! and the telemetry flushes last, so what the other parts log while stopping is still
+//! written.
 
+use std::convert::Infallible;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::pin::{Pin, pin};
-use std::sync::Arc;
+use std::pin::pin;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -12,19 +20,24 @@ use axum::Router;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
-use neon_app::jobs::{LISTEN_CONNECTIONS, Worker, WorkerConfig, WorkerHandle};
+use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::settings::{SettingsService, registry};
 use neon_domain::duration;
 use neon_domain::settings::Pinned;
+use neon_observability::Telemetry;
+use neon_observability::admin::{self, Readiness};
+use neon_observability::shutdown::{DEFAULT_HOOK_TIMEOUT, Shutdown};
 use neon_store::PoolConfig;
-use sqlx::PgPool;
+use sqlx::{Connection as _, PgPool};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::{DatabaseConfig, Loaded};
+use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState};
+use crate::telemetry;
 
 /// How long stopping waits for open requests before closing their connections.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -34,24 +47,60 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 /// headers would hold a connection, and stopping would wait for it.
 const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Added to the bound a stop sets itself, such as [`DRAIN_TIMEOUT`], for the time the
+/// shutdown registry gives it, so the registry never abandons a stop still within its bound.
+const STOP_MARGIN: Duration = Duration::from_secs(10);
+
+/// How long `/readyz` waits for the database to answer.
+const PING_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Runs the server until SIGINT or SIGTERM, then stops it.
 pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
-    let mut signals = ShutdownSignals::install().context("listening for shutdown signals")?;
-    let server = Server::start(loaded).await?;
+    with_telemetry(loaded, |loaded, telemetry| async move {
+        let mut signals = ShutdownSignals::install().context("listening for shutdown signals")?;
+        let started = Arc::new(OnceLock::new());
+        let admin = &loaded.config.observability.admin;
+        admin::spawn(admin, &telemetry, readiness(Arc::clone(&started)))
+            .await
+            .with_context(|| format!("starting the admin listener on {}", admin.addr))?;
+        let pool = start(loaded, telemetry.shutdown()).await?;
+        started.get_or_init(|| pool);
 
-    let signal = signals.recv().await;
-    info!(signal, "shutting down");
-    server.stop().await;
-    Ok(())
+        let signal = signals.recv().await;
+        info!(signal, "shutting down");
+        Ok(())
+    })
+    .await
 }
 
 /// Applies pending migrations, then closes the connection.
 pub async fn migrate(loaded: Loaded) -> anyhow::Result<()> {
+    with_telemetry(loaded, |loaded, _| async move {
+        let pool = connect(&loaded.config.database, 1).await?;
+        let applied = apply_migrations(&pool).await;
+        pool.close().await;
+        applied
+    })
+    .await
+}
+
+/// Installs telemetry, runs `command`, then runs the shutdown registry, which stops what
+/// the command started and flushes the telemetry last. A failure is logged before that, so
+/// it reaches the logs as well as the exit status.
+async fn with_telemetry<F, Fut>(loaded: Loaded, command: F) -> anyhow::Result<()>
+where
+    F: FnOnce(Loaded, Telemetry) -> Fut,
+    Fut: Future<Output = anyhow::Result<()>>,
+{
+    let telemetry = telemetry::init(&loaded.config.observability).context("starting telemetry")?;
     report(&loaded);
-    let pool = connect(&loaded.config.database, 1).await?;
-    apply_migrations(&pool).await?;
-    pool.close().await;
-    Ok(())
+    let result = command(loaded, telemetry.clone()).await;
+    if let Err(error) = &result {
+        error!(error = %format!("{error:#}"), "stopping after a failure");
+    }
+    let stopped = telemetry.shutdown().run().await;
+    result?;
+    Ok(stopped?)
 }
 
 /// Logs where the configuration came from, and the variables it ignored.
@@ -68,80 +117,121 @@ fn report(loaded: &Loaded) {
     }
 }
 
-/// The running parts.
-struct Server {
-    http: Http,
-    worker: WorkerHandle,
-    pool: PgPool,
+/// Answers `/readyz`: not ready until `started` holds the pool, which happens once the
+/// HTTP server listens, then ready while the database answers within [`PING_TIMEOUT`].
+fn readiness(started: Arc<OnceLock<PgPool>>) -> Readiness {
+    Readiness::new(move || {
+        let pool = started.get().cloned();
+        async move {
+            let pool = pool.ok_or_else(|| "starting".to_owned())?;
+            ping(&pool).await
+        }
+    })
 }
 
-impl Server {
-    async fn start(loaded: Loaded) -> anyhow::Result<Self> {
-        report(&loaded);
-        let Loaded {
-            config, settings, ..
-        } = loaded;
-
-        // The job worker opens its listening connection beside the pool, so the pool
-        // gets the rest of the configured connections.
-        let pool_size = config
-            .database
-            .max_connections
-            .saturating_sub(LISTEN_CONNECTIONS)
-            .max(1);
-        let pool = connect(&config.database, pool_size).await?;
-        if config.database.auto_migrate {
-            apply_migrations(&pool).await?;
-        }
-        let settings = load_settings(&pool, settings).await?;
-        let listener = TcpListener::bind(config.server.listen)
-            .await
-            .with_context(|| format!("listening on {}", config.server.listen))?;
-        let worker = Worker::new(pool.clone(), WorkerConfig::default())
-            .start()
-            .await
-            .context("starting the job worker")?;
-        let router = http::router(AppState { settings });
-        let http = Http::spawn(listener, router, HEADER_READ_TIMEOUT)?;
-
-        Ok(Self { http, worker, pool })
-    }
-
-    async fn stop(self) {
-        for step in self.stop_steps() {
-            debug!(step = step.name, "stopping");
-            step.run.await;
-        }
-        info!("stopped");
-    }
-
-    /// The steps of stopping, in dependency order: no new requests and the open ones
-    /// finish, then the job worker stops, and the pool closes last because both use it
-    /// until then. Each step is its own future, so an ordered shutdown registry can take
-    /// them one by one.
-    fn stop_steps(self) -> [StopStep; 3] {
-        let Self { http, worker, pool } = self;
-        [
-            StopStep::new("http", http.stop(DRAIN_TIMEOUT)),
-            StopStep::new("job worker", worker.stop()),
-            StopStep::new("database pool", async move { pool.close().await }),
-        ]
+async fn ping(pool: &PgPool) -> Result<(), String> {
+    let ping = async { pool.acquire().await?.ping().await };
+    match tokio::time::timeout(PING_TIMEOUT, ping).await {
+        Ok(Ok(())) => Ok(()),
+        // sqlx errors never show the connection URL.
+        Ok(Err(error)) => Err(format!("the database is unreachable: {error}")),
+        Err(_) => Err(format!(
+            "the database did not answer within {}",
+            duration::format(PING_TIMEOUT)
+        )),
     }
 }
 
-/// One step of stopping the server.
-struct StopStep {
+/// Connects, prepares the database and starts every part, registering each one's stop.
+/// Returns the pool once the HTTP server listens.
+async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
+    let Loaded {
+        config, settings, ..
+    } = loaded;
+
+    // The job worker opens its listening connection beside the pool, so the pool gets the
+    // rest of the configured connections.
+    let pool_size = config
+        .database
+        .max_connections
+        .saturating_sub(LISTEN_CONNECTIONS)
+        .max(1);
+    let pool = connect(&config.database, pool_size).await?;
+    close_on_shutdown(shutdown, pool.clone());
+    if config.database.auto_migrate {
+        apply_migrations(&pool).await?;
+    }
+    let settings = load_settings(&pool, settings).await?;
+    let listener = TcpListener::bind(config.server.listen)
+        .await
+        .with_context(|| format!("listening on {}", config.server.listen))?;
+    let worker = Worker::new(pool.clone(), WorkerConfig::default())
+        .span(jobs::run_span)
+        .hook(jobs::RedHook::new());
+    let router = http::router(
+        AppState { settings },
+        config.observability.tracing.trust_incoming,
+    );
+    let sample_gauges = config.observability.metrics.enabled;
+    start_parts(shutdown, &pool, sample_gauges, worker, listener, router).await?;
+    Ok(pool)
+}
+
+/// Closes the pool when stopping, after every part registered later, which all use it.
+fn close_on_shutdown(shutdown: &Shutdown, pool: PgPool) {
+    on_stop(
+        shutdown,
+        "database pool",
+        DEFAULT_HOOK_TIMEOUT,
+        async move {
+            pool.close().await;
+            info!("database pool closed");
+        },
+    );
+}
+
+/// Starts the parts that run on the pool, in the reverse of the order they stop in: the
+/// gauges, the job worker, then the HTTP server, which stops first so no request is cut
+/// off by the parts behind it. The gauges are sampled only when `sample_gauges` is set,
+/// since with metrics off nothing records them.
+async fn start_parts(
+    shutdown: &Shutdown,
+    pool: &PgPool,
+    sample_gauges: bool,
+    worker: Worker,
+    listener: TcpListener,
+    router: Router,
+) -> anyhow::Result<()> {
+    if sample_gauges {
+        let gauges = Gauges::spawn(pool.clone(), gauges::INTERVAL);
+        on_stop(shutdown, "gauges", DEFAULT_HOOK_TIMEOUT, gauges.stop());
+    }
+
+    let worker = worker.start().await.context("starting the job worker")?;
+    let bound = worker.stop_timeout() + STOP_MARGIN;
+    on_stop(shutdown, "job worker", bound, worker.stop());
+
+    let http = Http::spawn(listener, router, HEADER_READ_TIMEOUT)?;
+    on_stop(
+        shutdown,
+        "http",
+        DRAIN_TIMEOUT + STOP_MARGIN,
+        http.stop(DRAIN_TIMEOUT),
+    );
+    Ok(())
+}
+
+/// Registers a stop that logs its own problems instead of failing.
+fn on_stop(
+    shutdown: &Shutdown,
     name: &'static str,
-    run: Pin<Box<dyn Future<Output = ()> + Send>>,
-}
-
-impl StopStep {
-    fn new(name: &'static str, run: impl Future<Output = ()> + Send + 'static) -> Self {
-        Self {
-            name,
-            run: Box::pin(run),
-        }
-    }
+    timeout: Duration,
+    stop: impl Future<Output = ()> + Send + 'static,
+) {
+    shutdown.on_shutdown_with_timeout(name, timeout, move || async move {
+        stop.await;
+        Ok::<(), Infallible>(())
+    });
 }
 
 async fn connect(database: &DatabaseConfig, max_connections: u32) -> anyhow::Result<PgPool> {
@@ -345,10 +435,16 @@ impl ShutdownSignals {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
 
+    use async_trait::async_trait;
     use axum::routing::get;
+    use neon_app::jobs::{Handler, Job, JobError, NewJob};
+    use neon_observability::config::AdminConfig;
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::sync::Notify;
     use tokio::time::{sleep, timeout};
@@ -522,57 +618,167 @@ mod tests {
         assert_eq!(read_until_closed(&mut partial).await, "");
     }
 
+    /// Sends `GET path` on a connection of its own. `None` when the connection is refused.
+    async fn status_of(addr: SocketAddr, path: &str) -> Option<(u16, String)> {
+        let request = format!("GET {path} HTTP/1.1\r\nHost: neon\r\nConnection: close\r\n\r\n");
+        let mut stream = TcpStream::connect(addr).await.ok()?;
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let response = read_until_closed(&mut stream).await;
+        let status = response.split(' ').nth(1)?.parse().ok()?;
+        let (_, body) = response.split_once("\r\n\r\n")?;
+        Some((status, body.to_owned()))
+    }
+
+    async fn job_status(pool: &PgPool, id: &str) -> String {
+        sqlx::query_scalar("SELECT status FROM jobs WHERE id::text = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .expect("the job exists")
+    }
+
+    const KIND: &str = "test.slow";
+
+    /// Takes a moment over each job.
+    struct SlowJob;
+
+    #[async_trait]
+    impl Handler for SlowJob {
+        fn kind(&self) -> &'static str {
+            KIND
+        }
+
+        async fn run(&self, _: &Job) -> Result<(), JobError> {
+            sleep(Duration::from_millis(200)).await;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn readiness_fails_while_the_database_is_unreachable() {
+        let pool = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
+            .connect_lazy("postgres://neon@127.0.0.1:1/neon")
+            .expect("a valid URL");
+
+        let error = ping(&pool).await.expect_err("nothing listens on port 1");
+
+        assert!(error.starts_with("the database "), "{error}");
+    }
+
     #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-    async fn the_server_stops_http_then_the_worker_then_the_pool(pool: PgPool) {
-        let started = Arc::new(Notify::new());
-        // The request reads from the database once it is drained, so it only succeeds
-        // if the pool is still open while requests finish.
+    async fn stopping_turns_traffic_away_then_stops_http_the_worker_and_the_pool_in_order(
+        pool: PgPool,
+    ) {
+        let telemetry = Telemetry::noop();
+        let shutdown = telemetry.shutdown();
+        // Stands in for the telemetry's flushes, which are registered first and so run last.
+        let pool_closed_at_flush = Arc::new(Mutex::new(None));
+        shutdown.on_shutdown("telemetry", {
+            let seen = Arc::clone(&pool_closed_at_flush);
+            let pool = pool.clone();
+            move || async move {
+                *seen.lock().unwrap() = Some(pool.is_closed());
+                Ok::<(), Infallible>(())
+            }
+        });
+        let started = Arc::new(OnceLock::new());
+        let admin_config = AdminConfig {
+            enabled: true,
+            addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+        };
+        let admin = admin::spawn(&admin_config, &telemetry, readiness(Arc::clone(&started)))
+            .await
+            .expect("the admin listener starts")
+            .expect("it is enabled");
+        assert_eq!(
+            status_of(admin, "/readyz").await,
+            Some((503, "starting".to_owned()))
+        );
+
+        // Once stopping has begun, the request queues a job and answers when a worker has
+        // claimed it, so it only succeeds if the worker still runs while requests drain.
+        let request_started = Arc::new(Notify::new());
+        let proceed = Arc::new(Notify::new());
         let router = Router::new().route(
             "/slow",
             get({
-                let started = Arc::clone(&started);
+                let request_started = Arc::clone(&request_started);
+                let proceed = Arc::clone(&proceed);
                 let pool = pool.clone();
                 move || async move {
-                    started.notify_one();
-                    sleep(Duration::from_millis(300)).await;
-                    match sqlx::query_scalar::<_, i32>("SELECT 7")
-                        .fetch_one(&pool)
+                    request_started.notify_one();
+                    proceed.notified().await;
+                    let id = jobs::enqueue(&pool, &NewJob::new(KIND, json!({})))
                         .await
-                    {
-                        Ok(n) => n.to_string(),
-                        Err(error) => error.to_string(),
+                        .expect("queued")
+                        .to_string();
+                    let deadline = Instant::now() + PATIENCE;
+                    while job_status(&pool, &id).await != "running" {
+                        assert!(Instant::now() < deadline, "no worker claimed the job");
+                        sleep(Duration::from_millis(20)).await;
                     }
+                    id
                 }
             }),
         );
-        let http = start(router, PATIENCE).await;
-        let addr = http.addr;
-        let worker = Worker::new(pool.clone(), WorkerConfig::default())
-            .start()
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
+        let addr = listener.local_addr().expect("bound");
+        let worker = Worker::new(
+            pool.clone(),
+            WorkerConfig {
+                poll_interval: Duration::from_millis(50),
+                stop_timeout: PATIENCE,
+                ..WorkerConfig::default()
+            },
+        )
+        .handler(SlowJob);
+        close_on_shutdown(shutdown, pool.clone());
+        start_parts(shutdown, &pool, true, worker, listener, router)
             .await
-            .expect("the worker starts");
-        let server = Server {
-            http,
-            worker,
-            pool: pool.clone(),
-        };
+            .expect("the parts start");
+        started.get_or_init(|| pool.clone());
+        assert_eq!(
+            status_of(admin, "/readyz").await,
+            Some((200, "ok".to_owned()))
+        );
+
         let mut client = send(addr, "GET /slow HTTP/1.1\r\nHost: neon\r\n\r\n").await;
-        started.notified().await;
+        request_started.notified().await;
+        let stopping = tokio::spawn({
+            let shutdown = shutdown.clone();
+            async move { shutdown.run().await }
+        });
 
-        let steps = server.stop_steps();
-        let names: Vec<&str> = steps.iter().map(|step| step.name).collect();
-        assert_eq!(names, ["http", "job worker", "database pool"]);
-        let mut steps = steps.into_iter();
-
-        steps.next().expect("the HTTP step").run.await;
-        let response = read_until_closed(&mut client).await;
-        assert!(response.ends_with("\r\n\r\n7"), "{response}");
-        assert!(refuses_connections(addr).await);
-        assert!(!pool.is_closed());
-
-        for step in steps {
-            step.run.await;
+        // Traffic is turned away first, while the open request still runs.
+        let deadline = Instant::now() + PATIENCE;
+        while status_of(admin, "/readyz").await != Some((503, "shutting down".to_owned())) {
+            assert!(Instant::now() < deadline, "/readyz still reports ready");
+            sleep(Duration::from_millis(20)).await;
         }
-        assert!(pool.is_closed());
+        assert!(refuses_connections(addr).await);
+        proceed.notify_one();
+
+        let response = read_until_closed(&mut client).await;
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+        let (_, job) = response.split_once("\r\n\r\n").expect("a body");
+        timeout(PATIENCE * 2, stopping)
+            .await
+            .expect("stopping ends")
+            .expect("the stop task ran")
+            .expect("every part stopped");
+
+        // The worker finished the job it claimed during the drain and recorded it as done,
+        // so the pool was still open while the worker stopped.
+        let check = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with((*pool.connect_options()).clone())
+            .await
+            .expect("the test database is reachable");
+        assert_eq!(job_status(&check, job).await, "done");
+        check.close().await;
+        // The pool closed before the telemetry flushed, and the admin listener is gone.
+        assert_eq!(*pool_closed_at_flush.lock().unwrap(), Some(true));
+        assert_eq!(status_of(admin, "/readyz").await, None);
     }
 }
