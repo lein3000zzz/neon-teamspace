@@ -1,6 +1,6 @@
 ---
 title: Real-time sync
-description: How browsers and agents edit a page together over WebSocket, who may connect, how the server keeps the documents, the limits and close codes, and what happens when someone's access changes.
+description: How browsers and agents edit a page together over WebSocket, who may connect, how the server keeps the documents, the limits and close codes, what happens when someone's access changes, and the feeds of databases' changes.
 ---
 
 Everyone who has a page open edits one Yjs document. The server keeps it in memory while the
@@ -255,10 +255,72 @@ Beside them:
 | `neon_sync_messages_total` | counter | `kind`: `sync_step1`, `sync_step2`, `update`, `awareness`, `awareness_query`, `auth`, `other` | Messages clients sent. |
 | `neon_sync_disconnects_total` | counter | `cause`: `client`, `unresponsive`, or a close reason, such as `read_only` or `too_slow` | Connections ended. |
 
+## Database feeds
+
+A database's rows and their values are plain data rather than a Yjs document: each change is
+saved as it is made, the last of two to one property winning. `GET /ws/databases/{id}` tells
+everyone who shows the database of each change once it is saved, so they apply it to what
+they show. The upgrade is checked as a page's, in the same order, the database standing for
+the page, with its own limit of connections.
+
+Each message is a JSON text message, an object whose `type` says what changed, with the
+database's `database_id`:
+
+| `type` | Fields | Sent when |
+|---|---|---|
+| `ready` | `access`: `edit` or `view` | First, once the connection hears every change. |
+| `access` | `access` | What the person may do with the database changed. |
+| `row_created` | `row`: the row as a query lists it, without `access` and `group` | A row was added. |
+| `row_updated` | `row_id`; `values`, those that changed, by property id, `null` for those cleared; `title` when it changed; `last_edited_at`, `last_edited_by` | A row's values or title changed. |
+| `row_moved` | As `row_updated`, with `position`, the row's new key among the rows | A row was placed elsewhere, or moved to another group, whose value is then among `values`. |
+| `row_trashed` | `row_id` | A row went to the trash. |
+| `row_restored` | `row` | A row came back from it. |
+| `schema_changed` | | A property was added, changed, placed or deleted. Read the database again. |
+| `view_changed` | `view_id`, `deleted` | A view was added, changed, placed, duplicated or deleted. |
+
+```json
+{"type": "row_updated", "database_id": "0193a5b2-0000-7000-8000-0000000000d1",
+ "row_id": "0193a5b2-0000-7000-8000-0000000000e1",
+ "values": {"0193a5b2-0000-7000-8000-0000000000f2": "0193a5b2-0000-7000-8000-0000000000f5"},
+ "last_edited_at": "2026-11-22T12:00:00Z", "last_edited_by": "0193a5b2-0000-7000-8000-0000000000a1"}
+```
+
+Guests hear the same changes without the people: the values of person properties are left
+out, and so are who made and changed rows. Changes go to two rooms of the broadcaster, one
+for members and one for guests, so each hears its own version.
+
+Nothing a connection missed before it opened is sent: a client reads the database, and
+queries it, as it connects and again whenever it reconnects, then applies each message after
+`ready`. A client has nothing to send. What it sends is read and dropped; more than 4 KiB in
+one message closes it with `1009`, and more than 5 messages a second, with bursts of 20,
+with `4429`.
+
+When someone's access changes, their feeds are looked at again as their documents are,
+[above](#when-access-changes): a feed closes with `4401` once its session or token ended,
+and with `4404` once the person may no longer see the database. One whose access changed
+between editing and viewing stays open and is sent an `access` message; one whose role
+changed between guest and member moves to the other room. Every five minutes every feed is
+looked at so again.
+
+| Limit | Default | Past it |
+|---|---|---|
+| Connections | 20 for one person on this server, 200 for one database | The upgrade is refused with `429`; one of several that came at once closes with `1013`. |
+| Messages waiting to be sent to a client | 256, and 8 MiB of them | The client fell behind, and the feed closes with `4408`; it reconnects and reads afresh. |
+| Sending one message | 30 seconds | The feed closes with `4408`. |
+| Silence | Nothing from the client, not even a pong, between two pings; the server pings every 30 seconds | The server drops the connection without a close. |
+
+A feed closes with the codes of [Close codes](#close-codes) that apply to it: `1009`, `1012`
+when the server stops, `1013`, `4401`, `4404`, `4408` and `4429`. A client should stop after
+`4401` and `4404`, and reconnect after the others, after a pause for `4408` and `4429`.
+
+Its metrics are `neon_databases_open_connections`, a gauge of the open feeds,
+`neon_databases_disconnects_total`, a counter by `cause` as for documents, and
+`neon_databases_events_total`, the changes told, by `type`.
+
 ## One process
 
-The broadcaster, which puts a document's messages in its clients' queues, is a port with one
-adapter, for clients connected to this process. Running a second server process would need
+The broadcaster, which puts a document's and a database's messages in their clients' queues,
+is a port with one adapter, for clients connected to this process. Running a second server process would need
 an adapter that carries the messages between processes, and the documents themselves held
 in one place; [Key decisions](/docs/architecture/decisions/#one-process-no-redis) explains why
 that waits.

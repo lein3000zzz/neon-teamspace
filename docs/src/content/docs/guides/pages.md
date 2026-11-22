@@ -4,7 +4,10 @@ description: Where pages live and who reaches them, their order, sharing, moving
 ---
 
 A page is a document of a workspace. Pages nest under other pages, as deep as 100 levels,
-and each one is either in a teamspace or private to one member. This page covers the rules
+and each one is either in a teamspace or private to one member. A
+[database](/docs/guides/databases/) is a page too, of kind `database`, whose subpages are its
+rows, of kind `row`; what follows holds for them, with the few differences that page lists.
+This page covers the rules
 and the API. Who may do what is also listed, in one table, on the
 [permissions](/docs/reference/permissions/#pages) page.
 
