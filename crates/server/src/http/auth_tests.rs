@@ -796,3 +796,142 @@ async fn admins_make_invites_and_copy_their_codes(pool: PgPool) {
         (StatusCode::BAD_REQUEST, "invalid_invite")
     );
 }
+
+fn keyed() -> Envelope {
+    let key = format!("k1:{}", STANDARD.encode([9u8; 32]));
+    Envelope::new(Keyring::parse(&[key]).expect("a key"))
+}
+
+/// The settings of `key` in a settings list.
+fn setting<'a>(list: &'a Value, key: &str) -> &'a Value {
+    list["settings"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|setting| setting["key"] == key)
+        .unwrap_or_else(|| panic!("{key} is not listed"))
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn admins_set_mail_up_and_send_themselves_a_test(pool: PgPool) {
+    let state = state_with(pool.clone(), keyed(), WebConfig::new(None, Vec::new())).await;
+    admin(&state).await;
+    let app = router(state, false);
+    let session = sign_in(&app, "admin@example.com").await;
+    let cookie = [(COOKIE.as_str(), session.as_str())];
+
+    let listed = call(&app, Method::GET, "/api/v1/admin/settings", &cookie, None).await;
+    assert_eq!(
+        listed.body["mail"],
+        json!({"configured": false, "problem": "mail.enabled is off", "last_sent_at": null, "last_failure": null})
+    );
+    assert_eq!(setting(&listed.body, "mail.host")["browser_only"], true);
+    assert_eq!(setting(&listed.body, "mail.password")["browser_only"], true);
+    assert_eq!(setting(&listed.body, "mail.from")["browser_only"], false);
+    let off = call(&app, Method::POST, "/api/v1/admin/mail/test", &cookie, None).await;
+    assert_eq!(
+        (off.status, off.code()),
+        (StatusCode::CONFLICT, "mail_not_set_up")
+    );
+    assert_eq!(
+        off.body["error"]["message"],
+        "mail is not set up: mail.enabled is off"
+    );
+
+    let saved = call(
+        &app,
+        Method::PATCH,
+        "/api/v1/admin/settings",
+        &cookie,
+        Some(json!({"changes": {
+            "mail.enabled": true,
+            "mail.host": "smtp.example.com",
+            "mail.username": "neon",
+            "mail.password": "hunter2-smtp",
+            "mail.from": "neon@example.com",
+        }})),
+    )
+    .await;
+    assert_eq!(saved.status, StatusCode::OK, "{}", saved.body);
+    assert_eq!(saved.body["mail"]["configured"], true);
+    assert_eq!(setting(&saved.body, "mail.password")["value"], "[redacted]");
+    let stored: Value =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'mail.password'")
+            .fetch_one(&pool)
+            .await
+            .expect("saved");
+    assert!(!stored.to_string().contains("hunter2"), "{stored}");
+
+    let sent = call(&app, Method::POST, "/api/v1/admin/mail/test", &cookie, None).await;
+    assert_eq!(sent.status, StatusCode::ACCEPTED, "{}", sent.body);
+    assert_eq!(
+        sent.body,
+        json!({"queued": true, "to": "admin@example.com"})
+    );
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'mail.send'")
+        .fetch_one(&pool)
+        .await
+        .expect("counted");
+    assert_eq!(queued, 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn api_tokens_cannot_change_where_secrets_go(pool: PgPool) {
+    let state = state_with(pool, keyed(), WebConfig::new(None, Vec::new())).await;
+    admin(&state).await;
+    let app = router(state, false);
+    let session = sign_in(&app, "admin@example.com").await;
+    let created = call(
+        &app,
+        Method::POST,
+        "/api/v1/account/tokens",
+        &[(COOKIE.as_str(), &session)],
+        Some(json!({"name": "ops", "scopes": ["read", "write", "admin"]})),
+    )
+    .await;
+    let bearer = format!(
+        "Bearer {}",
+        created.body["token"].as_str().expect("a token")
+    );
+    let token = [(AUTHORIZATION.as_str(), bearer.as_str())];
+
+    let refused = call(
+        &app,
+        Method::PATCH,
+        "/api/v1/admin/settings",
+        &token,
+        Some(json!({"changes": {
+            "instance.name": "Renamed",
+            "mail.host": "smtp.attacker.example",
+            "mail.password": "theirs",
+        }})),
+    )
+    .await;
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::FORBIDDEN, "forbidden")
+    );
+    let keys: Vec<&str> = refused.body["error"]["problems"]
+        .as_array()
+        .expect("problems")
+        .iter()
+        .map(|problem| problem["key"].as_str().expect("a key"))
+        .collect();
+    assert_eq!(keys, ["mail.host", "mail.password"]);
+    let listed = call(&app, Method::GET, "/api/v1/admin/settings", &token, None).await;
+    assert_eq!(
+        setting(&listed.body, "instance.name")["value"],
+        "Neon Workspace",
+        "nothing was saved"
+    );
+
+    let renamed = call(
+        &app,
+        Method::PATCH,
+        "/api/v1/admin/settings",
+        &token,
+        Some(json!({"changes": {"instance.name": "Renamed", "mail.from": "neon@example.com"}})),
+    )
+    .await;
+    assert_eq!(renamed.status, StatusCode::OK, "{}", renamed.body);
+}

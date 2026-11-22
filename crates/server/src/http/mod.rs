@@ -85,7 +85,8 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(admin::list_join_requests))
         .routes(routes!(admin::approve_join))
         .routes(routes!(admin::deny_join))
-        .routes(routes!(admin::list_settings, admin::update_settings));
+        .routes(routes!(admin::list_settings, admin::update_settings))
+        .routes(routes!(admin::send_test_mail));
     OpenApiRouter::with_openapi(openapi::base()).nest("/api/v1", routes)
 }
 

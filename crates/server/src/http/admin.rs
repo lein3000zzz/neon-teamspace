@@ -1,15 +1,15 @@
-//! `/api/v1/admin`: accounts, invites, requests to join and runtime settings. Every route
-//! needs an admin: a session of one, or their API token with the admin scope.
+//! `/api/v1/admin`: accounts, invites, requests to join, runtime settings and mail. Every
+//! route needs an admin: a session of one, or their API token with the admin scope.
 
 use std::collections::BTreeMap;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::auth::{InviteSpec, NewAccount, UserUpdate};
+use neon_app::mail;
 use neon_app::settings::Change;
 use neon_domain::auth::JoinRequestStatus;
-use neon_domain::settings::Secret;
-use neon_domain::settings::{Kind, Source};
+use neon_domain::settings::{Kind, Problem, Secret, Source};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use time::OffsetDateTime;
@@ -298,7 +298,10 @@ pub(super) async fn create_invite(
             (state.auth.create_invite(&admin, spec).await?, None)
         }
     };
-    Ok((StatusCode::CREATED, JsonBody(created_invite(created, queued))))
+    Ok((
+        StatusCode::CREATED,
+        JsonBody(created_invite(created, queued)),
+    ))
 }
 
 fn created_invite(created: neon_app::auth::CreatedInvite, queued: Option<bool>) -> CreatedInvite {
@@ -562,18 +565,71 @@ pub struct Setting {
     pub source: SettingSource,
     /// Set by the environment or the config file, so it cannot change here.
     pub pinned: bool,
+    /// Changes only from a browser session, never with an API token: a secret, or a setting
+    /// that says where one goes, such as the mail server.
+    pub browser_only: bool,
     #[schema(example = "NEON_SETTINGS__AUTH__REGISTRATION")]
     pub env_var: String,
+}
+
+/// Whether mail can go, and how it went lately.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MailStatus {
+    /// Mail can go now: `mail.enabled` on, `mail.host` and `mail.from` set, a secret key in
+    /// `secrets.keys` to seal it while it waits, and `server.public_url` for its links.
+    pub configured: bool,
+    /// What is missing, while it cannot go.
+    #[schema(example = "mail.host is not set")]
+    pub problem: Option<String>,
+    /// When the mail server last took a mail, since the server started.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_sent_at: Option<OffsetDateTime>,
+    /// The last delivery that failed, since the server started.
+    pub last_failure: Option<MailFailure>,
+}
+
+/// A delivery that failed.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MailFailure {
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: OffsetDateTime,
+    /// The kind of mail: `verification`, `password_reset`, `password_changed`, `invite`,
+    /// `join_confirmation`, `join_denied`, `join_requested` or `test`.
+    #[schema(example = "test")]
+    pub kind: String,
+    /// What the mail server answered, or why it could not be reached.
+    #[schema(example = "permanent error (535): 5.7.8 Authentication credentials invalid")]
+    pub error: String,
+    /// It will not be tried again: the server refused the address, or the link expired.
+    pub permanent: bool,
+}
+
+impl From<mail::MailStatus> for MailStatus {
+    fn from(status: mail::MailStatus) -> Self {
+        Self {
+            configured: status.configured,
+            problem: status.problem,
+            last_sent_at: status.deliveries.last_sent_at,
+            last_failure: status.deliveries.last_failure.map(|failure| MailFailure {
+                at: failure.at,
+                kind: failure.kind.to_owned(),
+                error: failure.error,
+                permanent: failure.permanent,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SettingList {
     /// In key order.
     pub settings: Vec<Setting>,
+    pub mail: MailStatus,
 }
 
 fn setting_list(state: &AppState) -> SettingList {
     SettingList {
+        mail: state.auth.mail_status().into(),
         settings: state
             .settings
             .entries()
@@ -589,6 +645,7 @@ fn setting_list(state: &AppState) -> SettingList {
                 value: entry.value,
                 default: entry.default,
                 pinned: entry.source.is_pinned(),
+                browser_only: entry.browser_only,
                 source: match entry.source {
                     Source::Env => SettingSource::Env,
                     Source::Yaml => SettingSource::Yaml,
@@ -606,7 +663,8 @@ fn setting_list(state: &AppState) -> SettingList {
     path = "/admin/settings",
     tag = "admin",
     summary = "List runtime settings",
-    description = "Every setting with its value, default and where the value comes from.",
+    description = "Every setting with its value, default and where the value comes from, and \
+                   whether mail can go.",
     responses(
         (status = OK, description = "The settings.", body = SettingList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
@@ -639,13 +697,14 @@ pub struct UpdateSettings {
     description = "Applies the changes together, at once and without a restart, or none of \
                    them: every value is checked, then the rules across settings. Settings \
                    pinned by the environment or the config file cannot change here. Secret \
-                   settings need `secrets.keys`, as they are kept encrypted.",
+                   settings need `secrets.keys`, as they are kept encrypted. Settings marked \
+                   `browser_only` change only from a browser session.",
     request_body = UpdateSettings,
     responses(
         (status = OK, description = "The settings after the change.", body = SettingList),
         (status = BAD_REQUEST, description = "invalid_settings, with each problem.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, with a problem for each browser-only setting an API token tried to change; or insufficient_scope.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -655,10 +714,68 @@ pub(super) async fn update_settings(
     Admin(admin): Admin,
     JsonBody(body): JsonBody<UpdateSettings>,
 ) -> Result<JsonBody<SettingList>, ApiError> {
+    if !admin.via_session() {
+        let registry = state.settings.registry();
+        let held: Vec<Problem> = body
+            .changes
+            .keys()
+            .filter(|key| registry.get(key).is_some_and(|def| def.is_browser_only()))
+            .map(|key| {
+                Problem::new(
+                    key.as_str(),
+                    "changes only from a browser session: it is a secret, or says where one goes",
+                )
+            })
+            .collect();
+        if !held.is_empty() {
+            return Err(ApiError::forbidden(
+                "an API token cannot change these settings: change them signed in at a browser",
+            )
+            .with_problems(held));
+        }
+    }
     let changes = body.changes.into_iter().map(|(key, value)| {
         let change = value.map_or(Change::Reset, Change::Set);
         (key, change)
     });
     state.settings.update(changes, Some(admin.user.id)).await?;
     Ok(JsonBody(setting_list(&state)))
+}
+
+/// Where a test mail went.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TestMail {
+    /// Always true in a 202: the mail is in the queue.
+    pub queued: bool,
+    /// The admin's own address.
+    #[schema(example = "admin@example.com")]
+    pub to: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/mail/test",
+    tag = "admin",
+    summary = "Send a test mail",
+    description = "Queues a test mail to the admin calling. Whether the mail server took it shows \
+                   in the mail status of `GET /admin/settings`, with what it answered when it \
+                   did not, and in the admin's inbox.",
+    responses(
+        (status = ACCEPTED, description = "Queued.", body = TestMail),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = CONFLICT, description = "mail_not_set_up, saying what is missing.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn send_test_mail(
+    State(state): State<AppState>,
+    Admin(admin): Admin,
+) -> Result<(StatusCode, JsonBody<TestMail>), ApiError> {
+    let to = state.auth.send_test_mail(&admin).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        JsonBody(TestMail { queued: true, to }),
+    ))
 }

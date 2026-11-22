@@ -83,6 +83,13 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, "forbidden", message)
     }
 
+    /// The same answer, naming each field it refuses.
+    #[must_use]
+    pub fn with_problems(mut self, problems: Vec<Problem>) -> Self {
+        self.problems = problems;
+        self
+    }
+
     /// A failure the client cannot fix. Its cause belongs in the logs, never in the
     /// answer, so the message is always the same.
     pub fn internal() -> Self {

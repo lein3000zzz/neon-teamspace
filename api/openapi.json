@@ -1371,13 +1371,83 @@
         ]
       }
     },
+    "/api/v1/admin/mail/test": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Send a test mail",
+        "description": "Queues a test mail to the admin calling. Whether the mail server took it shows in the mail status of `GET /admin/settings`, with what it answered when it did not, and in the admin's inbox.",
+        "operationId": "send_test_mail",
+        "responses": {
+          "202": {
+            "description": "Queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestMail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mail_not_set_up, saying what is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/admin/settings": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "List runtime settings",
-        "description": "Every setting with its value, default and where the value comes from.",
+        "description": "Every setting with its value, default and where the value comes from, and whether mail can go.",
         "operationId": "list_settings",
         "responses": {
           "200": {
@@ -1435,7 +1505,7 @@
           "admin"
         ],
         "summary": "Change runtime settings",
-        "description": "Applies the changes together, at once and without a restart, or none of them: every value is checked, then the rules across settings. Settings pinned by the environment or the config file cannot change here. Secret settings need `secrets.keys`, as they are kept encrypted.",
+        "description": "Applies the changes together, at once and without a restart, or none of them: every value is checked, then the rules across settings. Settings pinned by the environment or the config file cannot change here. Secret settings need `secrets.keys`, as they are kept encrypted. Settings marked `browser_only` change only from a browser session.",
         "operationId": "update_settings",
         "requestBody": {
           "content": {
@@ -1479,7 +1549,7 @@
             }
           },
           "403": {
-            "description": "forbidden or insufficient_scope.",
+            "description": "forbidden, with a problem for each browser-only setting an API token tried to change; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3231,6 +3301,76 @@
         },
         "additionalProperties": false
       },
+      "MailFailure": {
+        "type": "object",
+        "description": "A delivery that failed.",
+        "required": [
+          "at",
+          "kind",
+          "error",
+          "permanent"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": "string",
+            "description": "What the mail server answered, or why it could not be reached.",
+            "example": "permanent error (535): 5.7.8 Authentication credentials invalid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "The kind of mail: `verification`, `password_reset`, `password_changed`, `invite`,\n`join_confirmation`, `join_denied`, `join_requested` or `test`.",
+            "example": "test"
+          },
+          "permanent": {
+            "type": "boolean",
+            "description": "It will not be tried again: the server refused the address, or the link expired."
+          }
+        }
+      },
+      "MailStatus": {
+        "type": "object",
+        "description": "Whether mail can go, and how it went lately.",
+        "required": [
+          "configured"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "Mail can go now: `mail.enabled` on, `mail.host` and `mail.from` set, a secret key in\n`secrets.keys` to seal it while it waits, and `server.public_url` for its links."
+          },
+          "last_failure": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MailFailure",
+                "description": "The last delivery that failed, since the server started."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_sent_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the mail server last took a mail, since the server started."
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What is missing, while it cannot go.",
+            "example": "mail.host is not set"
+          }
+        }
+      },
       "Me": {
         "allOf": [
           {
@@ -3523,9 +3663,14 @@
           "default",
           "source",
           "pinned",
+          "browser_only",
           "env_var"
         ],
         "properties": {
+          "browser_only": {
+            "type": "boolean",
+            "description": "Changes only from a browser session, never with an API token: a secret, or a setting\nthat says where one goes, such as the mail server."
+          },
           "default": {
             "$ref": "#/components/schemas/Value"
           },
@@ -3571,9 +3716,13 @@
       "SettingList": {
         "type": "object",
         "required": [
-          "settings"
+          "settings",
+          "mail"
         ],
         "properties": {
+          "mail": {
+            "$ref": "#/components/schemas/MailStatus"
+          },
           "settings": {
             "type": "array",
             "items": {
@@ -3614,6 +3763,25 @@
           },
           "user": {
             "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "TestMail": {
+        "type": "object",
+        "description": "Where a test mail went.",
+        "required": [
+          "queued",
+          "to"
+        ],
+        "properties": {
+          "queued": {
+            "type": "boolean",
+            "description": "Always true in a 202: the mail is in the queue."
+          },
+          "to": {
+            "type": "string",
+            "description": "The admin's own address.",
+            "example": "admin@example.com"
           }
         }
       },
