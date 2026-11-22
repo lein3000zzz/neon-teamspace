@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invites\n         SET revoked_at = COALESCE(revoked_at, $3), revoked_by = COALESCE(revoked_by, $2)\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a2fe95f4c75587ac7f43ff56a6b487969fc0ecf4dad2fd5267af9b64a5e81058"
+}

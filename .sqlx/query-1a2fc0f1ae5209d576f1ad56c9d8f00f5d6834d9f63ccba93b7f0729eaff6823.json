@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM invites WHERE expires_at < $1 OR revoked_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a2fc0f1ae5209d576f1ad56c9d8f00f5d6834d9f63ccba93b7f0729eaff6823"
+}

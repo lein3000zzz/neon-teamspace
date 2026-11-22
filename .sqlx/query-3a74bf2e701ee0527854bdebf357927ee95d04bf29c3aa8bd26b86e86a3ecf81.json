@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE join_requests\n         SET token_hash = $2, link_expires_at = $3, mailed_at = $4, mails = mails + 1\n         WHERE id = $1 AND confirmed_at IS NULL AND decided_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a74bf2e701ee0527854bdebf357927ee95d04bf29c3aa8bd26b86e86a3ecf81"
+}

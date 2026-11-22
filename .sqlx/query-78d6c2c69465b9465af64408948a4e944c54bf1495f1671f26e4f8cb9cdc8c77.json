@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM join_requests\n         WHERE confirmed_at IS NULL AND decided_at IS NULL AND link_expires_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78d6c2c69465b9465af64408948a4e944c54bf1495f1671f26e4f8cb9cdc8c77"
+}

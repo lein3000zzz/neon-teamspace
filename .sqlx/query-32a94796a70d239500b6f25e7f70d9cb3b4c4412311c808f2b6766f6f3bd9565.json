@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET email_verified_at = COALESCE(email_verified_at, $2), updated_at = $2\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32a94796a70d239500b6f25e7f70d9cb3b4c4412311c808f2b6766f6f3bd9565"
+}
