@@ -89,12 +89,17 @@ Caddyfile, as `/etc/caddy/docs-csp.caddy`, and imports it where it serves `/docs
 policy always matches the pages it was built with:
 
 ```caddy
-handle /docs* {
+@docs path /docs /docs/*
+handle @docs {
 	import /etc/caddy/docs-csp.caddy
 	root * /srv
 	file_server
 }
 ```
+
+`web/Dockerfile` builds the docs, checks the Caddyfile with the snippet in place, and fails
+the image's build when either is wrong. The app's policy is set first and the snippet's
+replaces it, so it must stay a plain `header` directive, which Caddy applies at once.
 
 ## Images
 

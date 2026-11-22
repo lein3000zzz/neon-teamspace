@@ -254,6 +254,7 @@ starting runs the same steps for the parts already started.
 
 ## The stack
 
-**Planned.** A Compose profile, `observability`, runs Grafana's all-in-one OpenTelemetry
-image, `grafana/otel-lgtm`, and Pyroscope beside the server, with a Grafana dashboard of the
-RED metrics already provisioned, and a page here on reading it.
+The Compose file's `observability` profile runs Grafana's all-in-one OpenTelemetry image,
+`grafana/otel-lgtm`, with Prometheus, Tempo, Loki and Pyroscope, beside the server or beside
+`make run`, and provisions a Grafana dashboard of the RED metrics and the gauges;
+[Observability stack](/docs/self-hosting/observability/) covers running and reading it.

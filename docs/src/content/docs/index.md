@@ -15,8 +15,8 @@ hero:
 
 :::note[Early development]
 Neon Workspace is not usable yet. The foundation exists: the server's crates, configuration,
-the database layer and job queue, observability, the first API endpoint, the web app's shell
-and these docs. Pages say what exists today and mark the rest of the design as **Planned**.
+the database layer and job queue, observability, the first API endpoint, the web app's shell,
+these docs, and the Docker images that serve them. Pages say what exists today and mark the rest of the design as **Planned**.
 :::
 
 ## Start here
@@ -28,7 +28,7 @@ and these docs. Pages say what exists today and mark the rest of the design as *
 
 ## Running an instance
 
-- **[Install](/docs/self-hosting/install/)**: the development setup, with Postgres in Docker.
+- **[Install](/docs/self-hosting/install/)**: the Docker deployment, and the development setup.
 - **[Configuration](/docs/self-hosting/configuration/)**: `neon.yaml`, `NEON_` variables, and
   which value wins.
 
