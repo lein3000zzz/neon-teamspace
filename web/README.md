@@ -112,7 +112,10 @@ in: its `beforeLoad` asks `GET /api/v1/account/me` and sends a visitor without a
 and requests to join. `createQueryClient` watches every failed request: a 401 `unauthenticated`
 means the session ended, which forgets the user and leads back to sign in, and a 403 `forbidden`
 asks again who is signed in, so a role taken away shows at once. Answers the server refused on
-purpose, any 4xx, are not retried.
+purpose, any 4xx, are not retried. A mutation can carry a password, a token's secret or an
+invite code, so it leaves the cache as soon as no component shows it, and signing in or out
+clears every one along with the previous user's queries (`forgetPrivateData` in
+`src/api/account.ts`).
 
 Search values stay strings (`src/router.tsx`), and the one-time token of a mailed link, or an
 invite link's code, is taken out of the address as its page opens (`useLinkSecret` in

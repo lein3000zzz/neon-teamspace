@@ -76,7 +76,10 @@ accounts](/docs/guides/signing-in/) describes them.
 - One-time tokens in mailed links, and an invite link's code, are taken out of the address
   as their page opens, by replacing the history entry, so they stay out of the browser's
   history.
-- Signing in or out drops everything the previous user's requests left in memory.
+- Signing in or out drops everything the previous user's requests left in memory: their
+  queries, and every mutation with what it sent and got back. A mutation leaves the cache
+  as soon as no page shows it in any case, so a password, a new token's secret or an
+  invite code is kept only while its page is open.
 
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message

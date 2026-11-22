@@ -15,6 +15,13 @@ const APP_QUERY_DEFAULTS: NonNullable<DefaultOptions["queries"]> = {
   retryDelay: 1000,
 };
 
+/**
+ * A mutation's variables and answer can hold a password, a new token's secret
+ * or an invite code, so it leaves the cache as soon as no component shows it,
+ * rather than five minutes later. Nothing reads finished mutations back.
+ */
+const APP_MUTATION_DEFAULTS: NonNullable<DefaultOptions["mutations"]> = { gcTime: 0 };
+
 function isRefusal(error: unknown): boolean {
   return error instanceof ApiError && error.status >= 400 && error.status < 500;
 }
@@ -29,13 +36,14 @@ function isRefusal(error: unknown): boolean {
  * - a 403 `forbidden` may mean the user's role changed, so who they are is
  *   asked again, and pages they may no longer see say so.
  *
- * Tests pass their own query defaults; the session handling is the same.
+ * Tests pass their own query defaults; the session handling and the
+ * mutation defaults are the same.
  */
 export function createQueryClient(queries: DefaultOptions["queries"] = APP_QUERY_DEFAULTS) {
   const client: QueryClient = new QueryClient({
     queryCache: new QueryCache({ onError: (error) => watchSession(client, error) }),
     mutationCache: new MutationCache({ onError: (error) => watchSession(client, error) }),
-    defaultOptions: { queries },
+    defaultOptions: { queries, mutations: APP_MUTATION_DEFAULTS },
   });
   return client;
 }

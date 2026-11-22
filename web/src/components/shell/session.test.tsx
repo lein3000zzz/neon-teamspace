@@ -66,6 +66,55 @@ describe("the session", () => {
     expect(queryClient.getQueryData(["account", "preferences", ada.id])).toBeUndefined();
   });
 
+  it("keeps no password or token secret in memory once its page is done with it", async () => {
+    const SECRET = "nw_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcd";
+    const session = fakeSession(ada, "correct horse battery");
+    server.use(
+      ...session.handlers,
+      http.get("/api/v1/account/tokens", () => HttpResponse.json({ tokens: [] })),
+      http.post("/api/v1/account/tokens", () =>
+        HttpResponse.json(
+          {
+            token: SECRET,
+            api_token: {
+              id: "0193a5b2-0000-7000-8000-0000000000a1",
+              name: "CI deploys",
+              prefix: "nw_AbCdEfG",
+              scopes: ["read"],
+              created_at: "2026-11-20T09:00:00Z",
+              last_used_at: null,
+              expires_at: null,
+            },
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+    const { user, queryClient } = renderApp("/login?next=/account/tokens");
+    const mutations = () =>
+      JSON.stringify(
+        queryClient
+          .getMutationCache()
+          .getAll()
+          .map(({ state }) => [state.variables, state.data]),
+      );
+
+    await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse battery");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await user.type(await screen.findByLabelText("Name"), "CI deploys");
+    await waitFor(() => expect(mutations()).not.toContain("correct horse battery"));
+
+    await user.click(screen.getByRole("button", { name: "Make token" }));
+    expect(await screen.findByDisplayValue(SECRET)).toBeInTheDocument();
+    const aside = within(screen.getByRole("complementary"));
+    await user.click(aside.getByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+    await waitFor(() => expect(queryClient.getMutationCache().getAll()).toEqual([]));
+    expect(mutations()).not.toContain(SECRET);
+  });
+
   it("lists the admin pages for admins only", async () => {
     renderApp("/");
     const nav = within(await screen.findByRole("navigation", { name: "Main" }));

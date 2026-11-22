@@ -38,7 +38,9 @@ export const meQuery = queryOptions({
 /**
  * Drops everything that belonged to whoever was signed in, but who that is:
  * the signed-in layout watches that query, and removing it would make the
- * mounted pages fetch it again at once.
+ * mounted pages fetch it again at once. Every mutation goes too, with the
+ * passwords, token secrets and invite codes their variables and answers hold;
+ * a component still showing one keeps its own copy until it unmounts.
  */
 export function forgetPrivateData(queryClient: QueryClient) {
   queryClient.removeQueries({
@@ -46,6 +48,7 @@ export function forgetPrivateData(queryClient: QueryClient) {
       PRIVATE_ROOTS.some((root) => query.queryKey[0] === root) &&
       !(query.queryKey[0] === keys.me[0] && query.queryKey[1] === keys.me[1]),
   });
+  queryClient.getMutationCache().clear();
 }
 
 /**
