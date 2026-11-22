@@ -128,3 +128,6 @@ settings:
     # from_name:
     # Mail admins about each confirmed request to join.
     # notifications: true
+  pages:
+    # How long a page stays in the trash before the hourly cleanup deletes it for good.
+    # trash_retention: 30d

@@ -1,0 +1,301 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE up (start, id, depth) AS (\n               SELECT id, id, 0 FROM pages WHERE id = ANY($1)\n             UNION ALL\n               SELECT u.start, p.parent_id, u.depth + 1\n               FROM up u JOIN pages p ON p.id = u.id\n               WHERE p.parent_id IS NOT NULL AND u.depth < $3\n           ), best AS (\n               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 END) AS rank\n               FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2\n               GROUP BY u.start\n           )\n           SELECT p.id AS \"id!\", p.workspace_id AS \"workspace_id!\", p.teamspace_id,\n                  p.owner_id, p.parent_id, p.position AS \"position!\", p.title AS \"title!\",\n                  p.icon, p.cover, p.font AS \"font!\", p.small_text AS \"small_text!\",\n                  p.full_width AS \"full_width!\", p.created_by, p.last_edited_by,\n                  p.created_at AS \"created_at!\", p.updated_at AS \"updated_at!\",\n                  p.content_updated_at AS \"content_updated_at!\", p.trashed_at, p.trashed_by,\n                  p.trashed_with, w.role AS \"workspace_role?\", t.access AS \"teamspace_access?\",\n                  m.role AS \"teamspace_role?\", b.rank AS \"shared?\"\n           FROM pages p\n           LEFT JOIN workspace_members w ON w.workspace_id = p.workspace_id AND w.user_id = $2\n           LEFT JOIN teamspaces t ON t.id = p.teamspace_id\n           LEFT JOIN teamspace_members m ON m.teamspace_id = p.teamspace_id AND m.user_id = $2\n           LEFT JOIN best b ON b.start = p.id\n           WHERE p.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "teamspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "teamspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "owner_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "owner_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "parent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "position!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "title!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "icon"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "cover",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "cover"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "font!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "font"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "small_text!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "small_text"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "full_width!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "full_width"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "last_edited_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "last_edited_by"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "content_updated_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "content_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "trashed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "trashed_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_by"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "trashed_with",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_with"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "workspace_role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_members",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "teamspace_access?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "access"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "teamspace_role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspace_members",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "shared?",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "98b064adff3737c59ec8e873f22a9bf7d36006ba2f33f484b26d59f5129cf380"
+}

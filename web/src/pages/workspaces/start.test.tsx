@@ -14,9 +14,7 @@ describe("the start page", () => {
     const { router } = renderApp("/");
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/w/studio"));
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("heading", { level: 1, name: "Studio" })).toBeVisible();
   });
 
   it("opens the first workspace when the last one is gone, and remembers the one opened", async () => {

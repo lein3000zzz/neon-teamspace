@@ -1,16 +1,35 @@
-//! Who may do what in a workspace, in one place: [`authorize`]. Every workspace use case
-//! asks it before it acts, so the rules are read and tested here alone.
+//! Who may do what in a workspace, in one place: [`authorize`]. Every workspace and page use
+//! case asks it before it acts, so the rules are read and tested here alone.
 //!
 //! A refusal is [`Denied::Hidden`] when the actor may not even know the thing exists, such
-//! as a workspace they are not in, a private teamspace, or to a guest another member, so
-//! the answer is the same as for one that does not exist; otherwise it is
-//! [`Denied::Forbidden`], with the reason.
+//! as a workspace they are not in, a private teamspace, a page nobody shared with them, or
+//! to a guest another member, so the answer is the same as for one that does not exist;
+//! otherwise it is [`Denied::Forbidden`], with the reason.
+//!
+//! A page gives what its space gives the actor's role, or what it, or a page above it, is
+//! shared with them for, whichever is more:
+//!
+//! - A teamspace's members edit its pages. Everyone else but guests views the pages of a
+//!   teamspace they may see, the default, open and closed ones; a private teamspace's
+//!   pages are for its members alone, the workspace's owners and admins included.
+//! - A private page is its owner's alone.
+//! - A share, to view or to edit, holds for the page and every page under it.
+//! - Guests reach pages only through shares.
+//! - A page leaves its space, for another teamspace or someone's private pages, only by
+//!   those its space lets edit it: a teamspace's members, a private page's owner. A share
+//!   to edit lets its holder move the page within its space, under pages they edit, never
+//!   out of it, so a share never hands a private page or a private teamspace's page to
+//!   others.
+//!
+//! A page in the trash shows only to those who could edit it, to restore it or delete it
+//! for good.
 //!
 //! Instance admins have no part inside a workspace: being one counts only for the
 //! instance's own actions, listing workspaces, setting their limits and deleting them.
 //! In a workspace they are whatever their membership makes them, which may be nothing.
 
 use super::roles::{TeamspaceAccess, TeamspaceRole, WorkspaceCreation, WorkspaceRole};
+use crate::pages::PageAccess;
 
 /// Who acts, as far as the rules need to know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +58,27 @@ pub enum Resource {
         access: TeamspaceAccess,
         membership: Option<TeamspaceRole>,
     },
+    /// The top of a space's pages, where the tree is listed from and pages are added.
+    Pages { space: PageSpace },
+    /// One page: its space, the most that it or a page above it is shared with the actor
+    /// for, and whether it is in the trash.
+    Page {
+        space: PageSpace,
+        shared: Option<PageAccess>,
+        trashed: bool,
+    },
+}
+
+/// Where pages are, as the rules need to know of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageSpace {
+    /// A teamspace, and the actor's role in it, if any.
+    Teamspace {
+        access: TeamspaceAccess,
+        membership: Option<TeamspaceRole>,
+    },
+    /// A member's private pages; `own` when that member is the actor.
+    Private { own: bool },
 }
 
 /// Everything the rules decide.
@@ -106,6 +146,31 @@ pub enum Action {
     },
     RemoveTeamspaceMember,
     ChangeTeamspaceRole,
+
+    // On a space's pages.
+    /// The tree of its pages.
+    ListPages,
+    /// Adding a page at its top, new or moved there.
+    CreatePage,
+
+    // On a page.
+    /// Its title, icon, cover, style, content and place, and the pages under it.
+    ViewPage,
+    /// Changing what it holds, adding subpages under it, and moving it within its space,
+    /// or another page under it.
+    EditPage,
+    /// Moving it, with the pages under it, out of its space: to another teamspace, or to
+    /// private pages. For those its space lets edit it, whatever is shared with them.
+    ChangePageSpace,
+    /// Moving it to the trash, with its subpages.
+    TrashPage,
+    RestorePage,
+    /// Deleting it for good, from the trash.
+    DeletePage,
+    /// Who it is shared with, on it and on the pages above it.
+    ListShares,
+    /// Sharing it with a member or guest, changing what a share gives, or removing one.
+    SharePage,
 }
 
 /// Why an action is refused.
@@ -141,6 +206,12 @@ pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(),
         Resource::Teamspace { access, membership } => {
             on_teamspace(member(actor)?, action, access, membership)
         }
+        Resource::Pages { space } => on_pages(member(actor)?, action, space),
+        Resource::Page {
+            space,
+            shared,
+            trashed,
+        } => on_page(member(actor)?, action, space, shared, trashed),
     }
 }
 
@@ -202,10 +273,7 @@ fn on_workspace(
             )?;
             needs_session(via_session, DELETE_NEEDS_SESSION)
         }
-        Action::ListMembers => allow_if(
-            role != Guest,
-            Forbidden("guests see no member but themselves"),
-        ),
+        Action::ListMembers => allow_if(role != Guest, GUESTS_SEE_NO_MEMBER),
         Action::Invite { role: invited } => {
             if !role.manages() {
                 Err(MANAGERS_ONLY)
@@ -371,6 +439,124 @@ fn on_teamspace(
 
 const IN_THE_DEFAULT: Denied =
     Forbidden("everyone but guests is in the default teamspace, and stays in it");
+
+const GUESTS_SEE_NO_MEMBER: Denied = Forbidden("guests see no member but themselves");
+
+/// What a space's pages give a role, before any share.
+fn space_access(role: WorkspaceRole, space: PageSpace) -> Option<PageAccess> {
+    // Guests reach pages only through shares.
+    if !role.joins_teamspaces() {
+        return None;
+    }
+    match space {
+        PageSpace::Teamspace {
+            membership: Some(_),
+            ..
+        } => Some(PageAccess::Edit),
+        PageSpace::Teamspace {
+            access: TeamspaceAccess::Private,
+            membership: None,
+        } => None,
+        PageSpace::Teamspace {
+            membership: None, ..
+        } => Some(PageAccess::View),
+        PageSpace::Private { own } => own.then_some(PageAccess::Edit),
+    }
+}
+
+fn on_pages(role: WorkspaceRole, action: Action, space: PageSpace) -> Result<(), Denied> {
+    match space {
+        PageSpace::Private { own: false } => Err(Hidden),
+        PageSpace::Private { own: true } => {
+            if !role.joins_teamspaces() {
+                return Err(Forbidden(
+                    "guests have no private pages: they see the pages shared with them",
+                ));
+            }
+            match action {
+                Action::ListPages | Action::CreatePage => Ok(()),
+                _ => Err(NOT_APPLICABLE),
+            }
+        }
+        PageSpace::Teamspace { access, membership } => {
+            // As for the teamspace itself: hidden from guests, and a private one from those
+            // outside it.
+            if !role.joins_teamspaces()
+                || (access == TeamspaceAccess::Private && membership.is_none())
+            {
+                return Err(Hidden);
+            }
+            match action {
+                Action::ListPages => Ok(()),
+                Action::CreatePage => allow_if(
+                    membership.is_some(),
+                    Forbidden("only the teamspace's members add pages to it: join it first"),
+                ),
+                _ => Err(NOT_APPLICABLE),
+            }
+        }
+    }
+}
+
+fn on_page(
+    role: WorkspaceRole,
+    action: Action,
+    space: PageSpace,
+    shared: Option<PageAccess>,
+    trashed: bool,
+) -> Result<(), Denied> {
+    const VIEW_ONLY: Denied = Forbidden("you may view this page, not edit it");
+    const IN_THE_TRASH: Denied = Forbidden("this page is in the trash: restore it first");
+
+    let access = space_access(role, space).max(shared);
+    let edits = access == Some(PageAccess::Edit);
+    // A page in the trash shows only to those who could edit it.
+    if access.is_none() || (trashed && !edits) {
+        return Err(Hidden);
+    }
+    let guest = !role.joins_teamspaces();
+    match action {
+        Action::ViewPage => Ok(()),
+        Action::EditPage | Action::TrashPage => {
+            if trashed {
+                Err(IN_THE_TRASH)
+            } else {
+                allow_if(edits, VIEW_ONLY)
+            }
+        }
+        Action::ChangePageSpace => {
+            if trashed {
+                Err(IN_THE_TRASH)
+            } else if !edits {
+                Err(VIEW_ONLY)
+            } else {
+                allow_if(
+                    space_access(role, space) == Some(PageAccess::Edit),
+                    Forbidden(
+                        "a page shared with you moves only within its space: those in its \
+                         teamspace, or its owner, may move it elsewhere",
+                    ),
+                )
+            }
+        }
+        Action::RestorePage => allow_if(trashed, Forbidden("this page is not in the trash")),
+        Action::DeletePage => allow_if(
+            trashed,
+            Forbidden("only a page in the trash is deleted for good: trash it first"),
+        ),
+        Action::ListShares => allow_if(!guest, GUESTS_SEE_NO_MEMBER),
+        Action::SharePage => {
+            if guest {
+                Err(GUESTS_SEE_NO_MEMBER)
+            } else if trashed {
+                Err(IN_THE_TRASH)
+            } else {
+                allow_if(edits, VIEW_ONLY)
+            }
+        }
+        _ => Err(NOT_APPLICABLE),
+    }
+}
 
 fn allow_if(allowed: bool, otherwise: Denied) -> Result<(), Denied> {
     if allowed { Ok(()) } else { Err(otherwise) }

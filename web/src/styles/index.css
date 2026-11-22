@@ -3,6 +3,10 @@
 @import "./fonts.css";
 @import "./palettes.css";
 
+/* BlockNote's shadcn menus are built from Tailwind utilities on the shadcn
+   variables, which this build generates for them like for the app's own. */
+@source "../../node_modules/@blocknote/shadcn/dist";
+
 /* data-mode carries the resolved mode, so shadcn's dark: variants follow it
    rather than the OS setting. */
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
@@ -167,6 +171,44 @@
 
   [hidden] {
     display: none !important;
+  }
+}
+
+/* A page's font, from its style, for its title and its content. */
+[data-page-font] {
+  --page-font: var(--font-stack-sans);
+  /* How far the text sits in from the page's edge: room for BlockNote's block
+     handles where a pointer can reach them, less on a phone. */
+  --page-inset: 0.25rem;
+}
+
+[data-page-font="serif"] {
+  --page-font: var(--font-stack-serif);
+}
+
+[data-page-font="mono"] {
+  --page-font: var(--font-stack-mono);
+}
+
+@media (width >= 40rem) {
+  [data-page-font] {
+    --page-inset: 3.375rem;
+  }
+}
+
+/* The actions of a row in the page trees show on hover or focus where every
+   pointer can hover, and always where one cannot, as on a touch screen, so
+   none is reachable only by hovering. */
+@media (hover: hover) and (not (any-pointer: coarse)) {
+  [data-row-actions] {
+    opacity: 0;
+  }
+
+  [data-row]:hover [data-row-actions],
+  [data-row]:focus-within [data-row-actions],
+  [data-row]:has([aria-current="page"]) [data-row-actions],
+  [data-row-actions]:has([aria-expanded="true"]) {
+    opacity: 1;
   }
 }
 

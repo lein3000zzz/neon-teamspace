@@ -76,9 +76,16 @@ describe("a workspace's pages", () => {
 describe("browsing teamspaces", () => {
   it("joins an open teamspace at once", async () => {
     const api = fakeWorkspaces({ role: "member" });
+    let sharedReads = 0;
+    server.use(
+      http.get("/api/v1/workspaces/:id/shared-pages", () => {
+        sharedReads += 1;
+      }),
+    );
     const { user } = renderApp("/w/design/teamspaces");
 
     const open = await card("Open studio");
+    await waitFor(() => expect(sharedReads).toBe(1));
     expect(open.getByText("You are not in it")).toBeInTheDocument();
     await user.click(open.getByRole("button", { name: "Join Open studio" }));
 
@@ -88,6 +95,8 @@ describe("browsing teamspaces", () => {
     ]);
     await waitFor(() => expect(open.getByText("You are in it")).toBeInTheDocument());
     expect(open.queryByRole("button", { name: "Join Open studio" })).toBeNull();
+    // Its pages shared with the user now show in its tree instead of under Shared with you.
+    await waitFor(() => expect(sharedReads).toBe(2));
   });
 
   it("names the owners to ask for a closed teamspace", async () => {

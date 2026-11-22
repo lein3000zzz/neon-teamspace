@@ -1,5 +1,6 @@
 //! Teamspaces and their members. Every query names the workspace too, so a teamspace is
-//! only ever found through the workspace it belongs to.
+//! only ever found through the workspace it belongs to, but for [`find`], for the routes
+//! that name a teamspace alone.
 
 use neon_domain::workspaces::{Person, Teamspace, TeamspaceAccess, TeamspaceMember, TeamspaceRole};
 use sqlx::PgExecutor;
@@ -43,7 +44,7 @@ impl TryFrom<Row> for Teamspace {
     }
 }
 
-fn parse_role(text: &str) -> sqlx::Result<TeamspaceRole> {
+pub(crate) fn parse_role(text: &str) -> sqlx::Result<TeamspaceRole> {
     TeamspaceRole::parse(text)
         .ok_or_else(|| decode_error(format!("unknown teamspace role {text:?}")))
 }
@@ -80,6 +81,21 @@ pub async fn get(
         "SELECT id, workspace_id, name, icon, hue, access, created_by, created_at, updated_at
          FROM teamspaces WHERE workspace_id = $1 AND id = $2",
         workspace_id,
+        id,
+    )
+    .fetch_optional(executor)
+    .await?
+    .map(Teamspace::try_from)
+    .transpose()
+}
+
+/// A teamspace by its id alone, whatever its workspace, which the caller then checks they
+/// are in.
+pub async fn find(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Teamspace>> {
+    sqlx::query_as!(
+        Row,
+        "SELECT id, workspace_id, name, icon, hue, access, created_by, created_at, updated_at
+         FROM teamspaces WHERE id = $1",
         id,
     )
     .fetch_optional(executor)

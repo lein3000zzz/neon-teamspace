@@ -1,39 +1,6 @@
 //! The roles people have in a workspace and in its teamspaces, the kinds of teamspace, and
 //! who may create workspaces.
 
-use std::fmt;
-
-macro_rules! text_enum {
-    ($(#[$doc:meta])* $name:ident { $($(#[$vdoc:meta])* $variant:ident => $text:literal),+ $(,)? }) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub enum $name {
-            $($(#[$vdoc])* $variant),+
-        }
-
-        impl $name {
-            /// Every value, as stored and sent.
-            pub const ALL: &[Self] = &[$(Self::$variant),+];
-
-            pub fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $text),+
-                }
-            }
-
-            pub fn parse(text: &str) -> Option<Self> {
-                Self::ALL.iter().copied().find(|value| value.as_str() == text)
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.as_str())
-            }
-        }
-    };
-}
-
 text_enum! {
     /// What a person may do in a workspace. A workspace always keeps at least one owner.
     WorkspaceRole {

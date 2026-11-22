@@ -15,20 +15,20 @@ use super::tests::{state, state_with};
 use super::*;
 
 /// A signed-in browser: its session cookie.
-struct Browser<'a> {
+pub(super) struct Browser<'a> {
     app: &'a Router,
     cookie: String,
 }
 
 impl<'a> Browser<'a> {
-    async fn sign_in(app: &'a Router, email: &str) -> Self {
+    pub(super) async fn sign_in(app: &'a Router, email: &str) -> Self {
         Self {
             app,
             cookie: sign_in(app, email).await,
         }
     }
 
-    async fn send(&self, method: Method, uri: &str, body: Option<Value>) -> Answer {
+    pub(super) async fn send(&self, method: Method, uri: &str, body: Option<Value>) -> Answer {
         call(
             self.app,
             method,
@@ -39,16 +39,26 @@ impl<'a> Browser<'a> {
         .await
     }
 
-    async fn get(&self, uri: &str) -> Answer {
+    /// The `Cookie` header value it sends.
+    pub(super) fn cookie(&self) -> &str {
+        &self.cookie
+    }
+
+    /// The app it sends requests to.
+    pub(super) fn app(&self) -> &'a Router {
+        self.app
+    }
+
+    pub(super) async fn get(&self, uri: &str) -> Answer {
         self.send(Method::GET, uri, None).await
     }
 
-    async fn post(&self, uri: &str, body: Value) -> Answer {
+    pub(super) async fn post(&self, uri: &str, body: Value) -> Answer {
         self.send(Method::POST, uri, Some(body)).await
     }
 
     /// An API token with `scopes`, as a bearer header.
-    async fn token(&self, scopes: &[&str]) -> String {
+    pub(super) async fn token(&self, scopes: &[&str]) -> String {
         let created = self
             .post(
                 "/api/v1/account/tokens",
@@ -63,7 +73,7 @@ impl<'a> Browser<'a> {
     }
 }
 
-fn id(answer: &Answer) -> String {
+pub(super) fn id(answer: &Answer) -> String {
     answer.body["id"]
         .as_str()
         .unwrap_or_else(|| panic!("no id: {}", answer.body))
@@ -80,15 +90,15 @@ fn names(list: &Value) -> Vec<&str> {
 
 /// Ada owns Design; Bob is its admin, Cy and Dee its members, all through invitations
 /// they accepted.
-struct Team<'a> {
-    ada: Browser<'a>,
-    bob: Browser<'a>,
-    cy: Browser<'a>,
-    dee: Browser<'a>,
-    workspace: String,
+pub(super) struct Team<'a> {
+    pub(super) ada: Browser<'a>,
+    pub(super) bob: Browser<'a>,
+    pub(super) cy: Browser<'a>,
+    pub(super) dee: Browser<'a>,
+    pub(super) workspace: String,
 }
 
-async fn team<'a>(state: &AppState, app: &'a Router) -> Team<'a> {
+pub(super) async fn team<'a>(state: &AppState, app: &'a Router) -> Team<'a> {
     for email in [
         "ada@example.com",
         "bob@example.com",

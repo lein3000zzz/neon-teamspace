@@ -7,9 +7,14 @@ description: The instance, workspaces, teamspaces and roles, pages, databases an
 The instance, workspaces, their members and roles, invitations, teamspaces, limits and hues
 work, in the API and the web app, as described here, in
 [Workspaces and teamspaces](/docs/guides/workspaces/) and in
-[Workspace rules and API](/docs/guides/workspace-rules/). Everything from pages on is
-**planned**: it describes the design the code is being built toward, so the details may
-still change.
+[Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API and the web
+app: nesting, private pages, sharing, moving, the trash and favorites, and their content in
+the live editor, as [Pages](/docs/guides/pages/) and
+[Editing pages](/docs/guides/editing-pages/) have it. Their documents sync live over
+WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it, and markdown imports as
+pages and pages export as markdown, as [Import and export](/docs/guides/import-export/) has
+it. The rest is **planned**: it describes the design the code is being built toward, so the
+details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -84,22 +89,28 @@ see.
 
 ## Pages
 
-**Planned.** A page is made of blocks: paragraphs, headings, lists, to-dos, code, callouts,
-toggles, mentions and embedded views of a database. Pages nest under other pages. Besides
-the teamspaces, each member has private pages in every workspace they are in.
+Pages nest under other pages. Besides the teamspaces, each member has private pages in
+every workspace they are in, which only they see. A page takes its access from its
+teamspace: the teamspace's members edit it, and the workspace's other members view it,
+unless the teamspace is private. A page can also be shared with a person, who then **can
+edit** or **can view** it and every page under it. [Pages](/docs/guides/pages/) has the
+rules.
 
-A page takes its access from its teamspace. One page can also be shared with a person, who
-**can edit** or **can view** it.
+A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
+tables. Everyone on a page edits the same live document: each sees the others' cursors, and
+their edits merge. Markdown is the way in and out. Markdown shortcuts work while typing.
+**Planned:** callouts, mentions and embedded views of a database, agents editing beside
+people, and pasted markdown becoming blocks.
 
-Everyone on a page edits the same live document, people and agents alike: each sees the
-others' cursors, and their edits merge. Markdown is the way in and out. Markdown shortcuts
-work while typing, pasted markdown becomes blocks, `.md` files or a zip of them can be
-imported, and a page or a whole teamspace exports as a zip of markdown files.
+`.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
+zip of markdown files, in the web app and through the API; see
+[Import and export](/docs/guides/import-export/).
 
-A page can have an icon and a cover, and a font: Default, Serif or Mono, with small text or
-full width. Members can mark pages as favorites. Deleted pages go to the trash, where they
-can be restored for 30 days unless the instance keeps them for another time. A page's
-history keeps earlier versions to look at and restore.
+A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
+full width. Members can mark pages as favorites. Trashed pages go to the trash with the
+pages under them, where those who could edit them restore them for 30 days unless the
+instance keeps them for another time. **Planned:** a page's history keeps earlier versions
+to look at and restore.
 
 Comments go on a whole page or on a passage of it, and stay with that passage as the text
 around it changes. Mentions land in the inbox of the person mentioned.
@@ -145,9 +156,9 @@ limits and attribution hold for them as for people.
 
 ## Guests
 
-A guest is a member with the guest role, who sees the pages shared with them, once pages
-exist, and nothing else of the workspace. Guests are how a team lets someone outside it read
-or edit a few pages.
+A guest is a member with the guest role, who sees the pages shared with them, and the pages
+under those, and nothing else of the workspace. Guests are how a team lets someone outside
+it read or edit a few pages.
 
 ## Agents
 

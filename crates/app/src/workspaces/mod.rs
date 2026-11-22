@@ -5,7 +5,9 @@
 //! domain. A use case that changes who is in a workspace locks the workspace's row first,
 //! in the transaction that makes the change: changes then run one at a time, and the last
 //! owner and the member limit hold however many arrive at once. Changes to a teamspace's
-//! members lock the teamspace the same way.
+//! members lock the teamspace the same way. Once a change that may alter someone's access
+//! to pages commits, such as a new role or a teamspace left, the [`AccessChanges`] port
+//! hears of it.
 //!
 //! Every public use case runs in a span named `workspaces <operation>` and is measured as
 //! RED metrics of [`SUBSYSTEM`]. An expected error, such as a refusal of the rules, is
@@ -39,6 +41,7 @@ use uuid::Uuid;
 
 use crate::clock::Clock;
 use crate::crypto::Envelope;
+use crate::pages::{AccessChange, AccessChanges, NoListener};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, workspaces as keys};
 
@@ -66,17 +69,20 @@ struct Inner {
     settings: Arc<SettingsService>,
     limiter: Arc<dyn RateLimiter>,
     envelope: Envelope,
+    access: Arc<dyn AccessChanges>,
     clock: Clock,
     red: Red,
 }
 
 /// Puts a [`WorkspaceService`] together. Without being told otherwise it limits rates in
-/// memory, seals no invite link and reads the system clock.
+/// memory, seals no invite link, tells nobody of access changes and reads the system
+/// clock.
 pub struct WorkspaceServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
     limiter: Option<Arc<dyn RateLimiter>>,
     envelope: Envelope,
+    access: Arc<dyn AccessChanges>,
     clock: Clock,
 }
 
@@ -89,6 +95,13 @@ impl WorkspaceServiceBuilder {
     /// Seals invite links' tokens, so they can be copied again.
     pub fn envelope(mut self, envelope: Envelope) -> Self {
         self.envelope = envelope;
+        self
+    }
+
+    /// Who hears of changes to people's access to pages, as the page service's changes
+    /// tell it too.
+    pub fn access_changes(mut self, access: Arc<dyn AccessChanges>) -> Self {
+        self.access = access;
         self
     }
 
@@ -107,6 +120,7 @@ impl WorkspaceServiceBuilder {
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
                 envelope: self.envelope,
+                access: self.access,
                 clock: self.clock,
                 red: Red::new(SUBSYSTEM),
             }),
@@ -121,6 +135,7 @@ impl WorkspaceService {
             settings,
             limiter: None,
             envelope: Envelope::default(),
+            access: Arc::new(NoListener),
             clock: Clock::system(),
         }
     }
@@ -135,6 +150,11 @@ impl WorkspaceService {
 
     fn pool(&self) -> &PgPool {
         &self.inner.pool
+    }
+
+    /// Tells the port, once the change committed.
+    fn changed(&self, change: AccessChange) {
+        self.inner.access.access_changed(change);
     }
 
     fn creation(&self) -> WorkspaceCreation {

@@ -261,6 +261,9 @@ impl AuthService {
             self.tell_password_changed(&mut tx, user, now).await?;
             tx.commit().await?;
             info!(user_id = %user.id, other_sessions_ended = ended, "password changed");
+            if ended > 0 {
+                self.ended(user.id);
+            }
             Ok(())
         })
         .await

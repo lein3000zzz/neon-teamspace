@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE down (id) AS (\n             SELECT id FROM pages WHERE id = $1\n           UNION ALL\n             SELECT c.id FROM down d JOIN pages c ON c.parent_id = d.id\n         )\n         UPDATE pages SET trashed_at = $2, trashed_by = $3, trashed_with = $1\n         WHERE id IN (SELECT id FROM down) AND trashed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5249069ed4a1f46f80b0c9ec5000a08f0509d4163c429cae95056a6584eeb168"
+}

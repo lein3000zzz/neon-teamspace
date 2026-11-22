@@ -1,0 +1,35 @@
+[
+  {
+    "type": "paragraph",
+    "props": { "textColor": "red", "backgroundColor": "yellow", "textAlignment": "center" },
+    "content": [
+      { "type": "text", "text": "Red text", "styles": { "textColor": "red" } },
+      { "type": "text", "text": " on ", "styles": {} },
+      { "type": "text", "text": "a blue background", "styles": { "backgroundColor": "blue" } },
+      { "type": "text", "text": ", both", "styles": { "textColor": "green", "backgroundColor": "pink", "bold": true } }
+    ]
+  },
+  {
+    "type": "heading",
+    "props": { "level": 2, "textColor": "purple", "textAlignment": "right" },
+    "content": "A purple heading"
+  },
+  {
+    "type": "quote",
+    "props": { "backgroundColor": "gray" },
+    "content": "A grey quote"
+  },
+  {
+    "type": "bulletListItem",
+    "props": { "textAlignment": "justify", "backgroundColor": "orange" },
+    "content": "A justified item"
+  },
+  {
+    "type": "table",
+    "props": { "textColor": "brown" },
+    "content": {
+      "type": "tableContent",
+      "rows": [{ "cells": ["brown", "table"] }]
+    }
+  }
+]

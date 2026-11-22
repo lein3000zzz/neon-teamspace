@@ -4,6 +4,64 @@
  */
 
 export interface paths {
+    "/api/v1/account/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's favorite pages
+         * @description Those they may see and that are out of the trash, in their order.
+         */
+        get: operations["list_favorites"];
+        put?: never;
+        /**
+         * Add a favorite page
+         * @description A page the caller sees, out of the trash, placed among their favorites.
+         */
+        post: operations["add_favorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/account/favorites/{page_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a favorite */
+        delete: operations["remove_favorite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/account/favorites/{page_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reorder a favorite */
+        post: operations["move_favorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/account/invitations": {
         parameters: {
             query?: never;
@@ -763,6 +821,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pages/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page
+         * @description Its title, icon, cover, style and place, and what the caller may do with it. A page in the trash shows only to those who could edit it.
+         */
+        get: operations["get_page"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a page for good
+         * @description Only a page in the trash, with everything under it, for those who could edit it. It cannot be undone.
+         */
+        delete: operations["delete_page"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a page
+         * @description Changes what the body names, for those who edit the page, out of the trash.
+         */
+        patch: operations["update_page"];
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/breadcrumbs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The way down to a page
+         * @description The pages above it that the caller sees, from the highest, then the page. A page shared with a guest starts their way down.
+         */
+        get: operations["page_breadcrumbs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a page as markdown
+         * @description The page as a markdown file, its title as its first heading. With `children=true`, a zip of its file and, in a folder of the same name beside it, those of the pages under it, each page's folder holding the files of the pages under that one: the pages out of the trash, or for a page in the trash, those that went there with it. What markdown cannot hold, such as colours, is left out. Each caller may export 10 times, then once more every 30 seconds.
+         */
+        get: operations["export_page"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a page
+         * @description Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. Out of its space, to another teamspace or to private pages, the caller must edit it through the space itself, being in its teamspace or owning it: a page shared with them moves only within its space. The pages moved take their access from their new place.
+         */
+        post: operations["move_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a page from the trash
+         * @description With the pages trashed along with it. It goes back under its parent, unless that is in the trash too: then to the top of its space, which the caller must be allowed to add pages to.
+         */
+        post: operations["restore_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List who a page is shared with
+         * @description The shares on the page and on every page above it, which hold for it too. For everyone who sees the page but guests.
+         */
+        get: operations["list_page_shares"];
+        put?: never;
+        /**
+         * Share a page
+         * @description With a member or guest of its workspace, for the page and every page under it, by those who edit it, guests aside. It adds to what the person may do there already, never takes away.
+         */
+        post: operations["share_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/shares/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a share
+         * @description A share set on this page; an inherited one goes from its own page. The person keeps what else lets them see the page.
+         */
+        delete: operations["remove_page_share"];
+        options?: never;
+        head?: never;
+        /**
+         * Change what a share gives
+         * @description A share set on this page; an inherited one changes on its own page.
+         */
+        patch: operations["change_page_share"];
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a page to the trash
+         * @description With the pages under it, for those who edit it. It stays there for `pages.trash_retention`, 30 days unless set otherwise, then is deleted for good.
+         */
+        post: operations["trash_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teamspaces/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a teamspace as markdown
+         * @description A zip of the teamspace's pages out of the trash, for everyone who may list them: each page's markdown file, its title as its first heading, the pages at the top of the teamspace at the top of the zip, and the files of the pages under a page in a folder of the same name beside its file. Guests get `not_found`. Each caller may export 10 times, then once more every 30 seconds.
+         */
+        get: operations["export_teamspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teamspaces/{id}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a teamspace's pages
+         * @description Its pages out of the trash, as a tree, for everyone who may see the teamspace in full: a private one's for its members only. Guests get `not_found`; their pages are under `shared-pages`.
+         */
+        get: operations["teamspace_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace-invite-links/join": {
         parameters: {
             query?: never;
@@ -1024,6 +1298,86 @@ export interface paths {
         patch: operations["change_member_role"];
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a page
+         * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it.
+         */
+        post: operations["create_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/pages/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import pages from markdown
+         * @description Makes pages from a markdown file, or from a zip of them whose folders become pages with the pages of their files under them. A folder and a markdown file of its name beside it are one page. A file's first heading is its page's title, else its name. The pages go last under a page the caller edits, at the top of a teamspace they are in, or among their private pages, as the query names; nothing is made unless all of it can be. Other files of a zip, such as images, are left out and listed. Each caller may import 10 times, then once more every 30 seconds.
+         */
+        post: operations["import_pages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/private-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's private pages
+         * @description Their private pages in the workspace, out of the trash, as a tree. Guests have none, and get `forbidden`.
+         */
+        get: operations["private_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/shared-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the pages shared with the caller
+         * @description The pages of the workspace shared with the caller, out of the trash, each with the pages under it, as a tree: how guests find their pages, and members those they reach through shares alone. Pages in a teamspace the caller is in are left out, as that teamspace's tree holds them. A shared page under another one shared with them shows under that one only. The pages shared are in the order they were made.
+         */
+        get: operations["shared_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/teamspaces": {
         parameters: {
             query?: never;
@@ -1184,10 +1538,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's trash
+         * @description The pages in the trash that the caller could edit, latest first: those trashed on their own, each standing for the pages that went with it.
+         */
+        get: operations["workspace_trash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddFavorite: {
+            /** Format: uuid */
+            page_id: string;
+            placement?: components["schemas"]["Placement"] | null;
+        };
         AddTeamspaceMember: {
             role?: components["schemas"]["TeamspaceRole"] | null;
             /**
@@ -1260,6 +1639,10 @@ export interface components {
             /** @description Self sign-ups verify their address by a mailed link before they sign in. */
             verify_email: boolean;
         };
+        Breadcrumbs: {
+            /** @description The highest page above it the caller sees first, the page itself last. */
+            pages: components["schemas"]["Crumb"][];
+        };
         ChangePassword: {
             /** Format: password */
             current_password: string;
@@ -1268,6 +1651,9 @@ export interface components {
         };
         ChangeRole: {
             role: components["schemas"]["WorkspaceRole"];
+        };
+        ChangeShare: {
+            access: components["schemas"]["ShareAccess"];
         };
         ChangeTeamspaceRole: {
             role: components["schemas"]["TeamspaceRole"];
@@ -1280,6 +1666,12 @@ export interface components {
             /** @example inv_4yVd0q3oJ2... */
             code: string;
         };
+        /**
+         * @description A cover drawn from the theme's tokens: a hue, or a gradient between two, at the
+         *     lightness and chroma of the reader's palette and mode.
+         * @enum {string}
+         */
+        Cover: "accent" | "accent-gradient" | "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "violet" | "pink" | "sunrise" | "lagoon" | "aurora" | "dusk";
         CreateApiToken: {
             /**
              * Format: date-time
@@ -1338,6 +1730,38 @@ export interface components {
             max_uses?: number | null;
             /** @description Member or guest. */
             role: components["schemas"]["WorkspaceRole"];
+        };
+        CreatePage: {
+            cover?: components["schemas"]["Cover"] | null;
+            /** @description An emoji or up to 16 characters of text. */
+            icon?: string | null;
+            /**
+             * Format: uuid
+             * @description The page to put it under, in this workspace. Name this, `teamspace_id` or `private`.
+             */
+            parent_id?: string | null;
+            placement?: components["schemas"]["Placement"] | null;
+            /** @description True to make it one of the caller's private pages. */
+            private?: boolean;
+            style?: components["schemas"]["StyleChange"];
+            /**
+             * Format: uuid
+             * @description The teamspace to put it at the top of.
+             */
+            teamspace_id?: string | null;
+            /**
+             * @description Up to 500 characters; empty when absent.
+             * @example Roadmap
+             */
+            title?: string;
+        };
+        CreateShare: {
+            access: components["schemas"]["ShareAccess"];
+            /**
+             * Format: uuid
+             * @description A member or guest of the page's workspace, other than the caller.
+             */
+            user_id: string;
         };
         CreateTeamspace: {
             /** @description Open, closed or private. */
@@ -1422,6 +1846,13 @@ export interface components {
          * @enum {string}
          */
         CredentialKind: "session" | "token";
+        /** @description A page on the way down to another. */
+        Crumb: {
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            title: string;
+        };
         DeleteWorkspace: {
             /**
              * @description The workspace's name, typed to confirm.
@@ -1464,6 +1895,30 @@ export interface components {
             message: string;
             /** @description Each field that is wrong and why, when a request had several, such as settings. */
             problems?: components["schemas"]["ProblemDetail"][];
+        };
+        FavoriteList: {
+            /** @description In the caller's order. */
+            pages: components["schemas"]["Page"][];
+        };
+        /**
+         * @description The font a page is set in.
+         * @enum {string}
+         */
+        Font: "default" | "serif" | "mono";
+        /** @description What an import made. */
+        ImportResult: {
+            /**
+             * Format: int64
+             * @description How many pages were made, those under them included.
+             */
+            count: number;
+            /**
+             * @description The pages made where the import went, in order. The pages under them are listed by
+             *     the trees.
+             */
+            pages: components["schemas"]["Page"][];
+            /** @description The files of a zip left out, in the zip's order. */
+            skipped: components["schemas"]["SkippedFile"][];
         };
         /** @description An invite, without its code. */
         Invite: {
@@ -1710,6 +2165,120 @@ export interface components {
          * @enum {string}
          */
         Mode: "system" | "light" | "dark";
+        MoveFavorite: {
+            /** @description Among the caller's other favorites, `after` and `before` naming one of them. */
+            placement: components["schemas"]["Placement"];
+        };
+        MovePage: {
+            /**
+             * Format: uuid
+             * @description The page to move it under, in the same workspace. Name this, `teamspace_id` or
+             *     `private`.
+             */
+            parent_id?: string | null;
+            placement?: components["schemas"]["Placement"] | null;
+            /** @description True to move it to the top of the caller's private pages. */
+            private?: boolean;
+            /**
+             * Format: uuid
+             * @description The teamspace of the workspace to move it to the top of.
+             */
+            teamspace_id?: string | null;
+        };
+        /** @description A page, without its content, and what the caller may do with it. */
+        Page: {
+            access: components["schemas"]["PageAccess"];
+            /**
+             * Format: date-time
+             * @description When its content last changed.
+             */
+            content_updated_at: string;
+            cover?: components["schemas"]["Cover"] | null;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description Absent for guests, as are `last_edited_by` and `trashed_by`.
+             */
+            created_by?: string | null;
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Who changed it last, its content included.
+             */
+            last_edited_by?: string | null;
+            /**
+             * Format: uuid
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
+             */
+            owner_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The page it is under; absent at the top of its space, and when the caller may not
+             *     see that page.
+             */
+            parent_id?: string | null;
+            /**
+             * @description Its key among its siblings, which sort by it, byte by byte.
+             * @example a0
+             */
+            position: string;
+            style: components["schemas"]["PageStyle"];
+            /**
+             * Format: uuid
+             * @description The teamspace it is in; absent for a private page.
+             */
+            teamspace_id?: string | null;
+            /**
+             * @description Up to 500 characters; empty shows as Untitled.
+             * @example Roadmap
+             */
+            title: string;
+            /**
+             * Format: date-time
+             * @description Set while it is in the trash.
+             */
+            trashed_at?: string | null;
+            /** Format: uuid */
+            trashed_by?: string | null;
+            /**
+             * Format: uuid
+             * @description While it is in the trash: the page trashed with it, itself when it was trashed on
+             *     its own. Restoring that page brings this one back too.
+             */
+            trashed_with?: string | null;
+            /**
+             * Format: date-time
+             * @description When its title, icon, cover, style or place last changed.
+             */
+            updated_at: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /**
+         * @description What the caller may do with a page.
+         * @enum {string}
+         */
+        PageAccess: "view" | "edit";
+        /** @description How a page is set. */
+        PageStyle: {
+            font: components["schemas"]["Font"];
+            full_width: boolean;
+            small_text: boolean;
+        };
+        /** @description A part of a tree. */
+        PageTree: {
+            /** @description Pass it as `after` for the next part; absent on the last one. */
+            next?: string | null;
+            /**
+             * @description Each page, then the pages under it, siblings in order: a page's parent comes before
+             *     it, in this part or an earlier one.
+             */
+            pages: components["schemas"]["TreePage"][];
+        };
         /**
          * @description The colour set.
          * @enum {string}
@@ -1729,6 +2298,17 @@ export interface components {
             hue: number;
             /** Format: uuid */
             id: string;
+        };
+        /**
+         * @description Where a page goes among its siblings: `"first"`, `"last"`, `{"after": id}` or
+         *     `{"before": id}`, the id being a sibling's.
+         */
+        Placement: "first" | "last" | {
+            /** Format: uuid */
+            after: string;
+        } | {
+            /** Format: uuid */
+            before: string;
         };
         /** @description The look of the web app, kept with the account. */
         Preferences: {
@@ -1914,6 +2494,34 @@ export interface components {
          * @enum {string}
          */
         SettingSource: "env" | "yaml" | "database" | "default";
+        /** @description A page shared with a member or guest. */
+        Share: {
+            access: components["schemas"]["ShareAccess"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description Set on a page above the one listed, and holding here too; it changes there. */
+            inherited: boolean;
+            /**
+             * Format: uuid
+             * @description The page it is set on: the one listed, or a page above it; absent when that is a
+             *     page above that the caller may not see.
+             */
+            page_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            user: components["schemas"]["Person"];
+        };
+        /**
+         * @description What a share gives.
+         * @enum {string}
+         */
+        ShareAccess: "can_view" | "can_edit";
+        ShareList: {
+            /** @description The page's own first, then those of each page above it, each page's by name. */
+            shares: components["schemas"]["Share"][];
+        };
         /** @description A new session. Its token is only in the cookie. */
         SignedIn: {
             /**
@@ -1927,6 +2535,29 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["User"];
+        };
+        /**
+         * @description Why a file of a zip was left out.
+         * @enum {string}
+         */
+        SkipReason: "attachment" | "hidden" | "link" | "encrypted" | "unsupported_compression" | "not_text" | "duplicate";
+        /** @description A file of a zip left out of an import. */
+        SkippedFile: {
+            /**
+             * @description Its path in the zip.
+             * @example Roadmap/diagram.png
+             */
+            path: string;
+            reason: components["schemas"]["SkipReason"];
+        };
+        /**
+         * @description The parts of a page's style to set; each left out stays as it is, or takes its default
+         *     on a new page.
+         */
+        StyleChange: {
+            font?: components["schemas"]["Font"] | null;
+            full_width?: boolean | null;
+            small_text?: boolean | null;
         };
         /** @description A teamspace the caller may see. */
         Teamspace: {
@@ -2015,6 +2646,40 @@ export interface components {
              */
             user_id: string;
         };
+        /** @description A part of a workspace's trash. */
+        TrashList: {
+            /** @description Pass it as `after` for the next part; absent on the last one. */
+            next?: string | null;
+            /** @description Latest first. A page trashed with the pages under it stands for them. */
+            pages: components["schemas"]["Page"][];
+        };
+        /** @description A page in a tree, as a sidebar shows it. */
+        TreePage: {
+            access: components["schemas"]["PageAccess"];
+            /**
+             * Format: int64
+             * @description How many pages are under it, out of the trash.
+             */
+            child_count: number;
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
+             */
+            owner_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The page it is under; absent at the top of its space, or of the pages shared with
+             *     the caller.
+             */
+            parent_id?: string | null;
+            /** Format: uuid */
+            teamspace_id?: string | null;
+            title: string;
+        };
         /**
          * @description The interface's typeface.
          * @enum {string}
@@ -2031,6 +2696,13 @@ export interface components {
              * @description The hue to be drawn in, 0 to 359; null goes back to the one the id hashes to.
              */
             hue_override?: number | null;
+        };
+        UpdatePage: {
+            cover?: components["schemas"]["Cover"] | null;
+            /** @description Null removes it. */
+            icon?: string | null;
+            style?: components["schemas"]["StyleChange"];
+            title?: string | null;
         };
         UpdateSettings: {
             /**
@@ -2207,6 +2879,261 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_favorites: {
+        parameters: {
+            query?: {
+                /** @description Only the favorites of this workspace; those of every workspace when absent. */
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddFavorite"];
+            };
+        };
+        responses: {
+            /** @description The page. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description invalid_input: a placement beside a page that is not a favorite. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description already_favorite. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The favorite page's id. */
+                page_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: not among the caller's favorites. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    move_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The favorite page's id. */
+                page_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveFavorite"];
+            };
+        };
+        responses: {
+            /** @description Moved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: not among the caller's favorites. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_my_invitations: {
         parameters: {
             query?: never;
@@ -4681,6 +5608,968 @@ export interface operations {
             };
         };
     };
+    get_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: it is not in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePage"];
+            };
+        };
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views it and does not edit it, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    page_breadcrumbs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Breadcrumbs"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    export_page: {
+        parameters: {
+            query?: {
+                /**
+                 * @description True for a zip of the page and the pages under it; a markdown file of the page alone
+                 *     when false or absent.
+                 */
+                children?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file, as an attachment named after the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/markdown": unknown;
+                    "application/zip": unknown;
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    move_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MovePage"];
+            };
+        };
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description invalid_input: no place or several, a place in another workspace, or a placement beside a page that is not a sibling. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the page or its new place. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description cycle: under itself or one of its subpages; or too_deep. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    restore_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_page_shares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shares. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: a guest; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    share_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShare"];
+            };
+        };
+        responses: {
+            /** @description The share. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            /** @description invalid_input: shared with the caller. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller does not edit it, is a guest, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such page, or the person is not in its workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description already_shared: change that share instead. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_page_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+                /** @description The account it is shared with. */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_page_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+                /** @description The account it is shared with. */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeShare"];
+            };
+        };
+        responses: {
+            /** @description The share. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such page, or no share of it with that account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    trash_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, in the trash. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller does not edit it, or it is in the trash already; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    export_teamspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The teamspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zip, as an attachment named after the teamspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    teamspace_pages: {
+        parameters: {
+            query?: {
+                /** @description Pages in the part, 1 to 1000; 1000 when absent. */
+                limit?: number;
+                /** @description The `next` of the part before. */
+                after?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The teamspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tree, or a part of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageTree"];
+                };
+            };
+            /** @description invalid_input: a limit or cursor out of bounds. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     join_with_link: {
         parameters: {
             query?: never;
@@ -5898,6 +7787,354 @@ export interface operations {
             };
         };
     };
+    create_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePage"];
+            };
+        };
+        responses: {
+            /** @description The page. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description invalid_input: no place or several, a title or icon out of bounds, or a placement beside a page that is not a sibling. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, teamspace or parent, or none the caller may see. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_deep: pages nest at most 100 levels. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    import_pages: {
+        parameters: {
+            query?: {
+                /** @description The page of the workspace to import under, which the caller edits. */
+                parent_id?: string;
+                /** @description The teamspace to import at the top of, which the caller is in. */
+                teamspace_id?: string;
+                /** @description True to import among the caller's private pages. */
+                private?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * @description A markdown file, named `.md` or `.markdown`, or a zip of them, named `.zip`, at most
+                     *     32 MiB.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The pages made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description invalid_input: no place or several, no file or several, a file that is not markdown or a zip, not UTF-8, a zip that cannot be read or holds no markdown file, or an entry whose path leads outside the zip; or invalid_body, a form that cannot be read. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest importing private pages; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, teamspace or parent, or none the caller may see. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_deep: the pages would nest deeper than 100 levels. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: past a limit of imports, which the message names; or payload_too_large, a form larger than the largest upload. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    private_pages: {
+        parameters: {
+            query?: {
+                /** @description Pages in the part, 1 to 1000; 1000 when absent. */
+                limit?: number;
+                /** @description The `next` of the part before. */
+                after?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tree, or a part of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageTree"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: a guest; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    shared_pages: {
+        parameters: {
+            query?: {
+                /** @description Pages in the part, 1 to 1000; 1000 when absent. */
+                limit?: number;
+                /** @description The `next` of the part before. */
+                after?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tree, or a part of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageTree"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_teamspaces: {
         parameters: {
             query?: never;
@@ -6675,6 +8912,79 @@ export interface operations {
                 };
             };
             /** @description not_found: no such workspace or member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    workspace_trash: {
+        parameters: {
+            query?: {
+                /** @description Pages in the part, 1 to 1000; 1000 when absent. */
+                limit?: number;
+                /** @description The `next` of the part before. */
+                after?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The trash, or a part of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrashList"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
             404: {
                 headers: {
                     [name: string]: unknown;

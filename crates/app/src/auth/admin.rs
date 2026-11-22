@@ -131,6 +131,9 @@ impl AuthService {
                 sessions_ended = ended,
                 "account updated"
             );
+            if changes_access {
+                self.ended(user.id);
+            }
             Ok(user)
         })
         .await

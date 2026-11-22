@@ -1,4 +1,5 @@
-//! The hourly cleanup of invitations and invite links past their retention.
+//! The hourly cleanup of invitations and invite links past their retention, and of pages
+//! in the trash past theirs.
 
 use std::time::Duration;
 
@@ -7,6 +8,7 @@ use neon_store::workspace_invites;
 use tracing::info;
 
 use super::{WorkspaceError, WorkspaceService};
+use crate::pages::PageService;
 use crate::periodic::Periodic;
 
 /// What one run removed.
@@ -39,14 +41,21 @@ impl WorkspaceService {
     }
 }
 
-/// The running cleanup: once at start, then every interval until stopped.
+/// The running cleanup: once at start, then every interval until stopped. Each run removes
+/// ended invitations and links, then purges the pages' trash; one failing does not keep
+/// the other from running.
 pub struct Cleanup(Periodic);
 
 impl Cleanup {
-    pub fn spawn(workspaces: WorkspaceService, interval: Duration) -> Self {
+    pub fn spawn(workspaces: WorkspaceService, pages: PageService, interval: Duration) -> Self {
         Self(Periodic::spawn("workspace cleanup", interval, move || {
             let workspaces = workspaces.clone();
-            async move { workspaces.cleanup().await.map(drop) }
+            let pages = pages.clone();
+            async move {
+                let invitations = workspaces.cleanup().await.map_err(|e| e.to_string());
+                let trash = pages.purge_trash().await.map_err(|e| e.to_string());
+                invitations.and(trash).map(drop)
+            }
         }))
     }
 

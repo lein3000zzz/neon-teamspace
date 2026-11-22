@@ -28,9 +28,10 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
     tags(
         (name = "meta", description = "What the server is."),
         (name = "auth", description = "Signing up, in and out, and the mailed links. Open to anyone."),
-        (name = "account", description = "The signed-in user's own account, and the invitations into workspaces waiting for them."),
+        (name = "account", description = "The signed-in user's own account, their favorite pages, and the invitations into workspaces waiting for them."),
         (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
+        (name = "pages", description = "Pages and their trees, sharing, and the trash."),
         (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )
 )]
@@ -135,6 +136,11 @@ mod tests {
             "/api/v1/workspaces/{id}/teamspaces",
             "/api/v1/workspace-invite-links/join",
             "/api/v1/admin/workspaces",
+            "/api/v1/workspaces/{id}/pages",
+            "/api/v1/pages/{id}",
+            "/api/v1/teamspaces/{id}/pages",
+            "/api/v1/pages/{id}/shares",
+            "/api/v1/account/favorites",
         ] {
             assert!(paths.iter().any(|known| known == path), "{path} is missing");
         }

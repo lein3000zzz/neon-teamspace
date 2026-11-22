@@ -18,10 +18,10 @@ yrs, so the server reads and writes the same documents the browsers do. The brow
 TypeScript, where the editor and component libraries are; the app is static files, with no
 rendering server to run beside it.
 
-**Five crates, dependencies pointing inward.** `neon-domain` holds the types and the rules,
-`neon-store` the SQL, `neon-app` the use cases, `neon-server` the HTTP, the command line and
-the wiring, and `neon-observability` stands to the side, open to all but the domain and
-installed by the server as it starts. A crate can use only what its `Cargo.toml` lists, so
+**Six crates, dependencies pointing inward.** `neon-domain` holds the types and the rules,
+`neon-blocks` the pages' block documents, `neon-store` the SQL, `neon-app` the use cases,
+`neon-server` the HTTP, the command line and the wiring, and `neon-observability` stands to
+the side, open to all but the domain and the blocks and installed by the server as it starts. A crate can use only what its `Cargo.toml` lists, so
 the direction is kept by the compiler rather than by discipline. The domain cannot reach the
 database because it does not depend on sqlx. [More](/docs/architecture/overview/#the-crates).
 
@@ -72,8 +72,9 @@ made at the same time by several people merge, in any order, to the same result,
 lock and no central sequencing of operations. A page is the unit that is loaded, shared and
 permitted, so it is the unit of the document too. Opening a page loads only that page, and a
 workspace's documents do not grow into one. The server runs yrs, so it checks each update
-against the editor's permissions, applies agents' edits to the live document, keeps the
-update log and snapshots in Postgres, and compacts them. **Planned.**
+against the editor's permissions, keeps the update log and snapshots in Postgres, and
+compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Applying agents'
+edits to the live document is **planned**.
 
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
@@ -85,9 +86,11 @@ stored; markdown is how content comes in and goes out. Shortcuts work while typi
 markdown becomes blocks, `.md` files and zips import, and pages and teamspaces export as
 markdown. Agents read and write markdown over MCP, as language models read and write it well.
 Callouts, toggles, mentions and embedded views, which markdown has no syntax for, use a small
-extension of it. A converter in Rust maps markdown to the editor's document schema and back,
-and an agent's edit is applied to the live document, where it merges with the people typing
-there. **Planned.**
+extension of it. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
+schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
+edit is applied to the live document, where it merges with the people typing there. Import
+and export exist, as [Import and export](/docs/guides/import-export/) describes; agents'
+edits are **planned**.
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.

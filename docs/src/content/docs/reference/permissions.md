@@ -1,12 +1,13 @@
 ---
 title: Permissions
-description: Who may do what in a workspace and its teamspaces, and what instance admins may do with workspaces.
+description: Who may do what in a workspace, its teamspaces and its pages, and what instance admins may do with workspaces.
 ---
 
 These tables are the rules the server enforces. They live in one function in `neon-domain`,
-which every workspace use case calls before it acts, and its tests check every role against
-every action and kind of resource. [Workspace rules and API](/docs/guides/workspace-rules/)
-explains each action, and the web app shows or offers only what a role allows.
+which every workspace and page use case calls before it acts, and its tests check every
+role against every action and kind of resource. [Workspace rules and
+API](/docs/guides/workspace-rules/) and [Pages](/docs/guides/pages/) explain each action,
+and the web app shows or offers only what a role allows.
 
 **Yes** is allowed and **no** refused with `403 forbidden`. **Hidden** answers
 `404 not_found`, as for something that does not exist, so the caller learns nothing of it.
@@ -86,6 +87,77 @@ would leave it none answers `409 last_teamspace_owner`, and so does leaving the 
 its last owner. The workspace's owners and admins may leave it without one, as they manage
 it themselves.
 
+## Pages
+
+What someone may do with a page depends on its space and on shares. First, the space gives
+them edit access, view access or nothing:
+
+| The page, for the caller | What it gives |
+|---|---|
+| In a teamspace they are in | Edit |
+| In a default, open or closed teamspace they are not in | View |
+| In a private teamspace they are not in, the workspace's owners and admins included | Nothing: hidden |
+| One of their own private pages | Edit |
+| Another member's private page | Nothing: hidden |
+| Anywhere, for a guest | Nothing: hidden |
+
+Then shares add to it. A share on the page, or on any page above it, gives view or edit
+access to the person it names, and the caller ends up with the most of what the space and
+every one of those shares give. A share never takes access away. So a guest sees exactly
+the pages shared with them and the pages under those, and a member outside a private
+teamspace sees only the pages of it shared with them.
+
+With that access:
+
+| Action | Edit | View | Nothing |
+|---|---|---|---|
+| See the page, its place and the pages under it, and add it to favorites | yes | yes | hidden |
+| Export it as markdown, with the pages under it | yes | yes | hidden |
+| Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
+| Change its document | yes, with a token only by the `write` scope | no | hidden |
+| Change its title, icon, cover and style, and add or import pages under it | yes | no | hidden |
+| Move it, from where it is, within its space | yes | no | hidden |
+| Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | hidden |
+| Move a page under it | yes | no | hidden |
+| Trash it, with the pages under it | yes | no | hidden |
+| See it in the trash, restore it, delete it for good | yes | hidden | hidden |
+| List who it is shared with | yes, but guests: no | yes, but guests: no | hidden |
+| Share it, change or remove a share | yes, but guests: no | no | hidden |
+
+A page in the trash shows only to those with edit access, who may restore it or delete it for
+good and do nothing else with it until it is back: changing it, adding pages under it,
+moving it, trashing it again and sharing it answer `403 forbidden`, and its document opens
+read-only. Restoring or deleting a
+page out of the trash answers `403 forbidden` too.
+
+Moving a page needs edit access to the page and to where it goes: the page it goes under,
+or the right to add pages at the top of a space, below. Out of its space, to another
+teamspace or to someone's private pages, it needs edit access from the space itself: being
+in the page's teamspace, or owning the private page. A share to edit lets its holder move
+the page only within its space, under pages they edit there, so a share never hands a
+member's private page, or a private teamspace's page, to anyone else. Restoring a page whose
+parent is in the trash needs the right to add pages at the top of its space.
+
+What shows of a page leaves out what the caller may not know. The page it is under is left
+out when they may not see that page, as for the top of the pages shared with them. A guest,
+who knows no other member, is not told who made, changed, trashed or owns a page. A list of
+who a page is shared with marks each share set on a page above it as inherited, and leaves
+out which page that is when the caller may not see it.
+
+### The top of a space
+
+| Action | Teamspace member | Outside a default, open or closed teamspace | Outside a private teamspace | Guest |
+|---|---|---|---|---|
+| List a teamspace's pages, and export them | yes | yes | hidden | hidden |
+| Add a page at its top, import pages there, or move one there | yes | no: join it first | hidden | hidden |
+
+| Action | Owner, admin or member | Guest |
+|---|---|---|
+| List their own private pages | yes | no: guests have none |
+| Add a private page, import private pages, or move one into their private pages | yes | no |
+
+Nobody lists or adds to another member's private pages: they are hidden.
+
 ## The instance
 
 | Action | Instance admin | Anyone else |
@@ -94,7 +166,7 @@ it themselves.
 | List every workspace: names, owners, member counts, limits, usage | yes | no |
 | Set a workspace's limits | yes | no |
 | Delete a workspace, at a browser | yes | no |
-| See or change anything in a workspace they are not in | hidden | hidden |
+| See or change anything in a workspace they are not in, its pages included | hidden | hidden |
 
 An instance admin is an account with the `admin` role, signed in at a browser or with a
 token that has the `admin` scope; see [API tokens](/docs/guides/accounts/#api-tokens).

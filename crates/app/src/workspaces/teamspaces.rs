@@ -13,7 +13,10 @@ use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{Membership, WorkspaceError, WorkspaceService, actor, locked_membership, membership};
+use super::{
+    AccessChange, Membership, WorkspaceError, WorkspaceService, actor, locked_membership,
+    membership,
+};
 
 const NO_TEAMSPACE: &str = "no such teamspace";
 const NO_MEMBER: &str = "no such member";
@@ -211,6 +214,7 @@ impl WorkspaceService {
                 .await?;
             context.check(principal, Action::UpdateTeamspace)?;
             let mut teamspace = context.teamspace.clone();
+            let before = teamspace.access;
             if let Some(access) = update.access
                 && access != teamspace.access
             {
@@ -243,6 +247,9 @@ impl WorkspaceService {
                 access = %entry.teamspace.access,
                 "teamspace updated"
             );
+            if entry.teamspace.access != before {
+                self.teamspace_changed(workspace_id, id, None);
+            }
             Ok(entry)
         })
         .await
@@ -270,6 +277,7 @@ impl WorkspaceService {
                 teamspace_id = %id,
                 "teamspace deleted"
             );
+            self.teamspace_changed(workspace_id, id, None);
             Ok(())
         })
         .await
@@ -306,6 +314,7 @@ impl WorkspaceService {
                 teamspace_id = %id,
                 "teamspace joined"
             );
+            self.teamspace_changed(workspace_id, id, Some(principal.user.id));
             Ok(entry)
         })
         .await
@@ -340,6 +349,7 @@ impl WorkspaceService {
                 teamspace_id = %id,
                 "teamspace left"
             );
+            self.teamspace_changed(workspace_id, id, Some(principal.user.id));
             Ok(())
         })
         .await
@@ -405,6 +415,7 @@ impl WorkspaceService {
                 role = %role,
                 "teamspace member added"
             );
+            self.teamspace_changed(workspace_id, id, Some(user_id));
             Ok(member)
         })
         .await
@@ -452,6 +463,7 @@ impl WorkspaceService {
                 to = %role,
                 "teamspace role changed"
             );
+            self.teamspace_changed(workspace_id, id, Some(user_id));
             Ok(member)
         })
         .await
@@ -491,9 +503,20 @@ impl WorkspaceService {
                 user_id = %user_id,
                 "teamspace member removed"
             );
+            self.teamspace_changed(workspace_id, id, Some(user_id));
             Ok(())
         })
         .await
+    }
+
+    /// Tells the port that someone's place in a teamspace changed, or everyone's when
+    /// `user_id` is `None`.
+    fn teamspace_changed(&self, workspace_id: Uuid, teamspace_id: Uuid, user_id: Option<Uuid>) {
+        self.changed(AccessChange::Teamspace {
+            workspace_id,
+            teamspace_id,
+            user_id,
+        });
     }
 
     /// Reads a teamspace of a workspace and the principal's roles. With `lock`, the

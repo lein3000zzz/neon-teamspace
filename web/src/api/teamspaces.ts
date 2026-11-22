@@ -70,6 +70,17 @@ function refreshTeamspace(queryClient: QueryClient, workspaceId: string, id: str
   void queryClient.invalidateQueries({ queryKey: keys.teamspace(workspaceId, id) });
 }
 
+/**
+ * Joining or leaving a teamspace also changes what the user may do with its
+ * pages, and which shared pages they reach through it rather than through
+ * "Shared with you", so the trees and the pages read are read again too.
+ */
+function refreshMembership(queryClient: QueryClient, workspaceId: string, id: string) {
+  refreshTeamspace(queryClient, workspaceId, id);
+  void queryClient.invalidateQueries({ queryKey: keys.pageTrees(workspaceId) });
+  void queryClient.invalidateQueries({ queryKey: keys.pages(workspaceId) });
+}
+
 /** Creates an open, closed or private teamspace, with the user as its owner. */
 export function useCreateTeamspace(workspaceId: string) {
   const queryClient = useQueryClient();
@@ -118,7 +129,7 @@ export function useJoinTeamspace(workspaceId: string) {
       call(
         api.POST("/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/join", path(workspaceId, id)),
       ),
-    onSuccess: (_, id) => refreshTeamspace(queryClient, workspaceId, id),
+    onSuccess: (_, id) => refreshMembership(queryClient, workspaceId, id),
   });
 }
 
@@ -129,7 +140,7 @@ export function useLeaveTeamspace(workspaceId: string) {
       send(
         api.POST("/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/leave", path(workspaceId, id)),
       ),
-    onSuccess: (_, id) => refreshTeamspace(queryClient, workspaceId, id),
+    onSuccess: (_, id) => refreshMembership(queryClient, workspaceId, id),
   });
 }
 

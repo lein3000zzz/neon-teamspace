@@ -1,0 +1,85 @@
+[
+  {
+    "id": "block-1",
+    "type": "image",
+    "props": {
+      "textAlignment": "center",
+      "backgroundColor": "default",
+      "name": "photo.png",
+      "url": "https://example.com/photo.png",
+      "caption": "A caption",
+      "showPreview": true,
+      "previewWidth": 320
+    },
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "",
+      "url": "https://example.com/hidden.png",
+      "caption": "",
+      "showPreview": false
+    },
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "",
+      "url": "",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "video",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "clip.mp4",
+      "url": "https://example.com/clip.mp4",
+      "caption": "A clip",
+      "showPreview": true,
+      "previewWidth": 512.5
+    },
+    "children": []
+  },
+  {
+    "id": "block-5",
+    "type": "audio",
+    "props": {
+      "backgroundColor": "default",
+      "name": "talk.mp3",
+      "url": "https://example.com/talk.mp3",
+      "caption": "",
+      "showPreview": false
+    },
+    "children": []
+  },
+  {
+    "id": "block-6",
+    "type": "file",
+    "props": {
+      "backgroundColor": "default",
+      "name": "report.pdf",
+      "url": "https://example.com/report.pdf",
+      "caption": "The report"
+    },
+    "children": []
+  },
+  {
+    "id": "block-7",
+    "type": "divider",
+    "props": {},
+    "children": []
+  }
+]

@@ -4,7 +4,7 @@ description: The parts Neon Teamspace is made of, the crates of its server, and 
 ---
 
 Neon Teamspace is a Rust server, a TypeScript single-page app, and Postgres. The server is
-one binary, `neon`: the HTTP API, and, as they arrive, real-time editing over WebSocket, the
+one binary, `neon`: the HTTP API, real-time editing over WebSocket, and, as they arrive, the
 MCP endpoint for agents and webhooks. In a deployment, Caddy serves the app and these docs
 as files and passes everything else to the server, so the browser sees one origin.
 
@@ -25,8 +25,8 @@ flowchart LR
   ops((Operator)) -- "127.0.0.1:9090" --> server
 ```
 
-- **The server** is the `neon` binary. It runs the API and the job queue's workers in one
-  process, and serves metrics, health and profiles on an internal admin listener that Caddy
+- **The server** is the `neon` binary. It runs the API, the pages' live documents and the
+  job queue's workers in one process, and serves metrics, health and profiles on an internal admin listener that Caddy
   never exposes. It starts its telemetry first, then the admin listener, then connects to
   Postgres and starts the job worker and the HTTP server; it stops them in the reverse
   order, as [Observability](/docs/architecture/observability/#shutdown) describes.
@@ -41,15 +41,16 @@ flowchart LR
 
 ## The crates
 
-The server is a cargo workspace of five crates:
+The server is a cargo workspace of six crates:
 
 | Crate | What it holds |
 |---|---|
 | `neon-domain` | Types, validation and permission rules. No I/O, no async, no database. |
+| `neon-blocks` | A page's block document: its model, its Yjs form and markdown. No I/O, no async. |
 | `neon-store` | The Postgres repositories, with sqlx. |
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
-| `neon-server` | The `neon` binary: the HTTP API, and later real-time sync, MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
+| `neon-server` | The `neon` binary: the HTTP API and the WebSocket of real-time sync, and later MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
 
 Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
 further in, never one further out:
@@ -64,7 +65,11 @@ flowchart LR
 
 A crate can use only what its `Cargo.toml` lists, so the compiler holds the direction: code
 in `neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
-nothing in `neon-store` can call a use case. `neon-observability` stands alone.
+nothing in `neon-store` can call a use case. `neon-blocks` stands alone too, beside the
+domain: it depends on yrs and a markdown parser only, and `neon-app` uses it for the live
+documents and for import and export, as [Page documents](/docs/architecture/documents/)
+describes. `neon-observability`
+stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
 `neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure
 job runs, and `neon-server` for everything else.
@@ -130,7 +135,7 @@ configure. Under it:
 | Path | Goes to |
 |---|---|
 | `/api/v1` | The JSON API. Its description is at `/api/v1/openapi.json`. |
-| `/ws` | Real-time editing, **planned**. |
+| `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
 | `/mcp` | Agents, **planned**. |
 | `/hooks/*` | Incoming webhooks, **planned**. |
 | `/.well-known/oauth-*` | OAuth metadata for agents, **planned**. |

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use neon_app::auth::{AuthError, LoginInput, UserUpdate};
 use neon_app::crypto::{Argon2Params, hash_secret};
+use neon_app::pages::AccessChange;
 use neon_app::ratelimit::Bucket;
 use neon_domain::auth::{Credential, Role, Scope};
 use serde_json::json;
@@ -583,6 +584,96 @@ async fn tokens_expire_and_need_their_prefix(pool: PgPool) {
     h.time.advance(Duration::from_secs(3600));
     assert!(matches!(
         h.auth.authenticate_token(secret_token.expose()).await,
+        Err(AuthError::Unauthenticated)
+    ));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn ending_sessions_and_tokens_is_told_and_refreshing_sees_it(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    h.account("admin@example.com", Role::Admin).await;
+    let ada = h.account("ada@example.com", Role::User).await;
+    let (admin_session, _) = h.sign_in("admin@example.com").await;
+    let (first, _) = h.sign_in("ada@example.com").await;
+    let (second, _) = h.sign_in("ada@example.com").await;
+    let (third, _) = h.sign_in("ada@example.com").await;
+    let (token_secret, token) = h
+        .auth
+        .create_api_token(&first, "ci", None, &["read", "write"])
+        .await
+        .expect("created");
+    let by_token = h
+        .auth
+        .authenticate_token(token_secret.expose())
+        .await
+        .expect("works");
+    let account = AccessChange::Account { user_id: ada.id };
+    h.changes.take();
+
+    // A session or token that holds refreshes as it stands now.
+    let fresh = h.auth.refresh(&second).await.expect("holds");
+    assert_eq!(fresh.session_id(), second.session_id());
+    let fresh = h.auth.refresh(&by_token).await.expect("holds");
+    assert!(fresh.can(Scope::Write) && !fresh.via_session());
+    assert_eq!(h.changes.take(), vec![], "refreshing changes nothing");
+
+    h.auth
+        .revoke_session(&first, second.session_id().unwrap())
+        .await
+        .expect("revoked");
+    assert_eq!(h.changes.take(), vec![account]);
+    assert!(matches!(
+        h.auth.refresh(&second).await,
+        Err(AuthError::Unauthenticated)
+    ));
+    h.auth.revoke_other_sessions(&first).await.expect("revoked");
+    h.auth
+        .logout(first.session_id().unwrap())
+        .await
+        .expect("signed out");
+    h.auth
+        .logout(first.session_id().unwrap())
+        .await
+        .expect("again");
+    assert_eq!(
+        h.changes.take(),
+        vec![account, account],
+        "a session already gone tells nobody"
+    );
+    assert!(h.auth.refresh(&third).await.is_err());
+
+    h.auth
+        .revoke_api_token(&admin_session, token.id)
+        .await
+        .expect_err("not the admin's token");
+    let (fourth, _) = h.sign_in("ada@example.com").await;
+    h.auth
+        .revoke_api_token(&fourth, token.id)
+        .await
+        .expect("revoked");
+    assert_eq!(h.changes.take(), vec![account]);
+    assert!(h.auth.refresh(&by_token).await.is_err());
+
+    // Disabling an account tells, and ends what it signed in with.
+    h.auth
+        .update_user(
+            &admin_session,
+            ada.id,
+            UserUpdate {
+                disabled: Some(true),
+                ..UserUpdate::default()
+            },
+        )
+        .await
+        .expect("disabled");
+    assert_eq!(h.changes.take(), vec![account]);
+    assert!(h.auth.refresh(&fourth).await.is_err());
+
+    // A session that expired no longer refreshes, though nothing told of it.
+    let (admin_later, _) = h.sign_in("admin@example.com").await;
+    h.time.advance(Duration::from_secs(7 * 24 * 3600));
+    assert!(matches!(
+        h.auth.refresh(&admin_later).await,
         Err(AuthError::Unauthenticated)
     ));
 }

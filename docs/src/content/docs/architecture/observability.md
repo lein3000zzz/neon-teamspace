@@ -76,8 +76,11 @@ request, so the number of label sets stays small. These subsystems record them:
 | `jobs`, the job queue | The job's kind, such as `mail.send`. | A run that leaves the job dead, because it failed permanently or on its last attempt, a run that panicked, and a run cancelled before it ended. A failed run that will be retried is `ok`. | 100 ms to 2 min |
 | `auth`, the account use cases | The use case, such as `login` or `create_invite`. | A failure of the server, such as a database that does not answer. A refusal, such as a wrong password, is `ok`. | 5 ms to 5 s |
 | `workspaces`, the workspace use cases | The use case, such as `create_workspace` or `accept_invitation`. | A failure of the server. A refusal of the rules, such as `last_owner` or `member_limit`, is `ok`. | 5 ms to 5 s |
+| `pages`, the page use cases | The use case, such as `create_page` or `share_page`. | A failure of the server. A refusal of the rules is `ok`. | 5 ms to 5 s |
+| `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
+| `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
 
-**Planned:** the same metrics for MCP tools and real-time sync.
+**Planned:** the same metrics for MCP tools.
 
 Timing an operation starts a guard. Finishing the guard records the outcome; a guard dropped
 without being finished, because the code returned early or the work was cancelled, counts as
@@ -103,7 +106,11 @@ stops before the database pool closes:
 | `neon_db_pool_max_connections` | | The most the pool opens: `database.max_connections` minus the one the job worker keeps for listening. |
 | `neon_jobs_queue_depth` | `status`: `queued`, `running`, `done` or `dead` | Jobs in the queue table, from one count grouped by status. Done and dead jobs count until they are deleted, seven days after they finished. |
 
-**Planned:** gauges of open WebSocket connections and of the page documents held in memory.
+The live documents keep their own gauges, set as they change rather than sampled:
+`neon_sync_live_documents`, the page documents held in memory, and
+`neon_sync_open_connections`, the open WebSocket connections. [Real-time
+sync](/docs/architecture/realtime/#metrics) lists them with the histogram of message sizes
+and the counters of messages and disconnects.
 
 ## Traces
 
@@ -236,19 +243,24 @@ first. On SIGTERM, or Ctrl-C in a terminal, it runs:
    server does not wait for it to notice: the next step follows at once, and connections
    that arrive from then on are refused.
 2. The HTTP server stops accepting connections and lets the requests in flight finish, for
-   up to 30 seconds, then closes any still open.
+   up to 30 seconds, then closes any still open. Open WebSocket connections are not
+   requests in flight; they stay until step 5.
 3. The job worker claims no more jobs and gives those it is running up to 30 seconds. A job
    still running then is cancelled and queued again, and the attempt does not count.
 4. The gauges stop sampling, when metrics are on.
-5. The database pool closes, as everything before it uses it until it stops.
-6. The admin listener stops, so `/metrics` stays up while the rest drains.
-7. The telemetry flushes last: the profiler stops, the trace exporter sends the spans it
+5. The live documents close their WebSocket connections with `1012`, so clients reconnect
+   to the next server, and save their snapshots, for up to 30 seconds; see
+   [Real-time sync](/docs/architecture/realtime/#stopping).
+6. The database pool closes, as everything before it uses it until it stops.
+7. The admin listener stops, so `/metrics` stays up while the rest drains.
+8. The telemetry flushes last: the profiler stops, the trace exporter sends the spans it
    still holds, and the log writer writes the lines it has buffered. What the other parts
    logged while stopping, and the spans of the last requests and jobs, still go out.
 
 Every step runs even when one before it fails. Each failure is logged as it happens, and
 the process then exits with status 1, naming every step that failed. Each step has a time
-limit, 10 seconds, or 10 seconds beyond its own 30 for the HTTP server and the job worker,
+limit, 10 seconds, or 10 seconds beyond its own 30 for the HTTP server, the job worker and
+the live documents,
 and beyond the upload interval for the profiler in `push` mode, whose agents send their last
 batches side by side at their next upload. One that hangs is abandoned and the next one
 starts. Shutting down twice does nothing the second time. A server that fails while

@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE shared (id) AS (\n               SELECT s.page_id\n               FROM page_shares s JOIN pages p ON p.id = s.page_id\n               WHERE s.workspace_id = $1 AND s.user_id = $2 AND p.trashed_at IS NULL\n                 AND NOT EXISTS (\n                     SELECT 1 FROM teamspace_members m\n                     WHERE m.teamspace_id = p.teamspace_id AND m.user_id = $2\n                 )\n           ), up (root, id, depth) AS (\n               SELECT p.id, p.parent_id, 1 FROM pages p JOIN shared ON shared.id = p.id\n             UNION ALL\n               SELECT u.root, p.parent_id, u.depth + 1\n               FROM up u JOIN pages p ON p.id = u.id\n               WHERE u.depth < $5\n           ), roots (id) AS (\n               SELECT shared.id FROM shared\n               WHERE NOT EXISTS (\n                   SELECT 1 FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2\n                   WHERE u.root = shared.id\n               )\n           ), tree (id, path, shared, depth) AS (\n               SELECT r.id, r.id::text COLLATE \"C\",\n                      CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1\n               FROM roots r\n               JOIN page_shares s ON s.page_id = r.id AND s.user_id = $2\n             UNION ALL\n               SELECT c.id, (t.path || '!' || c.position) COLLATE \"C\",\n                      GREATEST(t.shared,\n                               CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),\n                      t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL\n               LEFT JOIN page_shares s ON s.page_id = c.id AND s.user_id = $2\n               WHERE t.depth < $5\n           )\n           SELECT p.id, CASE WHEN t.depth > 1 THEN p.parent_id END AS parent_id,\n                  p.teamspace_id, p.owner_id, p.title, p.icon,\n                  t.path AS \"path!\", t.shared AS \"shared!\",\n                  (SELECT count(*) FROM pages k WHERE k.parent_id = p.id AND k.trashed_at IS NULL)\n                      AS \"child_count!\"\n           FROM tree t JOIN pages p ON p.id = t.id\n           WHERE $3::text IS NULL OR t.path > ($3::text COLLATE \"C\")\n           ORDER BY t.path COLLATE \"C\"\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "teamspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "teamspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "owner_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "owner_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "icon",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "icon"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "shared!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "child_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      false,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "875440530d690716f8a6c45f62d4535e11b39c9013da4bdcb6190cc87cd4906d"
+}

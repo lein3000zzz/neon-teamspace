@@ -13,6 +13,11 @@ services:
       NEON_ADMIN__PASSWORD: ${E2E_ADMIN_PASSWORD:?make e2e sets E2E_ADMIN_PASSWORD}
       NEON_SECRETS__KEYS: ${E2E_SECRET_KEYS:?make e2e sets E2E_SECRET_KEYS}
 
+  # Caddy believes the X-Forwarded-For of this machine's connections, so a spec can give its
+  # browsers an address of their own: the server allows ten sign-ins at once from one, and
+  # the specs, running side by side, sign in more than that together.
   web:
+    environment:
+      NEON_WEB_TRUSTED_PROXIES: private_ranges
     ports: !override
       - "127.0.0.1::80"

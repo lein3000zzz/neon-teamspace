@@ -98,6 +98,9 @@ export default defineConfig({
             'guides/accounts',
             'guides/workspaces',
             'guides/workspace-rules',
+            'guides/editing-pages',
+            'guides/pages',
+            'guides/import-export',
           ],
         },
         {
@@ -130,6 +133,8 @@ export default defineConfig({
           items: [
             'architecture/overview',
             'architecture/data',
+            'architecture/documents',
+            'architecture/realtime',
             'architecture/security',
             'architecture/observability',
             'architecture/web',

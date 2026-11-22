@@ -12,8 +12,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor, locked_membership,
-    membership,
+    AccessChange, Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor,
+    locked_membership, membership,
 };
 
 /// The name a workspace's default teamspace starts with.
@@ -255,6 +255,10 @@ impl WorkspaceService {
             repo::delete(&mut *tx, id).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %id, "workspace deleted");
+            self.changed(AccessChange::Workspace {
+                workspace_id: id,
+                user_id: None,
+            });
             Ok(())
         })
         .await

@@ -1,6 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { House, Inbox, LogOut, Settings, Shapes, ShieldCheck, UserRound } from "lucide-react";
+import {
+  House,
+  Inbox,
+  LogOut,
+  Settings,
+  Shapes,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import { useId } from "react";
 import { useLogout } from "@/api/auth";
 import { myInvitationsQuery } from "@/api/workspaces";
@@ -9,10 +18,12 @@ import { HueDot } from "@/components/nodes/hue-dot";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useCurrentWorkspace } from "@/components/workspaces/workspace-context";
+import { hasPrivatePages } from "@/lib/page-rules";
 import { strings } from "@/lib/strings";
 import { seesTeamspaces } from "@/lib/workspace-rules";
 import { InstanceStatus } from "./instance-status";
 import { navHeading, navLink } from "./nav-styles";
+import { FavoritesNav, PageNavNotice, PrivateNav, SharedNav } from "./page-nav";
 import { useMe } from "./signed-in";
 import { TeamspaceNav } from "./teamspace-nav";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -89,6 +100,19 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             </li>
           )}
+          {current !== undefined && (
+            <li>
+              <Link
+                to="/w/$slug/trash"
+                params={{ slug: current.slug }}
+                onClick={onNavigate}
+                className={navLink}
+              >
+                <Trash2 aria-hidden className="size-4" />
+                {strings.nav.trash}
+              </Link>
+            </li>
+          )}
           <li>
             <Link to="/styleguide" onClick={onNavigate} className={navLink}>
               <Shapes aria-hidden className="size-4" />
@@ -96,8 +120,18 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </Link>
           </li>
         </ul>
-        {current !== undefined && seesTeamspaces(current.role) && (
-          <TeamspaceNav workspace={current} onNavigate={onNavigate} />
+        {current !== undefined && (
+          <>
+            <PageNavNotice workspace={current} />
+            <FavoritesNav workspace={current} onNavigate={onNavigate} />
+            {seesTeamspaces(current.role) && (
+              <TeamspaceNav workspace={current} onNavigate={onNavigate} />
+            )}
+            {hasPrivatePages(current.role) && (
+              <PrivateNav workspace={current} onNavigate={onNavigate} />
+            )}
+            <SharedNav workspace={current} onNavigate={onNavigate} />
+          </>
         )}
         <div className="grid gap-1">
           <p id={settingsId} className={navHeading}>

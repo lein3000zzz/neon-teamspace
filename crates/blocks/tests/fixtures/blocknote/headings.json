@@ -1,0 +1,168 @@
+[
+  {
+    "id": "block-1",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 1,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading one",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 2,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading two with ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "emphasis",
+        "styles": {
+          "italic": true
+        }
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 3,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading three",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 4,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading four with ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "code",
+        "styles": {
+          "code": true
+        }
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-5",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 5,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading five",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-6",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 6,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Heading six",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-7",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 1,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Setext heading",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-8",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 2,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Setext subheading",
+        "styles": {}
+      }
+    ],
+    "children": []
+  }
+]

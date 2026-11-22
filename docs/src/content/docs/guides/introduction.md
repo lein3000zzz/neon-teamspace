@@ -32,8 +32,11 @@ the friends its owner lets in.
 Neon Teamspace is in early development and not usable yet. What exists is the foundation
 the features build on:
 
-- The server, `neon`, as a cargo workspace of five crates; see the
+- The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
+- The model of a page's blocks, read from and written to its Yjs document in the editor's
+  shape, and converted to and from markdown; see
+  [Page documents](/docs/architecture/documents/).
 - Configuration from `neon.yaml` and `NEON_` environment variables, and runtime settings
   kept in the database with an audit of every change; see
   [Configuration](/docs/self-hosting/configuration/).
@@ -53,6 +56,15 @@ the features build on:
   and hues, through the API and the web app's switcher, workspace settings and the instance
   admins' list; see [Workspaces and teamspaces](/docs/guides/workspaces/), [Workspace rules
   and API](/docs/guides/workspace-rules/) and [Permissions](/docs/reference/permissions/).
+- Pages, through the API and the web app's page trees, headers and live editor: nesting,
+  private pages, sharing with members and guests, moving, the trash and favorites; see
+  [Editing pages](/docs/guides/editing-pages/) and [Pages](/docs/guides/pages/).
+- Real-time sync of pages' documents over WebSocket, in y-websocket's protocol, saved as a
+  log of updates and snapshots, with connections closed or made read-only as access
+  changes; see [Real-time sync](/docs/architecture/realtime/).
+- Import of markdown files and zips of them as pages, and export of pages and teamspaces as
+  markdown, in the web app and through the API; see
+  [Import and export](/docs/guides/import-export/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -64,12 +76,11 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
-2. Databases with table, board and list views.
-3. Comments, mentions and an inbox, page history, search and attachments.
-4. Agents over MCP, and webhooks in and out.
-5. Signed releases and the first version, 0.1.0.
-6. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Databases with table, board and list views.
+2. Comments, mentions and an inbox, page history, search and attachments.
+3. Agents over MCP, and webhooks in and out.
+4. Signed releases and the first version, 0.1.0.
+5. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not
