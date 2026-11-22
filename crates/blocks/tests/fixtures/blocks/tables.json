@@ -1,0 +1,43 @@
+[
+  {
+    "type": "table",
+    "content": {
+      "type": "tableContent",
+      "columnWidths": [120, null, 80],
+      "headerRows": 1,
+      "headerCols": 1,
+      "rows": [
+        {
+          "cells": [
+            "",
+            { "type": "tableCell", "content": [{ "type": "text", "text": "Centred", "styles": { "bold": true } }], "props": { "textAlignment": "center" } },
+            { "type": "tableCell", "content": "Right", "props": { "textAlignment": "right", "backgroundColor": "blue" } }
+          ]
+        },
+        {
+          "cells": [
+            "Row one",
+            [{ "type": "link", "href": "https://example.com/cell", "content": "a link" }],
+            { "type": "tableCell", "content": "two\nlines", "props": { "textColor": "red" } }
+          ]
+        },
+        {
+          "cells": [
+            "Row two",
+            { "type": "tableCell", "content": "spans two columns", "props": { "colspan": 2 } }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "type": "table",
+    "content": {
+      "type": "tableContent",
+      "rows": [
+        { "cells": ["no", "header"] },
+        { "cells": ["", "empty cell before"] }
+      ]
+    }
+  }
+]

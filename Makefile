@@ -46,7 +46,7 @@ check-generated = set -e; tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; $(2) > "$
 
 .PHONY: help
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>"} /^## / {printf "\n%s\n", substr($$0, 4)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>"} /^## / {printf "\n%s\n", substr($$0, 4)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 ## Build and run
 
@@ -204,6 +204,22 @@ e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromiu
 	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
 	(cd e2e && E2E_BASE_URL="http://$$address" $(BUN) run test)
 
+## Block fixtures (tools/blocknote-fixtures/)
+
+.PHONY: blocks-install
+blocks-install: ## Install the packages of the tool that writes and checks the block fixtures with BlockNote
+	cd tools/blocknote-fixtures && $(BUN) install --frozen-lockfile
+
+.PHONY: blocks-fixtures
+blocks-fixtures: ## Rewrite the block fixtures: BlockNote's for the corpus, then neon-blocks' for BlockNote's
+	cd tools/blocknote-fixtures && $(BUN) run generate
+	BLOCKS_WRITE_FIXTURES=1 $(CARGO) test -p neon-blocks --test blocknote
+
+.PHONY: blocks-check
+blocks-check: ## Test neon-blocks against BlockNote's fixtures, and check BlockNote loads neon-blocks' updates
+	$(CARGO) test -p neon-blocks
+	cd tools/blocknote-fixtures && $(BUN) run check
+
 ## Checks
 
 .PHONY: licenses
@@ -213,6 +229,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 	$(BUN) scripts/licenses.ts web
 	$(BUN) scripts/licenses.ts docs
 	$(BUN) scripts/licenses.ts e2e
+	$(BUN) scripts/licenses.ts tools/blocknote-fixtures
 
 .PHONY: check
 # Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
@@ -222,7 +239,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean

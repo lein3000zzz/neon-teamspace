@@ -1,0 +1,38 @@
+[
+  { "type": "paragraph", "content": "A line\nand a second line, after a break." },
+  { "type": "paragraph", "content": "\nA leading break, and a trailing one.\n" },
+  { "type": "paragraph" },
+  {
+    "type": "paragraph",
+    "content": [
+      { "type": "text", "text": "All at once", "styles": { "bold": true, "italic": true, "underline": true, "strike": true } },
+      { "type": "text", "text": ", ", "styles": {} },
+      { "type": "text", "text": "code", "styles": { "code": true } },
+      { "type": "text", "text": " next to ", "styles": {} },
+      { "type": "text", "text": "bold", "styles": { "bold": true } },
+      { "type": "text", "text": ", and ", "styles": {} },
+      {
+        "type": "link",
+        "href": "https://example.com/mixed",
+        "content": [
+          { "type": "text", "text": "a link ", "styles": {} },
+          { "type": "text", "text": "with styles", "styles": { "italic": true, "underline": true } }
+        ]
+      },
+      { "type": "text", "text": ".", "styles": {} }
+    ],
+    "children": [{ "type": "paragraph", "content": "A paragraph nested under it." }]
+  },
+  {
+    "type": "numberedListItem",
+    "props": { "start": 3 },
+    "content": "Three",
+    "children": [{ "type": "numberedListItem", "content": "Nested one" }]
+  },
+  { "type": "numberedListItem", "content": "Four" },
+  { "type": "checkListItem", "content": "Not done" },
+  { "type": "bulletListItem", "content": [{ "type": "text", "text": "Bold item", "styles": { "bold": true } }] },
+  { "type": "codeBlock", "props": { "language": "typescript" }, "content": "const answer = 42;\n" },
+  { "type": "codeBlock", "content": "" },
+  { "type": "quote", "content": "A quote\nover two lines" }
+]
