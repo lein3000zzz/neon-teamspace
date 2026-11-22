@@ -83,4 +83,9 @@ export const POLICIES: Readonly<Record<string, Policy>> = {
       },
     ],
   },
+  // The end-to-end tests, which ship nothing: every package must still be on the allow list.
+  e2e: {
+    exceptions: [],
+    clarifications: [],
+  },
 };

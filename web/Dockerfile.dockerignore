@@ -1,0 +1,14 @@
+# The web image builds from the repository's root and needs only the app, the docs, the
+# license helpers in scripts/ and the API description the docs' reference is made from.
+*
+!web
+!docs
+!scripts
+!api
+**/node_modules
+**/.DS_Store
+web/dist
+web/.tanstack
+docs/dist
+docs/.astro
+docs/csp.caddy

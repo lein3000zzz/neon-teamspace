@@ -247,12 +247,14 @@ first. On SIGTERM, or Ctrl-C in a terminal, it runs:
 Every step runs even when one before it fails. Each failure is logged as it happens, and
 the process then exits with status 1, naming every step that failed. Each step has a time
 limit, 10 seconds, or 10 seconds beyond its own 30 for the HTTP server and the job worker,
-so one that hangs is abandoned and the next one starts. Shutting down twice does nothing
-the second time. A server that fails while starting runs the same steps for the parts
-already started.
+and beyond the upload interval for the profiler in `push` mode, whose agents send their last
+batches side by side at their next upload. One that hangs is abandoned and the next one
+starts. Shutting down twice does nothing the second time. A server that fails while
+starting runs the same steps for the parts already started.
 
 ## The stack
 
-**Planned.** A Compose profile, `observability`, runs Grafana's all-in-one OpenTelemetry
-image, `grafana/otel-lgtm`, and Pyroscope beside the server, with a Grafana dashboard of the
-RED metrics already provisioned, and a page here on reading it.
+The Compose file's `observability` profile runs Grafana's all-in-one OpenTelemetry image,
+`grafana/otel-lgtm`, with Prometheus, Tempo, Loki and Pyroscope, beside the server or beside
+`make run`, and provisions a Grafana dashboard of the RED metrics and the gauges;
+[Observability stack](/docs/self-hosting/observability/) covers running and reading it.

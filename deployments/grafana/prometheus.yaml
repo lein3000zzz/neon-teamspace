@@ -1,0 +1,31 @@
+# Prometheus in the observability profile's otel-lgtm image: the image's own configuration,
+# which stores the metrics its OpenTelemetry collector receives, plus the server's admin
+# listener as a scrape target.
+global:
+  scrape_interval: 15s
+  scrape_native_histograms: true
+otlp:
+  keep_identifying_resource_attributes: true
+  promote_resource_attributes:
+    - service.instance.id
+    - service.name
+    - service.namespace
+    - service.version
+    - deployment.environment.name
+    - host.name
+storage:
+  tsdb:
+    out_of_order_time_window: 10m
+
+scrape_configs:
+  # The server in the stack, and one started with `make run` on this machine. Whichever is
+  # not running shows as down in Prometheus; the dashboard sums the ones that answer.
+  - job_name: neon
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["server:9090"]
+        labels:
+          instance: stack
+      - targets: ["host.docker.internal:9090"]
+        labels:
+          instance: host

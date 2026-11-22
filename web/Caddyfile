@@ -1,0 +1,123 @@
+# The web image's Caddy: the app and the docs as files, and the server's paths passed on to
+# it, all on one origin, so the browser needs no CORS. The image is the same for every
+# deployment and takes these from the environment. Caddy uses a variable that is set but
+# blank as it is, so leave out the ones to keep at their default:
+#
+#   NEON_DOMAIN               The site's domain, such as neon.example.com. Caddy then gets and
+#                             renews its certificate itself, serves HTTPS on 443 and redirects
+#                             port 80 there. Unset, it serves plain HTTP on :80, for TLS that
+#                             ends in front of it.
+#   NEON_WEB_TRUSTED_PROXIES  Address ranges, separated by spaces, of proxies in front whose
+#                             X-Forwarded-For Caddy believes, such as a load balancer's. None
+#                             unless set: the client is where the connection comes from.
+#   NEON_API_UPSTREAM         The server's HTTP API, server:8080 unless set. Never its admin
+#                             listener, which stays internal.
+{
+	admin off
+	servers {
+		trusted_proxies static {$NEON_WEB_TRUSTED_PROXIES}
+	}
+}
+
+# The server, told the client's address alone, as Caddy works it out from the proxies it
+# trusts: with the proxies' addresses after it, the server would see a proxy's.
+(server) {
+	reverse_proxy {$NEON_API_UPSTREAM:server:8080} {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# Set on every answer. They are set at once, so the docs' policy can replace the app's and
+# error pages keep them. A deletion, as of Server, waits until the answer is written, and
+# would hold back the rest of its block with it, so it has a directive of its own.
+(security) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+	}
+	header -Server
+	# Only over HTTPS, which Caddy serves when NEON_DOMAIN is set. Behind TLS that ends in
+	# front, the proxy there sets it.
+	@https protocol https
+	header @https Strict-Transport-Security "max-age=31536000"
+}
+
+{$NEON_DOMAIN::80} {
+	encode zstd gzip
+	import security
+
+	# The API, real-time sync (WebSocket upgrades pass through), the agents' MCP endpoint,
+	# incoming webhooks, and the OAuth metadata agents look for at the root (RFC 8414,
+	# RFC 9728). An unknown path under /api gets the server's own JSON 404.
+	@server path /api /api/* /ws /ws/* /mcp /mcp/* /hooks/* /.well-known/oauth-*
+	handle @server {
+		import server
+	}
+
+	# The docs, with a policy of their own in place of the app's: it allows their few inline
+	# scripts by hash and WebAssembly for search. docs/scripts/csp.ts writes it as they build.
+	@docs path /docs /docs/*
+	handle @docs {
+		import /etc/caddy/docs-csp.caddy
+		root * /srv
+
+		# Their file names carry a hash of their content, so they never change.
+		@hashed path /docs/_astro/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@page not path /docs/_astro/*
+		header @page Cache-Control no-cache
+
+		file_server
+	}
+
+	handle {
+		root * /srv/app
+
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		# Every other file is checked again on each use, index.html above all, so a new
+		# version is picked up at once.
+		@page not path /assets/*
+		header @page Cache-Control no-cache
+
+		# A path that is no file is a route of the app: index.html, for its router. Paths that
+		# look like files, and anything under the asset directories, are not, and get a 404.
+		@route {
+			not file
+			not path /assets/* /fonts/*
+			not path_regexp \.[A-Za-z0-9]+$
+		}
+		rewrite @route /index.html
+
+		file_server
+	}
+
+	# Errors: a missing file, or the server unreachable. They keep the headers set above but
+	# for the deletion, and Cache-Control, which is set again: an error must never be kept, as
+	# the one a hashed asset's path got would be for a year, even once the file is there. A
+	# page missing from the docs gets the docs' own not-found page, with its 404; the rest get
+	# their status alone.
+	handle_errors {
+		header -Server
+		header Cache-Control no-store
+		@docs_missing {
+			path /docs /docs/*
+			expression {err.status_code} == 404
+		}
+		handle @docs_missing {
+			import /etc/caddy/docs-csp.caddy
+			root * /srv
+			rewrite * /docs/404.html
+			file_server
+		}
+	}
+}
+
+# For the container's health check, on loopback only.
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond /healthz 200
+}

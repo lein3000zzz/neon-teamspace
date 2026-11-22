@@ -154,7 +154,8 @@ subsystem, and an internal listener for metrics, probes and profiles that is nev
 
 **Two images behind Caddy.** A `web` image, Caddy with the app and these docs, which gets
 its own TLS certificate given a domain, and a `server` image, the `neon` binary on a minimal
-base, both for amd64 and arm64. **Planned.**
+base, both for amd64 and arm64, run together by one Compose file.
+[More](/docs/self-hosting/install/#with-docker).
 
 ## The product
 

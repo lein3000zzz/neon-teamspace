@@ -2,6 +2,9 @@
 //!
 //! Every struct accepts a partial section: missing keys take their defaults and unknown keys
 //! are rejected, so a typo fails loudly instead of silently keeping a default.
+//!
+//! The collector and Pyroscope URLs may carry a user name and password, so `Debug` shows them
+//! through [`redact_url`].
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -9,6 +12,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
+use url::Url;
+
+/// Replaces a credential in a URL that is shown.
+pub const REDACTED: &str = "redacted";
 
 /// Settings for logs, metrics, traces, profiles and the admin listener.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -75,8 +82,9 @@ impl Default for MetricsConfig {
     }
 }
 
-/// Trace sampling, export over OTLP and trust in incoming trace context.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Trace sampling, export over OTLP and trust in incoming trace context. `Debug` redacts the
+/// credentials in `endpoint`.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TracingConfig {
     /// Exports spans. Spans and trace ids exist either way, so logs stay correlated and
@@ -176,8 +184,8 @@ pub enum Profile {
     Heap,
 }
 
-/// Pyroscope settings for push mode.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Pyroscope settings for push mode. `Debug` redacts the credentials in `server_address`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PushConfig {
     /// Pyroscope base URL, for example `http://pyroscope:4040`.
@@ -196,6 +204,66 @@ impl Default for PushConfig {
             tags: BTreeMap::new(),
         }
     }
+}
+
+impl fmt::Debug for TracingConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Destructured, so a new field cannot be left out of the output by accident.
+        let Self {
+            enabled,
+            endpoint,
+            protocol,
+            sample_ratio,
+            trust_incoming,
+        } = self;
+        f.debug_struct("TracingConfig")
+            .field("enabled", enabled)
+            .field("endpoint", &endpoint.as_deref().map(redact_url))
+            .field("protocol", protocol)
+            .field("sample_ratio", sample_ratio)
+            .field("trust_incoming", trust_incoming)
+            .finish()
+    }
+}
+
+impl fmt::Debug for PushConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            server_address,
+            upload_interval_seconds,
+            tags,
+        } = self;
+        f.debug_struct("PushConfig")
+            .field("server_address", &server_address.as_deref().map(redact_url))
+            .field("upload_interval_seconds", upload_interval_seconds)
+            .field("tags", tags)
+            .finish()
+    }
+}
+
+/// The URL with the password in its user part replaced by [`REDACTED`], or the user name when
+/// there is no password, since a user name alone may be a token. An HTTP URL without either is
+/// returned as written. Anything else is hidden whole, since where a secret would sit in it is
+/// unknown: text that does not parse, or parses with another scheme, as `user:secret@host`
+/// does. `neon config check` shows the collector and Pyroscope URLs the same way.
+#[must_use]
+pub fn redact_url(text: &str) -> String {
+    let Some(mut url) = Url::parse(text)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+    else {
+        return format!("[{REDACTED}]");
+    };
+    // Both fail only for URLs that cannot have a user part, and this one has one.
+    if url.password().is_some() {
+        let _ = url.set_password(Some(REDACTED));
+    } else if !url.username().is_empty() {
+        let _ = url.set_username(REDACTED);
+    } else {
+        // Parsing would add a trailing slash to a bare host.
+        return text.to_owned();
+    }
+    url.into()
 }
 
 /// The internal listener for metrics, probes and profiles.
@@ -637,6 +705,61 @@ mod tests {
             let message = check_http_url(value).unwrap_err();
             assert!(!message.contains("hunter2"), "{message}");
         }
+    }
+
+    #[test]
+    fn credentials_in_urls_are_redacted() {
+        assert_eq!(
+            redact_url("http://user:hunter2@collector:4318"),
+            "http://user:redacted@collector:4318/"
+        );
+        assert_eq!(
+            redact_url("http://hunter2@pyroscope:4040/base"),
+            "http://redacted@pyroscope:4040/base"
+        );
+        assert_eq!(redact_url("http://otel-lgtm:4318"), "http://otel-lgtm:4318");
+        assert_eq!(redact_url("hunter2@collector"), "[redacted]");
+        // A URL with another scheme: "user" is the scheme, "hunter2@collector" its path.
+        assert_eq!(redact_url("user:hunter2@collector"), "[redacted]");
+    }
+
+    #[test]
+    fn debug_output_hides_credentials_in_urls() {
+        let mut config = Config::default();
+        config.tracing.endpoint = Some("http://user:hunter2@collector:4318".to_owned());
+        config.profiling.push.server_address = Some("http://hunter2@pyroscope:4040".to_owned());
+        config
+            .profiling
+            .push
+            .tags
+            .insert("env".to_owned(), "prod".to_owned());
+
+        let shown = format!("{config:?}");
+
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(
+            shown.contains(r#"endpoint: Some("http://user:redacted@collector:4318/")"#),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(r#"server_address: Some("http://redacted@pyroscope:4040/")"#),
+            "{shown}"
+        );
+        // The other fields are still shown.
+        assert!(shown.contains("sample_ratio: 1.0"), "{shown}");
+        assert!(shown.contains("upload_interval_seconds: 10"), "{shown}");
+        assert!(shown.contains(r#""env": "prod""#), "{shown}");
+    }
+
+    #[test]
+    fn debug_output_shows_urls_without_credentials_as_written() {
+        let tracing = TracingConfig {
+            endpoint: Some("http://otel-lgtm:4318".to_owned()),
+            ..TracingConfig::default()
+        };
+
+        assert!(format!("{tracing:?}").contains(r#"Some("http://otel-lgtm:4318")"#));
+        assert!(format!("{:?}", PushConfig::default()).contains("server_address: None"));
     }
 
     #[test]

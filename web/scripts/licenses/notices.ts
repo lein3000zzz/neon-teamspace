@@ -6,7 +6,7 @@
  * that carried them.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Plugin } from "vite";
 import {
@@ -15,12 +15,16 @@ import {
   fontLicenseText,
   fontProblem,
 } from "../../../scripts/licenses/fonts.ts";
-import { declaredLicense } from "../../../scripts/licenses/spdx.ts";
+import {
+  type Notice,
+  noticesFile,
+  packageNotice,
+  packageRoot,
+  packageSections,
+  section,
+} from "../../../scripts/licenses/notices.ts";
 
-const LICENSE_FILE = /^(?:licen[cs]e|copying)\b/i;
-const NODE_MODULES = "/node_modules/";
-const RULE = "=".repeat(80);
-const THIN_RULE = "-".repeat(80);
+export { packageRoot };
 
 /** Where the SUPPLIED texts live, relative to the web app's root. */
 const SUPPLIED_DIR = "scripts/licenses/supplied";
@@ -34,32 +38,6 @@ const SUPPLIED_DIR = "scripts/licenses/supplied";
 const SUPPLIED: Readonly<Record<string, string>> = {
   "react-remove-scroll-bar": "react-remove-scroll-bar.LICENSE",
 };
-
-interface Notice {
-  name: string;
-  version: string;
-  license: string;
-  text: string;
-}
-
-/**
- * The installed package a module id belongs to, as its root directory, or
- * undefined for the app's own files and virtual modules. The last
- * node_modules in the path wins, so a nested copy counts as itself.
- */
-export function packageRoot(id: string): string | undefined {
-  const path = id.split("?")[0] ?? id;
-  const at = path.lastIndexOf(NODE_MODULES);
-  if (path.startsWith("\0") || at === -1) {
-    return undefined;
-  }
-  const base = at + NODE_MODULES.length;
-  const segments = path.slice(base).split("/");
-  const length = segments[0]?.startsWith("@") ? 2 : 1;
-  return segments.length > length
-    ? path.slice(0, base) + segments.slice(0, length).join("/")
-    : undefined;
-}
 
 /** The specifiers of a stylesheet's `@import` rules. */
 export function cssImports(css: string): string[] {
@@ -169,9 +147,7 @@ export function collectNotices(inputs: NoticeInputs): string {
     throw new Error(`SUPPLIED lists packages the bundle no longer has: ${unused.join(", ")}`);
   }
 
-  const sections = [...notices.values()]
-    .toSorted((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))
-    .map((notice) => section(`${notice.name} ${notice.version}`, notice.license, notice.text));
+  const sections = packageSections(notices.values());
   for (const font of bundledFonts(inputs.publicDir)) {
     const problem = fontProblem(inputs.publicDir, font);
     if (problem !== null) {
@@ -180,15 +156,14 @@ export function collectNotices(inputs: NoticeInputs): string {
     const text = fontLicenseText(inputs.publicDir, font);
     sections.push(section(`Font files in ${font.dir}/`, FONT_LICENSE, text));
   }
-  return [
-    "Third-party notices",
-    "",
-    "Neon Workspace's web app includes the packages and fonts below, each under",
-    "the license named with it. The text after each heading is the license and",
-    "copyright notice that came with it.",
-    "",
-    ...sections,
-  ].join("\n");
+  return noticesFile(
+    [
+      "Neon Workspace's web app includes the packages and fonts below, each under",
+      "the license named with it. The text after each heading is the license and",
+      "copyright notice that came with it.",
+    ],
+    sections,
+  );
 }
 
 /**
@@ -196,35 +171,13 @@ export function collectNotices(inputs: NoticeInputs): string {
  * supplied copy when it ships none. Undefined when there is neither.
  */
 function noticeFor(root: string, { supplied, suppliedDir }: NoticeInputs): Notice | undefined {
-  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
-    string,
-    unknown
-  >;
-  const name = String(manifest["name"]);
-  const files = readdirSync(root)
-    .filter((file) => LICENSE_FILE.test(file))
-    .toSorted();
-  const copy = supplied[name];
-  if (copy !== undefined && files.length > 0) {
-    throw new Error(`${name} now ships its own license; remove it from SUPPLIED`);
-  }
-  const texts =
-    copy === undefined
-      ? files.map((file) => readFileSync(join(root, file), "utf8").trim())
-      : [readFileSync(join(suppliedDir, copy), "utf8").trim()];
-  if (texts.length === 0) {
-    return undefined;
-  }
-  return {
-    name,
-    version: String(manifest["version"]),
-    license: declaredLicense(manifest) ?? "not declared",
-    text: texts.join("\n\n"),
-  };
-}
-
-function section(title: string, license: string, text: string): string {
-  return [RULE, title, `License: ${license}`, THIN_RULE, "", text, ""].join("\n");
+  const texts = Object.fromEntries(
+    Object.entries(supplied).map(([name, file]) => [
+      name,
+      () => [readFileSync(join(suppliedDir, file), "utf8")],
+    ]),
+  );
+  return packageNotice(root, texts);
 }
 
 /** The Vite plugin: emits the notices next to the bundle in production builds. */

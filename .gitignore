@@ -20,6 +20,7 @@ blob-report/
 /brag-output
 .env
 .env.*
+*.env
 !.env.example
 neon.yaml
 *.local.yaml

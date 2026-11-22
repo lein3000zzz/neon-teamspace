@@ -19,7 +19,7 @@ third. `make docs-build` and `make docs-check` run the build and the check below
 | Script | What it does |
 |---|---|
 | `bun run dev` | Starts the development server, which reloads as pages change. |
-| `bun run build` | Builds the site into `dist/`, then writes `csp.caddy`. Fails on a broken link or anchor; links into the generated API reference are not checked. |
+| `bun run build` | Builds the site into `dist/`, with `THIRD_PARTY_NOTICES.txt`, then writes `csp.caddy`. Fails on a broken link or anchor; links into the generated API reference are not checked. |
 | `bun run preview` | Serves `dist/` as it was built. |
 | `bun run check` | Type-checks the site and its scripts, and runs the scripts' tests. |
 | `bun run chromium` | Installs Playwright's headless Chromium for the diagrams. |
@@ -34,6 +34,7 @@ third. `make docs-build` and `make docs-check` run the build and the check below
 | `src/assets/` | The logo and the dot-grid background. |
 | `astro.config.mjs` | The site: its sidebar, the diagrams, the API reference, the link check. |
 | `scripts/csp.ts` | The Content-Security-Policy step after the build. |
+| `scripts/lib/notices.ts` | The third-party notices the build writes; see [Licenses](#licenses). |
 
 New pages go into the sidebar in `astro.config.mjs`.
 
@@ -89,12 +90,17 @@ Caddyfile, as `/etc/caddy/docs-csp.caddy`, and imports it where it serves `/docs
 policy always matches the pages it was built with:
 
 ```caddy
-handle /docs* {
+@docs path /docs /docs/*
+handle @docs {
 	import /etc/caddy/docs-csp.caddy
 	root * /srv
 	file_server
 }
 ```
+
+`web/Dockerfile` builds the docs, checks the Caddyfile with the snippet in place, and fails
+the image's build when either is wrong. The app's policy is set first and the snippet's
+replaces it, so it must stay a plain `header` directive, which Caddy applies at once.
 
 ## Images
 
@@ -119,3 +125,14 @@ allows them as build-only exceptions, by name and exact license, in
 in the same file records the MIT License of its license file, for that version only. The
 check fails on an exception or a clarification nothing installed needs any more.
 `bunfig.toml` pins the hoisted `node_modules` layout that it walks.
+
+The minifier strips the license comments from what ships, so the build writes
+`dist/THIRD_PARTY_NOTICES.txt`, served at `/docs/THIRD_PARTY_NOTICES.txt`, with the license
+text of every package whose code or styles reach `dist/`. `scripts/lib/notices.ts` finds
+them in two ways: a Vite plugin records the packages with modules in the browser's scripts or
+in the stylesheets, and `OUTSIDE_VITE` names those whose files get there another way, such as
+Pagefind's search files and Expressive Code's `ec.*` files. `SUPPLIED` adds texts that a
+package does not publish, copied from its source repository into `scripts/licenses/`, for
+one version each: `@pagefind/default-ui` has none of its own and has Svelte's runtime
+compiled in. The build fails when a shipped package has no license text, or when one of the
+lists names a package it no longer needs.
