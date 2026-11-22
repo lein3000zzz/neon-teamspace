@@ -25,7 +25,8 @@
 //! tableParagraph`, the cells carrying their spans, colours, alignment and `colwidth`.
 //!
 //! y-prosemirror writes every attribute that is not `null`, defaults included; an optional
-//! number with no value, such as an image's `previewWidth`, is written as `undefined`.
+//! prop with no value, such as an image's `previewWidth` or a database's `viewId`, is written
+//! as `undefined`.
 //! The writer here does the same. y-prosemirror drops an element or text whose node or mark
 //! the editor's schema does not know, so the writer never makes one.
 
@@ -41,9 +42,10 @@ use yrs::{
 use crate::ids::IdSource;
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
-    AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_COLOR, Document,
-    FileProps, HeadingProps, ImageProps, Inline, NoProps, NumberedListItemProps, QuoteProps,
-    TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_COLOR, DatabaseProps,
+    Document, FileProps, HeadingProps, ImageProps, Inline, NoProps, NumberedListItemProps,
+    QuoteProps, TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment,
+    TextProps,
 };
 
 /// The name of the `XmlFragment` that holds a page's blocks, which the web app passes to
@@ -318,6 +320,15 @@ impl<T: ReadTxn> Attrs<'_, T> {
         }
     }
 
+    /// A string that has no default: `None` when it is unset or `undefined`.
+    fn optional_string(&self, name: &'static str) -> Result<Option<String>, ReadError> {
+        match self.get(name) {
+            None => Ok(None),
+            Some(Any::String(value)) => Ok(Some(value.to_string())),
+            Some(_) => Err(self.invalid(name)),
+        }
+    }
+
     fn color(&self, name: &'static str) -> Result<String, ReadError> {
         self.string(name, DEFAULT_COLOR)
     }
@@ -478,13 +489,19 @@ fn read_kind<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<BlockKind, 
                 caption: attrs.string("caption", "")?,
             },
         },
+        "database" => BlockKind::Database {
+            props: DatabaseProps {
+                database_id: attrs.string("databaseId", "")?,
+                view_id: attrs.optional_string("viewId")?,
+            },
+        },
         _ => return Err(ReadError::UnknownBlock(name.to_owned())),
     })
 }
 
 /// The block type's name, if it is one of the schema's.
 fn static_name(name: &str) -> Option<&'static str> {
-    const NAMES: [&str; 14] = [
+    const NAMES: [&str; 15] = [
         "paragraph",
         "heading",
         "bulletListItem",
@@ -499,6 +516,7 @@ fn static_name(name: &str) -> Option<&'static str> {
         "video",
         "audio",
         "file",
+        "database",
     ];
     NAMES.into_iter().find(|known| *known == name)
 }
@@ -744,6 +762,10 @@ impl Writer<'_, '_> {
         self.set(name, value.map_or(Any::Undefined, number));
     }
 
+    fn optional_string(&mut self, name: &str, value: Option<&str>) {
+        self.set(name, value.map_or(Any::Undefined, Any::from));
+    }
+
     fn text(&mut self, props: &TextProps) {
         self.set("backgroundColor", props.background_color.as_str());
         self.set("textColor", props.text_color.as_str());
@@ -834,6 +856,10 @@ fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKin
             attrs.set("name", props.name.as_str());
             attrs.set("url", props.url.as_str());
             attrs.set("caption", props.caption.as_str());
+        }
+        BlockKind::Database { props } => {
+            attrs.set("databaseId", props.database_id.as_str());
+            attrs.optional_string("viewId", props.view_id.as_deref());
         }
     }
 }
@@ -1161,6 +1187,42 @@ mod tests {
         assert_eq!(
             read_doc(&doc),
             Err(ReadError::UnknownBlock("callout".into()))
+        );
+    }
+
+    #[test]
+    fn a_database_block_holds_its_ids_in_attributes() {
+        let database = |view_id: Option<&str>| {
+            Block::new(BlockKind::Database {
+                props: DatabaseProps {
+                    database_id: "0193a5b2-0000-7000-8000-0000000000d1".into(),
+                    view_id: view_id.map(str::to_owned),
+                },
+            })
+            .with_id("d")
+        };
+        for document in [
+            Document::new(vec![database(Some("0193a5b2-0000-7000-8000-0000000000e1"))]),
+            Document::new(vec![database(None)]),
+        ] {
+            assert_eq!(round_trip(&document), document);
+        }
+
+        let doc = Doc::with_client_id(1);
+        let fragment = fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            let group = fragment.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_GROUP));
+            let container = group.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_CONTAINER));
+            let element = container.push_back(&mut txn, XmlElementPrelim::empty("database"));
+            element.insert_attribute(&mut txn, "viewId", Any::Number(Number::Int(7)));
+        }
+        assert_eq!(
+            read_doc(&doc),
+            Err(ReadError::InvalidAttribute {
+                node: "database",
+                attribute: "viewId",
+            })
         );
     }
 

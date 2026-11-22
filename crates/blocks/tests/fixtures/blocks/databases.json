@@ -1,0 +1,24 @@
+[
+  { "type": "paragraph", "content": "A database in a page, in one of its views:" },
+  {
+    "type": "database",
+    "props": {
+      "databaseId": "0193a5b2-0000-7000-8000-0000000000d1",
+      "viewId": "0193a5b2-0000-7000-8000-0000000000e1"
+    }
+  },
+  {
+    "type": "database",
+    "props": { "databaseId": "0193a5b2-0000-7000-8000-0000000000d2" },
+    "children": [{ "type": "paragraph", "content": "A child of a database block." }]
+  },
+  { "type": "database", "props": {} },
+  {
+    "type": "bulletListItem",
+    "content": "A list item that holds one",
+    "children": [
+      { "type": "database", "props": { "databaseId": "0193a5b2-0000-7000-8000-0000000000d3" } }
+    ]
+  },
+  { "type": "database", "props": { "databaseId": "not a UUID: 50% & more", "viewId": "" } }
+]

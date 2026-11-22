@@ -20,6 +20,7 @@
 //! | table | a pipe table; its first row is the header, and a column whose cells share a centre or right alignment gets it |
 //! | image | `![name](url "caption")` on a line of its own |
 //! | video, audio, file | `:::video [name](url "caption")`, `:::audio ...`, `:::file ...` |
+//! | database | `:::database <databaseId>`, or `:::database <databaseId> view=<viewId>` |
 //! | bold, italic, strikethrough | `**bold**`, `*italic*`, `~~strike~~`; `<strong>`, `<em>` and `<del>` where the delimiters would not parse |
 //! | underline | `<u>underline</u>` |
 //! | inline code | `` `code` `` |
@@ -43,6 +44,8 @@
 //! :::
 //!
 //! :::video [demo.mp4](https://example.com/demo.mp4 "A caption")
+//!
+//! :::database 0193a5b2-0000-7000-8000-0000000000d1 view=0193a5b2-0000-7000-8000-0000000000e1
 //! ```
 //!
 //! `:::toggle` takes the rest of its line as the title, read as markdown: a heading there
@@ -50,8 +53,12 @@
 //! follow, until a line of colons alone closes the toggle; the end of the list item, quote
 //! or document it is in closes it too. `:::video`, `:::audio` and `:::file` take a link on
 //! the rest of their line: its text is the file's name, its target the file's URL and its
-//! title the caption. A line of colons that closes nothing is text, as is a line that
-//! starts with an escaped colon, `\:::`.
+//! title the caption. `:::database` takes the id of the database the block shows, then
+//! `view=` and the id of the view it shows it in, each left out when the block has none; an
+//! id is percent-encoded where it holds anything but ASCII letters, digits, `-`, `_`, `.` and
+//! `~`, so a UUID is written as it is, and any other word on the line makes it text. A line
+//! of colons that closes nothing is text, as is a line that starts with an escaped colon,
+//! `\:::`.
 //!
 //! # What markdown loses
 //!

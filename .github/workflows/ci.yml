@@ -94,6 +94,8 @@ jobs:
               - *shared
               - crates/blocks/**
               - tools/blocknote-fixtures/**
+              # The configs of the editor's own blocks, which the fixtures tool imports.
+              - web/src/components/editor/custom-blocks.ts
               - scripts/**
               - Cargo.toml
               - Cargo.lock

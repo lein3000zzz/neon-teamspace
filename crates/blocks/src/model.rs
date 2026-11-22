@@ -96,7 +96,7 @@ impl Block {
 }
 
 /// A block's type, with the props and the content of that type. The variants are
-/// BlockNote's default block types.
+/// BlockNote's default block types, and the app's own: a database.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BlockKind {
@@ -175,6 +175,11 @@ pub enum BlockKind {
         #[serde(default)]
         props: FileProps,
     },
+    /// A database shown in the page. Not one of BlockNote's: the web app's editor adds it.
+    Database {
+        #[serde(default)]
+        props: DatabaseProps,
+    },
 }
 
 impl BlockKind {
@@ -195,6 +200,7 @@ impl BlockKind {
             Self::Video { .. } => "video",
             Self::Audio { .. } => "audio",
             Self::File { .. } => "file",
+            Self::Database { .. } => "database",
         }
     }
 
@@ -452,6 +458,17 @@ impl Default for FileProps {
             caption: String::new(),
         }
     }
+}
+
+/// The props of a database block: the database it shows, and the view it shows it in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DatabaseProps {
+    /// The database's id; empty for a block not given one yet.
+    pub database_id: String,
+    /// The id of one of the database's views, when the block names one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_id: Option<String>,
 }
 
 /// A run of inline content: styled text, or a link around styled text.
