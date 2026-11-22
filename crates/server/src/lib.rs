@@ -4,6 +4,7 @@
 pub mod cli;
 pub mod config;
 mod gauges;
+pub mod health;
 pub mod http;
 pub mod runtime;
 mod telemetry;

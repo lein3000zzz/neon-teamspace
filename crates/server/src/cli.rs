@@ -7,6 +7,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use neon_app::settings::registry;
 
+use crate::health::{self, Probe};
 use crate::{config, http, runtime};
 
 #[derive(Debug, Parser)]
@@ -38,6 +39,14 @@ enum Command {
     /// The configuration from the config file and the environment.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Ask the admin listener whether the server is ready, for container health checks.
+    /// Prints nothing and exits 0 when it is; else prints why and exits 1.
+    Health {
+        /// Ask /livez, whether the process is up, instead of /readyz, whether it takes
+        /// traffic.
+        #[arg(long)]
+        live: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -56,7 +65,7 @@ enum ConfigCommand {
 /// which logs to stdout. `main` prints a returned error to stderr, which is the only
 /// place an invalid configuration is reported, as telemetry is not up yet. The other
 /// commands print their output to stdout and install no telemetry, so nothing else is
-/// written there.
+/// written there. `health` prints nothing unless it fails, and then only to stderr.
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command.unwrap_or(Command::Serve) {
         Command::Serve => runtime::serve(config::load(&registry())?).await,
@@ -69,6 +78,11 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             let registry = registry();
             let loaded = config::load(&registry)?;
             print(&loaded.render(&registry)?)
+        }
+        Command::Health { live } => {
+            let loaded = config::load(&registry())?;
+            let probe = if live { Probe::Live } else { Probe::Ready };
+            health::check(&loaded.config.observability.admin, probe).await
         }
     }
 }
@@ -98,6 +112,18 @@ mod tests {
         let cli = Cli::try_parse_from(["neon"]).expect("parses");
 
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn health_asks_for_readiness_unless_told_live() {
+        let ready = Cli::try_parse_from(["neon", "health"]).expect("parses");
+        let live = Cli::try_parse_from(["neon", "health", "--live"]).expect("parses");
+
+        assert!(matches!(
+            ready.command,
+            Some(Command::Health { live: false })
+        ));
+        assert!(matches!(live.command, Some(Command::Health { live: true })));
     }
 
     #[test]
