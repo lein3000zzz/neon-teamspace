@@ -48,7 +48,7 @@ Everything in the workspace goes with it: members, teamspaces, invitations and l
 | Owner | Everything, the workspace itself included: change anyone's role, make owners, transfer ownership, delete the workspace. |
 | Admin | Manage members and guests, invitations, invite links and teamspaces, a private one once they join it. Never change or remove an owner, nor make one. |
 | Member | Use the workspace and its teamspaces, and create teamspaces unless the workspace's `members_can_create_teamspaces` is off. |
-| Guest | See only the pages shared with them, once pages exist. A guest is in no teamspace, and sees no member but themselves. |
+| Guest | See only the pages shared with them; see [Pages](/docs/guides/pages/). A guest is in no teamspace, and sees no member but themselves. |
 
 A workspace always keeps at least one owner. Demoting, removing or leaving as its last owner
 answers `last_owner`. Every change to a workspace's members locks the workspace's row

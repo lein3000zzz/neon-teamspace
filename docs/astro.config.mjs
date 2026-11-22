@@ -98,6 +98,7 @@ export default defineConfig({
             'guides/accounts',
             'guides/workspaces',
             'guides/workspace-rules',
+            'guides/pages',
           ],
         },
         {

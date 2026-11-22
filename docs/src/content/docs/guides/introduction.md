@@ -53,6 +53,8 @@ the features build on:
   and hues, through the API and the web app's switcher, workspace settings and the instance
   admins' list; see [Workspaces and teamspaces](/docs/guides/workspaces/), [Workspace rules
   and API](/docs/guides/workspace-rules/) and [Permissions](/docs/reference/permissions/).
+- Pages, without their content yet, through the API: nesting, private pages, sharing with
+  members and guests, moving, the trash and favorites; see [Pages](/docs/guides/pages/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -64,7 +66,7 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
+1. The real-time editor for pages, and markdown import and export.
 2. Databases with table, board and list views.
 3. Comments, mentions and an inbox, page history, search and attachments.
 4. Agents over MCP, and webhooks in and out.

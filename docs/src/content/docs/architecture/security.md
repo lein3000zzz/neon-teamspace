@@ -212,4 +212,6 @@ Once an hour, the server removes expired sessions, mailed links used or expired 
 before, accounts left unverified for 7 days, invites that expired or were revoked 30 days
 before, requests to join decided 30 days before, and unconfirmed requests a day after their
 link stopped working. It also removes workspace invitations answered, revoked or expired 30
-days before, and invite links that expired or were revoked 30 days before.
+days before, invite links that expired or were revoked 30 days before, and pages that have
+been in the trash for `pages.trash_retention`, 30 days unless set, with the pages under
+them.
