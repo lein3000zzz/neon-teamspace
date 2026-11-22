@@ -28,6 +28,9 @@ that has one:
 A setting set by its environment variable or in the config file is pinned: the admin page
 shows it but cannot change it.
 
+Secret settings, and those that say where a secret goes, such as the mail server, are marked
+*browser session only*: an admin changes them signed in at a browser, never with an API token.
+
 | Key | Type | Default | Environment variable | Description |
 |---|---|---|---|---|
 ";
@@ -40,10 +43,15 @@ impl Registry {
         let mut out = String::from(PAGE_HEAD);
 
         for def in self.definitions() {
+            let only = if def.is_browser_only() {
+                " *Browser session only.*"
+            } else {
+                ""
+            };
             // Writing to a String cannot fail.
             let _ = writeln!(
                 out,
-                "| `{}` | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | `{}` | {}{only} |",
                 def.key(),
                 kind_label(def.kind()),
                 default_label(def.default_value()),
@@ -121,7 +129,7 @@ mod tests {
                 "| `auth.registration` | enum: open, invite, closed | `invite` | `NEON_SETTINGS__AUTH__REGISTRATION` | Who may sign up. |",
                 "| `auth.session_idle` | duration | `7d` | `NEON_SETTINGS__AUTH__SESSION_IDLE` | Idle sign-out. |",
                 "| `instance.name` | string | `Neon Workspace` | `NEON_SETTINGS__INSTANCE__NAME` | The name \\| shown. |",
-                "| `mail.password` | secret | empty | `NEON_SETTINGS__MAIL__PASSWORD` | The password. |",
+                "| `mail.password` | secret | empty | `NEON_SETTINGS__MAIL__PASSWORD` | The password. *Browser session only.* |",
             ]
         );
     }

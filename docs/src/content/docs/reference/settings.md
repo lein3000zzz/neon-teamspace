@@ -20,6 +20,9 @@ that has one:
 A setting set by its environment variable or in the config file is pinned: the admin page
 shows it but cannot change it.
 
+Secret settings, and those that say where a secret goes, such as the mail server, are marked
+*browser session only*: an admin changes them signed in at a browser, never with an API token.
+
 | Key | Type | Default | Environment variable | Description |
 |---|---|---|---|---|
 | `auth.invite_email` | bool | `true` | `NEON_SETTINGS__AUTH__INVITE_EMAIL` | Admins can mail an invite to an address, naming themselves; only that address signs up with it, once, and counts as verified. Works while mail is set up. |
