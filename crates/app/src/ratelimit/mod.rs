@@ -59,7 +59,7 @@ pub enum Bucket {
     /// Inviting into a workspace by address, by inviter: each answer says whether the
     /// address has an account, so probing for addresses is slow.
     WorkspaceInvite,
-    /// Joining a workspace by invite link, by user.
+    /// Looking at an invite link, and joining a workspace by one, by user.
     WorkspaceLinkJoin,
 }
 

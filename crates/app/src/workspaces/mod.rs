@@ -49,7 +49,7 @@ pub use invitations::{ReceivedInvitation, SentInvitation};
 pub use lifecycle::{
     DEFAULT_TEAMSPACE_NAME, Joined, NewWorkspace, WorkspaceDetails, WorkspaceUpdate,
 };
-pub use links::{CreatedLink, LinkSpec};
+pub use links::{CreatedLink, LinkPreview, LinkSpec};
 pub use teamspaces::{NewTeamspace, TeamspaceEntry, TeamspaceList, TeamspaceUpdate};
 
 /// RED subsystem of the workspace use cases.

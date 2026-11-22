@@ -407,6 +407,34 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
     )
     .await;
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
+    let previewed = eve
+        .post(
+            "/api/v1/workspace-invite-links/preview",
+            json!({"token": token}),
+        )
+        .await;
+    assert_eq!(previewed.status, StatusCode::OK, "{}", previewed.body);
+    assert_eq!(previewed.body["workspace"]["id"], t.workspace);
+    assert_eq!(previewed.body["workspace"]["name"], "Design");
+    assert_eq!(previewed.body["role"], "guest");
+    assert_eq!(previewed.body["member_role"], Value::Null);
+    let insider =
+        t.cy.post(
+            "/api/v1/workspace-invite-links/preview",
+            json!({"token": token}),
+        )
+        .await;
+    assert_eq!(insider.body["member_role"], "member");
+    let unknown = eve
+        .post(
+            "/api/v1/workspace-invite-links/preview",
+            json!({"token": "wsl_nothing"}),
+        )
+        .await;
+    assert_eq!(
+        (unknown.status, unknown.code()),
+        (StatusCode::BAD_REQUEST, "invalid_invite_link")
+    );
     let joined = eve
         .post(
             "/api/v1/workspace-invite-links/join",
@@ -454,6 +482,14 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
         (after.status, after.code()),
         (StatusCode::BAD_REQUEST, "invalid_invite_link")
     );
+    let previewed_after = t
+        .dee
+        .post(
+            "/api/v1/workspace-invite-links/preview",
+            json!({"token": token}),
+        )
+        .await;
+    assert_eq!(previewed_after.code(), "invalid_invite_link");
     let admin_role = t.ada.post(&links, json!({"role": "admin"})).await;
     assert_eq!(admin_role.status, StatusCode::FORBIDDEN);
 }

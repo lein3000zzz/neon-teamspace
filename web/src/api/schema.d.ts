@@ -783,6 +783,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace-invite-links/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look at an invite link before joining
+         * @description The workspace an invite link admits to and the role it admits with, without using it, for the page that asks before joining. Needs a signed-in account. It takes from the allowance that joining takes from.
+         */
+        post: operations["preview_invite_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces": {
         parameters: {
             query?: never;
@@ -1503,6 +1523,15 @@ export interface components {
         InviteLinkList: {
             /** @description Newest first. */
             links: components["schemas"]["InviteLink"][];
+        };
+        /** @description What an invite link admits to, for the signed-in account about to use it. */
+        InviteLinkPreview: {
+            /** Format: date-time */
+            expires_at: string;
+            member_role?: components["schemas"]["WorkspaceRole"] | null;
+            /** @description What it admits as: member or guest. */
+            role: components["schemas"]["WorkspaceRole"];
+            workspace: components["schemas"]["InvitingWorkspace"];
         };
         /** @description An invite link's token, to copy again. */
         InviteLinkToken: {
@@ -4695,6 +4724,75 @@ export interface operations {
             };
             /** @description already_member, or member_limit. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preview_invite_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
+        responses: {
+            /** @description What the link admits to. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteLinkPreview"];
+                };
+            };
+            /** @description invalid_invite_link: unknown, used up, expired or revoked. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

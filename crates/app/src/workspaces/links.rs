@@ -4,8 +4,8 @@
 use neon_domain::auth::Principal;
 use neon_domain::settings::Secret;
 use neon_domain::workspaces::{
-    Action, InviteLink, LINK_TOKEN_PREFIX, MAX_LINK_TOKEN_INPUT, WorkspaceRole, check_link_expiry,
-    check_link_uses,
+    Action, InviteLink, LINK_TOKEN_PREFIX, MAX_LINK_TOKEN_INPUT, Workspace, WorkspaceRole,
+    check_link_expiry, check_link_uses,
 };
 use neon_store::{workspace_invites as repo, workspaces};
 use time::OffsetDateTime;
@@ -33,6 +33,17 @@ pub struct LinkSpec {
 pub struct CreatedLink {
     pub link: InviteLink,
     pub token: Secret,
+}
+
+/// What an invite link admits to, shown to the signed-in account about to use it.
+#[derive(Debug, Clone)]
+pub struct LinkPreview {
+    pub workspace: Workspace,
+    /// The role it admits with.
+    pub role: WorkspaceRole,
+    pub expires_at: OffsetDateTime,
+    /// The caller's role in the workspace, when they are in it already.
+    pub member: Option<WorkspaceRole>,
 }
 
 impl WorkspaceService {
@@ -199,6 +210,35 @@ impl WorkspaceService {
         .await
     }
 
+    /// What an invite link that still admits people admits to, without using it: the
+    /// workspace and the role, and whether the caller is in the workspace already. It
+    /// takes from the allowance that joining takes from, so tokens are tried no faster
+    /// this way.
+    pub async fn preview_link(
+        &self,
+        principal: &Principal,
+        token: &Secret,
+    ) -> Result<LinkPreview, WorkspaceError> {
+        self.observe("preview_link", async {
+            let user = principal.user.id;
+            self.limit(Bucket::WorkspaceLinkJoin, &user.to_string())
+                .await?;
+            let link = self.open_link(token).await?;
+            let mut conn = self.pool().acquire().await?;
+            let workspace = workspaces::get(&mut *conn, link.workspace_id)
+                .await?
+                .ok_or(WorkspaceError::InvalidInviteLink)?;
+            let member = workspaces::member_role(&mut *conn, workspace.id, user).await?;
+            Ok(LinkPreview {
+                workspace,
+                role: link.role,
+                expires_at: link.expires_at,
+                member,
+            })
+        })
+        .await
+    }
+
     /// Joins the workspace of an invite link with its role: using the link is accepting
     /// it. The use is taken in the transaction that adds the member, so people racing for
     /// its last use cannot both have it. Someone in the workspace already takes no use.
@@ -211,14 +251,8 @@ impl WorkspaceService {
             let user = principal.user.id;
             self.limit(Bucket::WorkspaceLinkJoin, &user.to_string())
                 .await?;
-            let token = token.expose().trim();
-            if token.is_empty() || token.len() > MAX_LINK_TOKEN_INPUT {
-                return Err(WorkspaceError::InvalidInviteLink);
-            }
+            let link = self.open_link(token).await?;
             let now = self.now();
-            let link = repo::open_link(self.pool(), &hash_secret(token), now)
-                .await?
-                .ok_or(WorkspaceError::InvalidInviteLink)?;
             let mut tx = self.pool().begin().await?;
             let workspace = workspaces::lock(&mut *tx, link.workspace_id)
                 .await?
@@ -249,6 +283,19 @@ impl WorkspaceService {
             })
         })
         .await
+    }
+}
+
+impl WorkspaceService {
+    /// The link of a token, while it still admits people.
+    async fn open_link(&self, token: &Secret) -> Result<InviteLink, WorkspaceError> {
+        let token = token.expose().trim();
+        if token.is_empty() || token.len() > MAX_LINK_TOKEN_INPUT {
+            return Err(WorkspaceError::InvalidInviteLink);
+        }
+        repo::open_link(self.pool(), &hash_secret(token), self.now())
+            .await?
+            .ok_or(WorkspaceError::InvalidInviteLink)
     }
 }
 

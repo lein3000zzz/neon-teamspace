@@ -125,6 +125,7 @@ fn api() -> OpenApiRouter<AppState> {
         ))
         .routes(routes!(workspaces::invite_link_token))
         .routes(routes!(workspaces::revoke_invite_link))
+        .routes(routes!(workspaces::preview_invite_link))
         .routes(routes!(workspaces::join_with_link))
         .routes(routes!(
             teamspaces::list_teamspaces,

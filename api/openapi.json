@@ -3270,6 +3270,96 @@
         ]
       }
     },
+    "/api/v1/workspace-invite-links/preview": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Look at an invite link before joining",
+        "description": "The workspace an invite link admits to and the role it admits with, without using it, for the page that asks before joining. Needs a signed-in account. It takes from the allowance that joining takes from.",
+        "operationId": "preview_invite_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the link admits to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLinkPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_invite_link: unknown, used up, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspaces": {
       "get": {
         "tags": [
@@ -6723,6 +6813,39 @@
               "$ref": "#/components/schemas/InviteLink"
             },
             "description": "Newest first."
+          }
+        }
+      },
+      "InviteLinkPreview": {
+        "type": "object",
+        "description": "What an invite link admits to, for the signed-in account about to use it.",
+        "required": [
+          "workspace",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "member_role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceRole",
+                "description": "The caller's role in the workspace when they are in it already, so joining would\nanswer `already_member`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What it admits as: member or guest."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/InvitingWorkspace"
           }
         }
       },

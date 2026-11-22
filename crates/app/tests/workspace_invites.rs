@@ -475,6 +475,50 @@ async fn joining_by_link_takes_a_use_and_its_role(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn previewing_a_link_names_its_workspace_and_takes_no_use(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let bob = h.person("bob@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    let created = h
+        .workspaces
+        .create_invite_link(&ada, id, link(WorkspaceRole::Guest))
+        .await
+        .expect("created");
+
+    let preview = h
+        .workspaces
+        .preview_link(&bob, &created.token)
+        .await
+        .expect("previewed");
+    assert_eq!(preview.workspace.id, id);
+    assert_eq!(preview.workspace.name, "Design");
+    assert_eq!(preview.role, WorkspaceRole::Guest);
+    assert_eq!(preview.expires_at, created.link.expires_at);
+    assert_eq!(preview.member, None);
+    let own = h
+        .workspaces
+        .preview_link(&ada, &created.token)
+        .await
+        .expect("previewed");
+    assert_eq!(own.member, Some(WorkspaceRole::Owner));
+    let links = h.workspaces.invite_links(&ada, id).await.expect("listed");
+    assert_eq!(links[0].uses, 0, "a preview takes no use");
+
+    h.workspaces
+        .revoke_invite_link(&ada, id, created.link.id)
+        .await
+        .expect("revoked");
+    for token in [created.token, Secret::new(""), Secret::new("wsl_nothing")] {
+        let refused = h.workspaces.preview_link(&bob, &token).await;
+        assert!(
+            matches!(refused, Err(WorkspaceError::InvalidInviteLink)),
+            "{refused:?}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_link_used_up_expired_or_revoked_admits_nobody(pool: PgPool) {
     let h = Harness::new(pool).await;
     let ada = h.person("ada@example.com").await;

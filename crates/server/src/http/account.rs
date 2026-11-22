@@ -139,6 +139,18 @@ pub struct InvitingWorkspace {
     pub hue: u16,
 }
 
+impl InvitingWorkspace {
+    pub(super) fn new(workspace: &neon_domain::workspaces::Workspace) -> Self {
+        Self {
+            id: workspace.id,
+            name: workspace.name.clone(),
+            slug: workspace.slug.clone(),
+            icon: workspace.icon.clone(),
+            hue: workspace.hue(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ReceivedInvitationList {
     /// Newest first.
@@ -170,13 +182,7 @@ pub(super) async fn list_my_invitations(
             .into_iter()
             .map(|entry| ReceivedInvitation {
                 id: entry.invitation.id,
-                workspace: InvitingWorkspace {
-                    hue: entry.workspace.hue(),
-                    id: entry.workspace.id,
-                    name: entry.workspace.name,
-                    slug: entry.workspace.slug,
-                    icon: entry.workspace.icon,
-                },
+                workspace: InvitingWorkspace::new(&entry.workspace),
                 role: entry.invitation.role.into(),
                 invited_by: entry.invited_by.map(Person::from),
                 created_at: entry.invitation.created_at,

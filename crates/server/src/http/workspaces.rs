@@ -8,8 +8,8 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::workspaces::{
-    Joined, LinkSpec, NewWorkspace, SentInvitation as AppSentInvitation, WorkspaceDetails,
-    WorkspaceUpdate,
+    Joined, LinkPreview, LinkSpec, NewWorkspace, SentInvitation as AppSentInvitation,
+    WorkspaceDetails, WorkspaceUpdate,
 };
 use neon_domain::settings::Secret;
 use neon_domain::workspaces::{self as domain};
@@ -19,6 +19,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::AppState;
+use super::account::InvitingWorkspace;
 use super::dto::{InviteStatus, Person, TokenRequest, WorkspaceRole, nullable};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
@@ -883,6 +884,61 @@ pub(super) async fn revoke_invite_link(
         .revoke_invite_link(&principal, id, link_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// What an invite link admits to, for the signed-in account about to use it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct InviteLinkPreview {
+    pub workspace: InvitingWorkspace,
+    /// What it admits as: member or guest.
+    pub role: WorkspaceRole,
+    #[serde(with = "time::serde::rfc3339")]
+    pub expires_at: OffsetDateTime,
+    /// The caller's role in the workspace when they are in it already, so joining would
+    /// answer `already_member`.
+    pub member_role: Option<WorkspaceRole>,
+}
+
+impl From<LinkPreview> for InviteLinkPreview {
+    fn from(preview: LinkPreview) -> Self {
+        Self {
+            workspace: InvitingWorkspace::new(&preview.workspace),
+            role: preview.role.into(),
+            expires_at: preview.expires_at,
+            member_role: preview.member.map(Into::into),
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspace-invite-links/preview",
+    tag = "workspaces",
+    summary = "Look at an invite link before joining",
+    description = "The workspace an invite link admits to and the role it admits with, without \
+                   using it, for the page that asks before joining. Needs a signed-in account. \
+                   It takes from the allowance that joining takes from.",
+    request_body = TokenRequest,
+    responses(
+        (status = OK, description = "What the link admits to.", body = InviteLinkPreview),
+        (status = BAD_REQUEST, description = "invalid_invite_link: unknown, used up, expired or revoked.", body = ErrorBody),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn preview_invite_link(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Json(body): Json<TokenRequest>,
+) -> Result<Json<InviteLinkPreview>, ApiError> {
+    let preview = state
+        .workspaces
+        .preview_link(&principal, &Secret::new(body.token))
+        .await?;
+    Ok(Json(preview.into()))
 }
 
 #[utoipa::path(

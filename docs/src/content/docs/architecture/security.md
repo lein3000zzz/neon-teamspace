@@ -122,7 +122,7 @@ attempts, then one more every 30 seconds:
 | `invite:ip:` | Looking invite codes up. |
 | `password:user:` | Password changes, by user. |
 | `workspace-invite:user:` | Invitations into workspaces by address, by inviter. |
-| `workspace-link:user:` | Joining workspaces by invite link, by user. |
+| `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger

@@ -96,11 +96,15 @@ database keeps its SHA-256 and, with `secrets.keys` set, a sealed copy, so owner
 copy it again from `GET /api/v1/workspaces/{id}/invite-links/{link_id}/token`. Without a
 key, the token shows once. Lists never carry tokens.
 
-Joining is `POST /api/v1/workspace-invite-links/join` with the token, signed in: using the
+Before joining, `POST /api/v1/workspace-invite-links/preview` with the token, signed in,
+answers the workspace the link admits to, by name, icon and hue, the role it admits with, its
+end, and the caller's role there when they are in it already; it takes no use. Joining is
+`POST /api/v1/workspace-invite-links/join` with the token, signed in: using the
 link is accepting it. The use is taken in the transaction that adds the member, so two
 people racing for a link's last use cannot both have it, and someone in the workspace
 already takes no use and gets `already_member`. A link used up, expired or revoked answers
-`invalid_invite_link`. Revoking one with `.../invite-links/{link_id}/revoke` stops it at
+`invalid_invite_link`, to a preview too. Previews and joins share one allowance per account,
+10 and then one every 30 seconds, past which they answer `429 rate_limited`. Revoking one with `.../invite-links/{link_id}/revoke` stops it at
 once; it stays listed with its uses.
 
 Thirty days after an invitation was answered, revoked or expired, or a link expired or was
