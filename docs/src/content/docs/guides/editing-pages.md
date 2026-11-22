@@ -117,7 +117,7 @@ the connection's state.
 | **Connecting** | The page's content is on its way. Nothing can be typed until it arrived, so the first keystrokes never land in an empty copy. |
 | **Connected** | In sync: what you type is saved, and others see it at once. |
 | **Read-only** | In sync, and you can view the page but not change it. Others' changes still show as they make them. |
-| **Reconnecting** | The connection dropped, or the server asked the browser to slow down because it fell behind or sent too much, and it is tried again, after a pause in the second case. Changes made meanwhile are kept in the browser and sent once it is back. |
+| **Reconnecting** | The connection dropped, or the server asked the browser to slow down because it fell behind or sent too much, and it is tried again, after a pause in the second case. Changes made meanwhile are kept in the browser and sent once it is back; closing the tab before then loses them. |
 | **Disconnected** | The server ended the connection for a reason trying again would not cure. The editor stops taking input, a notice says why, and the app reads the page again. **Reconnect** opens the page afresh, from what the server saved. |
 
 When your access changes while the page is open, the editor follows at once, without
