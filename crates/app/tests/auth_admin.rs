@@ -92,6 +92,113 @@ async fn two_admins_demoting_each_other_at_once_leave_one(pool: PgPool) {
     assert_eq!(admins, 1);
 }
 
+/// Bob's principal is read as his request begins, so it may predate the admin's change.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_rename_that_began_before_a_disable_keeps_it(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (stale, _) = h.sign_in("bob@example.com").await;
+
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("disables");
+    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+
+    assert_eq!(renamed.display_name, "Bob");
+    assert!(
+        renamed.is_disabled(),
+        "the answer shows the account as it is"
+    );
+    let disabled: bool = h
+        .scalar("SELECT disabled_at IS NOT NULL FROM users WHERE email = 'bob@example.com'")
+        .await;
+    assert!(disabled);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_rename_that_began_before_a_promotion_cannot_leave_no_admin(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (stale, _) = h.sign_in("bob@example.com").await;
+
+    // The only admin makes Bob one, then steps down, which leaves Bob.
+    h.auth
+        .update_user(
+            &admin,
+            bob.id,
+            UserUpdate {
+                role: Some(Role::Admin),
+                ..UserUpdate::default()
+            },
+        )
+        .await
+        .expect("promotes");
+    h.auth
+        .update_user(&admin, admin.user.id, demote())
+        .await
+        .expect("steps down");
+    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+
+    assert_eq!(renamed.role, Role::Admin);
+    let admins: i64 = h
+        .scalar("SELECT count(*) FROM users WHERE role = 'admin' AND disabled_at IS NULL")
+        .await;
+    assert_eq!(admins, 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn renaming_in_a_loop_with_a_token_does_not_undo_a_disable(pool: PgPool) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (session, _) = h.sign_in("bob@example.com").await;
+    let (token, _) = h
+        .auth
+        .create_api_token(&session, "loop", None, &["read", "write"])
+        .await
+        .expect("a token");
+    let token = token.expose().to_owned();
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let loops: Vec<_> = (0..8)
+        .map(|_| {
+            let auth = h.auth.clone();
+            let token = token.clone();
+            let stop = Arc::clone(&stop);
+            tokio::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    if let Ok(principal) = auth.authenticate_token(&token).await {
+                        // Whether each rename went through does not matter, only the disable.
+                        let _ = auth.update_profile(&principal, "Bob").await;
+                    }
+                }
+            })
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("disables");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    stop.store(true, Ordering::Relaxed);
+    for task in loops {
+        task.await.expect("the loop ends");
+    }
+
+    let disabled: bool = h
+        .scalar("SELECT disabled_at IS NOT NULL FROM users WHERE email = 'bob@example.com'")
+        .await;
+    assert!(disabled);
+    assert!(h.auth.authenticate_token(&token).await.is_err());
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn disabling_signs_out_everywhere_and_verifying_is_one_way(pool: PgPool) {
     let h = Harness::new(pool).await;

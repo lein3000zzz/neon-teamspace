@@ -262,19 +262,20 @@ impl AuthService {
         self.queue(conn, &mail).await
     }
 
-    /// Renames the principal's account.
+    /// Renames the principal's account, and returns it as it is now. Only the name is
+    /// written: the principal was read as the request began, and its role and disable may
+    /// have changed since.
     pub async fn update_profile(
         &self,
         principal: &Principal,
         name: &str,
     ) -> Result<User, AuthError> {
         self.observe("update_profile", async {
-            let mut user = principal.user.clone();
-            user.display_name =
-                display_name(Some(name), &user.email).map_err(AuthError::invalid)?;
-            user.updated_at = self.now();
-            users::update(self.pool(), &user).await?;
-            Ok(user)
+            let user = &principal.user;
+            let name = display_name(Some(name), &user.email).map_err(AuthError::invalid)?;
+            users::rename(self.pool(), user.id, &name, self.now())
+                .await?
+                .ok_or(AuthError::Unauthenticated)
         })
         .await
     }
