@@ -23,8 +23,8 @@ use uuid::Uuid;
 use super::events::{self, Event};
 use super::rows::check_size;
 use super::{
-    DatabaseError, DatabaseService, DatabaseView, NO_PROPERTY, Opened, fitted_views, key_for,
-    new_type, settings_type,
+    DatabaseError, DatabaseService, DatabaseView, NO_PROPERTY, Opened, key_for, new_type,
+    settings_type, shown_views,
 };
 use crate::pages::{Location, PageError, PageView, Target, actor, in_workspace, is_guest};
 
@@ -169,7 +169,12 @@ impl DatabaseService {
                 )
                 .await?;
             }
-            let views = fitted_views(&schema, repo::views(&mut *tx, page.id).await?);
+            let members_hidden = is_guest(actor(principal, role));
+            let views = shown_views(
+                &schema,
+                repo::views(&mut *tx, page.id).await?,
+                members_hidden,
+            );
             tx.commit().await?;
             info!(
                 user_id = %user,
@@ -182,7 +187,7 @@ impl DatabaseService {
                 page: PageView {
                     page,
                     access: PageAccess::Edit,
-                    members_hidden: is_guest(actor(principal, role)),
+                    members_hidden,
                 },
                 inline: new.inline,
                 properties: schema.properties,
@@ -192,7 +197,8 @@ impl DatabaseService {
         .await
     }
 
-    /// A database the caller sees: its page, its properties and its views.
+    /// A database the caller sees: its page, its properties and its views. A guest reads
+    /// the views without the people their settings name.
     pub async fn database(
         &self,
         principal: &Principal,
@@ -202,7 +208,11 @@ impl DatabaseService {
             let mut conn = self.pages().pool().acquire().await?;
             let opened = self.open(&mut conn, principal, id, false).await?;
             Self::check(&opened.context, Action::ViewPage)?;
-            let views = fitted_views(&opened.schema, repo::views(&mut *conn, id).await?);
+            let views = shown_views(
+                &opened.schema,
+                repo::views(&mut *conn, id).await?,
+                opened.context.members_hidden(),
+            );
             Ok(DatabaseView {
                 inline: opened.database.inline,
                 properties: opened.schema.properties,
@@ -252,9 +262,10 @@ impl DatabaseService {
     /// Changes a property's name, kind, settings or options, for those who edit the
     /// database. Another kind converts each row's value, as the domain's conversions say;
     /// a change that loses values needs `confirm`, and one that would make a row's values
-    /// larger than [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES) is refused.
-    /// Options left out are cleared from the rows. Views that no longer fit the schema leave
-    /// out what does not.
+    /// larger than [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES) is refused. A
+    /// guest, who knows no other member, does not change a person property's kind, whose
+    /// values would become people's names. Options left out are cleared from the rows.
+    /// Views that no longer fit the schema leave out what does not.
     pub async fn update_property(
         &self,
         principal: &Principal,
@@ -283,9 +294,20 @@ impl DatabaseService {
                         "change a property's type first, then its options".to_owned(),
                     ));
                 }
+                let names_people = current.kind().names_people() && current.kind().is_stored();
+                if names_people && spec.kind != current.kind() && opened.context.members_hidden() {
+                    return Err(DatabaseError::Forbidden(
+                        "guests know no other member: they do not change the type of a property \
+                         that names people",
+                    ));
+                }
                 let target = settings_type(spec)?;
                 let values = stored_values(&mut tx, database_id, &current).await?;
-                let names = member_names(&mut tx, opened.database.workspace_id).await?;
+                let names = if names_people {
+                    member_names(&mut tx, opened.database.workspace_id).await?
+                } else {
+                    HashMap::new()
+                };
                 let conversion = convert(&current, target, &values, &names, &mut Uuid::now_v7);
                 if conversion.lost > 0 && !change.confirm {
                     return Err(DatabaseError::LossyChange {

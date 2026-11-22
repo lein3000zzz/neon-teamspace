@@ -561,6 +561,42 @@ fn groups_combine_conditions() {
 }
 
 #[test]
+fn guests_read_filters_without_the_people_they_name() {
+    let schema = schema();
+    let resolve = |json: serde_json::Value| {
+        serde_json::from_value::<FilterSpec>(json)
+            .expect("a spec")
+            .resolve(&schema, Fit::Strict)
+            .expect("valid")
+            .expect("a filter")
+    };
+    let bea = id(BEA).to_string();
+    let filter = resolve(json!({"or": [
+        {"property": "Owner", "operator": "contains", "value": bea},
+        {"and": [
+            {"property": "Owner", "operator": "does_not_contain", "value": bea},
+            {"property": "Creator", "operator": "contains", "value": bea}
+        ]},
+        {"and": [
+            {"property": "Owner", "operator": "contains", "value": "me"},
+            {"property": "Owner", "operator": "is_not_empty"}
+        ]}
+    ]}));
+    let seen = filter.without_people().expect("conditions are left");
+    assert_eq!(
+        seen.to_spec(),
+        serde_json::from_value::<FilterSpec>(json!({"or": [{"and": [
+            {"property": id(PERSON).to_string(), "operator": "contains", "value": "me"},
+            {"property": id(PERSON).to_string(), "operator": "is_not_empty"}
+        ]}]}))
+        .expect("a spec")
+    );
+    assert!(!format!("{seen:?}").contains(&bea));
+    let only = resolve(json!({"property": "Owner", "operator": "contains", "value": bea}));
+    assert_eq!(only.without_people(), None);
+}
+
+#[test]
 fn filters_keep_to_their_bounds() {
     let schema = schema();
     let condition = || json!({"property": "Name", "operator": "is_empty"});

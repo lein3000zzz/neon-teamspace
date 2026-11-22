@@ -1918,6 +1918,14 @@ async fn refusals_count_as_ok_and_failures_as_errors(pool: PgPool) {
     assert_eq!(count(&snapshotter, "get_database", "error"), 1);
 }
 
+/// Gus, a guest, edits Tasks through a share.
+async fn shared_with_gus(t: &Team, access: PageAccess) {
+    t.h.pages
+        .share_page(&t.ada, t.db(), t.gus.user.id, access)
+        .await
+        .expect("shared");
+}
+
 async fn retype(
     t: &Team,
     by: &Principal,
@@ -1936,6 +1944,156 @@ async fn retype(
             },
         )
         .await
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn guests_do_not_change_the_type_of_a_property_that_names_people(pool: PgPool) {
+    let mut t = team(pool).await;
+    let owner = t.add("Owner", spec(PropertyKind::Person), None).await;
+    t.row(
+        &t.ada,
+        json!({"Name": "Fix login", "Owner": [t.dee.user.id.to_string()]}),
+    )
+    .await
+    .expect("a row");
+    shared_with_gus(&t, PageAccess::Edit).await;
+    // As text or options, the values would be the members' names.
+    for kind in [
+        PropertyKind::Text,
+        PropertyKind::Select,
+        PropertyKind::MultiSelect,
+        PropertyKind::Status,
+    ] {
+        assert_code(retype(&t, &t.gus, owner, kind).await, "forbidden");
+    }
+    let seen =
+        t.h.databases
+            .query(&t.gus, t.db(), QueryInput::default())
+            .await
+            .expect("queried");
+    assert_eq!(seen.rows[0].values.get(&owner.to_string()), None);
+    t.reload().await;
+    let kind = |t: &Team| {
+        t.tasks
+            .properties
+            .iter()
+            .find(|property| property.id == owner)
+            .map(|property| property.kind())
+    };
+    assert_eq!(kind(&t), Some(PropertyKind::Person));
+    // The guest may still rename it; a member may change its type, and its values become
+    // the names of those it named.
+    t.h.databases
+        .update_property(
+            &t.gus,
+            t.db(),
+            owner,
+            PropertyChange {
+                name: Some("Assignee".to_owned()),
+                ..PropertyChange::default()
+            },
+        )
+        .await
+        .expect("renamed");
+    retype(&t, &t.ada, owner, PropertyKind::Text)
+        .await
+        .expect("retyped");
+    let read =
+        t.h.databases
+            .query(&t.ada, t.db(), QueryInput::default())
+            .await
+            .expect("queried");
+    assert_eq!(
+        read.rows[0].values.get(&owner.to_string()),
+        Some(&json!("dee"))
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn guests_read_views_without_the_people_they_name(pool: PgPool) {
+    let mut t = team(pool).await;
+    t.add("Owner", spec(PropertyKind::Person), None).await;
+    let dee = t.dee.user.id.to_string();
+    let settings = ViewSpec {
+        filter: Some(FilterSpec::Or {
+            or: vec![
+                condition("Owner", Operator::Contains, json!(dee)),
+                condition("Owner", Operator::Contains, json!("me")),
+            ],
+        }),
+        group: Some(GroupingSpec {
+            property: "Owner".into(),
+            order: vec![Some(dee.clone()), None],
+            hidden: vec![Some(dee.clone())],
+        }),
+        ..ViewSpec::default()
+    };
+    let made =
+        t.h.databases
+            .create_view(
+                &t.ada,
+                t.db(),
+                NewView {
+                    name: "By owner".into(),
+                    layout: Layout::Board,
+                    settings,
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("a view");
+    let named = |view: &neon_domain::databases::View| {
+        format!("{:?}", view.settings.to_spec()).contains(&dee)
+    };
+    assert!(named(&made), "members read whom the view names");
+    shared_with_gus(&t, PageAccess::Edit).await;
+    let seen = t.h.databases.database(&t.gus, t.db()).await.expect("seen");
+    let view = seen
+        .views
+        .iter()
+        .find(|view| view.id == made.id)
+        .expect("the view");
+    assert!(!named(view), "{:?}", view.settings.to_spec());
+    let grouping = view.settings.grouping.as_ref().expect("still grouped");
+    assert_eq!(grouping.order, [None]);
+    assert!(grouping.hidden.is_empty());
+    assert_eq!(
+        view.settings
+            .filter
+            .as_ref()
+            .map(|filter| filter.conditions().len()),
+        Some(1)
+    );
+    // Nor do the answers to their own changes name anyone, which keep what they did not
+    // change.
+    let renamed =
+        t.h.databases
+            .update_view(
+                &t.gus,
+                t.db(),
+                made.id,
+                ViewChange {
+                    name: Some("Owners".into()),
+                    ..ViewChange::default()
+                },
+            )
+            .await
+            .expect("renamed");
+    assert!(!named(&renamed));
+    let copy =
+        t.h.databases
+            .duplicate_view(&t.gus, t.db(), made.id, None)
+            .await
+            .expect("copied");
+    assert!(!named(&copy));
+    t.reload().await;
+    let kept = t
+        .tasks
+        .views
+        .iter()
+        .find(|view| view.id == made.id)
+        .expect("the view");
+    assert!(named(kept), "the guest's rename kept the view's people");
 }
 
 /// How many bytes a row's cells take, as JSON text: how the bound on them counts.

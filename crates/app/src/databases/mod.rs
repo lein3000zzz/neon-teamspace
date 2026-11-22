@@ -263,6 +263,29 @@ pub(crate) fn fitted_views(schema: &Schema, stored: Vec<StoredView>) -> Vec<View
         .collect()
 }
 
+/// A database's views as the caller reads them: fitted to the schema as it is now, and for
+/// a guest, who knows no other member, without the people their settings name.
+pub(crate) fn shown_views(
+    schema: &Schema,
+    stored: Vec<StoredView>,
+    members_hidden: bool,
+) -> Vec<View> {
+    stored
+        .into_iter()
+        .map(|view| shown_view(schema, view, members_hidden))
+        .collect()
+}
+
+/// A view as the caller reads it: see [`shown_views`].
+pub(crate) fn shown_view(schema: &Schema, view: StoredView, members_hidden: bool) -> View {
+    let view = fitted_view(schema, view);
+    if members_hidden {
+        view.without_people(schema)
+    } else {
+        view
+    }
+}
+
 /// A view with its settings fitted to the schema as it is now.
 pub(crate) fn fitted_view(schema: &Schema, view: StoredView) -> View {
     // Settings that do not read, which the server never writes, start afresh.

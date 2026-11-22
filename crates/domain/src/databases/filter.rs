@@ -449,6 +449,26 @@ impl Filter {
             Self::Condition(condition) => vec![condition],
         }
     }
+
+    /// The filter as a guest reads it, who knows no other member: without the conditions
+    /// that name a person, `me` aside, and `None` when nothing is left.
+    pub fn without_people(self) -> Option<Self> {
+        let kept = |items: Vec<Self>| -> Vec<Self> {
+            items.into_iter().filter_map(Self::without_people).collect()
+        };
+        match self {
+            Self::And(items) => Some(kept(items))
+                .filter(|items| !items.is_empty())
+                .map(Self::And),
+            Self::Or(items) => Some(kept(items))
+                .filter(|items| !items.is_empty())
+                .map(Self::Or),
+            Self::Condition(condition) => match condition.operand {
+                Operand::Person(_) => None,
+                _ => Some(Self::Condition(condition)),
+            },
+        }
+    }
 }
 
 impl Condition {

@@ -810,7 +810,7 @@ export interface paths {
         };
         /**
          * A database
-         * @description Its page, its properties and its views, for those who see it.
+         * @description Its page, its properties and its views, for those who see it. Guests read the views without the people a filter or a person grouping names.
          */
         get: operations["get_database"];
         put?: never;
@@ -860,7 +860,7 @@ export interface paths {
         head?: never;
         /**
          * Change a property
-         * @description Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true, and one that would make a row's values larger than 64 KiB answers `limit_reached`. The title keeps its type. Views that no longer fit leave out what does not.
+         * @description Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true, and one that would make a row's values larger than 64 KiB answers `limit_reached`. The title keeps its type, and guests do not change a person property's type, whose values would become people's names. Views that no longer fit leave out what does not.
          */
         patch: operations["change_property"];
         trace?: never;

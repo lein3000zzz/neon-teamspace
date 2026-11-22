@@ -162,6 +162,22 @@ impl ViewSpec {
 }
 
 impl ViewSettings {
+    /// The settings as a guest reads them, who knows no other member: without the people
+    /// the filter names, nor those of a person grouping's groups placed or hidden by hand.
+    /// What the view shows a guest is the same, as their rows name nobody.
+    pub fn without_people(mut self, schema: &Schema) -> Self {
+        self.filter = self.filter.and_then(Filter::without_people);
+        if let Some(grouping) = &mut self.grouping
+            && schema
+                .get(grouping.property)
+                .is_some_and(|property| property.kind().names_people())
+        {
+            grouping.order.retain(Option::is_none);
+            grouping.hidden.retain(Option::is_none);
+        }
+        self
+    }
+
     /// The settings as kept.
     pub fn to_spec(&self) -> ViewSpec {
         let key = |key: &GroupKey| key.map(|id| id.to_string());
@@ -183,6 +199,14 @@ impl ViewSettings {
                 })
                 .collect(),
         }
+    }
+}
+
+impl View {
+    /// The view as a guest reads it: see [`ViewSettings::without_people`].
+    pub fn without_people(mut self, schema: &Schema) -> Self {
+        self.settings = self.settings.without_people(schema);
+        self
     }
 }
 
@@ -509,6 +533,38 @@ mod tests {
                 .map(|g| g.order),
             Some(vec![Some(Uuid::from_u128(77))])
         );
+    }
+
+    #[test]
+    fn guests_read_settings_without_the_people_they_name() {
+        let schema = schema();
+        let (ada, bea) = (id(77), id(78));
+        let spec: ViewSpec = serde_json::from_value(json!({
+            "filter": {"and": [
+                {"property": "Owner", "operator": "contains", "value": ada},
+                {"property": "Owner", "operator": "contains", "value": "me"}
+            ]},
+            "group": {"property": "Owner", "order": [bea, null], "hidden": [ada]},
+        }))
+        .expect("a spec");
+        let settings = spec
+            .resolve(&schema, Layout::Board, Fit::Strict)
+            .expect("valid");
+        let seen = settings.clone().without_people(&schema);
+        let text = format!("{:?}", seen.to_spec());
+        assert!(!text.contains(&ada) && !text.contains(&bea), "{text}");
+        let grouping = seen.grouping.expect("still grouped");
+        assert_eq!((grouping.order, grouping.hidden), (vec![None], vec![]));
+        assert_eq!(seen.filter.map(|filter| filter.conditions().len()), Some(1));
+        // A grouping by options names nobody, and stays as it is.
+        let by_status: ViewSpec = serde_json::from_value(json!({
+            "group": {"property": "Status", "order": [id(4)], "hidden": [id(5)]},
+        }))
+        .expect("a spec");
+        let status = by_status
+            .resolve(&schema, Layout::Board, Fit::Strict)
+            .expect("valid");
+        assert_eq!(status.clone().without_people(&schema), status);
     }
 
     #[test]

@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::events::Event;
 use super::schema::config_json;
-use super::{DatabaseError, DatabaseService, NO_VIEW, Opened, fitted_view, key_for};
+use super::{DatabaseError, DatabaseService, NO_VIEW, Opened, key_for, shown_view};
 
 /// A view to make.
 #[derive(Debug, Clone)]
@@ -271,9 +271,9 @@ async fn find(
         .ok_or(DatabaseError::NotFound(NO_VIEW))
 }
 
-/// A view as stored, with its settings fitted to the schema.
+/// A view as stored, as the caller reads it: see [`shown_view`].
 fn one(opened: &Opened, view: StoredView) -> View {
-    fitted_view(&opened.schema, view)
+    shown_view(&opened.schema, view, opened.context.members_hidden())
 }
 
 /// The key for a view placed among `views`, `except` the one that moves, saving fresh keys
