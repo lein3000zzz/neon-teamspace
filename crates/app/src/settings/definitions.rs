@@ -80,7 +80,10 @@ const MAX_SESSION_TTL: Duration = Duration::from_secs(365 * 24 * 3600);
 /// Verifying sign-ups and requests to join need mail set up, by rule: on without it, they
 /// would turn people away unseen. Password resets and mailed invites are on by default and
 /// work while mail is set up, so a rule would refuse the defaults; the flows check at run
-/// time instead.
+/// time instead. Requests to join also need registration by invite, which they check at
+/// run time too: a rule would refuse closing registration while they are on. Every flow a
+/// rule guards checks again at run time, as saved values that break a rule only warn when
+/// the server starts.
 ///
 /// # Panics
 ///
@@ -275,16 +278,6 @@ pub fn registry() -> Registry {
              admins hear of each confirmed request to join. Off, they see requests on the \
              admin page only.",
         ))
-        .rule(auth::REQUESTS.name(), |settings| {
-            let mode = settings.get(auth::REGISTRATION);
-            if *settings.get(auth::REQUESTS) && mode != RegistrationMode::Invite.as_str() {
-                Err(format!(
-                    "needs auth.registration set to invite, not {mode}: people ask for an invite"
-                ))
-            } else {
-                Ok(())
-            }
-        })
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
@@ -517,22 +510,12 @@ mod tests {
     }
 
     #[test]
-    fn requests_need_registration_by_invite() {
-        let with = |mode: &str| {
+    fn requests_to_join_leave_the_registration_mode_free() {
+        for mode in ["open", "invite", "closed"] {
             let mut stored = mail_on();
             stored.push(("auth.requests", Value::Bool(true)));
             stored.push(("auth.registration", Value::String(mode.to_owned())));
-            check(&stored)
-        };
-
-        assert_eq!(with("invite"), Ok(()));
-        assert_eq!(
-            with("open"),
-            Err(vec![Problem::new(
-                "auth.requests",
-                "needs auth.registration set to invite, not open: people ask for an invite"
-            )])
-        );
-        assert!(with("closed").is_err());
+            assert_eq!(check(&stored), Ok(()), "{mode}");
+        }
     }
 }

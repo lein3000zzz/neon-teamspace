@@ -4,7 +4,9 @@
 //! to the next one. TLS is 1.2 or later, and the server's certificate is always checked
 //! against the bundled Mozilla roots: `starttls` refuses a server that does not offer
 //! STARTTLS rather than going on in the clear, and `tls` speaks TLS from the first byte. A
-//! settings rule keeps a password off plain connections to other hosts.
+//! password never goes over a plain connection to another host: a settings rule refuses
+//! saving that, and each send checks it again, as saved values that break a rule only warn
+//! when the server starts.
 //!
 //! A mail server's permanent refusal of the recipient or the mail, a 55x answer, is
 //! [`SendError::Rejected`], which ends the mail's job; everything else is retried. Errors
@@ -26,7 +28,7 @@ use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
 use neon_app::mail::compose::one_line;
 use neon_app::mail::{Mailer, Outgoing, SendError};
 use neon_app::settings::{INSTANCE_NAME, SettingsService, mail as keys};
-use neon_domain::mail::Security;
+use neon_domain::mail::{Security, may_sign_in};
 use neon_domain::settings::Secret;
 use tracing::debug;
 use url::{Host, Url};
@@ -85,12 +87,20 @@ impl SmtpMailer {
             "" => settings.get(INSTANCE_NAME),
             name => name,
         };
+        let security = Security::parse(settings.get(keys::TLS)).unwrap_or(Security::DEFAULT);
+        let username = settings.get(keys::USERNAME);
+        if !username.is_empty() && !may_sign_in(security, host) {
+            return not_set(
+                "mail.tls is none, so the password would cross the network in the clear: use \
+                 starttls or tls",
+            );
+        }
         Ok(Config {
             host: host.to_owned(),
             port: u16::try_from(*settings.get(keys::PORT))
                 .map_err(|_| SendError::Failed("mail.port is not a port".to_owned()))?,
-            security: Security::parse(settings.get(keys::TLS)).unwrap_or(Security::DEFAULT),
-            username: settings.get(keys::USERNAME).to_owned(),
+            security,
+            username: username.to_owned(),
             password: settings.get(keys::PASSWORD).clone(),
             from: Mailbox::new(Some(one_line(from_name)), from),
         })

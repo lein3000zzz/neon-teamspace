@@ -2,13 +2,16 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use neon_app::auth::{AuthError, InviteSpec, RegisterInput};
+use neon_app::auth::{AuthError, AuthService, InviteSpec, RegisterInput};
+use neon_app::clock::Clock;
 use neon_app::crypto::{Envelope, hash_secret};
-use neon_app::mail::Message;
-use neon_app::settings::Change;
+use neon_app::mail::{MailQueue, Message};
+use neon_app::settings::{Change, SettingsService, registry};
 use neon_domain::auth::{InviteStatus, JoinRequestStatus, Role};
+use neon_domain::settings::RawLayers;
 use serde_json::json;
 use sqlx::PgPool;
 use support::{Harness, IP, Options, PASSWORD, secret};
@@ -397,6 +400,61 @@ async fn requests_are_open_only_with_the_setting_invite_mode_and_mail(pool: PgPo
     h.set("auth.requests", json!(true)).await;
     assert!(h.auth.requests_open());
     assert!(h.auth.config().requests);
+
+    // Another mode may be chosen while they are on; they close until it is invite again.
+    h.set("auth.registration", json!("open")).await;
+    assert!(!h.auth.requests_open());
+    assert!(!h.auth.config().requests);
+    assert!(matches!(
+        h.auth.request_to_join("ada@example.com", "", IP).await,
+        Err(AuthError::RequestsOff)
+    ));
+    h.set("auth.registration", json!("invite")).await;
+    assert!(h.auth.requests_open());
+}
+
+/// The environment may pin what the admin page saved otherwise: the server starts, and the
+/// flows the saved values turn on stay off.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn pinning_another_mode_or_mail_off_still_starts_the_server(pool: PgPool) {
+    let h = requests_on(pool.clone()).await;
+    h.set("auth.verify_email", json!(true)).await;
+
+    for (var, value, broken) in [
+        ("NEON_SETTINGS__AUTH__REGISTRATION", "closed", vec![]),
+        (
+            "NEON_SETTINGS__MAIL__ENABLED",
+            "false",
+            vec!["auth.requests", "auth.verify_email"],
+        ),
+    ] {
+        let raw = RawLayers::default().with_env([(var.to_owned(), value.to_owned())]);
+        let pinned = registry().pin(&raw).expect("valid layers");
+        let (settings, warnings) =
+            SettingsService::load(pool.clone(), registry(), pinned, support::envelope())
+                .await
+                .unwrap_or_else(|error| panic!("{var}={value}: the server starts: {error}"));
+        let warned: Vec<&str> = warnings.iter().map(|w| w.key.as_str()).collect();
+        assert_eq!(warned, broken, "{var}={value}");
+
+        let settings = Arc::new(settings);
+        let mail = MailQueue::new(
+            Arc::clone(&settings),
+            support::envelope(),
+            Some(support::PUBLIC_URL),
+            Clock::system(),
+        );
+        let auth = AuthService::builder(pool.clone(), settings)
+            .password_params(support::CHEAP)
+            .envelope(support::envelope())
+            .mail(mail)
+            .build()
+            .await
+            .expect("the service starts");
+        let config = auth.config();
+        assert!(!config.requests, "{var}={value}");
+        assert_eq!(config.verify_email, value == "closed", "{var}={value}");
+    }
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

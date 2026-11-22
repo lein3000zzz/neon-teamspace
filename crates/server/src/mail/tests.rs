@@ -505,6 +505,41 @@ async fn an_unreachable_server_is_tried_again_later(pool: PgPool) {
     assert!(matches!(error, SendError::Failed(_)), "{error:?}");
 }
 
+/// Saved values the rule refuses, as a rule made stricter, or a value the environment
+/// pins, can leave them: the server starts with a warning, and sends no password.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_password_never_crosses_the_network_in_the_clear(pool: PgPool) {
+    for (key, value) in [
+        ("mail.enabled", json!(true)),
+        ("mail.host", json!("smtp.example.com")),
+        ("mail.tls", json!("none")),
+        ("mail.username", json!("neon")),
+        ("mail.from", json!("neon@example.com")),
+    ] {
+        neon_store::settings::upsert(&pool, key, &value, None)
+            .await
+            .expect("saved");
+    }
+    let (settings, warnings) =
+        SettingsService::load(pool, registry(), Pinned::default(), envelope())
+            .await
+            .expect("the server starts");
+    assert_eq!(
+        warnings.iter().map(|w| w.key.as_str()).collect::<Vec<_>>(),
+        ["mail.tls"]
+    );
+
+    let error = SmtpMailer::new(Arc::new(settings), None)
+        .send(&hello())
+        .await
+        .expect_err("refused before connecting");
+
+    let SendError::NotConfigured(said) = &error else {
+        panic!("not sent: {error:?}");
+    };
+    assert!(said.contains("in the clear"), "{said}");
+}
+
 #[test]
 fn answers_fit_on_one_short_line() {
     let long = std::io::Error::other(format!("first\nsecond {}", "x".repeat(400)));
