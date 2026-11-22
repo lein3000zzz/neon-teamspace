@@ -1,7 +1,13 @@
 # Overrides for make e2e: a throwaway stack that runs beside any other, under a project name
 # of its own, with the web origin on a free port of this machine's loopback, which
-# `docker compose port web 80` reports.
+# `docker compose port web 80` reports. The server gets the instance name the tests expect
+# and none of the settings a deployments/server.env in this checkout may hold.
 services:
+  server:
+    env_file: !reset []
+    environment:
+      NEON_SETTINGS__INSTANCE__NAME: ${E2E_INSTANCE_NAME:?make e2e sets E2E_INSTANCE_NAME}
+
   web:
     ports: !override
       - "127.0.0.1::80"

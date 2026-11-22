@@ -19,25 +19,41 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-workspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. |
 | `ghcr.io/lein3000zzz/neon-workspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. |
 
-You need Docker Engine 25 or later with Compose 2.24 or later, and a clone of the
-repository, whose `deployments/` holds the Compose file. Compose builds both images from the
-clone unless told to run the published ones.
+You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
+`deployments/` directory, which holds the Compose files: a clone, to build both images from
+it, or a copy of `deployments/` alone to run the published ones.
 
 ### Starting it
 
 Copy the example settings to `deployments/.env`, which git ignores, and set the database's
-password in it:
+password in it. In a clone, `docker-compose.build.yml` beside the Compose file then builds
+both images from the checkout:
 
 ```sh
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
-docker compose -f deployments/docker-compose.yml up -d --build
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
 ```
 
-The first start builds the images, which takes some minutes. The instance is then at
-`http://127.0.0.1:3000/`, and these docs at `http://127.0.0.1:3000/docs/`. With `make`,
-`make up` builds and runs the same stack in the foreground, until Ctrl+C stops it, and
-`make down` stops it from another terminal.
+The first start builds the images, which takes some minutes. They are named
+`neon-workspace-server:local` and `neon-workspace-web:local`, never after a release. The
+instance is then at `http://127.0.0.1:3000/`, and these docs at
+`http://127.0.0.1:3000/docs/`. With `make`, `make up` builds and runs the same stack in the
+foreground, until Ctrl+C stops it, and `make down` stops it from another terminal.
+
+To run the published images instead, set `NEON_VERSION` in `deployments/.env` to a release,
+such as `0.1.0`, and use `docker-compose.yml` alone:
+
+```sh
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d
+```
+
+That file has no build sections, so an image that cannot be pulled, such as one of a
+mistyped version, stops the start instead of being built from whatever the directory holds.
+Without `NEON_VERSION`, it runs `latest`, which moves on to each new release as it is
+pulled. While the images are private on GitHub's container registry, `docker login ghcr.io`
+with a token that can read packages comes first.
 
 The stack has three services, which start in order, each once the one before it is healthy:
 
@@ -47,30 +63,43 @@ The stack has three services, which start in order, each once the one before it 
 | `server` | `neon serve`, which applies pending migrations as it starts. Not published: clients reach it through `web`. | `neon health` succeeds: the admin listener's `/readyz` answers `200`, once the server listens and while Postgres answers. |
 | `web` | Caddy, on `127.0.0.1:3000` unless `deployments/.env` says otherwise. | Caddy answers on its own health address, on loopback inside the container. |
 
-`docker compose -f deployments/docker-compose.yml ps` shows each one's state, and
+Every `up` names the same files as the first one did: on a stack built from the clone, an
+`up` with `docker-compose.yml` alone replaces the built images with the published ones.
+Other commands, such as `ps`, `logs`, `exec`, `stop` and `down`, find the running stack by
+its project name, `neon`, so `docker compose -f deployments/docker-compose.yml` is enough for
+them. `docker compose -f deployments/docker-compose.yml ps` shows each service's state, and
 `docker compose -f deployments/docker-compose.yml logs server` the server's logs, one JSON
 object per line.
 
-### `deployments/.env`
+### `deployments/.env` and `deployments/server.env`
 
-Compose reads `deployments/.env`, beside the Compose file, and
-`deployments/.env.example` describes every variable it takes. The main ones:
+The settings are in two files beside the Compose file, both ignored by git. Compose reads
+`deployments/.env` for the stack's own settings, which `deployments/.env.example` describes:
 
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
+| `NEON_VERSION` | The release of the published images to run, such as `0.1.0`, the same for both. `latest` unless set. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
-| `NEON_SERVER_IMAGE`, `NEON_WEB_IMAGE` | The images to run, such as `ghcr.io/lein3000zzz/neon-workspace-server:0.1.0`. Unset, they are built from the clone. |
-| `NEON_SERVER__PUBLIC_URL`, `NEON_SETTINGS__INSTANCE__NAME`, `NEON_OBSERVABILITY__*` | Passed on to the server, as described in [Configuration](/docs/self-hosting/configuration/). Blank ones are unset. |
 
-The stack sets two of the server's keys itself: `database.url`, from `POSTGRES_PASSWORD`,
-and `observability.admin.addr`, which it sets to `0.0.0.0:9090`. The admin listener then
-answers on the stack's own network, for Prometheus to scrape, and is never published. The
-server logs a warning at start that it is not bound to loopback; in the stack, that is
-meant. Caddy never passes the admin listener's paths on, so `/metrics`, `/readyz` and
-`/debug/pprof` on the instance's address are routes of the app like any other.
+None of these reaches the server. Its own settings go in `deployments/server.env`, which only
+the server reads, as its environment: a `NEON_` variable for any key that
+[Configuration](/docs/self-hosting/configuration/) describes, runtime settings such as
+`NEON_SETTINGS__INSTANCE__NAME` among them, and the standard `OTEL_` variables.
+`deployments/server.env.example` lists the usual ones. The file is optional, and a blank
+value leaves its key to the default. Compose expands `$` in its values, so a value that holds
+one goes in single quotes. A change applies once the start command runs again, which
+recreates the server's container with the new environment.
+
+The stack sets two of the server's keys itself, over anything `server.env` says:
+`database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
+`0.0.0.0:9090`. The admin listener then answers on the stack's own network, for Prometheus
+to scrape, and is never published. The server logs a warning at start that it is not bound
+to loopback; in the stack, that is meant. Caddy never passes the admin listener's paths on,
+so `/metrics`, `/readyz` and `/debug/pprof` on the instance's address are routes of the app
+like any other.
 
 ### A domain and TLS
 
@@ -82,6 +111,11 @@ Let's Encrypt, renews it before it expires, serves HTTPS, and redirects plain HT
 NEON_DOMAIN=neon.example.com
 NEON_HTTP_PORT=80
 NEON_HTTPS_PORT=443
+```
+
+And in `deployments/server.env`, the address the server gives out for itself:
+
+```sh
 NEON_SERVER__PUBLIC_URL=https://neon.example.com
 ```
 
@@ -109,11 +143,10 @@ Built from the clone, pull the new code and build again:
 
 ```sh
 git pull
-docker compose -f deployments/docker-compose.yml up -d --build
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
 ```
 
-With the published images, set the new version in `NEON_SERVER_IMAGE` and `NEON_WEB_IMAGE`,
-then:
+With the published images, set the new release in `NEON_VERSION`, then:
 
 ```sh
 docker compose -f deployments/docker-compose.yml pull
@@ -169,8 +202,9 @@ Compose profiles add services that development needs, next to the stack:
 | `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. The server sends no mail yet. |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
 
-For example, `docker compose -f deployments/docker-compose.yml --profile mail up -d`. These
-are separate programs under their own licenses: Postgres under the PostgreSQL License,
+A profile goes on the command that starts the stack, with the same files, for example
+`docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
+in a clone. These are separate programs under their own licenses: Postgres under the PostgreSQL License,
 Caddy under Apache-2.0, Mailpit under MIT, and the observability stack's Grafana, Loki,
 Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Workspace's code.
 

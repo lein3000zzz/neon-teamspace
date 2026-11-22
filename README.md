@@ -33,8 +33,9 @@ Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
 `ghcr.io/lein3000zzz/neon-workspace-server`, the `neon` binary on distroless, and
 `ghcr.io/lein3000zzz/neon-workspace-web`, Caddy with the app and the docs, which passes the
 server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
-Postgres, building both from the checkout unless `deployments/.env` names the published
-ones:
+Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
+`deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
+under local names:
 
 ```sh
 cp deployments/.env.example deployments/.env   # then set POSTGRES_PASSWORD in it
@@ -42,11 +43,14 @@ make up                                        # http://127.0.0.1:3000/, Ctrl+C 
 ```
 
 `make up` builds the images and runs the stack in the foreground; `make down` stops it and
-keeps the data. Without make, `docker compose -f deployments/docker-compose.yml up -d --build`
-runs it in the background. `deployments/.env.example` lists every setting, among them
-`NEON_DOMAIN`, a domain for which Caddy gets its TLS certificate itself. The
-[install page](docs/src/content/docs/self-hosting/install.md) covers domains and TLS,
-upgrades, stopping, and where the data lives.
+keeps the data. Without make,
+`docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build`
+runs it in the background. `deployments/.env.example` lists the stack's settings, among them
+`NEON_DOMAIN`, a domain for which Caddy gets its TLS certificate itself. The server's own
+settings go in `deployments/server.env`, which only the server reads; `server.env.example`
+beside it lists the usual ones. The
+[install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
+published images, domains and TLS, upgrades, stopping, and where the data lives.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the

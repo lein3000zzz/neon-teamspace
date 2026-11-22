@@ -13,18 +13,20 @@ What the server reports is described in [Observability](/docs/architecture/obser
 
 ## Beside the stack
 
-With the [Docker stack](/docs/self-hosting/install/#with-docker), add the profile:
+With the [Docker stack](/docs/self-hosting/install/#with-docker), add the profile to the
+command that starts it. Built from a clone:
 
 ```sh
-docker compose -f deployments/docker-compose.yml --profile observability up -d --build
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile observability up -d --build
 ```
 
-Grafana is then at `http://127.0.0.1:3001/` and opens on the dashboard. Prometheus scrapes
-the server's admin listener, `server:9090` on the stack's network, every five seconds, so the
-metrics come in at once.
+With the published images, `docker-compose.yml` alone, as the stack started. Grafana is then
+at `http://127.0.0.1:3001/` and opens on the dashboard. Prometheus scrapes the server's admin
+listener, `server:9090` on the stack's network, every five seconds, so the metrics come in at
+once.
 
-Traces and profiles need turning on in `deployments/.env`, then
-`docker compose -f deployments/docker-compose.yml up -d` again:
+Traces and profiles need turning on in `deployments/server.env`, the server's settings, then
+the same command again:
 
 ```sh
 NEON_OBSERVABILITY__TRACING__ENABLED=true

@@ -11,17 +11,19 @@ API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
 # A fixed project name, so db-down stops what db-up started whatever COMPOSE_PROJECT_NAME says.
 DEV_COMPOSE   := docker compose -p neon-dev -f deployments/docker-compose.dev.yml
-# The whole stack: Postgres, the server and Caddy, with the settings in deployments/.env.
+# The whole stack: Postgres, the server and Caddy, with the settings in deployments/.env and
+# deployments/server.env. On its own, the file runs the published images.
 STACK_COMPOSE := docker compose -f deployments/docker-compose.yml
-# The images built from this checkout, whatever deployments/.env names instead.
-LOCAL_IMAGES  := NEON_SERVER_IMAGE=neon-workspace-server:local NEON_WEB_IMAGE=neon-workspace-web:local
+# The same stack with both images built from this checkout, whatever NEON_VERSION says.
+BUILD_COMPOSE := $(STACK_COMPOSE) -f deployments/docker-compose.build.yml
 # Compose reads the whole file, so starting or stopping services that do not use
 # POSTGRES_PASSWORD still needs one.
 NO_DATABASE   := POSTGRES_PASSWORD=unused
-# A throwaway stack for e2e, beside any other: a project of its own, a free port on loopback,
-# and no deployments/.env, so the tests see the defaults.
+# A throwaway stack for e2e, built from this checkout, beside any other: a project of its own,
+# a free port on loopback, and neither deployments/.env nor deployments/server.env, so the
+# tests see the defaults.
 E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/docker-compose.yml \
-	-f deployments/docker-compose.e2e.yml
+	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
@@ -60,7 +62,7 @@ run: ## Run the server on :8080 with the variables from .env (after make db-up a
 .PHONY: up
 up: ## Build both images from this checkout and run the stack on http://127.0.0.1:3000 (Ctrl+C stops it)
 	@test -f deployments/.env || { echo "no deployments/.env: copy deployments/.env.example to deployments/.env and set POSTGRES_PASSWORD"; exit 1; }
-	$(LOCAL_IMAGES) NEON_DOMAIN= NEON_HTTP_PORT=127.0.0.1:3000 $(STACK_COMPOSE) up --build
+	NEON_DOMAIN= NEON_HTTP_PORT=127.0.0.1:3000 $(BUILD_COMPOSE) up --build
 
 .PHONY: down
 down: ## Stop what make up and make obs-up started; the data stays in volumes
@@ -190,14 +192,13 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 # containers' logs when it failed, and keeps the run's exit status.
 e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
 	@set -e; \
-	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" NEON_SETTINGS__INSTANCE__NAME="$(E2E_INSTANCE)" \
-		$(LOCAL_IMAGES); \
+	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)"; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
 		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
 	$(E2E_COMPOSE) up --detach --build --wait; \
 	address="$$($(E2E_COMPOSE) port web 80)"; \
 	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
-	(cd e2e && E2E_BASE_URL="http://$$address" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" $(BUN) run test)
+	(cd e2e && E2E_BASE_URL="http://$$address" $(BUN) run test)
 
 ## Checks
 
