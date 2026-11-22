@@ -1244,7 +1244,7 @@ export interface paths {
         head?: never;
         /**
          * Change a row's values
-         * @description Sets the values the body names and leaves the others, for those who edit the row: of two changes to one property, the last wins, and changes to different properties both hold. The title property's value is the row's title.
+         * @description Sets the values the body names and leaves the others, for those who edit the row: of two changes to one property, the last wins, and changes to different properties both hold. The title property's value is the row's title. People a person value adds must be members; those it named already stay. Guests neither set nor clear people.
          */
         patch: operations["change_row"];
         trace?: never;
@@ -8152,7 +8152,7 @@ export interface operations {
                     "application/json": components["schemas"]["Row"];
                 };
             };
-            /** @description invalid_input: no values, a value its property does not take, a property the database lacks or computes, or a person who is not a member. */
+            /** @description invalid_input: no values, a value its property does not take, a property the database lacks or computes, or a person added who is not a member. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8170,7 +8170,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: the caller views it and does not edit it, it is in the trash, or a guest names people; or insufficient_scope. */
+            /** @description forbidden: the caller views it and does not edit it, it is in the trash, or a guest sets or clears people; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8251,7 +8251,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden; or insufficient_scope. */
+            /** @description forbidden: as for changing its values, a guest moving it between people's groups included; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

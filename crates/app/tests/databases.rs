@@ -2096,6 +2096,198 @@ async fn guests_read_views_without_the_people_they_name(pool: PgPool) {
     assert!(named(kept), "the guest's rename kept the view's people");
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn guests_neither_set_nor_clear_people(pool: PgPool) {
+    let mut t = team(pool).await;
+    let owner = t.add("Owner", spec(PropertyKind::Person), None).await;
+    let view =
+        t.h.databases
+            .create_view(
+                &t.ada,
+                t.db(),
+                NewView {
+                    name: "By owner".into(),
+                    layout: Layout::Board,
+                    settings: ViewSpec {
+                        group: Some(GroupingSpec {
+                            property: "Owner".into(),
+                            order: vec![],
+                            hidden: vec![],
+                        }),
+                        ..ViewSpec::default()
+                    },
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("a view");
+    let dee = t.dee.user.id;
+    let row = t
+        .row(
+            &t.ada,
+            json!({"Name": "Fix login", "Owner": [dee.to_string()]}),
+        )
+        .await
+        .expect("a row");
+    let bare = t.made("Unassigned").await;
+    shared_with_gus(&t, PageAccess::Edit).await;
+    // Clearing a value they cannot see is refused, whether the row has one or not, so the
+    // refusal tells them nothing.
+    for id in [row.id, bare.id] {
+        assert_code(
+            t.update(&t.gus, id, json!({"Owner": null})).await,
+            "forbidden",
+        );
+    }
+    let to_nobody = RowMove {
+        placement: None,
+        group: Some(GroupMove {
+            view_id: view.id,
+            from: Some(dee),
+            to: None,
+        }),
+    };
+    assert_code(
+        t.h.databases.move_row(&t.gus, row.id, to_nobody).await,
+        "forbidden",
+    );
+    let read = t.h.databases.row(&t.ada, row.id).await.expect("read");
+    assert_eq!(
+        read.values.get(&owner.to_string()),
+        Some(&json!([dee.to_string()]))
+    );
+    // Within the group of rows without a person, and on new rows, they work as they do.
+    t.h.databases
+        .move_row(
+            &t.gus,
+            bare.id,
+            RowMove {
+                placement: Some(Placement::First),
+                group: Some(GroupMove {
+                    view_id: view.id,
+                    from: None,
+                    to: None,
+                }),
+            },
+        )
+        .await
+        .expect("moved within its group");
+    t.h.databases
+        .create_row(
+            &t.gus,
+            t.db(),
+            NewRow {
+                values: values(json!({"Name": "Theirs", "Owner": null})),
+                group: Some((view.id, None)),
+                ..NewRow::default()
+            },
+        )
+        .await
+        .expect("a row without people");
+    assert_code(
+        t.row(&t.gus, json!({"Name": "Named", "Owner": [dee.to_string()]}))
+            .await,
+        "forbidden",
+    );
+    t.update(&t.gus, row.id, json!({"Name": "Fix sign-in"}))
+        .await
+        .expect("other values change");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn people_who_left_stay_on_rows_until_taken_off(pool: PgPool) {
+    let mut t = team(pool).await;
+    let owner = t.add("Owner", spec(PropertyKind::Person), None).await;
+    let view =
+        t.h.databases
+            .create_view(
+                &t.ada,
+                t.db(),
+                NewView {
+                    name: "By owner".into(),
+                    layout: Layout::Board,
+                    settings: ViewSpec {
+                        group: Some(GroupingSpec {
+                            property: "Owner".into(),
+                            order: vec![],
+                            hidden: vec![],
+                        }),
+                        ..ViewSpec::default()
+                    },
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("a view");
+    let (ada, cy, dee) = (t.ada.user.id, t.cy.user.id, t.dee.user.id);
+    let row = t
+        .row(
+            &t.ada,
+            json!({"Name": "Pair", "Owner": [ada.to_string(), dee.to_string()]}),
+        )
+        .await
+        .expect("a row");
+    t.h.workspaces
+        .remove_member(&t.ada, t.id, dee)
+        .await
+        .expect("Dee left");
+    // A card moves from Ada to Cy with Dee still on it.
+    let moved =
+        t.h.databases
+            .move_row(
+                &t.ada,
+                row.id,
+                RowMove {
+                    placement: None,
+                    group: Some(GroupMove {
+                        view_id: view.id,
+                        from: Some(ada),
+                        to: Some(cy),
+                    }),
+                },
+            )
+            .await
+            .expect("moved");
+    let owners = |row: &RowView| row.values.get(&owner.to_string()).cloned();
+    assert_eq!(
+        owners(&moved),
+        Some(json!([dee.to_string(), cy.to_string()]))
+    );
+    // The whole list sent back with one more is taken; someone who is not a member is not.
+    let added = t
+        .update(
+            &t.ada,
+            row.id,
+            json!({"Owner": [dee.to_string(), cy.to_string(), ada.to_string()]}),
+        )
+        .await
+        .expect("added");
+    assert_eq!(
+        owners(&added),
+        Some(json!([dee.to_string(), cy.to_string(), ada.to_string()]))
+    );
+    assert_code(
+        t.update(
+            &t.ada,
+            row.id,
+            json!({"Owner": [ada.to_string(), Uuid::from_u128(7).to_string()]}),
+        )
+        .await,
+        "invalid_input",
+    );
+    // On a new row, everyone it names must be a member.
+    assert_code(
+        t.row(&t.ada, json!({"Name": "Again", "Owner": [dee.to_string()]}))
+            .await,
+        "invalid_input",
+    );
+    let taken_off = t
+        .update(&t.ada, row.id, json!({"Owner": [cy.to_string()]}))
+        .await
+        .expect("taken off");
+    assert_eq!(owners(&taken_off), Some(json!([cy.to_string()])));
+}
+
 /// How many bytes a row's cells take, as JSON text: how the bound on them counts.
 async fn size_of(t: &Team, row: Uuid) -> usize {
     let bytes: i64 = sqlx::query_scalar(

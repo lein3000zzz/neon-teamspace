@@ -335,14 +335,16 @@ pub struct ChangeRow {
     summary = "Change a row's values",
     description = "Sets the values the body names and leaves the others, for those who edit the \
                    row: of two changes to one property, the last wins, and changes to different \
-                   properties both hold. The title property's value is the row's title.",
+                   properties both hold. The title property's value is the row's title. People \
+                   a person value adds must be members; those it named already stay. Guests \
+                   neither set nor clear people.",
     params(("id" = Uuid, Path, description = "The row's id.")),
     request_body = ChangeRow,
     responses(
         (status = OK, description = "The row.", body = Row),
-        (status = BAD_REQUEST, description = "invalid_input: no values, a value its property does not take, a property the database lacks or computes, or a person who is not a member.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no values, a value its property does not take, a property the database lacks or computes, or a person added who is not a member.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: the caller views it and does not edit it, it is in the trash, or a guest names people; or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views it and does not edit it, it is in the trash, or a guest sets or clears people; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = CONFLICT, description = "limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -403,7 +405,7 @@ pub struct MoveRow {
         (status = OK, description = "The row.", body = Row),
         (status = BAD_REQUEST, description = "invalid_input: neither a placement nor a group, a view that does not group, a group that is no option or member, or a placement beside a page that is not a row of the database.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden; or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: as for changing its values, a guest moving it between people's groups included; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the row, its database or the view.", body = ErrorBody),
         (status = CONFLICT, description = "limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),

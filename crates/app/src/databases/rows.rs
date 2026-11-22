@@ -85,7 +85,8 @@ pub struct RowMove {
 }
 
 /// A row moving from one group of a view to another. For a person property, the person of
-/// `from` makes room for the one of `to`, and the others stay.
+/// `from` makes room for the one of `to`, and the others stay; from a person's group to
+/// the same one, its value stays as it is. For an option, `from` does not count.
 #[derive(Debug, Clone, Copy)]
 pub struct GroupMove {
     pub view_id: Uuid,
@@ -100,8 +101,8 @@ struct Changes {
     remove: Vec<String>,
     /// Every property the change names, the title included.
     properties: Vec<Uuid>,
-    /// The people the change names, who must be members.
-    people: Vec<Uuid>,
+    /// The person properties the change sets or clears, each with the people it names.
+    people: Vec<(Uuid, Vec<Uuid>)>,
 }
 
 impl Changes {
@@ -123,11 +124,16 @@ impl Changes {
         if !self.properties.contains(&property.id) {
             self.properties.push(property.id);
         }
+        if property.kind() == PropertyKind::Person {
+            self.people.retain(|(id, _)| *id != property.id);
+            let named = match &value {
+                Some(Value::People(ids)) => ids.clone(),
+                _ => Vec::new(),
+            };
+            self.people.push((property.id, named));
+        }
         match value {
             Some(value) => {
-                if let Value::People(ids) = &value {
-                    self.people.extend(ids);
-                }
                 self.set.insert(key, value.to_json());
             }
             None => self.remove.push(key),
@@ -337,7 +343,7 @@ impl DatabaseService {
                 let value = group_value(property, key, None)?;
                 changes.put(property, value);
             }
-            check_people(&mut tx, &opened.context, &changes).await?;
+            check_people(&mut tx, &opened.context, &changes, None).await?;
             let number = repo::take_number(&mut *tx, database_id).await?;
             let database = opened.context.page();
             let siblings = Siblings::of(database.workspace_id, Some(database_id), database.space);
@@ -454,7 +460,7 @@ impl DatabaseService {
             let data = lock_row(&mut tx, &context).await?;
             let schema = schema_of(&mut tx, data.database_id).await?;
             let changes = parse_values(&schema, &values)?;
-            check_people(&mut tx, &context, &changes).await?;
+            check_people(&mut tx, &context, &changes, Some(&data.cells)).await?;
             let mut page = context.page().clone();
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
@@ -540,11 +546,15 @@ impl DatabaseService {
             if let Some(group) = to.group {
                 let view = view_of(&mut tx, &schema, database_id, group.view_id).await?;
                 let property = grouping_property(&schema, &view)?;
-                let current = domain_row(&schema, &page, data.number, &data.cells).value(property);
-                let value = group_value(property, group.to, Some((group.from, current)))?;
-                changes.put(property, value);
+                let stays = property.kind() == PropertyKind::Person && group.from == group.to;
+                if !stays {
+                    let row = domain_row(&schema, &page, data.number, &data.cells);
+                    let current = row.value(property);
+                    let value = group_value(property, group.to, Some((group.from, current)))?;
+                    changes.put(property, value);
+                }
             }
-            check_people(&mut tx, &context, &changes).await?;
+            check_people(&mut tx, &context, &changes, Some(&data.cells)).await?;
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
@@ -762,33 +772,59 @@ pub(crate) fn check_size(bytes: i64) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-/// Refuses people who are not members of the workspace, and any to a guest, who knows no
-/// other member.
+/// Refuses, to a guest, who knows no other member, any change to a person value of a row,
+/// and any person they name on a new one; and people a change adds to a value who are not
+/// members of the workspace. `current` is the row's cells, `None` for a new row: those its
+/// values name already stay, members or not.
 async fn check_people(
     conn: &mut PgConnection,
     context: &Context,
     changes: &Changes,
+    current: Option<&Json>,
 ) -> Result<(), DatabaseError> {
-    if changes.people.is_empty() {
+    let touched = changes
+        .people
+        .iter()
+        .any(|(_, named)| !named.is_empty() || current.is_some());
+    if !touched {
         return Ok(());
     }
     if context.members_hidden() {
         return Err(DatabaseError::Forbidden(
-            "guests know no other member: they do not set people",
+            "guests know no other member: they do not set or clear people",
         ));
     }
-    let wanted: HashSet<Uuid> = changes.people.iter().copied().collect();
-    let ids: Vec<Uuid> = wanted.iter().copied().collect();
+    let mut added: HashSet<Uuid> = HashSet::new();
+    for (property, named) in &changes.people {
+        let already = current
+            .and_then(|cells| cells.get(property.to_string()))
+            .map(people_in)
+            .unwrap_or_default();
+        added.extend(named.iter().filter(|id| !already.contains(id)));
+    }
+    if added.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = added.iter().copied().collect();
     let members: HashSet<Uuid> = repo::members_among(&mut *conn, context.page().workspace_id, &ids)
         .await?
         .into_iter()
         .collect();
-    if members != wanted {
+    if members != added {
         return Err(DatabaseError::InvalidInput(
             "a person property names members of the workspace".to_owned(),
         ));
     }
     Ok(())
+}
+
+/// The people a stored person value names.
+fn people_in(cell: &Json) -> HashSet<Uuid> {
+    cell.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.as_str().and_then(|text| Uuid::try_parse(text).ok()))
+        .collect()
 }
 
 fn page_limit(limit: Option<usize>) -> Result<usize, DatabaseError> {
@@ -932,7 +968,10 @@ mod tests {
         .expect("valid");
         assert_eq!(changes.title.as_deref(), Some("Fix login"));
         assert_eq!(changes.remove, [Uuid::from_u128(2).to_string()]);
-        assert_eq!(changes.people, [Uuid::from_u128(7)]);
+        assert_eq!(
+            changes.people,
+            [(Uuid::from_u128(3), vec![Uuid::from_u128(7)])]
+        );
         assert_eq!(changes.properties.len(), 3);
         for bad in [
             serde_json::json!({"Nope": 1}),
