@@ -19,7 +19,7 @@ neon-observability.workspace = true
 neon-store.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-axum = { workspace = true, features = ["ws"] }
+axum = { workspace = true, features = ["multipart", "ws"] }
 clap.workspace = true
 figment.workspace = true
 hyper.workspace = true
@@ -58,6 +58,8 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 tokio-tungstenite = "0.29.0"
 tower = { workspace = true, features = ["util"] }
 yrs.workspace = true
+# Zips to import, and to read exports with, in the import and export tests.
+zip.workspace = true
 
 [lints]
 workspace = true

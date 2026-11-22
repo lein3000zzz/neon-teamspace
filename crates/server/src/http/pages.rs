@@ -265,8 +265,8 @@ impl From<PageView> for Page {
     }
 }
 
-/// The one place a page is made in or moved to.
-fn location(
+/// The one place a page is made in, moved to or imported to.
+pub(super) fn location(
     parent_id: Option<Uuid>,
     teamspace_id: Option<Uuid>,
     private: bool,

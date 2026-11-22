@@ -33,6 +33,7 @@ use neon_app::pages::{AccessChanges, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, SyncService};
+use neon_app::transfer::TransferService;
 use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
@@ -247,13 +248,16 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let access: Arc<dyn AccessChanges> = listener;
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
-        .limiter(limiter)
+        .limiter(Arc::clone(&limiter))
         .access_changes(Arc::clone(&access))
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .build();
     let live = SyncService::builder(pool.clone(), pages.clone(), feed).build();
+    let transfer = TransferService::builder(pages.clone(), live.clone())
+        .limiter(limiter)
+        .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
@@ -277,6 +281,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             workspaces,
             pages,
             sync: live,
+            transfer,
             web: Arc::new(web),
         },
         config.observability.tracing.trust_incoming,

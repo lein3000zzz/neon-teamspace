@@ -14,6 +14,7 @@ use neon_app::mail::MailQueue;
 use neon_app::pages::PageService;
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed};
+use neon_app::transfer::TransferService;
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
@@ -78,6 +79,7 @@ pub(super) async fn state_for(
     let sync = SyncService::builder(pool.clone(), pages.clone(), feed)
         .limits(limits)
         .build();
+    let transfer = TransferService::builder(pages.clone(), sync.clone()).build();
     let auth = AuthService::builder(pool, Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope)
@@ -91,6 +93,7 @@ pub(super) async fn state_for(
         workspaces,
         pages,
         sync,
+        transfer,
         web: Arc::new(web),
     }
 }

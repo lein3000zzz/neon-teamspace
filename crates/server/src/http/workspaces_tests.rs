@@ -44,6 +44,11 @@ impl<'a> Browser<'a> {
         &self.cookie
     }
 
+    /// The app it sends requests to.
+    pub(super) fn app(&self) -> &'a Router {
+        self.app
+    }
+
     pub(super) async fn get(&self, uri: &str) -> Answer {
         self.send(Method::GET, uri, None).await
     }
