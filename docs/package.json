@@ -24,7 +24,7 @@
     "playwright": "^1.65.1",
     "rehype-mermaid": "^3.0.0",
     "starlight-links-validator": "^0.27.0",
-    "typescript": "^6"
+    "typescript": "^7"
   },
   "overrides": {
     "form-data": "^4.0.6"
