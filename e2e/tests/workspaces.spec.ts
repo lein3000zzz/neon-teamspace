@@ -1,4 +1,5 @@
-import type { Browser, BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+import { account, makeAccounts, PASSWORD, signedIn, type Account } from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
@@ -7,58 +8,14 @@ test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 // answers 404 to a member outside it; Chromium logs both as failed loads.
 test.use({ expectedConsoleError: /the server responded with a status of 404/ });
 
-const PASSWORD = "a passphrase long enough";
-
-/** The first admin, which the skip above makes sure of. */
-function admin() {
-  if (ADMIN === undefined) {
-    throw new Error("E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD are unset");
-  }
-  return ADMIN;
-}
-
-type Account = { email: string; name: string };
-
 /** Accounts of this run, made by the first admin, so runs against one stack never meet. */
-function accounts(run: string) {
-  const make = (role: string): Account => ({
-    email: `${role}-${run}@e2e.example`,
-    name: `${role[0]?.toUpperCase() ?? ""}${role.slice(1)} ${run}`,
-  });
+function accounts(run: string): Record<"owner" | "member" | "deputy" | "linked", Account> {
   return {
-    owner: make("owner"),
-    member: make("member"),
-    deputy: make("deputy"),
-    linked: make("linked"),
+    owner: account("owner", run),
+    member: account("member", run),
+    deputy: account("deputy", run),
+    linked: account("linked", run),
   };
-}
-
-/** Signs the first admin in on `page`, and makes each account through the admin API. */
-async function makeAccounts(page: Page, list: Account[]) {
-  const { email, password } = admin();
-  await page.goto("/login");
-  await signIn(page, email, password);
-  await expect(page.getByRole("complementary")).toBeVisible();
-  // The server checks that a change comes from its own origin, as a browser's would.
-  const origin = new URL(page.url()).origin;
-  for (const account of list) {
-    const response = await page.request.post("/api/v1/admin/users", {
-      headers: { Origin: origin },
-      data: { email: account.email, password: PASSWORD, display_name: account.name },
-    });
-    expect(response.status(), account.email).toBe(201);
-  }
-}
-
-/** A browser of its own for `account`, signed in. */
-async function signedIn(browser: Browser, account: Account): Promise<[BrowserContext, Page]> {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto("/login");
-  await signIn(page, account.email, PASSWORD);
-  // The shell shows once the session is there.
-  await expect(page.getByRole("complementary")).toBeVisible();
-  return [context, page];
 }
 
 /** The page beside the sidebar. */
