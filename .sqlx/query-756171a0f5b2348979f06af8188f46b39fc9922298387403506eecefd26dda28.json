@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT page_id, database_id, number, cells FROM database_rows WHERE page_id = $1\n         FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "database_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "database_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "number",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cells",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "cells"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "756171a0f5b2348979f06af8188f46b39fc9922298387403506eecefd26dda28"
+}

@@ -2077,3 +2077,99 @@ async fn queries_read_whole_rows_only_for_the_part_they_answer_with(pool: PgPool
     );
     assert_eq!((answer.total, answer.next.as_deref()), (3, Some("2")));
 }
+
+/// Waits until a statement of this test's database whose text holds each of `parts` waits
+/// for a lock another transaction holds, or `done` says what it waited on is over.
+async fn until_waiting(pool: &PgPool, parts: &[&str], done: impl Fn() -> bool) {
+    let patterns: Vec<String> = parts.iter().map(|part| format!("%{part}%")).collect();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname = current_database() AND wait_event_type = 'Lock'
+                   AND query LIKE ALL($1)",
+            )
+            .bind(&patterns)
+            .fetch_one(pool)
+            .await
+            .expect("asked");
+            if waiting > 0 || done() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the statement came to wait");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn values_written_as_an_option_is_deleted_lose_it_with_the_rest(pool: PgPool) {
+    let mut t = team(pool).await;
+    let tags = t
+        .add(
+            "Tags",
+            spec(PropertyKind::MultiSelect),
+            Some(vec![option("A"), option("X")]),
+        )
+        .await;
+    let (a, x) = (t.option_id("Tags", "A"), t.option_id("Tags", "X"));
+    let row = t.made("Racy").await;
+
+    // Another transaction holds the row's page, so the write waits once it has checked the
+    // values against the schema, as it records who changed the row.
+    let mut blocker = t.h.pool.begin().await.expect("begun");
+    sqlx::query("SELECT 1 FROM pages WHERE id = $1 FOR UPDATE")
+        .bind(row.id)
+        .execute(&mut *blocker)
+        .await
+        .expect("locked");
+    let write = tokio::spawn({
+        let (databases, ada) = (t.h.databases.clone(), t.ada.clone());
+        let tags = values(json!({"Tags": [a.to_string(), x.to_string()]}));
+        async move { databases.update_row(&ada, row.id, tags).await }
+    });
+    until_waiting(&t.h.pool, &["UPDATE pages"], || false).await;
+
+    // X is deleted meanwhile: the deletion waits for the write, or, were it not held up,
+    // ends before it.
+    let delete = tokio::spawn({
+        let (databases, ada, db) = (t.h.databases.clone(), t.ada.clone(), t.db());
+        let options = vec![ChoiceSpec {
+            id: Some(a),
+            ..option("A")
+        }];
+        async move {
+            databases
+                .update_property(
+                    &ada,
+                    db,
+                    tags,
+                    PropertyChange {
+                        options: Some(options),
+                        ..PropertyChange::default()
+                    },
+                )
+                .await
+        }
+    });
+    until_waiting(&t.h.pool, &["FROM databases", "FOR UPDATE"], || {
+        delete.is_finished()
+    })
+    .await;
+    blocker.rollback().await.expect("released");
+    write.await.expect("joined").expect("written");
+    delete.await.expect("joined").expect("X deleted");
+
+    let stored: Value = sqlx::query_scalar("SELECT cells FROM database_rows WHERE page_id = $1")
+        .bind(row.id)
+        .fetch_one(&t.h.pool)
+        .await
+        .expect("read");
+    assert_eq!(stored[tags.to_string()], json!([a.to_string()]));
+    let read = t.h.databases.row(&t.ada, row.id).await.expect("read");
+    assert_eq!(
+        read.values.get(&tags.to_string()),
+        Some(&json!([a.to_string()]))
+    );
+}

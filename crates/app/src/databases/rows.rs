@@ -12,7 +12,7 @@ use neon_domain::databases::{
 };
 use neon_domain::pages::{Page, PageAccess, PageKind, PageStyle, Placement};
 use neon_domain::workspaces::Action;
-use neon_store::databases::{self as repo};
+use neon_store::databases::{self as repo, RowData};
 use neon_store::pages::{self as pages_repo, Siblings};
 use serde_json::{Map, Value as Json};
 use sqlx::PgConnection;
@@ -451,9 +451,7 @@ impl DatabaseService {
             let mut tx = self.pages().pool().begin().await?;
             let context = row_context(self, &mut tx, principal, row_id).await?;
             row_check(&context, Action::EditPage)?;
-            let data = repo::row(&mut *tx, row_id)
-                .await?
-                .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+            let data = lock_row(&mut tx, &context).await?;
             let schema = schema_of(&mut tx, data.database_id).await?;
             let changes = parse_values(&schema, &values)?;
             check_people(&mut tx, &context, &changes).await?;
@@ -522,9 +520,7 @@ impl DatabaseService {
             }
             let context = row_context(self, &mut tx, principal, row_id).await?;
             row_check(&context, Action::EditPage)?;
-            let data = repo::row(&mut *tx, row_id)
-                .await?
-                .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+            let data = lock_row(&mut tx, &context).await?;
             let database_id = data.database_id;
             let mut page = context.page().clone();
             if let Some(placement) = to.placement {
@@ -712,6 +708,28 @@ fn group_value(
             None => Ok(None),
         },
     }
+}
+
+/// The data of the row of `context`, locked until the transaction ends, once the schema of
+/// its database is held as it is: a change to the row's values reads the schema and the
+/// values as they are when it writes, and changes to the schema wait for it.
+async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData, DatabaseError> {
+    let row_id = context.page().id;
+    let no_data = || DatabaseError::Internal(format!("row {row_id} has no data"));
+    // A row's page is under its database's, which it never leaves.
+    let database_id = context.page().parent_id.ok_or_else(no_data)?;
+    if !repo::hold_schema(&mut *conn, database_id).await? {
+        return Err(DatabaseError::NotFound(NO_ROW));
+    }
+    let data = repo::lock_row(&mut *conn, row_id)
+        .await?
+        .ok_or_else(no_data)?;
+    if data.database_id != database_id {
+        return Err(DatabaseError::Internal(format!(
+            "row {row_id} is not under its database's page"
+        )));
+    }
+    Ok(data)
 }
 
 /// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], and answers them as they are

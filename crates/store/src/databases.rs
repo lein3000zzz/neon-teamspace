@@ -64,6 +64,19 @@ pub async fn lock(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<
     .await
 }
 
+/// Holds a database's schema as it is until the transaction ends, for a change to its rows'
+/// values checked against it: changes to the schema, which [`lock`] it, wait for the
+/// transaction, and it for them. Answers whether the database is there.
+pub async fn hold_schema(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT page_id FROM databases WHERE page_id = $1 FOR KEY SHARE",
+        page_id,
+    )
+    .fetch_optional(executor)
+    .await?
+    .is_some())
+}
+
 pub async fn set_inline(
     executor: impl PgExecutor<'_>,
     page_id: Uuid,
@@ -322,6 +335,22 @@ pub async fn row(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<O
     sqlx::query_as!(
         RowData,
         "SELECT page_id, database_id, number, cells FROM database_rows WHERE page_id = $1",
+        page_id,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
+/// A row's own data, locked until the transaction ends, so a change to its values reads
+/// them as they are when it writes.
+pub async fn lock_row(
+    executor: impl PgExecutor<'_>,
+    page_id: Uuid,
+) -> sqlx::Result<Option<RowData>> {
+    sqlx::query_as!(
+        RowData,
+        "SELECT page_id, database_id, number, cells FROM database_rows WHERE page_id = $1
+         FOR UPDATE",
         page_id,
     )
     .fetch_optional(executor)

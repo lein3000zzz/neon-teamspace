@@ -228,14 +228,29 @@ impl Value {
     }
 
     /// A stored value read back for a property of type `ty`: `None` when it no longer
-    /// fits the type, as a value written before a change that missed it would not.
+    /// fits the type, as a value written before a change that missed it would not. Stored
+    /// options are ids of options that exist, a name that happens to match counting for
+    /// nothing; a multi-select keeps those of its options that still exist.
     pub fn stored(ty: &PropertyType, json: &Json) -> Option<Self> {
-        let value = Self::parse(ty, json).ok().flatten()?;
-        match &value {
-            // Stored options are ids of options that exist; a name that happens to match
-            // does not count.
-            Self::Choice(id) if json.as_str() != Some(id.to_string().as_str()) => None,
-            _ => Some(value),
+        let option = |json: &Json| {
+            let id = Uuid::try_parse(json.as_str()?).ok()?;
+            ty.options()
+                .iter()
+                .any(|option| option.id == id)
+                .then_some(id)
+        };
+        match ty.kind() {
+            PropertyKind::Select | PropertyKind::Status => option(json).map(Self::Choice),
+            PropertyKind::MultiSelect => {
+                let mut ids: Vec<Uuid> = Vec::new();
+                for id in json.as_array()?.iter().filter_map(option) {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+                (!ids.is_empty()).then_some(Self::Choices(ids))
+            }
+            _ => Self::parse(ty, json).ok().flatten(),
         }
     }
 
@@ -601,6 +616,26 @@ mod tests {
             Value::stored(&ty, &json!(Uuid::from_u128(9).to_string())),
             None
         );
+    }
+
+    #[test]
+    fn a_stored_multi_select_keeps_the_options_that_still_exist() {
+        let multi = PropertyType::MultiSelect {
+            options: select().options().to_vec(),
+        };
+        let (bug, feature, gone) = (
+            Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(2).to_string(),
+            Uuid::from_u128(9).to_string(),
+        );
+        assert_eq!(
+            Value::stored(&multi, &json!([feature, gone, bug, feature])),
+            Some(Value::Choices(vec![Uuid::from_u128(2), Uuid::from_u128(1)]))
+        );
+        assert_eq!(Value::stored(&multi, &json!([gone])), None);
+        // Names are not stored values, nor is anything but a list.
+        assert_eq!(Value::stored(&multi, &json!(["Bug"])), None);
+        assert_eq!(Value::stored(&multi, &json!(bug)), None);
     }
 
     #[test]

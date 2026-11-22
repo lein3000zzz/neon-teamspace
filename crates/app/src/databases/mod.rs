@@ -16,7 +16,9 @@
 //! with are then read whole, each at most
 //! [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES). Values are plain data: each
 //! change sets the properties it names, and of two changes to one property, the last wins.
-//! Once a change commits it goes to everyone following the database, through the
+//! A change to a row's values holds its database's schema and locks the row while it is
+//! checked and written, so changes to the schema wait for it, and it for them. Once a change
+//! commits it goes to everyone following the database, through the
 //! [`Broadcaster`](crate::sync::Broadcaster): see [`LiveDatabases`].
 //!
 //! Every public use case runs in a span named `databases <operation>` and is measured as
