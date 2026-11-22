@@ -5,6 +5,8 @@
 
 pub mod auth;
 pub mod duration;
+pub mod hue;
 pub mod jobs;
 pub mod mail;
 pub mod settings;
+pub mod workspaces;
