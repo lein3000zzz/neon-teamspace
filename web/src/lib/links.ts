@@ -70,6 +70,7 @@ export function workspaceInviteLink(token: string): string {
 }
 
 const HELD_INVITE_KEY = "neon.workspace-invite";
+const INVITE_RETURN_KEY = "neon.workspace-invite.return";
 
 /** This tab's session storage, or undefined where the browser refuses it. */
 function tabStorage(): Storage | undefined {
@@ -108,7 +109,35 @@ export function heldInviteToken(): string | undefined {
 export function releaseInviteToken() {
   try {
     tabStorage()?.removeItem(HELD_INVITE_KEY);
+    tabStorage()?.removeItem(INVITE_RETURN_KEY);
   } catch {
     // Nothing kept that could be read back.
+  }
+}
+
+/**
+ * Notes whether the held link's visitor still has to sign in, or up. Signing
+ * up ends on the app's start rather than on the link, so the start goes back
+ * to the link while this is noted, and only then: once the link has shown
+ * what it admits to, the visitor goes wherever they choose.
+ */
+export function noteInviteSignIn(pending: boolean) {
+  try {
+    if (pending) {
+      tabStorage()?.setItem(INVITE_RETURN_KEY, "1");
+    } else {
+      tabStorage()?.removeItem(INVITE_RETURN_KEY);
+    }
+  } catch {
+    // Without storage the token stays in the address, and the way back with it.
+  }
+}
+
+/** Whether the app's start should go back to the held link, as noteInviteSignIn says. */
+export function returnsToInvite(): boolean {
+  try {
+    return heldInviteToken() !== undefined && tabStorage()?.getItem(INVITE_RETURN_KEY) === "1";
+  } catch {
+    return false;
   }
 }

@@ -11,7 +11,12 @@ import { EntityMark } from "@/components/nodes/entity-mark";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
-import { heldInviteToken, holdInviteToken, releaseInviteToken } from "@/lib/links";
+import {
+  heldInviteToken,
+  holdInviteToken,
+  noteInviteSignIn,
+  releaseInviteToken,
+} from "@/lib/links";
 import { strings } from "@/lib/strings";
 import { useSendOnce } from "./link-pages";
 
@@ -60,6 +65,13 @@ export function WorkspaceInvitePage() {
  */
 function InviteLanding({ token, back }: { token: string; back: string }) {
   const me = useQuery(meQuery);
+  const signedOut = me.data === undefined ? undefined : me.data === null;
+  useEffect(() => {
+    if (signedOut !== undefined) {
+      noteInviteSignIn(signedOut);
+    }
+  }, [signedOut]);
+
   if (me.isPending) {
     return (
       <AuthCard title={copy.title}>

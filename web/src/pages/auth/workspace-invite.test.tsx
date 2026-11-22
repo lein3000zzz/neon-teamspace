@@ -2,7 +2,8 @@ import { screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { InviteLinkPreview } from "@/api/workspaces";
-import { apiError, signedOut } from "@/test/fixtures";
+import { keys } from "@/api/keys";
+import { ada, apiError, signedOut } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { fakeWorkspaces, LINK_TOKEN, studio } from "@/test/workspaces";
@@ -113,12 +114,43 @@ describe("a workspace invite link", () => {
     ).toBeVisible();
   });
 
-  it("goes back to the link after signing in", async () => {
-    window.sessionStorage.setItem("neon.workspace-invite", LINK_TOKEN);
-    linkRoutes();
-    const { router } = renderApp("/");
+  it("goes back to the link once signed up, from the app's start", async () => {
+    let signedIn = false;
+    server.use(
+      http.get("/api/v1/account/me", () =>
+        signedIn ? HttpResponse.json(ada) : apiError(401, "unauthenticated", "sign in to continue"),
+      ),
+    );
+    fakeWorkspaces();
+    const sent = linkRoutes();
+    const { router, queryClient } = renderApp(`/workspace-invite/${LINK_TOKEN}`);
+    expect(await screen.findByRole("link", { name: "Sign in to join" })).toBeVisible();
+
+    // Signing up in the same tab: the sign-up page sends the new account to the app's start.
+    await router.navigate({ to: "/register" });
+    expect(await screen.findByRole("heading", { level: 1, name: /Create/ })).toBeVisible();
+    signedIn = true;
+    await queryClient.invalidateQueries({ queryKey: keys.me });
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/workspace-invite"));
     expect(await screen.findByRole("button", { name: "Join Studio" })).toBeInTheDocument();
+    expect(sent).toEqual([{ path: "preview", token: LINK_TOKEN }]);
+  });
+
+  it("lets someone who looked at the link and went on use the app's start", async () => {
+    fakeWorkspaces();
+    const sent = linkRoutes();
+    const { router } = renderApp(`/workspace-invite/${LINK_TOKEN}`);
+    expect(await screen.findByRole("button", { name: "Join Studio" })).toBeVisible();
+
+    // Not joining, they go to the app's start by its address, and again later.
+    await router.navigate({ to: "/" });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/w/design"));
+    await router.navigate({ to: "/" });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/w/design"));
+    expect(sent).toEqual([{ path: "preview", token: LINK_TOKEN }]);
+    // The link still works from its own page while the tab holds it.
+    await router.navigate({ to: "/workspace-invite" });
+    expect(await screen.findByRole("button", { name: "Join Studio" })).toBeVisible();
   });
 });

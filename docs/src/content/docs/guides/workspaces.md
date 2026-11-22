@@ -91,7 +91,9 @@ the token for that browser tab alone, in its session storage, until the link is 
 
 - Signed out, the page asks to sign in, and comes back to the link afterwards. Signing up
   first works too, in the same tab, where the instance takes sign-ups: the new account
-  comes back to the link once it is signed in.
+  comes back to the link once it is signed in. Once the link has shown what it admits to,
+  the app opens as usual from `/` again; `/workspace-invite` still shows the link while
+  the tab keeps it.
 - Signed in, the page shows the workspace the link is for, by name and mark, the role it
   admits with and when it ends. **Join** joins it with one press and opens it.
 - An account in the workspace already gets the way into it instead.

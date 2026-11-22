@@ -10,7 +10,7 @@ import { useMe } from "@/components/shell/signed-in";
 import { Button } from "@/components/ui/button";
 import { InvitationList } from "@/components/workspaces/invitation-list";
 import { lastWorkspaceId, pickWorkspace } from "@/lib/last-workspace";
-import { heldInviteToken } from "@/lib/links";
+import { returnsToInvite } from "@/lib/links";
 import { strings } from "@/lib/strings";
 
 const copy = strings.workspaces.empty;
@@ -19,13 +19,14 @@ const copy = strings.workspaces.empty;
  * Where the app opens: the workspace used last, while the user is still in
  * it, else their first. Someone in none gets the way into one: creating it,
  * where the instance lets them, or the invitations that wait for them. A tab
- * that opened a workspace invite link goes back to it first.
+ * that opened a workspace invite link signed out goes back to it first, once
+ * signed in or up.
  */
 export function StartPage() {
   const me = useMe();
   const list = useQuery(workspacesQuery);
   // An invite link opened before signing in, or up, is where this tab was going.
-  const [heldInvite] = useState(() => heldInviteToken() !== undefined);
+  const [heldInvite] = useState(returnsToInvite);
 
   if (heldInvite) {
     return <Navigate to="/workspace-invite" replace />;
