@@ -123,17 +123,60 @@ async fn a_private_teamspace_is_hidden_from_members_outside_it(pool: PgPool) {
         let join = w.join_teamspace(outsider, t.id, secret).await;
         assert!(matches!(join, Err(WorkspaceError::NotFound(_))));
     }
-    let full = w.teamspace(&t.bob, t.id, secret).await;
+    // Owners and admins outside it know its name alone, and get no more of it.
+    for manager in [&t.ada, &t.bob] {
+        let full = w.teamspace(manager, t.id, secret).await;
+        assert!(matches!(full, Err(WorkspaceError::NotFound(_))), "{full:?}");
+        let members = w.teamspace_members(manager, t.id, secret).await;
+        assert!(matches!(members, Err(WorkspaceError::NotFound(_))));
+        for update in [
+            TeamspaceUpdate {
+                icon: Some(Some("X".into())),
+                ..TeamspaceUpdate::default()
+            },
+            TeamspaceUpdate {
+                access: Some(TeamspaceAccess::Open),
+                ..TeamspaceUpdate::default()
+            },
+        ] {
+            let changed = w.update_teamspace(manager, t.id, secret, update).await;
+            assert!(
+                matches!(changed, Err(WorkspaceError::NotFound(_))),
+                "{changed:?}"
+            );
+        }
+        let added = w
+            .add_teamspace_member(manager, t.id, secret, t.dee.user.id, TeamspaceRole::Member)
+            .await;
+        assert!(matches!(added, Err(WorkspaceError::NotFound(_))));
+        let removed = w
+            .remove_teamspace_member(manager, t.id, secret, t.cy.user.id)
+            .await;
+        assert!(matches!(removed, Err(WorkspaceError::NotFound(_))));
+    }
+    let secret_name = |list: &neon_app::workspaces::TeamspaceList| {
+        list.hidden
+            .iter()
+            .map(|teamspace| teamspace.name.clone())
+            .collect::<Vec<_>>()
+    };
+    let before = w.list_teamspaces(&t.bob, t.id).await.expect("listed");
+    assert_eq!(secret_name(&before), ["Secret"], "nothing was renamed");
+
+    // To manage it, an admin joins it, and its members see them in it.
+    let joined = w
+        .join_teamspace(&t.bob, t.id, secret)
+        .await
+        .expect("joined");
+    assert_eq!(joined.role, Some(TeamspaceRole::Member));
+    let members = w
+        .teamspace_members(&t.cy, t.id, secret)
+        .await
+        .expect("listed");
     assert!(
-        matches!(full, Err(WorkspaceError::NotFound(_))),
-        "an admin outside it sees its name only: {full:?}"
-    );
-    assert_eq!(
-        w.teamspace_members(&t.bob, t.id, secret)
-            .await
-            .expect("an admin manages it")
-            .len(),
-        1
+        members
+            .iter()
+            .any(|member| member.person.id == t.bob.user.id)
     );
     w.update_teamspace(
         &t.bob,
@@ -145,10 +188,10 @@ async fn a_private_teamspace_is_hidden_from_members_outside_it(pool: PgPool) {
         },
     )
     .await
-    .expect("an admin renames it");
+    .expect("an admin in it renames it");
     w.delete_teamspace(&t.ada, t.id, secret)
         .await
-        .expect("an owner deletes it");
+        .expect("an owner outside it deletes it");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -194,12 +237,22 @@ async fn closed_teamspaces_take_whom_their_owners_add(pool: PgPool) {
         .add_teamspace_member(&t.cy, t.id, closed, t.dee.user.id, TeamspaceRole::Member)
         .await;
     assert!(matches!(twice, Err(WorkspaceError::AlreadyMember)));
-    let guest = w
-        .add_teamspace_member(&t.cy, t.id, closed, t.gus.user.id, TeamspaceRole::Member)
+    for by in [&t.cy, &t.ada] {
+        let guest = w
+            .add_teamspace_member(by, t.id, closed, t.gus.user.id, TeamspaceRole::Member)
+            .await;
+        assert!(
+            matches!(guest, Err(WorkspaceError::Forbidden(_))),
+            "{guest:?}"
+        );
+    }
+    let probed = w
+        .add_teamspace_member(&t.gus, t.id, closed, Uuid::now_v7(), TeamspaceRole::Member)
         .await;
-    assert!(
-        matches!(guest, Err(WorkspaceError::InvalidInput(_))),
-        "{guest:?}"
+    assert_eq!(
+        probed.expect_err("refused").to_string(),
+        "no such teamspace",
+        "a guest learns nothing of who is in the workspace"
     );
     let stranger = w
         .add_teamspace_member(&t.cy, t.id, closed, Uuid::now_v7(), TeamspaceRole::Member)

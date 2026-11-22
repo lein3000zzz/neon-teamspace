@@ -239,6 +239,8 @@ pub(super) async fn create_teamspace(
     path = "/workspaces/{id}/teamspaces/{teamspace_id}",
     tag = "teamspaces",
     summary = "A teamspace",
+    description = "A private teamspace answers `not_found` to everyone outside it, the \
+                   workspace's owners and admins included.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -288,7 +290,7 @@ pub struct UpdateTeamspace {
     tag = "teamspaces",
     summary = "Change a teamspace",
     description = "Changes what the body names. For the teamspace's owners and the \
-                   workspace's owners and admins.",
+                   workspace's owners and admins, who join a private one first.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -329,7 +331,7 @@ pub(super) async fn update_teamspace(
     tag = "teamspaces",
     summary = "Delete a teamspace",
     description = "Any but the default one. For the teamspace's owners and the workspace's \
-                   owners and admins.",
+                   owners and admins, who delete a private one without being in it.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -361,7 +363,8 @@ pub(super) async fn delete_teamspace(
     tag = "teamspaces",
     summary = "Join a teamspace",
     description = "Any member joins an open teamspace. Closed and private ones take whom their \
-                   owners add; the workspace's owners and admins may join them themselves.",
+                   owners add; the workspace's owners and admins may join them themselves, which \
+                   is how they come to manage a private one.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -450,6 +453,8 @@ pub struct TeamspaceMemberList {
     path = "/workspaces/{id}/teamspaces/{teamspace_id}/members",
     tag = "teamspaces",
     summary = "List a teamspace's members",
+    description = "For everyone who may see the teamspace: a private one's members are listed \
+                   to its members only.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -493,7 +498,8 @@ pub struct AddTeamspaceMember {
     tag = "teamspaces",
     summary = "Add a member to a teamspace",
     description = "Any teamspace but the default one, which everyone is in. For the \
-                   teamspace's owners and the workspace's owners and admins.",
+                   teamspace's owners and the workspace's owners and admins, who join a private \
+                   one first. Guests are added to none.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -501,9 +507,8 @@ pub struct AddTeamspaceMember {
     request_body = AddTeamspaceMember,
     responses(
         (status = CREATED, description = "The member.", body = TeamspaceMember),
-        (status = BAD_REQUEST, description = "invalid_input: guests are in no teamspace.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, as for a guest, who is in no teamspace; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such teamspace, or the account is not in the workspace.", body = ErrorBody),
         (status = CONFLICT, description = "already_member.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -540,8 +545,9 @@ pub struct ChangeTeamspaceRole {
     path = "/workspaces/{id}/teamspaces/{teamspace_id}/members/{user_id}",
     tag = "teamspaces",
     summary = "Change a teamspace member's role",
-    description = "For the teamspace's owners and the workspace's owners and admins. The last \
-                   owner stays one unless an owner or admin of the workspace changes it.",
+    description = "For the teamspace's owners and the workspace's owners and admins, who join a \
+                   private one first. The last owner stays one unless an owner or admin of the \
+                   workspace changes it.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),
@@ -577,7 +583,7 @@ pub(super) async fn change_teamspace_role(
     tag = "teamspaces",
     summary = "Remove a member from a teamspace",
     description = "Any teamspace but the default one. For the teamspace's owners and the \
-                   workspace's owners and admins.",
+                   workspace's owners and admins, who join a private one first.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("teamspace_id" = Uuid, Path, description = "The teamspace's id."),

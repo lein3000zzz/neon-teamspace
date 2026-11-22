@@ -1035,20 +1035,23 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A teamspace */
+        /**
+         * A teamspace
+         * @description A private teamspace answers `not_found` to everyone outside it, the workspace's owners and admins included.
+         */
         get: operations["get_teamspace"];
         put?: never;
         post?: never;
         /**
          * Delete a teamspace
-         * @description Any but the default one. For the teamspace's owners and the workspace's owners and admins.
+         * @description Any but the default one. For the teamspace's owners and the workspace's owners and admins, who delete a private one without being in it.
          */
         delete: operations["delete_teamspace"];
         options?: never;
         head?: never;
         /**
          * Change a teamspace
-         * @description Changes what the body names. For the teamspace's owners and the workspace's owners and admins.
+         * @description Changes what the body names. For the teamspace's owners and the workspace's owners and admins, who join a private one first.
          */
         patch: operations["update_teamspace"];
         trace?: never;
@@ -1064,7 +1067,7 @@ export interface paths {
         put?: never;
         /**
          * Join a teamspace
-         * @description Any member joins an open teamspace. Closed and private ones take whom their owners add; the workspace's owners and admins may join them themselves.
+         * @description Any member joins an open teamspace. Closed and private ones take whom their owners add; the workspace's owners and admins may join them themselves, which is how they come to manage a private one.
          */
         post: operations["join_teamspace"];
         delete?: never;
@@ -1100,12 +1103,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List a teamspace's members */
+        /**
+         * List a teamspace's members
+         * @description For everyone who may see the teamspace: a private one's members are listed to its members only.
+         */
         get: operations["list_teamspace_members"];
         put?: never;
         /**
          * Add a member to a teamspace
-         * @description Any teamspace but the default one, which everyone is in. For the teamspace's owners and the workspace's owners and admins.
+         * @description Any teamspace but the default one, which everyone is in. For the teamspace's owners and the workspace's owners and admins, who join a private one first. Guests are added to none.
          */
         post: operations["add_teamspace_member"];
         delete?: never;
@@ -1126,14 +1132,14 @@ export interface paths {
         post?: never;
         /**
          * Remove a member from a teamspace
-         * @description Any teamspace but the default one. For the teamspace's owners and the workspace's owners and admins.
+         * @description Any teamspace but the default one. For the teamspace's owners and the workspace's owners and admins, who join a private one first.
          */
         delete: operations["remove_teamspace_member"];
         options?: never;
         head?: never;
         /**
          * Change a teamspace member's role
-         * @description For the teamspace's owners and the workspace's owners and admins. The last owner stays one unless an owner or admin of the workspace changes it.
+         * @description For the teamspace's owners and the workspace's owners and admins, who join a private one first. The last owner stays one unless an owner or admin of the workspace changes it.
          */
         patch: operations["change_teamspace_role"];
         trace?: never;
@@ -2089,9 +2095,10 @@ export interface components {
             limits: components["schemas"]["EffectiveLimits"];
             /**
              * Format: int64
-             * @description How many people are in it, guests included.
+             * @description How many people are in it, guests included. Absent for a guest, who knows of no
+             *     member but themselves.
              */
-            member_count: number;
+            member_count?: number | null;
             /** @description Members, besides owners and admins, may create teamspaces. */
             members_can_create_teamspaces: boolean;
             /** Format: date-time */
@@ -6332,15 +6339,6 @@ export interface operations {
                     "application/json": components["schemas"]["TeamspaceMember"];
                 };
             };
-            /** @description invalid_input: guests are in no teamspace. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
             /** @description unauthenticated. */
             401: {
                 headers: {
@@ -6350,7 +6348,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, as for a guest, who is in no teamspace; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

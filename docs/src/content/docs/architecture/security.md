@@ -194,9 +194,10 @@ run one at a time, and each sees the admins as the one before left them.
 
 Who may do what in a workspace is decided in one function of `neon-domain`, which every
 workspace use case calls before it acts; the [permissions](/docs/reference/permissions/)
-page lists its rules. What a caller may not know of, a workspace they are not in or a
-private teamspace they are not in, answers `404 not_found`, the same as for something that
-does not exist. Being an instance admin counts only for the instance admins' own routes,
+page lists its rules. What a caller may not know of, a workspace they are not in, a
+private teamspace they are not in, or to a guest another member, answers `404 not_found`,
+the same as for something that does not exist. The same function refuses API tokens what
+cannot be undone, deleting a workspace and transferring its ownership. Being an instance admin counts only for the instance admins' own routes,
 which show a workspace's name, owners, counts, limits and usage: inside a workspace, an
 instance admin is whatever their membership makes them, which may be nothing.
 

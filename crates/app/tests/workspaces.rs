@@ -58,7 +58,7 @@ async fn creating_a_workspace_makes_its_default_teamspace_and_owner_together(poo
     assert_eq!(workspace.hue(), 200);
     assert!(workspace.members_can_create_teamspaces);
     assert_eq!(created.role, WorkspaceRole::Owner);
-    assert_eq!(created.members, 1);
+    assert_eq!(created.members, Some(1));
     assert_eq!(created.limits.members, None);
 
     let list = h
@@ -266,7 +266,7 @@ async fn owners_and_admins_change_a_workspace_and_members_do_not(pool: PgPool) {
     assert_eq!(updated.workspace.hue(), 30);
     assert!(!updated.workspace.members_can_create_teamspaces);
     assert_eq!(updated.role, WorkspaceRole::Admin);
-    assert_eq!(updated.members, 3);
+    assert_eq!(updated.members, Some(3));
 
     let cleared = h
         .workspaces
@@ -550,9 +550,24 @@ async fn guests_see_only_themselves_and_no_teamspace(pool: PgPool) {
         .change_member_role(&gus, id, ada.user.id, WorkspaceRole::Guest)
         .await;
     assert!(matches!(guessed, Err(WorkspaceError::NotFound(_))));
+    let removed = h.workspaces.remove_member(&gus, id, ada.user.id).await;
+    assert!(matches!(removed, Err(WorkspaceError::NotFound(_))));
+    let nobody = h.workspaces.remove_member(&gus, id, Uuid::now_v7()).await;
     assert_eq!(
-        h.workspaces.workspace(&gus, id).await.expect("seen").role,
-        WorkspaceRole::Guest
+        nobody.expect_err("refused").to_string(),
+        removed.expect_err("refused").to_string(),
+        "someone there and nobody look the same"
+    );
+    let details = h.workspaces.workspace(&gus, id).await.expect("seen");
+    assert_eq!(details.role, WorkspaceRole::Guest);
+    assert_eq!(details.members, None, "a guest learns no head count");
+    assert_eq!(
+        h.workspaces
+            .workspace(&ada, id)
+            .await
+            .expect("seen")
+            .members,
+        Some(2)
     );
 }
 

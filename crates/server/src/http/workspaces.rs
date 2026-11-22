@@ -95,8 +95,10 @@ pub struct Workspace {
     pub summary: WorkspaceSummary,
     /// Members, besides owners and admins, may create teamspaces.
     pub members_can_create_teamspaces: bool,
-    /// How many people are in it, guests included.
-    pub member_count: i64,
+    /// How many people are in it, guests included. Absent for a guest, who knows of no
+    /// member but themselves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
     pub limits: EffectiveLimits,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,

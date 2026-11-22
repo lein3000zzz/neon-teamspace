@@ -12,8 +12,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    NO_WORKSPACE, WorkspaceError, WorkspaceService, actor, locked_membership, membership,
-    require_session,
+    Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor, locked_membership,
+    membership,
 };
 
 /// The name a workspace's default teamspace starts with.
@@ -48,8 +48,8 @@ pub struct WorkspaceDetails {
     pub workspace: Workspace,
     /// The caller's role in it.
     pub role: WorkspaceRole,
-    /// How many people are in it.
-    pub members: i64,
+    /// How many people are in it; unset for a guest, who knows of no member but themselves.
+    pub members: Option<i64>,
     pub limits: Limits,
 }
 
@@ -146,7 +146,7 @@ impl WorkspaceService {
             Ok(WorkspaceDetails {
                 workspace,
                 role: WorkspaceRole::Owner,
-                members: 1,
+                members: Some(1),
                 limits: self.limits(LimitOverrides::default()),
             })
         })
@@ -174,8 +174,7 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             let membership = membership(&mut conn, principal, id).await?;
             membership.check(principal, Action::ViewWorkspace)?;
-            let role = membership.role()?;
-            self.details(&mut conn, membership.workspace, role).await
+            self.details(&mut conn, principal, membership).await
         })
         .await
     }
@@ -190,10 +189,9 @@ impl WorkspaceService {
     ) -> Result<WorkspaceDetails, WorkspaceError> {
         self.observe("update_workspace", async {
             let mut tx = self.pool().begin().await?;
-            let membership = locked_membership(&mut tx, principal, id).await?;
+            let mut membership = locked_membership(&mut tx, principal, id).await?;
             membership.check(principal, Action::UpdateWorkspace)?;
-            let role = membership.role()?;
-            let mut workspace = membership.workspace;
+            let workspace = &mut membership.workspace;
             if let Some(name) = update.name {
                 workspace.name = check_name(&name).map_err(WorkspaceError::invalid)?;
             }
@@ -216,14 +214,14 @@ impl WorkspaceService {
                 workspace.members_can_create_teamspaces = allowed;
             }
             workspace.updated_at = self.now();
-            repo::update(&mut *tx, &workspace).await.map_err(|error| {
+            repo::update(&mut *tx, workspace).await.map_err(|error| {
                 if is_unique_violation(&error, repo::SLUG_TAKEN) {
                     WorkspaceError::SlugTaken
                 } else {
                     WorkspaceError::Database(error)
                 }
             })?;
-            let details = self.details(&mut tx, workspace, role).await?;
+            let details = self.details(&mut tx, principal, membership).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %id, "workspace updated");
             Ok(details)
@@ -232,8 +230,7 @@ impl WorkspaceService {
     }
 
     /// Deletes a workspace with everything in it, for an owner who types its name to
-    /// confirm. Only from a browser session: a token that leaked cannot delete a team's
-    /// work.
+    /// confirm, from a browser session.
     pub async fn delete_workspace(
         &self,
         principal: &Principal,
@@ -241,10 +238,6 @@ impl WorkspaceService {
         confirm_name: &str,
     ) -> Result<(), WorkspaceError> {
         self.observe("delete_workspace", async {
-            require_session(
-                principal,
-                "deleting a workspace needs a browser session: API tokens cannot",
-            )?;
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, id).await?;
             membership.check(principal, Action::DeleteWorkspace)?;
@@ -259,16 +252,23 @@ impl WorkspaceService {
         .await
     }
 
+    /// A workspace as the principal, a member of it, sees it.
     async fn details(
         &self,
         conn: &mut sqlx::PgConnection,
-        workspace: Workspace,
-        role: WorkspaceRole,
+        principal: &Principal,
+        membership: Membership,
     ) -> Result<WorkspaceDetails, WorkspaceError> {
-        let members = repo::count_members(&mut *conn, workspace.id).await?;
-        let limits = self.limits_of(&mut *conn, workspace.id).await?;
+        let role = membership.role()?;
+        let id = membership.workspace.id;
+        let members = if membership.check(principal, Action::ListMembers).is_ok() {
+            Some(repo::count_members(&mut *conn, id).await?)
+        } else {
+            None
+        };
+        let limits = self.limits_of(&mut *conn, id).await?;
         Ok(WorkspaceDetails {
-            workspace,
+            workspace: membership.workspace,
             role,
             members,
             limits,

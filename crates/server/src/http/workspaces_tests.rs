@@ -235,6 +235,42 @@ async fn an_invited_account_accepts_and_teamspaces_show_as_their_access_says(poo
         (peek.status, peek.code()),
         (StatusCode::NOT_FOUND, "not_found")
     );
+    // The admin outside it gets its name and no more, whatever they ask.
+    let by_admin_outside = [
+        t.bob.get(&format!("{base}/teamspaces/{private}")).await,
+        t.bob
+            .get(&format!("{base}/teamspaces/{private}/members"))
+            .await,
+        t.bob
+            .send(
+                Method::PATCH,
+                &format!("{base}/teamspaces/{private}"),
+                Some(json!({"icon": "X"})),
+            )
+            .await,
+        t.bob
+            .post(
+                &format!("{base}/teamspaces/{private}/members"),
+                json!({"user_id": t.dee.get("/api/v1/account/me").await.body["id"]}),
+            )
+            .await,
+    ];
+    for answer in by_admin_outside {
+        assert_eq!(
+            (answer.status, answer.code()),
+            (StatusCode::NOT_FOUND, "not_found"),
+            "{}",
+            answer.body
+        );
+    }
+    let joined = t
+        .bob
+        .post(&format!("{base}/teamspaces/{private}/join"), json!({}))
+        .await;
+    assert_eq!(joined.status, StatusCode::OK, "{}", joined.body);
+    assert_eq!(joined.body["role"], "member");
+    let in_it = t.bob.get(&format!("{base}/teamspaces/{private}")).await;
+    assert_eq!(in_it.status, StatusCode::OK, "in it, they see it in full");
     let by_owner_inside = t.cy.get(&format!("{base}/teamspaces/{private}")).await;
     assert_eq!(by_owner_inside.status, StatusCode::OK);
     assert_eq!(by_owner_inside.body["access"], "private");
@@ -407,6 +443,19 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
         .get(&format!("/api/v1/workspaces/{}/teamspaces", t.workspace))
         .await;
     assert_eq!(as_guest.body["teamspaces"], json!([]));
+    let seen_by_guest = eve
+        .get(&format!("/api/v1/workspaces/{}", t.workspace))
+        .await;
+    assert_eq!(seen_by_guest.body["role"], "guest");
+    assert!(
+        seen_by_guest.body.get("member_count").is_none(),
+        "a guest learns no head count: {}",
+        seen_by_guest.body
+    );
+    let seen_by_member =
+        t.cy.get(&format!("/api/v1/workspaces/{}", t.workspace))
+            .await;
+    assert_eq!(seen_by_member.body["member_count"], 5);
 
     let revoked = t
         .ada

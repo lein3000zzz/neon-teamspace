@@ -29,8 +29,8 @@ only.
 | `hue_override` | A hue from 0 to 359 to draw the workspace in, instead of the one its id hashes to. |
 
 `GET /api/v1/workspaces` lists the caller's workspaces with their role, slug and hue.
-`GET /api/v1/workspaces/{id}` adds the member count, the limits that hold, and the
-workspace's settings. Owners and admins change the name, slug, icon, hue and
+`GET /api/v1/workspaces/{id}` adds the member count, which guests do not get, the limits
+that hold, and the workspace's settings. Owners and admins change the name, slug, icon, hue and
 `members_can_create_teamspaces` with `PATCH /api/v1/workspaces/{id}`; `null` removes the
 icon or the pinned hue. A new name keeps the slug, so links keep working.
 
@@ -43,7 +43,7 @@ Everything in the workspace goes with it: members, teamspaces, invitations and l
 | Role | What it may do |
 |---|---|
 | Owner | Everything, the workspace itself included: change anyone's role, make owners, transfer ownership, delete the workspace. |
-| Admin | Manage members and guests, invitations, invite links and teamspaces, private ones included. Never change or remove an owner, nor make one. |
+| Admin | Manage members and guests, invitations, invite links and teamspaces, a private one once they join it. Never change or remove an owner, nor make one. |
 | Member | Use the workspace and its teamspaces, and create teamspaces unless the workspace's `members_can_create_teamspaces` is off. |
 | Guest | See only the pages shared with them, once pages exist. A guest is in no teamspace, and sees no member but themselves. |
 
@@ -122,9 +122,9 @@ workspace. Other teamspaces have one of three kinds of access:
 `GET /api/v1/workspaces/{id}/teamspaces` lists the teamspaces the caller sees, with their
 role in each, the default one first. For owners and admins, `hidden` lists the private
 teamspaces they are not in, by id and name only. A private teamspace answers `not_found` to
-a member outside it, and its full view stays closed to the workspace's owners and admins
-until they are in it; they may still rename it, change its access, manage its members, add
-themselves, or delete it.
+everyone outside it, the workspace's owners and admins included, whatever they ask of it,
+but for two things they may do: delete it, or join it to manage it, which its members then
+see in its member list.
 
 A teamspace's roles are owner and member. Its creator is its owner. Owners, and the
 workspace's owners and admins, change it, add and remove members and change their roles.
