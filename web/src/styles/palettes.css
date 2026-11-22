@@ -1,0 +1,182 @@
+/*
+ * Palettes x modes.
+ *
+ * Each block below sets raw tokens only. The derived colours (the accent, the
+ * shadcn variables) are declared once at the end for every element that
+ * carries data-palette, so a subtree with its own palette and mode, like the
+ * styleguide's side-by-side panels, re-derives everything from its own tokens.
+ *
+ * The accent is oklch(--accent-l --accent-c --accent-h). Only the hue is the
+ * user's; lightness and chroma are fixed per palette and mode and were chosen
+ * so that accent text on the ground and raised surfaces, and --accent-ink on an
+ * accent fill, stay at or above 4.5:1 for every hue, even when an sRGB display
+ * clips the colour. Light modes sit low and dark modes sit high and saturated,
+ * which is what reads as neon on a dark ground.
+ *
+ * --glow-blur and --glow-alpha are zero in light modes: light stays flat, and
+ * in dark only hue-carrying elements glow.
+ */
+
+/* Nothing: the pure black and white of lein3000.dev. Radius 0, because the
+   only curves in that language are circles and pills. */
+:root,
+[data-palette="nothing"][data-mode="light"] {
+  --bg: #ffffff;
+  --raised: #ffffff;
+  --fg: #000000;
+  /* The site's #7a7a7a is 4.3:1 on white, short of AA; this is 5.1:1. */
+  --fg-muted: #6e6e6e;
+  --line: #d8d8d8;
+  --dot: rgb(0 0 0 / 0.18);
+  --hover: rgb(0 0 0 / 0.05);
+  --ok: oklch(52% 0.13 150);
+  --bad: oklch(52% 0.17 25);
+  --accent-l: 50%;
+  --accent-c: 0.18;
+  --accent-ink: #ffffff;
+  --glow-blur: 0px;
+  --glow-alpha: 0;
+  --radius: 0px;
+}
+
+[data-palette="nothing"][data-mode="dark"] {
+  --bg: #000000;
+  --raised: #0a0a0a;
+  --fg: #ffffff;
+  --fg-muted: #8a8a8a;
+  --line: #262626;
+  --dot: rgb(255 255 255 / 0.16);
+  --hover: rgb(255 255 255 / 0.06);
+  --ok: oklch(74% 0.14 150);
+  --bad: oklch(68% 0.16 25);
+  --accent-l: 82%;
+  --accent-c: 0.19;
+  --accent-ink: #000000;
+  --glow-blur: 14px;
+  --glow-alpha: 0.55;
+  --radius: 0px;
+}
+
+/* Soft: the gentler set from lein3000.dev's base sheet. */
+[data-palette="soft"][data-mode="light"] {
+  --bg: #ffffff;
+  --raised: #f6f7f9;
+  --fg: #14161a;
+  --fg-muted: #59616d;
+  --line: #dfe3e8;
+  --dot: rgb(20 22 26 / 0.14);
+  --hover: rgb(20 22 26 / 0.05);
+  --ok: oklch(52% 0.13 150);
+  --bad: oklch(52% 0.17 25);
+  --accent-l: 48%;
+  --accent-c: 0.16;
+  --accent-ink: #ffffff;
+  --glow-blur: 0px;
+  --glow-alpha: 0;
+  --radius: 0.5rem;
+}
+
+[data-palette="soft"][data-mode="dark"] {
+  --bg: #0e1013;
+  --raised: #16191e;
+  --fg: #e7e9ed;
+  --fg-muted: #98a0ab;
+  --line: #242830;
+  --dot: rgb(231 233 237 / 0.11);
+  --hover: rgb(231 233 237 / 0.06);
+  --ok: oklch(74% 0.14 150);
+  --bad: oklch(68% 0.16 25);
+  --accent-l: 80%;
+  --accent-c: 0.17;
+  --accent-ink: #0e1013;
+  --glow-blur: 12px;
+  --glow-alpha: 0.5;
+  --radius: 0.5rem;
+}
+
+/* Warm: paper and warm charcoal, built like Soft with the neutrals pulled
+   towards yellow-brown and the accent chroma lowered to sit on paper. */
+[data-palette="warm"][data-mode="light"] {
+  --bg: #f7f4ee;
+  --raised: #efeae1;
+  --fg: #23201c;
+  --fg-muted: #665e54;
+  --line: #e0d9cc;
+  --dot: rgb(35 32 28 / 0.15);
+  --hover: rgb(35 32 28 / 0.05);
+  --ok: oklch(50% 0.12 150);
+  --bad: oklch(50% 0.16 30);
+  --accent-l: 47%;
+  --accent-c: 0.15;
+  --accent-ink: #fffdf9;
+  --glow-blur: 0px;
+  --glow-alpha: 0;
+  --radius: 0.625rem;
+}
+
+[data-palette="warm"][data-mode="dark"] {
+  --bg: #1a1815;
+  --raised: #23201c;
+  --fg: #ece6dc;
+  --fg-muted: #a59c8f;
+  --line: #35312b;
+  --dot: rgb(236 230 220 / 0.1);
+  --hover: rgb(236 230 220 / 0.06);
+  --ok: oklch(74% 0.13 150);
+  --bad: oklch(68% 0.15 30);
+  --accent-l: 78%;
+  --accent-c: 0.16;
+  --accent-ink: #1a1815;
+  --glow-blur: 12px;
+  --glow-alpha: 0.45;
+  --radius: 0.625rem;
+}
+
+:root {
+  --accent-h: 250;
+}
+
+:root,
+[data-palette] {
+  color-scheme: light;
+
+  /* shadcn's names. Its --accent is a neutral hover surface; the hue accent is
+     --neon. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--raised);
+  --card-foreground: var(--fg);
+  --popover: var(--bg);
+  --popover-foreground: var(--fg);
+  --primary: var(--neon);
+  --primary-foreground: var(--accent-ink);
+  --secondary: var(--raised);
+  --secondary-foreground: var(--fg);
+  --muted: var(--raised);
+  --muted-foreground: var(--fg-muted);
+  --accent: var(--hover);
+  --accent-foreground: var(--fg);
+  --destructive: var(--bad);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--neon);
+  /* Focus always glows in the user's accent, even inside an element that
+     carries another entity's hue. */
+  --focus-glow: 0 0 var(--glow-blur) 0
+    oklch(var(--accent-l) var(--accent-c) var(--accent-h) / var(--glow-alpha));
+}
+
+[data-mode="dark"] {
+  color-scheme: dark;
+}
+
+/* Hue-carrying tokens. An element showing an entity's own hue sets data-hue
+   plus an inline --accent-h, and these re-derive from it. */
+:root,
+[data-palette],
+[data-hue] {
+  --neon: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --neon-soft: oklch(var(--accent-l) var(--accent-c) var(--accent-h) / 0.12);
+  --glow: 0 0 var(--glow-blur) 0
+    oklch(var(--accent-l) var(--accent-c) var(--accent-h) / var(--glow-alpha));
+}

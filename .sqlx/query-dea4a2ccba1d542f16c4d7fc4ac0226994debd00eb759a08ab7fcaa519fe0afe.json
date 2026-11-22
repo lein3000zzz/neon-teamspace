@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM join_requests\n               WHERE email_normalized = $1 AND approved = false AND decided_at >= $2\n           ) AS \"denied!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "denied!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dea4a2ccba1d542f16c4d7fc4ac0226994debd00eb759a08ab7fcaa519fe0afe"
+}

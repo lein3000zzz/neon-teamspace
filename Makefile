@@ -1,0 +1,231 @@
+# The entry point for local work: `make` lists every target. Works with GNU make 3.81
+# or later and a POSIX shell.
+
+CARGO ?= cargo
+BUN   ?= bun
+SQLX  ?= sqlx
+# Options for cargo-deny, before its command. check adds --offline.
+DENY_FLAGS ?=
+
+API_SPEC      := api/openapi.json
+SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
+# A fixed project name, so db-down stops what db-up started whatever COMPOSE_PROJECT_NAME says.
+DEV_COMPOSE   := docker compose -p neon-dev -f deployments/docker-compose.dev.yml
+# The whole stack: Postgres, the server and Caddy, with the settings in deployments/.env and
+# deployments/server.env. On its own, the file runs the published images.
+STACK_COMPOSE := docker compose -f deployments/docker-compose.yml
+# The same stack with both images built from this checkout, whatever NEON_VERSION says.
+BUILD_COMPOSE := $(STACK_COMPOSE) -f deployments/docker-compose.build.yml
+# Compose reads the whole file, so starting or stopping services that do not use
+# POSTGRES_PASSWORD still needs one.
+NO_DATABASE   := POSTGRES_PASSWORD=unused
+# A throwaway stack for e2e, built from this checkout, beside any other: a project of its own,
+# a free port on loopback, and neither deployments/.env nor deployments/server.env, so the
+# tests see the defaults.
+E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/docker-compose.yml \
+	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
+# The instance name the e2e stack is given, and its tests expect.
+E2E_INSTANCE  := Neon E2E
+# The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
+E2E_ADMIN     := admin@e2e.example
+# The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
+NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
+# Where check builds, so that its offline build never reuses one checked against a database.
+OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
+
+# Astro reports usage over the network unless told not to.
+export ASTRO_TELEMETRY_DISABLED := 1
+
+# Fails, showing the difference, when a command's output is not the committed file.
+# $(call check-generated,FILE,COMMAND,TARGET THAT REWRITES FILE)
+check-generated = set -e; tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; $(2) > "$$tmp"; \
+	diff -u $(1) "$$tmp" || { echo "$(1) is stale: run make $(3)"; exit 1; }; \
+	echo "$(1) is current"
+
+.DEFAULT_GOAL := help
+
+.PHONY: help
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>"} /^## / {printf "\n%s\n", substr($$0, 4)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+## Build and run
+
+.PHONY: build
+build: ## Compile the workspace, checking SQL against DATABASE_URL or, unset, the .sqlx/ cache
+	$(CARGO) build --workspace
+
+.PHONY: run
+run: ## Run the server on :8080 with the variables from .env (after make db-up and make migrate)
+	@test -f .env || { echo "no .env: copy .env.example to .env"; exit 1; }
+	@set -a; . ./.env; set +a; $(CARGO) run -p neon-server -- serve
+
+## Docker stack (deployments/)
+
+.PHONY: up
+up: ## Build both images from this checkout and run the stack on http://127.0.0.1:3000 (Ctrl+C stops it)
+	@test -f deployments/.env || { echo "no deployments/.env: copy deployments/.env.example to deployments/.env and set POSTGRES_PASSWORD"; exit 1; }
+	NEON_DOMAIN= NEON_HTTP_PORT=127.0.0.1:3000 $(BUILD_COMPOSE) up --build
+
+.PHONY: down
+down: ## Stop what make up and make obs-up started; the data stays in volumes
+	$(NO_DATABASE) $(STACK_COMPOSE) --profile mail --profile observability down
+
+.PHONY: obs-up
+obs-up: ## Start Grafana, Prometheus, Tempo, Loki and Pyroscope on http://127.0.0.1:3001, for make run
+	$(NO_DATABASE) $(STACK_COMPOSE) --profile observability up --detach --wait otel-lgtm
+	@echo "Grafana is on http://127.0.0.1:3001 and scrapes the admin listener of make run."
+	@echo "For traces and profiles too, add these to .env and restart make run:"
+	@echo "  NEON_OBSERVABILITY__TRACING__ENABLED=true"
+	@echo "  NEON_OBSERVABILITY__PROFILING__MODE=push"
+	@echo "  NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS=http://127.0.0.1:4040"
+
+## Database
+
+.PHONY: db-up
+db-up: ## Start the development Postgres on 127.0.0.1:55432 and Mailpit on http://127.0.0.1:58025 (Docker)
+	$(DEV_COMPOSE) up -d --wait
+
+.PHONY: db-down
+db-down: ## Stop the development Postgres and Mailpit; the database stays in a volume
+	$(DEV_COMPOSE) down
+
+.PHONY: migrate
+migrate: ## Apply pending migrations to the database DATABASE_URL names (.env)
+	$(SQLX) migrate run
+
+## Rust
+
+.PHONY: fmt
+fmt: ## Format the Rust code
+	$(CARGO) fmt --all
+
+.PHONY: fmt-check
+fmt-check: ## Fail if any Rust file needs formatting
+	$(CARGO) fmt --all --check
+
+.PHONY: lint
+lint: ## Run clippy on every target, warnings as errors
+	$(CARGO) clippy --workspace --all-targets -- -D warnings
+
+.PHONY: test
+test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
+	$(CARGO) test --workspace
+
+## Generated files
+
+.PHONY: sqlx-prepare
+sqlx-prepare: ## Rewrite the .sqlx/ query cache after a query or migration changes (needs the dev database)
+	$(CARGO) sqlx prepare --workspace
+
+.PHONY: sqlx-check
+sqlx-check: ## Fail if the .sqlx/ query cache is stale (needs the dev database)
+	$(CARGO) sqlx prepare --workspace --check
+
+.PHONY: api-spec
+api-spec: ## Rewrite api/openapi.json from the server's routes
+	$(NEON) openapi --out $(API_SPEC)
+	@echo "updated $(API_SPEC); run make web-api to update the web app's types"
+
+.PHONY: api-check
+api-check: ## Fail if api/openapi.json is stale
+	@$(call check-generated,$(API_SPEC),$(NEON) openapi,api-spec)
+
+.PHONY: web-api
+web-api: ## Rewrite the web app's API types from api/openapi.json
+	cd web && $(BUN) run gen:api
+
+.PHONY: docs-gen
+docs-gen: ## Rewrite the docs' settings reference page from the settings registry
+	@set -e; tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	$(NEON) settings docs > "$$tmp"; cat "$$tmp" > $(SETTINGS_PAGE); \
+	echo "updated $(SETTINGS_PAGE)"
+
+## Web app (web/)
+
+.PHONY: web-install
+web-install: ## Install the web app's packages
+	cd web && $(BUN) install --frozen-lockfile
+
+.PHONY: web-dev
+web-dev: ## Run the web app on :5173, passing /api and the server's other paths to make run
+	cd web && $(BUN) run dev
+
+.PHONY: web-check
+web-check: ## Type-check, lint, format-check and test the web app and scripts/; check its API types
+	cd web && $(BUN) run check
+
+.PHONY: web-build
+web-build: ## Build the web app into web/dist, with its third-party notices
+	cd web && $(BUN) run build
+
+## Docs (docs/)
+
+.PHONY: docs-install
+docs-install: ## Install the docs' packages and the headless Chromium that draws their diagrams
+	cd docs && $(BUN) install --frozen-lockfile
+	cd docs && $(BUN) run chromium
+
+.PHONY: docs-dev
+docs-dev: ## Run the docs on :4321/docs/, reloading as pages change
+	cd docs && $(BUN) run dev
+
+.PHONY: docs-build
+docs-build: ## Build the docs into docs/dist, with their Content-Security-Policy
+	cd docs && $(BUN) run build
+
+.PHONY: docs-check
+docs-check: ## Type-check the docs and test their scripts; fail if the settings page is stale
+	cd docs && $(BUN) run check
+	@$(call check-generated,$(SETTINGS_PAGE),$(NEON) settings docs,docs-gen)
+
+## End-to-end tests (e2e/)
+
+.PHONY: e2e-install
+e2e-install: ## Install the end-to-end tests' packages and Playwright's headless Chromium, with its system libraries on CI
+	cd e2e && $(BUN) install --frozen-lockfile
+	cd e2e && $(BUN) run chromium $(if $(CI),--with-deps)
+
+.PHONY: e2e-check
+e2e-check: ## Type-check the end-to-end tests and check their formatting
+	cd e2e && $(BUN) run check
+
+.PHONY: e2e
+# The trap removes the stack, its volumes too, however the run ends, after printing the
+# containers' logs when it failed, and keeps the run's exit status.
+e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
+	@set -e; \
+	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
+		E2E_ADMIN_EMAIL="$(E2E_ADMIN)" E2E_ADMIN_PASSWORD="$$(openssl rand -hex 16)" \
+		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)"; \
+	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
+		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
+	$(E2E_COMPOSE) up --detach --build --wait; \
+	address="$$($(E2E_COMPOSE) port web 80)"; \
+	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
+	(cd e2e && E2E_BASE_URL="http://$$address" $(BUN) run test)
+
+## Checks
+
+.PHONY: licenses
+# Without --offline, cargo-deny first updates its copy of the RustSec advisory database.
+licenses: ## Run cargo-deny's license, advisory, ban and source checks; check the JS packages' licenses
+	$(CARGO) deny $(DENY_FLAGS) check
+	$(BUN) scripts/licenses.ts web
+	$(BUN) scripts/licenses.ts docs
+	$(BUN) scripts/licenses.ts e2e
+
+.PHONY: check
+# Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
+# a target directory of its own: cargo does not rebuild a crate when only SQLX_OFFLINE changes,
+# so in target/ it would reuse queries last checked against the database. cargo-deny reads the
+# advisory database it last fetched, and fails when that copy is more than 90 days old.
+check: export SQLX_OFFLINE := true
+check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
+check: DENY_FLAGS := --offline
+check: fmt-check lint build api-check web-check docs-check e2e-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+	@echo "all checks passed"
+
+.PHONY: clean
+clean: ## Remove build output: target/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
+	$(CARGO) clean
+	rm -rf "$(OFFLINE_TARGET_DIR)" web/dist docs/dist docs/.astro docs/csp.caddy

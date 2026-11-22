@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM join_requests WHERE decided_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3499cd49f10dedbbd65edb37049b4e06e5cec550ea05c890f5141ce97774d6c6"
+}

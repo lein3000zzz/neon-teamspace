@@ -1,0 +1,12 @@
+# Grafana dashboard provisioning for the observability profile: the dashboards in
+# deployments/grafana/dashboards/, mounted beside this file.
+apiVersion: 1
+
+providers:
+  - name: neon
+    folder: Neon Workspace
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/grafana/conf/provisioning/dashboards/neon

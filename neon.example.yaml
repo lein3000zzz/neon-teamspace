@@ -1,0 +1,130 @@
+# Neon Workspace configuration.
+#
+# Copy this file to neon.yaml in the server's working directory, where git ignores it, or
+# set NEON_CONFIG to its path. Every value shown is the default.
+#
+# An environment variable can set any key, and wins over this file. Its name is NEON_
+# followed by the key's path in capitals, with __ between levels. server.listen is
+# NEON_SERVER__LISTEN, and settings.instance.name is NEON_SETTINGS__INSTANCE__NAME.
+
+server:
+  # The address the HTTP API listens on.
+  listen: 0.0.0.0:8080
+  # Where users reach the server, such as https://neon.example.com. Unset by default.
+  # Requests that change something must come from this origin, and over https the session
+  # cookie is Secure and named __Host-neon_session. Unset, the request's Host stands in,
+  # and no mail goes out: its links point here.
+  public_url:
+  # Peers whose X-Forwarded-For names the client, for rate limits: the reverse proxy in
+  # front. Ranges or single addresses. In the environment, separate them with commas. The
+  # default is loopback; name a proxy elsewhere by its address, as anyone a range covers
+  # can pick the address rate limits count.
+  trusted_proxies:
+    - 127.0.0.0/8
+    - ::1/128
+
+database:
+  # The Postgres URL. Required, and better set as NEON_DATABASE__URL, since it holds a
+  # password. For the dev compose file: postgres://neon:neon@127.0.0.1:55432/neon
+  url:
+  # The most connections the server opens to Postgres. The job worker keeps one to listen
+  # for new jobs and queries share the rest, so it must be at least 2.
+  max_connections: 10
+  # Apply pending migrations when the server starts. `neon migrate` applies them too.
+  auto_migrate: true
+
+# The first admin, made as the server starts while no admin can sign in. Set both or
+# neither; once an admin exists they do nothing. Keep the password in NEON_ADMIN__PASSWORD.
+admin:
+  email:
+  password:
+
+secrets:
+  # The keys that seal secrets kept in the database: copies of invite codes, secret
+  # settings, and mail waiting in the queue. Each is an id and 32 random bytes in base64,
+  # such as 2026:<output of openssl rand -base64 32>. The first seals new values; every one
+  # opens what it sealed, so put a new key first to rotate. Better set as
+  # NEON_SECRETS__KEYS, entries separated by commas. None by default: invite codes then
+  # show only once, secret settings cannot be saved, and no mail goes out.
+  keys:
+
+# Logs, metrics, traces, profiles and the internal admin listener. Read once, at start.
+observability:
+  logging:
+    # A filter directive, such as info or info,sqlx=warn. A level below info, such as
+    # debug, traces spans down to that level too, so their log lines carry trace ids. The
+    # default keeps Postgres notices and OpenTelemetry's own messages to warnings.
+    level: info,sqlx::postgres::notice=warn,opentelemetry=warn
+    # json for one object per line, or pretty for indented text to read in a terminal.
+    format: json
+  metrics:
+    # Record metrics and serve them at /metrics on the admin listener.
+    enabled: true
+  tracing:
+    # Export spans over OTLP. Trace ids exist and pass on to jobs either way.
+    enabled: false
+    # The collector's base URL, such as http://otel-lgtm:4318. Unset uses the standard
+    # OTEL_EXPORTER_OTLP_* variables, then http://localhost:4318.
+    endpoint:
+    # The OTLP transport. Only http, OTLP/HTTP with protobuf, is built in.
+    protocol: http
+    # The share of new traces sampled, from 0 to 1.
+    sample_ratio: 1.0
+    # Continue the traceparent and keep the baggage that callers send. Only when every
+    # caller is trusted, such as behind a proxy that strips these headers.
+    trust_incoming: false
+  profiling:
+    # off, pull to serve profiles at /debug/pprof/* on the admin listener, or push to
+    # send them to Pyroscope.
+    mode: off
+    # The profiles to collect: cpu, heap, or both. Heap profiles work on Linux only.
+    profiles: [cpu]
+    push:
+      # The Pyroscope server, such as http://pyroscope:4040. Required in push mode.
+      server_address:
+      # Seconds between uploads.
+      upload_interval_seconds: 10
+      # Labels added to every profile, such as env: prod.
+      tags: {}
+  admin:
+    # Serve /metrics, /livez, /readyz and profiles on an internal listener.
+    enabled: true
+    # Its address. Keep it on loopback or a private network, never public.
+    addr: 127.0.0.1:9090
+
+# Runtime settings. They apply without a restart, and admins change them on the admin
+# page. A value set here or in the environment wins, and the admin page cannot change it.
+# `neon settings docs` lists every setting.
+settings:
+  instance:
+    # The instance's name, shown in the interface and in mail.
+    # name: Neon Workspace
+  auth:
+    # Who may create an account: open, invite or closed.
+    # registration: invite
+    # The fewest characters a new password has, 8 to 128.
+    # min_password_length: 12
+    # How long a browser session lasts unused, and at most.
+    # session_idle_ttl: 7d
+    # session_absolute_ttl: 30d
+    # How long a new invite works, unless its admin sets its end.
+    # invite_ttl: 7d
+  mail:
+    # Send mail through an SMTP server, once host and from are set too. Mail also needs
+    # server.public_url, which its links point to, and secrets.keys, which seals it while
+    # it waits in the queue.
+    # enabled: false
+    # The server's host, such as smtp.example.com, its port, and starttls, tls or none.
+    # host:
+    # port: 587
+    # tls: starttls
+    # The account to sign in with, if the server wants one. Keep the password in
+    # NEON_SETTINGS__MAIL__PASSWORD, or save it on the admin page.
+    # username:
+    # password:
+    # The address mail comes from, such as neon@example.com, and the name beside it;
+    # empty uses the instance's name.
+    # from:
+    # from_name:
+    # Mail admins about each confirmed request to join.
+    # notifications: true

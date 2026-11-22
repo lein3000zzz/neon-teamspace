@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_tokens WHERE expires_at < $1 OR used_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8146b48c1932a59b482416eda9b19af1dc8244f2398cb4b1b6cc0d48a318ae8b"
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "../web/node_modules/oxlint/configuration_schema.json",
+  "extends": ["../web/.oxlintrc.json"],
+  "env": {
+    "browser": false,
+    "node": true
+  },
+  "rules": {
+    "eslint/no-console": "off"
+  }
+}

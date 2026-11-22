@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT code_sealed FROM invites WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code_sealed",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "code_sealed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "78ee90a4969ec017ccc575c1cd54122c931820dabf6eb2ffc650b2c1ad34cb17"
+}

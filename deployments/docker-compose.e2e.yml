@@ -1,0 +1,18 @@
+# Overrides for make e2e: a throwaway stack that runs beside any other, under a project name
+# of its own, with the web origin on a free port of this machine's loopback, which
+# `docker compose port web 80` reports. The server gets the instance name the tests expect,
+# the first admin they sign in as, a key to seal invite codes with, and none of the settings
+# a deployments/server.env in this checkout may hold. make e2e makes the password and the key
+# afresh for each run.
+services:
+  server:
+    env_file: !reset []
+    environment:
+      NEON_SETTINGS__INSTANCE__NAME: ${E2E_INSTANCE_NAME:?make e2e sets E2E_INSTANCE_NAME}
+      NEON_ADMIN__EMAIL: ${E2E_ADMIN_EMAIL:?make e2e sets E2E_ADMIN_EMAIL}
+      NEON_ADMIN__PASSWORD: ${E2E_ADMIN_PASSWORD:?make e2e sets E2E_ADMIN_PASSWORD}
+      NEON_SECRETS__KEYS: ${E2E_SECRET_KEYS:?make e2e sets E2E_SECRET_KEYS}
+
+  web:
+    ports: !override
+      - "127.0.0.1::80"
