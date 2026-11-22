@@ -53,8 +53,8 @@ XmlFragment "document-store"
   `blockGroup` of its children if it has any.
 - The content element's name is the block's type, and its attributes are the block's props.
   y-prosemirror writes every prop that is not `null`, defaults included, so a plain paragraph
-  still carries `backgroundColor="default"`. An optional number with no value, such as an
-  image's `previewWidth`, is written as `undefined`.
+  still carries `backgroundColor="default"`. An optional prop with no value, such as an
+  image's `previewWidth` or a database's `viewId`, is written as `undefined`.
 - Text with marks is one `XmlText` per run of text between hard breaks. Each mark is a
   formatting attribute: `bold`, `italic`, `underline`, `strike` and `code` map to `{}`,
   `textColor` and `backgroundColor` to `{"stringValue": "red"}`, and `link` to
@@ -70,7 +70,8 @@ has, and its reader returns an error for an element it does not know rather than
 
 ### Block types
 
-These are BlockNote's default blocks, as of the version `tools/blocknote-fixtures` pins.
+The editor's schema is BlockNote's default blocks, as of the version
+`tools/blocknote-fixtures` pins, and one block of the app's own. These are the defaults:
 
 | Type | Props | Content |
 |---|---|---|
@@ -89,6 +90,24 @@ These are BlockNote's default blocks, as of the version `tools/blocknote-fixture
 
 Colours are names such as `red` or `blue`, and `default` for none. Alignment is `left`,
 `center`, `right` or `justify`.
+
+The app's own block is a database shown in the page:
+
+| Type | Props | Content |
+|---|---|---|
+| `database` | `databaseId`, empty for a block not given a database yet; `viewId`, the view it shows the database in, `undefined` when it names none | none |
+
+```text
+blockContainer id="block-4"
+  database databaseId="0193a5b2-0000-7000-8000-0000000000d1" viewId=undefined
+```
+
+Its config, the type's name, its props with their defaults and its content, is defined once,
+in `web/src/components/editor/custom-blocks.ts`. The web app's editor makes its block from it
+and draws it, as a placeholder that names the database by its id. The module imports
+nothing, so `tools/blocknote-fixtures` imports it too, by its path, and tests the crate against
+an editor with the same schema. A page opened in an editor without the block would lose it,
+as y-prosemirror deletes what the schema lacks.
 
 ## The model
 
@@ -126,7 +145,7 @@ The crate's functions:
 | `append(txn, fragment, blocks, ids)` | Adds blocks after the last top-level block. |
 | `markdown::to_markdown(document)` | The document as markdown. |
 | `markdown::from_markdown(text)` | The blocks of a markdown text, without ids. |
-| `Document::plain_text()` | The words of the document, for search. |
+| `Document::plain_text()` | The words of the document, for search. Database blocks are left out, as they hold no words of their own. |
 
 Writing gives each block without an id one from the `IdSource` it is passed, parents before
 their children. The crate has no source of randomness of its own. The server passes one that
@@ -155,6 +174,7 @@ pulldown-cmark with GitHub's tables, strikethrough and task lists.
 | table | a pipe table whose first row is the header |
 | image | `![name](url "caption")` on a line of its own |
 | video, audio, file | `:::video [name](url "caption")`, `:::audio ...`, `:::file ...` |
+| database | `:::database <databaseId>`, or `:::database <databaseId> view=<viewId>` when the block names a view |
 | bold, italic, strikethrough | `**bold**`, `*italic*`, `~~strike~~` |
 | underline | `<u>underline</u>` |
 | inline code | `` `code` `` |
@@ -167,8 +187,8 @@ or right alignment gets that alignment, and reading a table gives its cells thei
 
 ### The extension
 
-Markdown has no syntax for toggles or for video, audio and file blocks. A line of three
-colons and a name opens one:
+Markdown has no syntax for toggles, for video, audio and file blocks, or for databases. A
+line of three colons and a name opens one:
 
 ```markdown
 :::toggle A toggle's title, with **styles**
@@ -181,6 +201,8 @@ Its children: any markdown, other toggles too.
 :::
 
 :::video [demo.mp4](https://example.com/demo.mp4 "A caption")
+
+:::database 0193a5b2-0000-7000-8000-0000000000d1 view=0193a5b2-0000-7000-8000-0000000000e1
 ```
 
 - `:::toggle` takes the rest of its line as the title, parsed as markdown. A heading there
@@ -189,6 +211,11 @@ Its children: any markdown, other toggles too.
   item, quote or document the toggle is in also closes it, so a missing `:::` loses nothing.
 - `:::video`, `:::audio` and `:::file` take one link: its text is the file's name, its target
   the URL, and its title the caption.
+- `:::database` takes the database's id, then `view=` and the view's id. The writer leaves out
+  the database's id when it is empty and `view=` when the block names no view. An id that
+  holds anything but ASCII letters, digits, `-`, `_`, `.` and `~` is percent-encoded, as in
+  `50%25`, so a UUID is written as it is and any id comes back the same. Any other word on the
+  line makes it text.
 - A line of colons that closes nothing is text, and so is a line that starts with an escaped
   colon, `\:::`. The writer escapes text that would otherwise read as the extension.
 
@@ -224,7 +251,8 @@ text, and an image inside a paragraph splits it, since images are blocks.
 ## Tested against BlockNote
 
 `tools/blocknote-fixtures` is a small Bun project that runs BlockNote's server-side editor,
-`@blocknote/server-util`. It pins `@blocknote/core`, `@blocknote/react` and
+`@blocknote/server-util`, with the editor's schema: the default blocks, and the app's own made
+from the configs in `custom-blocks.ts`. It pins `@blocknote/core`, `@blocknote/react` and
 `@blocknote/server-util` to 0.57.0, with `yjs` 13.6.33 and `y-prosemirror` 1.3.7, and the web
 app's editor takes the same versions, with `@blocknote/shadcn` at 0.57.0 too. The fixtures live in
 `crates/blocks/tests/fixtures`:
@@ -237,8 +265,9 @@ flowchart LR
 ```
 
 - The corpus is markdown that BlockNote's parser and the crate's should agree on, and blocks in
-  BlockNote's JSON for what markdown cannot carry. Together they cover every default block
-  type and every style.
+  BlockNote's JSON for what markdown cannot carry, among them the app's database block, which
+  BlockNote's parser never makes. Together they cover every block type of the editor's schema
+  and every style.
 - BlockNote turns each sample into a Yjs update, `blocknote/<name>.yjs`, and the blocks it
   reads back from it, `blocknote/<name>.json`. Block ids count up in document order and the
   Yjs client id is fixed, so the files are the same on every run.
@@ -251,7 +280,8 @@ flowchart LR
   update's structure with the one BlockNote writes for the same blocks.
 
 `make blocks-check` runs both directions and fails when any fixture is stale, and `make
-check` includes it. After a change to the corpus, the crate or the BlockNote version, `make
-blocks-fixtures` rewrites the fixtures, BlockNote's first and then the crate's from them.
+check` includes it. After a change to the corpus, the crate, the app's block configs or the
+BlockNote version, `make blocks-fixtures` rewrites the fixtures, BlockNote's first and then the
+crate's from them, and CI runs the block fixtures job on a change to any of them.
 Dependabot bumps the tool's packages in the same pull request as the other JS projects'; CI's
 block fixtures job fails on it until the fixtures are rewritten on that branch.

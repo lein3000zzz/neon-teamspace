@@ -12,7 +12,7 @@ zip that one export writes imports back as the same pages with the same markdown
 Both work in the web app, as [below](#in-the-web-app), and through the API.
 :::
 
-The markdown is GitHub's, with a small extension for toggles and media blocks, as
+The markdown is GitHub's, with a small extension for toggles, media blocks and databases, as
 [Page documents](/docs/architecture/documents/#markdown) lists. Some things a page holds have
 no markdown, such as colours, and an export leaves them out; that page lists them too.
 
