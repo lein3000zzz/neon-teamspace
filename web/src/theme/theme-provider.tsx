@@ -32,6 +32,11 @@ interface ThemeContextValue {
   update: (patch: Partial<ThemePreferences>) => void;
   /** Back to the defaults, and forget the stored choice. */
   reset: () => void;
+  /**
+   * Takes preferences kept elsewhere, the account's, and caches them on this
+   * device for the next first paint. The defaults are cached as no choice.
+   */
+  load: (preferences: ThemePreferences) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -53,8 +58,9 @@ function systemPrefersDark() {
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState(() => loadPreferences(browserStorage()));
-  // Only the user's own changes are written back. Values loaded from storage
-  // are not, so someone who never chose keeps following the defaults.
+  // Only the user's own changes, and the account's choice, are written back.
+  // Values loaded from storage are not, so someone who never chose keeps
+  // following the defaults.
   const pendingWrite = useRef<"save" | "clear" | null>(null);
   const prefersDark = useSyncExternalStore(subscribeToSystemMode, systemPrefersDark);
   const mode = resolveMode(preferences.mode, prefersDark);
@@ -94,12 +100,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPreferences({ ...DEFAULT_PREFERENCES });
   }, []);
 
+  const load = useCallback((next: ThemePreferences) => {
+    pendingWrite.current = isDefault(next) ? "clear" : "save";
+    setPreferences({ ...next });
+  }, []);
+
   const value = useMemo(
-    () => ({ preferences, mode, systemMode, update, reset }),
-    [preferences, mode, systemMode, update, reset],
+    () => ({ preferences, mode, systemMode, update, reset, load }),
+    [preferences, mode, systemMode, update, reset, load],
   );
 
   return <ThemeContext value={value}>{children}</ThemeContext>;
+}
+
+function isDefault(preferences: ThemePreferences): boolean {
+  return (Object.keys(DEFAULT_PREFERENCES) as (keyof ThemePreferences)[]).every(
+    (key) => preferences[key] === DEFAULT_PREFERENCES[key],
+  );
 }
 
 export function useTheme(): ThemeContextValue {

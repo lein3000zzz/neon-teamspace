@@ -55,6 +55,37 @@ parameter or a field it does not send is a type error in the app. The server's t
 app's checks, `bun run check` in `web/`, fail when the committed types no longer match the
 description, so the three cannot drift apart unnoticed.
 
+## Signing in
+
+The app and the API share an origin, so the browser sends the session cookie with every
+request and its `Origin` header satisfies the server's check on requests that change
+something; the app needs no token of its own. The pages are in two layouts: the shell, with
+the sidebar, for everything that needs someone signed in, and a centred card for signing in
+and up, the mailed links and asking to join. [Signing in and
+accounts](/docs/guides/signing-in/) describes them.
+
+- Before any page of the shell loads, the app asks `GET /api/v1/account/me` who is signed
+  in. A 401 means nobody, and leads to `/login` with the page as `next`. Sign-in goes back
+  there only when `next` is a path of this origin.
+- A request that later answers 401 `unauthenticated` means the session ended, and does the
+  same, whatever page sent it. A 401 for a wrong password is the form's to show.
+- A 403 `forbidden` makes the app ask again who is signed in, so a role taken away shows at
+  once; the admin pages then say they are not allowed.
+- A 429 is shown with the wait its `Retry-After` gives. Answers the server chose, any 4xx,
+  are never retried.
+- One-time tokens in mailed links, and an invite link's code, are taken out of the address
+  as their page opens, by replacing the history entry, so they stay out of the browser's
+  history.
+- Signing in or out drops everything the previous user's requests left in memory: their
+  queries, and every mutation with what it sent and got back. A mutation leaves the cache
+  as soon as no page shows it in any case, so a password, a new token's secret or an
+  invite code is kept only while its page is open.
+
+Every form checks what the server would refuse, a password's length from
+`GET /api/v1/auth/config` included, before sending it, and shows the server's own message
+beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
+module each for auth, the account and the admin pages.
+
 ## The theme model
 
 Each person chooses three things, and the app's colours follow from them:
@@ -65,10 +96,10 @@ Each person chooses three things, and the app's colours follow from them:
 - An **accent hue**, from 0 to 359 degrees: on a free slider, or one of the presets around
   the wheel. Blue, 250, is the default.
 
-The defaults are Nothing in system mode. The app keeps the choice in the browser. The server
-can keep it with the account, at `/api/v1/account/preferences`; **planned**, the app saves it
-there, so it follows the person to every browser.
-The theme is applied before the first paint, so a dark page never flashes white.
+The defaults are Nothing in system mode. The choice is kept with the account, at
+`/api/v1/account/preferences`, so it follows the person to every browser: signing in loads
+it, and each change saves it, once a slider drag stops. The browser keeps a copy too, which
+the next visit applies before the first paint, so a dark page never flashes white.
 
 ### Palettes
 

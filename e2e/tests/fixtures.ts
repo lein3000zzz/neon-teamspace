@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type ConsoleMessage, type Page } from "@playwright/test";
 
 export { expect };
 
@@ -33,6 +33,38 @@ export interface ApiErrorBody {
   error: { code: string; message: string };
 }
 
+/**
+ * The first admin of the stack, whom make e2e creates with a fresh password; undefined
+ * against a stack started another way, where the tests that need one are skipped.
+ */
+export const ADMIN = admin();
+
+function admin(): { email: string; password: string } | undefined {
+  const email = process.env.E2E_ADMIN_EMAIL;
+  const password = process.env.E2E_ADMIN_PASSWORD;
+  return email && password ? { email, password } : undefined;
+}
+
+/** Signs in through the form, and waits for the page it leads to. */
+export async function signIn(page: Page, email: string, password: string) {
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeHidden();
+}
+
+/**
+ * The app asks the server who is signed in as it opens, and a visitor without a session
+ * gets the 401 that says nobody is, which Chromium logs as a failed load. That one answer
+ * is how signed-out pages work, not a problem.
+ */
+function signedOutCheck(message: ConsoleMessage): boolean {
+  return (
+    message.text().includes("status of 401") &&
+    new URL(message.location().url, "http://stack.invalid").pathname === "/api/v1/account/me"
+  );
+}
+
 type Options = {
   /** Console errors a test expects, such as the one a 404 page logs for itself. */
   expectedConsoleError: RegExp | undefined;
@@ -54,7 +86,11 @@ export const test = base.extend<Options & { browserProblems: void }>({
       const problems: string[] = [];
       page.on("console", (message) => {
         const text = message.text();
-        if (message.type() === "error" && !(expectedConsoleError?.test(text) ?? false)) {
+        if (
+          message.type() === "error" &&
+          !signedOutCheck(message) &&
+          !(expectedConsoleError?.test(text) ?? false)
+        ) {
           problems.push(`console: ${text}`);
         }
       });
