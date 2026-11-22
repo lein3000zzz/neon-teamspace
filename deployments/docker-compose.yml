@@ -1,4 +1,4 @@
-# Neon Workspace on one machine: Postgres, the server, and Caddy serving the app and the docs.
+# Neon Teamspace on one machine: Postgres, the server, and Caddy serving the app and the docs.
 #
 # Built from this checkout, which docker-compose.build.yml adds:
 #   cp deployments/.env.example deployments/.env     # then set POSTGRES_PASSWORD in it
@@ -43,7 +43,7 @@ services:
 
   # Not published: clients reach it through web, on the same origin as the app.
   server:
-    image: ghcr.io/lein3000zzz/neon-workspace-server:${NEON_VERSION:-latest}
+    image: ghcr.io/lein3000zzz/neon-teamspace-server:${NEON_VERSION:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,7 +83,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/lein3000zzz/neon-workspace-web:${NEON_VERSION:-latest}
+    image: ghcr.io/lein3000zzz/neon-teamspace-web:${NEON_VERSION:-latest}
     depends_on:
       server:
         condition: service_healthy

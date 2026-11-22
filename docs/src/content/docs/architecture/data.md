@@ -1,10 +1,12 @@
 ---
 title: Data and storage
-description: What Neon Workspace keeps in Postgres, how its SQL is checked, how the schema changes, and how the job queue works.
+description: What Neon Teamspace keeps in Postgres, how its SQL is checked, how the schema changes, and how the job queue works.
 ---
 
-Everything Neon Workspace keeps lasting is in one Postgres 18 database: settings, the job
-queue, accounts, sessions, invites, and, as they arrive, workspaces and their content. There is no
+Everything Neon Teamspace keeps lasting is in one Postgres 18 database: settings, the job
+queue, accounts, sessions, invites, workspaces with their members, teamspaces, invitations
+and invite links, pages with their shares and favorites, and, as it arrives, their content.
+There is no
 cache server and no message broker beside it. Attachments are the one exception, **planned**:
 they go to local disk or an S3-compatible store, as files are better kept outside the
 database.
@@ -71,8 +73,10 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`; outgoing webhooks and exports will be, **planned** with the features that need
-them. The hourly cleanup of expired sessions, links and invites is not a job but a
+`mail.send`; outgoing webhooks will be, **planned** with the feature. Imports and exports are
+not jobs: the request that asks for one waits for it, within
+[their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
+answer. The hourly cleanup of expired sessions, links and invites is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
@@ -157,19 +161,51 @@ is also a row of `settings_audit`, with the value before and after, who made it 
 Secret values are recorded as redacted. How the database fits with the environment and the
 file is in [Configuration](/docs/self-hosting/configuration/).
 
+## Pages
+
+Each page is a row of `pages`, in one workspace and in exactly one space: `teamspace_id` for
+a teamspace's page, `owner_id` for a private one. Its `parent_id` points to the page it is
+under. Composite foreign keys keep a parent in the same workspace and the same space, and
+deleting a page, a teamspace or a workspace deletes the pages in or under it, with
+everything that belongs to them.
+
+Siblings sort by `position`, a key of the characters `0-9A-Za-z` that the column compares
+byte by byte, with the `C` collation, whatever the database's locale. The server works out a
+new key from its neighbours' keys alone; [Pages](/docs/guides/pages/#order) describes how.
+
+A change to a workspace's tree, making, moving, trashing, restoring or deleting a page,
+first takes a transaction-scoped advisory lock on that workspace's tree. Such changes run
+one at a time, so a new key comes from siblings that nothing else is moving, and two moves
+at once cannot close a cycle between them. Moving a page to another space rewrites the
+space of every page under it in the same statement, and the foreign keys hold once the
+statement ends. The trees themselves are read with recursive queries, which also carry the
+shares a person has down each branch.
+
+Trashing a page sets `trashed_at` on it and on every page under it that is not in the trash
+already, with `trashed_with` naming the page trashed. Restoring brings back the pages with
+the same `trashed_with` down from the restored one, so a subpage trashed on its own earlier
+stays where it is. `page_shares` holds each share, `favorites` each account's favorites with
+keys of their own; both go when their page goes, and when the person leaves the workspace.
+
 ## Content
 
-**Planned.** Content is stored according to how it is edited:
+Content is stored according to how it is edited. Pages' documents are kept as below;
+database properties, search and attachments are **planned**.
 
-- **Pages** are Yjs documents. Postgres keeps each page's log of updates, and from time to
-  time a snapshot of the whole document, after which older updates are compacted into it.
-  Page history is built from the snapshots.
+- **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
+  numbered in order with their authors, and the latest snapshot of the whole document,
+  `page_snapshots`, which takes in the updates before it: they are deleted in the same
+  transaction. An imported page starts with a snapshot of its content and an empty log.
+  Page history, **planned**, is to be built from the snapshots. What a document
+  holds, and how the server reads it, is in [Page documents](/docs/architecture/documents/);
+  how the live documents log and compact, in [Real-time sync](/docs/architecture/realtime/#saving).
 - **Database properties**, such as a row's status or assignee, are plain columns and rows,
   so views filter, sort and group them in SQL.
 - **Search** uses Postgres full-text search with the `simple` configuration, which does not
   stem words and so works the same for any language, together with `pg_trgm` for partial
-  words and typos. A page's search text is updated in the same transaction that stores its
-  snapshot, so search never waits on the job queue.
+  words and typos. A page's search text, `pages.search_text`, is updated in the same
+  transaction that stores its snapshot, so search never waits on the job queue. That text
+  is written already; the search over it is to come.
 - **Attachments** go through an object store: a directory on local disk by default, or any
   S3-compatible service, such as SeaweedFS. They count toward the workspace's storage limit.
 

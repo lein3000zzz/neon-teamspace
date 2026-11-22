@@ -1,0 +1,270 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain (id, parent_id, depth) AS (\n               SELECT id, parent_id, 0 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT p.id, p.parent_id, c.depth + 1\n               FROM chain c JOIN pages p ON p.id = c.parent_id\n               WHERE c.depth < $3\n           )\n           SELECT p.id, p.workspace_id, p.teamspace_id, p.owner_id, p.parent_id, p.position,\n                  p.title, p.icon, p.cover, p.font, p.small_text, p.full_width, p.created_by,\n                  p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,\n                  p.trashed_at, p.trashed_by, p.trashed_with, s.access AS \"shared?\"\n           FROM chain c\n           JOIN pages p ON p.id = c.id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $2\n           ORDER BY c.depth",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "teamspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "teamspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "owner_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "owner_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "parent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "position",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "icon"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "cover",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "cover"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "font",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "font"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "small_text",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "small_text"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "full_width",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "full_width"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "last_edited_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "last_edited_by"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "content_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "content_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "trashed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "trashed_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_by"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "trashed_with",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "trashed_with"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "shared?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "access"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "2bd55474a5ea2185b0d7c296ac3bb5e5d4207bdcc23652e6028c9edca1e42f76"
+}

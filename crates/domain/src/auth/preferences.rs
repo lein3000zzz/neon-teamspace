@@ -6,6 +6,10 @@ use serde_json::{Map, Value as Json, json};
 /// The largest accent hue, in degrees; 360 would be 0 again.
 pub const HUE_MAX: u16 = 359;
 
+/// The accent where neither the user nor a workspace gives one: a blue. Mail, which no
+/// workspace frames, is drawn in it.
+pub const DEFAULT_ACCENT_HUE: u16 = 250;
+
 macro_rules! options {
     ($(#[$doc:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
         $(#[$doc])*
@@ -54,17 +58,19 @@ pub struct InvalidHue;
 pub struct Preferences {
     pub palette: Palette,
     pub mode: Mode,
-    accent_hue: u16,
+    /// The user's own accent; `None` to take the hue of the workspace in view.
+    accent_hue: Option<u16>,
     pub ui_font: UiFont,
 }
 
 impl Default for Preferences {
-    /// The web app's defaults: the Nothing palette, the system's mode, a blue accent.
+    /// The web app's defaults: the Nothing palette, the system's mode, and the accent of
+    /// the workspace in view.
     fn default() -> Self {
         Self {
             palette: Palette::Nothing,
             mode: Mode::System,
-            accent_hue: 250,
+            accent_hue: None,
             ui_font: UiFont::Default,
         }
     }
@@ -74,10 +80,10 @@ impl Preferences {
     pub fn new(
         palette: Palette,
         mode: Mode,
-        accent_hue: u16,
+        accent_hue: Option<u16>,
         ui_font: UiFont,
     ) -> Result<Self, InvalidHue> {
-        if accent_hue > HUE_MAX {
+        if accent_hue.is_some_and(|hue| hue > HUE_MAX) {
             return Err(InvalidHue);
         }
         Ok(Self {
@@ -88,7 +94,8 @@ impl Preferences {
         })
     }
 
-    pub fn accent_hue(&self) -> u16 {
+    /// The user's own accent, if they chose one.
+    pub fn accent_hue(&self) -> Option<u16> {
         self.accent_hue
     }
 
@@ -109,7 +116,7 @@ impl Preferences {
                 .and_then(Json::as_u64)
                 .and_then(|hue| u16::try_from(hue).ok())
                 .filter(|hue| *hue <= HUE_MAX)
-                .unwrap_or(defaults.accent_hue),
+                .or(defaults.accent_hue),
             ui_font: text("ui_font")
                 .and_then(UiFont::parse)
                 .unwrap_or(defaults.ui_font),
@@ -133,12 +140,27 @@ mod tests {
 
     #[test]
     fn stored_preferences_round_trip() {
-        let preferences =
-            Preferences::new(Palette::Warm, Mode::Dark, 25, UiFont::Mono).expect("valid");
+        for accent in [Some(25), None] {
+            let preferences =
+                Preferences::new(Palette::Warm, Mode::Dark, accent, UiFont::Mono).expect("valid");
 
+            assert_eq!(
+                Preferences::from_stored(&preferences.to_stored()),
+                preferences
+            );
+        }
+    }
+
+    #[test]
+    fn the_accent_follows_the_workspace_unless_chosen() {
+        assert_eq!(Preferences::default().accent_hue(), None);
         assert_eq!(
-            Preferences::from_stored(&preferences.to_stored()),
-            preferences
+            Preferences::from_stored(&json!({"accent_hue": null})).accent_hue(),
+            None
+        );
+        assert_eq!(
+            Preferences::from_stored(&json!({"accent_hue": 250})).accent_hue(),
+            Some(250)
         );
     }
 
@@ -155,7 +177,7 @@ mod tests {
 
         assert_eq!(preferences.palette, Palette::Soft);
         assert_eq!(preferences.mode, Mode::System);
-        assert_eq!(preferences.accent_hue(), 250);
+        assert_eq!(preferences.accent_hue(), None);
         assert_eq!(preferences.ui_font, UiFont::Default);
         assert_eq!(
             Preferences::from_stored(&json!([1, 2])),
@@ -163,19 +185,27 @@ mod tests {
         );
         assert_eq!(
             Preferences::from_stored(&json!({"accent_hue": -1})).accent_hue(),
-            250
+            None
         );
         assert_eq!(
             Preferences::from_stored(&json!({"accent_hue": 12.5})).accent_hue(),
-            250
+            None
         );
     }
 
     #[test]
     fn hues_stop_at_359() {
-        assert!(Preferences::new(Palette::Nothing, Mode::Light, HUE_MAX, UiFont::Default).is_ok());
+        assert!(
+            Preferences::new(
+                Palette::Nothing,
+                Mode::Light,
+                Some(HUE_MAX),
+                UiFont::Default
+            )
+            .is_ok()
+        );
         assert_eq!(
-            Preferences::new(Palette::Nothing, Mode::Light, 360, UiFont::Default),
+            Preferences::new(Palette::Nothing, Mode::Light, Some(360), UiFont::Default),
             Err(InvalidHue)
         );
     }

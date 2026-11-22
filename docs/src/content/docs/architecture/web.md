@@ -5,7 +5,8 @@ description: How the web app is built, how its API types stay in step with the s
 
 The web app is a single-page app in `web/`: React and TypeScript, built with Vite into static
 files that Caddy serves. Bun installs its packages and runs its scripts. It talks to the
-server only through the JSON API under `/api/v1` and, as they arrive, the WebSocket at `/ws`.
+server only through the JSON API under `/api/v1` and the WebSocket of
+[real-time sync](/docs/architecture/realtime/), under `/ws`, which syncs a page.
 
 ## The stack
 
@@ -20,9 +21,9 @@ server only through the JSON API under `/api/v1` and, as they arrive, the WebSoc
 | oxlint, prettier | Lint and formatting. |
 | vitest, MSW | Tests of pages and components against a stand-in API. |
 
-**Planned.** The editor is BlockNote, with its shadcn variant, on the page's Yjs document.
-Its core is licensed MPL-2.0. Its XL packages are licensed GPL-3.0 and are not used; see
-[the license](/docs/architecture/decisions/#the-license).
+The editor is BlockNote, with its shadcn variant, on the page's Yjs document; see
+[Pages and the editor](#pages-and-the-editor). Its core is licensed MPL-2.0. Its XL packages
+are licensed GPL-3.0 and are not used; see [the license](/docs/architecture/decisions/#the-license).
 
 The interface is in English, with every string kept in one module, so a translation can
 follow without hunting through components. The app is responsive and works in a phone's
@@ -69,8 +70,13 @@ accounts](/docs/guides/signing-in/) describes them.
   there only when `next` is a path of this origin.
 - A request that later answers 401 `unauthenticated` means the session ended, and does the
   same, whatever page sent it. A 401 for a wrong password is the form's to show.
-- A 403 `forbidden` makes the app ask again who is signed in, so a role taken away shows at
-  once; the admin pages then say they are not allowed.
+- A 403 `forbidden` makes the app ask again who is signed in, and read the list of
+  workspaces, with the roles in them, again, so a role taken away, on the instance or in a
+  workspace, shows at once; the admin pages then say they are not allowed. After a refused
+  change, every workspace's data is read again. After a refused read, only the data of a
+  workspace where the role did change: reading again what was just refused, with nothing
+  changed, would be refused again, and start the same again. A read already on its way is
+  waited for, not sent again.
 - A 429 is shown with the wait its `Retry-After` gives. Answers the server chose, any 4xx,
   are never retried.
 - One-time tokens in mailed links, and an invite link's code, are taken out of the address
@@ -84,7 +90,90 @@ accounts](/docs/guides/signing-in/) describes them.
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message
 beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
-module each for auth, the account and the admin pages.
+module each for auth, the account, the admin pages, workspaces, teamspaces and pages.
+
+## Workspaces
+
+A workspace's pages hang under `/w/{slug}`. The app finds the slug in the user's own list of
+workspaces, `GET /api/v1/workspaces`, and asks for the rest by the workspace's id, as the
+API takes ids only. A slug not in the list is **Workspace not found**, whether no workspace
+has it or the user is not in it. [Workspaces and teamspaces](/docs/guides/workspaces/)
+describes the pages.
+
+- The workspace used last is kept in `localStorage`, by account and by the workspace's id,
+  which outlives a new slug; `/` opens it while the user is still in it.
+- Each workspace's data is cached under its own key, so a change to who is in it refreshes
+  all of it at once. A `404 not_found` from a workspace's data reads the list again, as the
+  user may have been removed from it.
+- `web/src/lib/workspace-rules.ts` repeats the server's [permissions](/docs/reference/permissions/)
+  only to decide which controls to show; the server decides.
+- An invite link's token is moved out of the address into the tab's `sessionStorage`, which
+  outlives signing in on the way, and is dropped once the link is used or turns out not to
+  work. A preview asks what the link admits to without using it, through
+  `POST /api/v1/workspace-invite-links/preview`.
+
+## Pages and the editor
+
+A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
+[Editing pages](/docs/guides/editing-pages/) describes them. The calls are in
+`web/src/api/pages.ts`, cached under the workspace's key like the rest of its data:
+
+- Each tree, a teamspace's, the private and the shared one, is read whole, part after part
+  when it has more than 1000 pages, and the sidebar builds its rows from the list.
+- A change to a page's place, a move, a trash, a restore, reads the trees, the favorites,
+  the trash and every page read again, as the pages under it go along.
+- A title is shown in the trees, the favorites and the ways down to pages as it is typed,
+  by writing it into those cached lists, and saved over `PATCH /api/v1/pages/{id}` once
+  typing pauses for half a second, or as the field is left.
+- An import sends its file as a form to `POST /api/v1/workspaces/{id}/pages/import`, after
+  checking its name and size, then reads the trees again. An export reads the file as a blob
+  and saves it through a link to an object URL, named after its `Content-Disposition`, so
+  the app can show the server's message when it refuses; the file is saved from the request
+  itself, even once the menu that asked is gone.
+- `web/src/lib/page-rules.ts` repeats the page rules only to decide which controls show.
+- The page trees' open pages, folded sections and the page being dragged are kept while the
+  app runs, shared by the sidebar's column and its drawer.
+
+The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
+about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
+document, to the `XmlFragment` named `document-store` that
+[Page documents](/docs/architecture/documents/) describes, and syncs it with the stock
+`y-websocket` provider:
+
+- It connects to `/ws/pages/{id}` on the app's own origin, `wss:` over HTTPS, so the session
+  cookie goes with the upgrade and the Content-Security-Policy's `connect-src 'self'` covers
+  it.
+- The y-sync protocol carries the document, and awareness carries each person's cursor and
+  presence: their name, their id, and their hue, which the server writes into each state
+  itself. The app still cleans every state it gets before the editor reads it
+  (`cleanState` in `cursor.ts`): it keeps the name, the id, the hue and the cursor's two
+  positions, checked, and makes the selection's colour from the hue, as y-prosemirror
+  writes that colour into a style attribute as it finds it.
+- Tabs do not sync with each other through a `BroadcastChannel`, as the provider can, so
+  every change goes through the server and its checks.
+- Nothing can be typed until the server sent the document once, nor once it ended the
+  connection for good. A viewer's editor never takes input.
+- The server's auth messages turn the editor read-only, permission denied, or back,
+  permission granted, as access changes, and the app reads the page again; y-websocket on
+  its own only logs a denial.
+- After a close, `afterClose` in `connection.ts` decides from the code. 4408 and 4429, a
+  client that fell behind or sent too much, are tried again after a pause of a second,
+  doubled each time up to 30 seconds. 1009 and 4413, a change too large, 4401, 4403, 4404,
+  and the codes of a message the server could not read stop it: sending the same again
+  would be refused again, so the app says why and reads the page again, and **Reconnect**
+  starts from a new copy of the document. Any other close is tried again at once, with
+  changes kept until the connection is back.
+- A paste whose text, with what its blocks cost, comes to more than 3 MiB is refused
+  before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
+
+BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
+every palette and mode: its `--bn-` variables take the palette's tokens, its text and
+highlight colours sit at the accent's lightness and chroma at fixed hues, and its shadcn
+menus use the app's shadcn variables, which Tailwind generates for its components too.
+Others' cursors carry their hue the way other elements do, with `data-hue` and
+`--accent-h`, so each is drawn at the reader's own lightness and chroma, and glows in dark
+mode. The tint over the text someone selects is the one colour drawn outside the theme:
+y-prosemirror writes it as an sRGB colour, which the app derives from their hue.
 
 ## The theme model
 
@@ -93,13 +182,20 @@ Each person chooses three things, and the app's colours follow from them:
 - A **palette**: Nothing, Soft or Warm.
 - A **mode**: system, light or dark. System follows the operating system's setting, and
   changes with it.
-- An **accent hue**, from 0 to 359 degrees: on a free slider, or one of the presets around
-  the wheel. Blue, 250, is the default.
+- An **accent hue**: by default the hue of the workspace in view, so each workspace looks
+  like itself to everyone in it; or one of the person's own, from 0 to 359 degrees, on a
+  free slider or one of the presets around the wheel.
 
-The defaults are Nothing in system mode. The choice is kept with the account, at
-`/api/v1/account/preferences`, so it follows the person to every browser: signing in loads
-it, and each change saves it, once a slider drag stops. The browser keeps a copy too, which
-the next visit applies before the first paint, so a dark page never flashes white.
+The defaults are Nothing in system mode, with the workspace's accent. The choice is kept with
+the account, at `/api/v1/account/preferences`, so it follows the person to every browser:
+signing in loads it, and each change saves it, once a slider drag stops. An `accent_hue` of
+`null` there is the workspace's. The browser keeps a copy too, which the next visit applies
+before the first paint, so a dark page never flashes white.
+
+Without an accent of their own, a person sees the app in the hue of the workspace the sidebar
+shows: the one in view, or, on pages outside any such as their account's, the one they used
+last. In no workspace, it is a blue, hue 250. The browser keeps that hue for the next first
+paint too.
 
 ### Palettes
 
@@ -138,18 +234,23 @@ card's border. Everything else stays flat.
 
 ### Hues of things
 
-**Planned**, as the things they colour arrive. Users, agents, integrations, teamspaces,
-workspaces and databases each have a hue of their own, worked out from their ID:
+Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
+agents, integrations and databases will too, **planned**, as they arrive:
 
-1. Take the UUID's 16 bytes.
-2. Hash them with 32-bit FNV-1a.
+1. Take the UUID's 16 bytes, in order. Only the canonical form, 8-4-4-4-12 hex digits in
+   any case, counts as a UUID; any other ID is hashed as its UTF-8 text.
+2. Hash them with 32-bit FNV-1a, offset basis `0x811c9dc5`, prime `0x01000193`.
 3. The hue is the hash modulo 360.
 
 Every browser and the server get the same hue for the same ID, with nothing to choose, store
-or sync, and a person's cursor, avatar and mentions share one colour everywhere. Only the hue
-comes from the ID: lightness and chroma come from the palette and mode, as for the accent, so
-the contrast holds whatever hue an ID lands on. A teamspace can pin a hue of its own
-instead.
+or sync, and a person's cursor, avatar and mentions share one colour everywhere. The web
+app's `hueFor` and the server's `hue_for` share the test vectors in
+`web/src/lib/hue-vectors.json`, and both test suites check every one. Only the hue comes from
+the ID: lightness and chroma come from the palette and mode, as for the accent, so the
+contrast holds whatever hue an ID lands on.
+
+A user, workspace or teamspace can pin a hue of its own instead. The API sends both: `hue`,
+the one to draw, and `hue_override`, the pinned one when there is one.
 
 ## Fonts
 
@@ -158,8 +259,8 @@ Apple systems, Segoe UI on Windows, and the platform's default elsewhere. Nothin
 downloaded for it.
 
 - **Per person**, the interface's font is Default or Mono.
-- **Per page**, **planned**: Default, Serif or Mono, as in Notion, and small text and full
-  width. Serif is the system's serif stack.
+- **Per page**: Default, Serif or Mono, as in Notion, and small text and full width. Serif
+  is the system's serif stack. The page's title and content take its font.
 - **Mono** is iA Writer Mono, licensed under the SIL Open Font License and bundled with the
   app, so it is the same on every system and served from the same origin.
 

@@ -1,6 +1,6 @@
 # web
 
-The browser UI of Neon Workspace. It is a single-page app built with React 19, Vite, TanStack
+The browser UI of Neon Teamspace. It is a single-page app built with React 19, Vite, TanStack
 Router and Query, Tailwind CSS v4 and shadcn/ui components. The `neon` server and this app share
 one origin, so the UI calls `/api/v1/...` directly and session cookies need no CORS setup. The
 mobile and desktop shells load the same UI, which is why every screen works from 360px wide with
@@ -101,8 +101,8 @@ still loads. Either way, new choices apply for the rest of the visit without bei
 ## Signing in and the API
 
 Every call to the server goes through `src/api`: `client.ts` is the typed `openapi-fetch` client,
-and `auth.ts`, `account.ts` and `admin.ts` hold the TanStack Query queries and mutations of each
-part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
+and `auth.ts`, `account.ts`, `admin.ts`, `workspaces.ts`, `teamspaces.ts` and `pages.ts` hold
+the TanStack Query queries and mutations of each part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
 cookie, sent because the app and the API share an origin; the same origin satisfies the server's
 check of `Origin` on requests that change something.
 
@@ -120,6 +120,58 @@ clears every one along with the previous user's queries (`forgetPrivateData` in
 Search values stay strings (`src/router.tsx`), and the one-time token of a mailed link, or an
 invite link's code, is taken out of the address as its page opens (`useLinkSecret` in
 `src/lib/links.ts`).
+
+## Workspaces
+
+A workspace's pages are under `/w/$slug` (`src/routes/_app/w`). Its layout finds the slug in the
+user's list of workspaces and hands the workspace down with `useWorkspace()`; the sidebar's
+switcher and teamspace list read the same list through `useCurrentWorkspace()`
+(`src/components/workspaces/workspace-context.tsx`). `/` opens the workspace used last in this
+browser, kept per account in `localStorage` (`src/lib/last-workspace.ts`).
+
+Each workspace's queries sit under one key, `keys.workspace(id)`, so a change to its members
+refreshes all of them. `createQueryClient` also reads the workspaces again after a 403, as a
+role may have changed, and the list after a workspace's data answers 404, as the user may have
+been removed. `src/lib/workspace-rules.ts` repeats the server's permission rules only to decide
+which controls a role sees; the server's answer still decides, and a refusal shows like any
+other error.
+
+A workspace invite link, `/workspace-invite/$token`, moves its token into the tab's
+`sessionStorage` and out of the address, so it survives the way through signing in or up; the
+start page sends the tab back to it while it is held. Leaving or deleting a workspace, or
+changing its slug, moves the page on from the mutation's own `onSuccess`, before the workspace
+leaves the cache: a page whose workspace is gone unmounts, and with it its `mutate()` callbacks.
+
+## Pages and the editor
+
+A page is at `/w/$slug/p/$pageId` (`src/pages/pages/page.tsx`) and the trash at
+`/w/$slug/trash`. `src/api/pages.ts` holds their calls, under the workspace's key: the trees
+(`keys.pageTrees`), each page and what hangs under it (`keys.pages`), the trash and the
+favorites. The sidebar's trees are in `src/components/pages`; which pages are open, which
+sections folded and which page is being dragged live in `PageNavProvider`, shared by the
+column and the drawer. A title typed in a page's header is written into the cached trees
+as it is typed (`showPage`) and saved once typing pauses. `import-dialog.tsx` imports
+markdown into a page, a teamspace or the private pages, and the page menu and the teamspace
+page export it, saving the file with `saveFile` (`src/lib/download.ts`).
+
+The editor (`src/components/editor`) is BlockNote with its shadcn variant, at exactly the
+versions `tools/blocknote-fixtures` pins, with no XL package. `React.lazy` loads it, so its
+chunk only comes with a page. It binds the page's Yjs document, the `document-store`
+fragment the server's `neon-blocks` reads, through the stock `y-websocket` provider on
+`/ws/pages/{id}` of this origin. `connection.ts` turns the provider's events into the states
+the page shows: it decides from a close code whether to try again (`afterClose`), reads the
+server's auth messages, which turn the editor read-only and back, and cleans others'
+awareness states before the editor reads them. `cursor.ts` draws others' cursors in their
+hue, and `paste.ts` refuses a paste larger than the server takes. `lib0`, the encoding
+library y-websocket's messages are read with, is a dependency for those message handlers.
+`src/styles/editor.css`
+puts BlockNote on the theme's tokens; `index.css` has Tailwind generate the utilities its
+shadcn components use. BlockNote also asks for `interactive-widget=resizes-content` in the
+viewport meta tag, which `index.html` has, so a phone's keyboard resizes the page rather
+than covering it.
+
+The tests talk to an MSW fake of the page routes (`src/test/pages.ts`) and, for the editor,
+to a fake of the sync endpoint speaking the y-websocket protocol (`src/test/sync.ts`).
 
 ## Content-Security-Policy
 

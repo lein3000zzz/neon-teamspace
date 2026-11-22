@@ -1,4 +1,4 @@
-# Neon Workspace
+# Neon Teamspace
 
 A self-hosted team workspace with block-based pages, databases and kanban boards, real-time
 collaborative editing, and AI agents as first-class teammates over MCP.
@@ -13,6 +13,7 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | Path | What it holds |
 |---|---|
 | `crates/domain` | Domain types, validation and permission rules. No I/O. |
+| `crates/blocks` | A page's block document: its model, read from and written to the page's Yjs document, and markdown. No I/O. |
 | `crates/store` | Postgres repositories. |
 | `crates/app` | Use cases, transactions, and the ports for side effects. |
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
@@ -23,15 +24,17 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
 | `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check. |
+| `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
 
-Dependencies only point inward: `server` → `app` → `store` → `domain`. Each crate's
-`Cargo.toml` lists what it may use, so the compiler enforces the direction.
+Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands
+beside `domain`, depending on neither. Each crate's `Cargo.toml` lists what it may use, so the
+compiler enforces the direction.
 
 ## Running it with Docker
 
 Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
-`ghcr.io/lein3000zzz/neon-workspace-server`, the `neon` binary on distroless, and
-`ghcr.io/lein3000zzz/neon-workspace-web`, Caddy with the app and the docs, which passes the
+`ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
+`ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes the
 server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
 Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
 `deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
@@ -121,12 +124,13 @@ make web-dev               # http://localhost:5173/, passing /api and the server
 make docs-install
 make docs-dev              # http://localhost:4321/docs/
 make e2e-install           # the end-to-end tests' packages, which make check checks too
+make blocks-install        # BlockNote, for the block fixtures, which make check checks too
 ```
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and
 the advisory database are downloaded, no network: formatting, clippy, a build from the
 `.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
-checks, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+checks, the block fixtures in both directions, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -162,6 +166,7 @@ that fails when it is stale.
 | `web/src/api/schema.d.ts` | `api/openapi.json` | `make web-api` | `make web-check` |
 | `.sqlx/`, the query cache that lets the build check SQL without a database | a query or a migration | `make sqlx-prepare` | `make sqlx-check` |
 | `docs/src/content/docs/reference/settings.md` | a runtime setting, added or changed | `make docs-gen` | `make docs-check`, and a server test |
+| `crates/blocks/tests/fixtures/blocknote/` and `rust-out/`, the Yjs updates and blocks BlockNote and `neon-blocks` write for the fixture corpus | the corpus, `crates/blocks`, or the BlockNote version in `tools/blocknote-fixtures` | `make blocks-fixtures` | `make blocks-check` |
 
 The web app's route tree, `web/src/routeTree.gen.ts`, is generated and committed too. It has
 no target: the TanStack Router plugin rewrites it whenever `make web-dev` or `make web-build`
@@ -177,6 +182,7 @@ GitHub Actions runs three workflows.
   - **Web app:** `make web-install web-check web-build` and the license check for `web/`.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
+  - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
   - **Secret scan:** gitleaks over the run's new commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
@@ -185,7 +191,7 @@ GitHub Actions runs three workflows.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag.
   - It runs the end-to-end tests, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
-  - It pushes them to `ghcr.io/lein3000zzz/neon-workspace-server` and `-web`, then creates a GitHub release with generated notes.
+  - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
@@ -194,8 +200,8 @@ Dependabot opens one grouped pull request per ecosystem each month, targeting `d
 
 Every dependency must be under a license that `deny.toml` allows. `make licenses` runs all of
 cargo-deny's checks on the crates (licenses, advisories, bans and sources), then checks the
-packages installed in `web/`, `docs/` and `e2e/` with `scripts/licenses.ts`, which reads the
-same allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
+packages installed in `web/`, `docs/`, `e2e/` and `tools/blocknote-fixtures/` with
+`scripts/licenses.ts`, which reads the same allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
 with the reason none of it ships.
 
 What ships carries its dependencies' license notices. The web app's and the docs' builds

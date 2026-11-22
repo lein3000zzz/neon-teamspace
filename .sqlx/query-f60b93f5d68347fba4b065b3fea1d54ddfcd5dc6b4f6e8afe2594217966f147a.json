@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE up (start, id, depth) AS (\n               SELECT id, id, 0 FROM pages WHERE id = ANY($2)\n             UNION ALL\n               SELECT u.start, p.parent_id, u.depth + 1\n               FROM up u JOIN pages p ON p.id = u.id\n               WHERE p.parent_id IS NOT NULL AND u.depth < $3\n           )\n           SELECT start AS \"id!\" FROM up WHERE id = $1\n           UNION\n           SELECT gone.id AS \"id!\" FROM unnest($2::uuid[]) AS gone (id)\n           WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = gone.id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f60b93f5d68347fba4b065b3fea1d54ddfcd5dc6b4f6e8afe2594217966f147a"
+}

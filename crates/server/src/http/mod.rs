@@ -3,14 +3,22 @@
 
 mod account;
 mod admin;
+mod admin_workspaces;
 mod auth;
 mod dto;
 mod error;
 mod extract;
+mod favorites;
 mod meta;
 mod openapi;
+mod page_shares;
+mod pages;
 mod principal;
+mod sync;
+mod teamspaces;
+mod transfer;
 mod web;
+mod workspaces;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,7 +32,11 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use neon_app::auth::AuthService;
+use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
+use neon_app::sync::SyncService;
+use neon_app::transfer::TransferService;
+use neon_app::workspaces::WorkspaceService;
 use neon_domain::duration;
 use neon_observability::http::HttpLayer;
 use tower::ServiceBuilder;
@@ -47,6 +59,10 @@ pub use web::{SECURE_SESSION_COOKIE, SESSION_COOKIE, WebConfig};
 pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
+    pub workspaces: WorkspaceService,
+    pub pages: PageService,
+    pub sync: SyncService,
+    pub transfer: TransferService,
     pub web: Arc<WebConfig>,
 }
 
@@ -75,6 +91,9 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(account::list_tokens, account::create_token))
         .routes(routes!(account::revoke_token))
         .routes(routes!(account::get_preferences, account::put_preferences))
+        .routes(routes!(account::list_my_invitations))
+        .routes(routes!(account::accept_invitation))
+        .routes(routes!(account::decline_invitation))
         .routes(routes!(admin::list_users, admin::create_user))
         .routes(routes!(admin::update_user))
         .routes(routes!(admin::send_verification))
@@ -86,8 +105,96 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(admin::approve_join))
         .routes(routes!(admin::deny_join))
         .routes(routes!(admin::list_settings, admin::update_settings))
-        .routes(routes!(admin::send_test_mail));
-    OpenApiRouter::with_openapi(openapi::base()).nest("/api/v1", routes)
+        .routes(routes!(admin::send_test_mail))
+        .routes(routes!(admin_workspaces::admin_list_workspaces))
+        .routes(routes!(admin_workspaces::set_workspace_limits))
+        .routes(routes!(admin_workspaces::admin_delete_workspace))
+        .routes(routes!(
+            workspaces::list_workspaces,
+            workspaces::create_workspace
+        ))
+        .routes(routes!(
+            workspaces::get_workspace,
+            workspaces::update_workspace,
+            workspaces::delete_workspace
+        ))
+        .routes(routes!(workspaces::list_members))
+        .routes(routes!(
+            workspaces::change_member_role,
+            workspaces::remove_member
+        ))
+        .routes(routes!(workspaces::leave_workspace))
+        .routes(routes!(workspaces::transfer_ownership))
+        .routes(routes!(
+            workspaces::list_invitations,
+            workspaces::create_invitation
+        ))
+        .routes(routes!(workspaces::revoke_invitation))
+        .routes(routes!(
+            workspaces::list_invite_links,
+            workspaces::create_invite_link
+        ))
+        .routes(routes!(workspaces::invite_link_token))
+        .routes(routes!(workspaces::revoke_invite_link))
+        .routes(routes!(workspaces::preview_invite_link))
+        .routes(routes!(workspaces::join_with_link))
+        .routes(routes!(
+            teamspaces::list_teamspaces,
+            teamspaces::create_teamspace
+        ))
+        .routes(routes!(
+            teamspaces::get_teamspace,
+            teamspaces::update_teamspace,
+            teamspaces::delete_teamspace
+        ))
+        .routes(routes!(teamspaces::join_teamspace))
+        .routes(routes!(teamspaces::leave_teamspace))
+        .routes(routes!(
+            teamspaces::list_teamspace_members,
+            teamspaces::add_teamspace_member
+        ))
+        .routes(routes!(
+            teamspaces::change_teamspace_role,
+            teamspaces::remove_teamspace_member
+        ))
+        .routes(routes!(pages::create_page))
+        .routes(routes!(
+            pages::get_page,
+            pages::update_page,
+            pages::delete_page
+        ))
+        .routes(routes!(pages::move_page))
+        .routes(routes!(pages::trash_page))
+        .routes(routes!(pages::restore_page))
+        .routes(routes!(pages::page_breadcrumbs))
+        .routes(routes!(pages::teamspace_pages))
+        .routes(routes!(pages::private_pages))
+        .routes(routes!(pages::shared_pages))
+        .routes(routes!(pages::workspace_trash))
+        .routes(routes!(
+            page_shares::list_page_shares,
+            page_shares::share_page
+        ))
+        .routes(routes!(
+            page_shares::change_page_share,
+            page_shares::remove_page_share
+        ))
+        .routes(routes!(favorites::list_favorites, favorites::add_favorite))
+        .routes(routes!(favorites::move_favorite))
+        .routes(routes!(favorites::remove_favorite))
+        .routes(routes!(transfer::export_page))
+        .routes(routes!(transfer::export_teamspace))
+        // Uploads are larger than the bodies of other routes.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(transfer::import_pages))
+                .layer(transfer::import_body_limit()),
+        );
+    // Real-time sync speaks WebSocket, which the API's description has no words for; the
+    // docs describe it.
+    OpenApiRouter::with_openapi(openapi::base())
+        .nest("/api/v1", routes)
+        .route("/ws/pages/{page_id}", get(sync::open_page))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -198,4 +305,12 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod pages_tests;
+#[cfg(test)]
+mod sync_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;
+#[cfg(test)]
+mod workspaces_tests;

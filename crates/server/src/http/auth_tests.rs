@@ -23,16 +23,16 @@ use url::Url;
 use super::tests::{state, state_with};
 use super::*;
 
-const PASSWORD: &str = "correct horse battery";
+pub(super) const PASSWORD: &str = "correct horse battery";
 
-struct Answer {
-    status: StatusCode,
-    headers: HeaderMap,
-    body: Value,
+pub(super) struct Answer {
+    pub(super) status: StatusCode,
+    pub(super) headers: HeaderMap,
+    pub(super) body: Value,
 }
 
 impl Answer {
-    fn code(&self) -> &str {
+    pub(super) fn code(&self) -> &str {
         self.body["error"]["code"]
             .as_str()
             .unwrap_or_else(|| panic!("not the error shape: {}", self.body))
@@ -51,7 +51,7 @@ impl Answer {
     }
 }
 
-async fn call(
+pub(super) async fn call(
     app: &Router,
     method: Method,
     uri: &str,
@@ -95,7 +95,7 @@ async fn call(
     }
 }
 
-async fn admin(state: &AppState) {
+pub(super) async fn admin(state: &AppState) {
     state
         .auth
         .bootstrap_admin(NewAccount {
@@ -109,7 +109,7 @@ async fn admin(state: &AppState) {
 }
 
 /// A user who signed up while registration was open, which it is no longer.
-async fn user(state: &AppState, email: &str) {
+pub(super) async fn user(state: &AppState, email: &str) {
     let mode = |mode: &str| {
         state.settings.update(
             [("auth.registration".to_owned(), Change::Set(json!(mode)))],
@@ -131,7 +131,7 @@ async fn user(state: &AppState, email: &str) {
     mode("invite").await.expect("saved");
 }
 
-async fn sign_in(app: &Router, email: &str) -> String {
+pub(super) async fn sign_in(app: &Router, email: &str) -> String {
     let answer = call(
         app,
         Method::POST,
@@ -590,7 +590,7 @@ async fn preferences_are_kept_and_checked(pool: PgPool) {
     .await;
     assert_eq!(
         defaults.body,
-        json!({"palette": "nothing", "mode": "system", "accent_hue": 250, "ui_font": "default"})
+        json!({"palette": "nothing", "mode": "system", "accent_hue": null, "ui_font": "default"})
     );
     let chosen = json!({"palette": "warm", "mode": "dark", "accent_hue": 25, "ui_font": "mono"});
     let saved = call(
@@ -611,6 +611,17 @@ async fn preferences_are_kept_and_checked(pool: PgPool) {
     )
     .await;
     assert_eq!(read.body, chosen);
+    let following =
+        json!({"palette": "warm", "mode": "dark", "accent_hue": null, "ui_font": "mono"});
+    let unset = call(
+        &app,
+        Method::PUT,
+        "/api/v1/account/preferences",
+        &cookie,
+        Some(following.clone()),
+    )
+    .await;
+    assert_eq!((unset.status, &unset.body), (StatusCode::OK, &following));
 
     let hue = call(
         &app,
@@ -921,7 +932,7 @@ async fn api_tokens_cannot_change_where_secrets_go(pool: PgPool) {
     let listed = call(&app, Method::GET, "/api/v1/admin/settings", &token, None).await;
     assert_eq!(
         setting(&listed.body, "instance.name")["value"],
-        "Neon Workspace",
+        "Neon Teamspace",
         "nothing was saved"
     );
 

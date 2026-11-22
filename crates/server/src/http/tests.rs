@@ -11,7 +11,11 @@ use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::mail::MailQueue;
+use neon_app::pages::PageService;
 use neon_app::settings::{Change, SettingsService, registry};
+use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed};
+use neon_app::transfer::TransferService;
+use neon_app::workspaces::WorkspaceService;
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
@@ -38,6 +42,16 @@ pub(super) async fn state(pool: PgPool) -> AppState {
 }
 
 pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig) -> AppState {
+    state_for(pool, envelope, web, SyncLimits::default()).await
+}
+
+/// The state, with live documents that keep to `limits`.
+pub(super) async fn state_for(
+    pool: PgPool,
+    envelope: Envelope,
+    web: WebConfig,
+    limits: SyncLimits,
+) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
         registry(),
@@ -54,16 +68,33 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
         Some(PUBLIC_URL),
         Clock::system(),
     );
-    let auth = AuthService::builder(pool, Arc::clone(&settings))
+    let (listener, feed) = access_feed();
+    let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
-        .envelope(envelope)
+        .envelope(envelope.clone())
         .mail(mail)
+        .access_changes(listener.clone())
         .build()
         .await
         .expect("the auth service starts");
+    let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+        .envelope(envelope)
+        .access_changes(listener.clone())
+        .build();
+    let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
+        .access_changes(listener)
+        .build();
+    let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
+        .limits(limits)
+        .build();
+    let transfer = TransferService::builder(pages.clone(), sync.clone()).build();
     AppState {
         settings,
         auth,
+        workspaces,
+        pages,
+        sync,
+        transfer,
         web: Arc::new(web),
     }
 }
@@ -171,7 +202,7 @@ async fn meta_names_the_instance_and_the_version(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({"name": "Neon Workspace", "version": env!("CARGO_PKG_VERSION")})
+        json!({"name": "Neon Teamspace", "version": env!("CARGO_PKG_VERSION")})
     );
 
     state

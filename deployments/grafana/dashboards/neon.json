@@ -1,6 +1,6 @@
 {
   "uid": "neon-server",
-  "title": "Neon Workspace server",
+  "title": "Neon Teamspace server",
   "description": "Rate, errors and duration of the API and the job queue, the database pool and the queue depth, from the server's /metrics.",
   "tags": [
     "neon"

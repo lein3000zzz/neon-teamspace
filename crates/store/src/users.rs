@@ -1,6 +1,7 @@
 //! Accounts.
 
 use neon_domain::auth::{Email, Role, User};
+use neon_domain::hue::MAX_HUE;
 use serde_json::Value as Json;
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
@@ -17,6 +18,7 @@ struct Row {
     email: String,
     display_name: String,
     role: String,
+    hue: Option<i16>,
     email_verified_at: Option<OffsetDateTime>,
     disabled_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
@@ -32,6 +34,7 @@ impl TryFrom<Row> for User {
             email: Email::from_stored(row.email),
             display_name: row.display_name,
             role: parse_role(&row.role)?,
+            hue_override: parse_hue(row.hue)?,
             email_verified_at: row.email_verified_at,
             disabled_at: row.disabled_at,
             created_at: row.created_at,
@@ -44,6 +47,22 @@ pub(crate) fn parse_role(text: &str) -> sqlx::Result<Role> {
     Role::parse(text).ok_or_else(|| decode_error(format!("unknown role {text:?}")))
 }
 
+/// A pinned hue as stored: a check constraint keeps it within 0 to 359.
+pub(crate) fn parse_hue(hue: Option<i16>) -> sqlx::Result<Option<u16>> {
+    hue.map(|hue| {
+        u16::try_from(hue)
+            .ok()
+            .filter(|hue| *hue <= MAX_HUE)
+            .ok_or_else(|| decode_error(format!("hue {hue} is out of range")))
+    })
+    .transpose()
+}
+
+/// A pinned hue to store.
+pub(crate) fn stored_hue(hue: Option<u16>) -> Option<i16> {
+    hue.and_then(|hue| i16::try_from(hue).ok())
+}
+
 /// Saves a new account. Fails on [`EMAIL_TAKEN`] when an account has its address.
 pub async fn insert(
     executor: impl PgExecutor<'_>,
@@ -52,14 +71,15 @@ pub async fn insert(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO users (id, email, email_normalized, display_name, password_hash, role,
-                            email_verified_at, disabled_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                            hue, email_verified_at, disabled_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         user.id,
         user.email.as_str(),
         user.email.normalized(),
         user.display_name,
         password_hash,
         user.role.as_str(),
+        stored_hue(user.hue_override),
         user.email_verified_at,
         user.disabled_at,
         user.created_at,
@@ -76,7 +96,7 @@ pub async fn by_email(
     email_normalized: &str,
 ) -> sqlx::Result<Option<(User, String)>> {
     let row = sqlx::query!(
-        "SELECT id, email, display_name, role, email_verified_at, disabled_at, created_at,
+        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
                 updated_at, password_hash
          FROM users WHERE email_normalized = $1",
         email_normalized,
@@ -89,6 +109,7 @@ pub async fn by_email(
             email: row.email,
             display_name: row.display_name,
             role: row.role,
+            hue: row.hue,
             email_verified_at: row.email_verified_at,
             disabled_at: row.disabled_at,
             created_at: row.created_at,
@@ -102,7 +123,7 @@ pub async fn by_email(
 pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, email_verified_at, disabled_at, created_at,
+        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
                 updated_at
          FROM users WHERE id = $1",
         id,
@@ -120,7 +141,7 @@ pub async fn by_id_for_update(
 ) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, email_verified_at, disabled_at, created_at,
+        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
                 updated_at
          FROM users WHERE id = $1 FOR UPDATE",
         id,
@@ -139,7 +160,7 @@ pub async fn list(
 ) -> sqlx::Result<Vec<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, email_verified_at, disabled_at, created_at,
+        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
                 updated_at
          FROM users WHERE $1::uuid IS NULL OR id > $1
          ORDER BY id LIMIT $2",
@@ -215,22 +236,30 @@ pub async fn set_email_verified(
     Ok(())
 }
 
-/// Renames an account, and returns it as it is now. Only the name and the time are
-/// written, so a rename that started before an admin's change to the role or the disable
+/// Changes an account's name, its pinned hue, or both, and returns it as it is now: each
+/// part `None` stays as it is, and `Some(None)` unpins the hue. Only these and the time are
+/// written, so a change that started before an admin's change to the role or the disable
 /// cannot undo it. `None` when there is no such account.
-pub async fn rename(
+pub async fn update_profile(
     executor: impl PgExecutor<'_>,
     id: Uuid,
-    display_name: &str,
+    display_name: Option<&str>,
+    hue: Option<Option<u16>>,
     now: OffsetDateTime,
 ) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1
-         RETURNING id, email, display_name, role, email_verified_at, disabled_at, created_at,
-                   updated_at",
+        "UPDATE users
+         SET display_name = COALESCE($2, display_name),
+             hue = CASE WHEN $3 THEN $4 ELSE hue END,
+             updated_at = $5
+         WHERE id = $1
+         RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,
+                   created_at, updated_at",
         id,
         display_name,
+        hue.is_some(),
+        stored_hue(hue.flatten()),
         now,
     )
     .fetch_optional(executor)

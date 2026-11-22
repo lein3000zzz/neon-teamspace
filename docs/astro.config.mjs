@@ -52,14 +52,14 @@ export default defineConfig({
     // THIRD_PARTY_NOTICES.txt beside the pages: the licenses of the packages they ship.
     thirdPartyNotices(),
     starlight({
-      title: 'Neon Workspace',
+      title: 'Neon Teamspace',
       description:
         'A self-hosted team workspace: pages, databases and boards, edited together in real time, with agents as teammates.',
       logo: {
         light: './src/assets/logo-light.svg',
         dark: './src/assets/logo-dark.svg',
       },
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/lein3000zzz/neon-workspace' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/lein3000zzz/neon-teamspace' }],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: {
         styleOverrides: {
@@ -91,11 +91,29 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts', 'guides/signing-in', 'guides/accounts'],
+          items: [
+            'guides/introduction',
+            'guides/concepts',
+            'guides/signing-in',
+            'guides/accounts',
+            'guides/workspaces',
+            'guides/workspace-rules',
+            'guides/editing-pages',
+            'guides/pages',
+            'guides/import-export',
+          ],
+        },
+        {
+          label: 'Workspace settings',
+          items: [
+            'workspace-settings/general',
+            'workspace-settings/members',
+            'workspace-settings/teamspaces',
+          ],
         },
         {
           label: 'Administration',
-          items: ['admin/users', 'admin/invites', 'admin/settings'],
+          items: ['admin/users', 'admin/invites', 'admin/workspaces', 'admin/settings'],
         },
         {
           label: 'Self-hosting',
@@ -108,13 +126,15 @@ export default defineConfig({
         },
         {
           label: 'Reference',
-          items: ['reference/settings', apiReference],
+          items: ['reference/settings', 'reference/permissions', apiReference],
         },
         {
           label: 'Architecture',
           items: [
             'architecture/overview',
             'architecture/data',
+            'architecture/documents',
+            'architecture/realtime',
             'architecture/security',
             'architecture/observability',
             'architecture/web',

@@ -158,7 +158,7 @@ export function collectNotices(inputs: NoticeInputs): string {
   }
   return noticesFile(
     [
-      "Neon Workspace's web app includes the packages and fonts below, each under",
+      "Neon Teamspace's web app includes the packages and fonts below, each under",
       "the license named with it. The text after each heading is the license and",
       "copyright notice that came with it.",
     ],

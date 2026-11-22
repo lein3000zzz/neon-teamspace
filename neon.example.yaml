@@ -1,4 +1,4 @@
-# Neon Workspace configuration.
+# Neon Teamspace configuration.
 #
 # Copy this file to neon.yaml in the server's working directory, where git ignores it, or
 # set NEON_CONFIG to its path. Every value shown is the default.
@@ -98,7 +98,7 @@ observability:
 settings:
   instance:
     # The instance's name, shown in the interface and in mail.
-    # name: Neon Workspace
+    # name: Neon Teamspace
   auth:
     # Who may create an account: open, invite or closed.
     # registration: invite
@@ -128,3 +128,6 @@ settings:
     # from_name:
     # Mail admins about each confirmed request to join.
     # notifications: true
+  pages:
+    # How long a page stays in the trash before the hourly cleanup deletes it for good.
+    # trash_retention: 30d

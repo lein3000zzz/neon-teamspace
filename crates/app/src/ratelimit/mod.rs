@@ -1,5 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
-//! requests to join and invite lookups.
+//! requests to join, invite lookups, invitations into workspaces, and imports and exports
+//! of pages.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -56,10 +57,19 @@ pub enum Bucket {
     InviteLookup,
     /// Changing one's password, by user.
     PasswordChange,
+    /// Inviting into a workspace by address, by inviter: each answer says whether the
+    /// address has an account, so probing for addresses is slow.
+    WorkspaceInvite,
+    /// Looking at an invite link, and joining a workspace by one, by user.
+    WorkspaceLinkJoin,
+    /// Importing pages, by user: each import reads a whole upload.
+    PageImport,
+    /// Exporting pages, by user: each export reads every page it holds.
+    PageExport,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 14] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -70,6 +80,10 @@ impl Bucket {
         Self::JoinConfirm,
         Self::InviteLookup,
         Self::PasswordChange,
+        Self::WorkspaceInvite,
+        Self::WorkspaceLinkJoin,
+        Self::PageImport,
+        Self::PageExport,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -85,6 +99,10 @@ impl Bucket {
             Self::JoinConfirm => "join-confirm:ip:",
             Self::InviteLookup => "invite:ip:",
             Self::PasswordChange => "password:user:",
+            Self::WorkspaceInvite => "workspace-invite:user:",
+            Self::WorkspaceLinkJoin => "workspace-link:user:",
+            Self::PageImport => "page-import:user:",
+            Self::PageExport => "page-export:user:",
         }
     }
 

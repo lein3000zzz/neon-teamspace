@@ -10,13 +10,16 @@ import {
   type ReactNode,
 } from "react";
 import {
+  accentOf,
   applyTheme,
   browserStorage,
   clearPreferences,
   DARK_QUERY,
   DEFAULT_PREFERENCES,
+  loadFollowedHue,
   loadPreferences,
   resolveMode,
+  saveFollowedHue,
   savePreferences,
   STORAGE_KEY,
   type Mode,
@@ -29,6 +32,13 @@ interface ThemeContextValue {
   mode: Mode;
   /** The device's colour scheme, whatever the user picked. */
   systemMode: Mode;
+  /** The accent hue shown: the user's own, or the workspace's they follow. */
+  accent: number;
+  /**
+   * The hue of the workspace in view, the accent of a user without their own;
+   * undefined where none is. Kept on this device for the next first paint.
+   */
+  follow: (hue: number | undefined) => void;
   update: (patch: Partial<ThemePreferences>) => void;
   /** Back to the defaults, and forget the stored choice. */
   reset: () => void;
@@ -58,6 +68,7 @@ function systemPrefersDark() {
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState(() => loadPreferences(browserStorage()));
+  const [followed, setFollowed] = useState(() => loadFollowedHue(browserStorage()));
   // Only the user's own changes, and the account's choice, are written back.
   // Values loaded from storage are not, so someone who never chose keeps
   // following the defaults.
@@ -67,8 +78,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemMode = resolveMode("system", prefersDark);
 
   useEffect(() => {
-    applyTheme(document.documentElement, preferences, mode);
-  }, [preferences, mode]);
+    applyTheme(document.documentElement, preferences, mode, followed);
+  }, [preferences, mode, followed]);
 
   useEffect(() => {
     const write = pendingWrite.current;
@@ -105,9 +116,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPreferences({ ...next });
   }, []);
 
+  const follow = useCallback((hue: number | undefined) => {
+    setFollowed(hue);
+    saveFollowedHue(browserStorage(), hue);
+  }, []);
+
+  const accent = accentOf(preferences, followed);
   const value = useMemo(
-    () => ({ preferences, mode, systemMode, update, reset, load }),
-    [preferences, mode, systemMode, update, reset, load],
+    () => ({ preferences, mode, systemMode, accent, follow, update, reset, load }),
+    [preferences, mode, systemMode, accent, follow, update, reset, load],
   );
 
   return <ThemeContext value={value}>{children}</ThemeContext>;

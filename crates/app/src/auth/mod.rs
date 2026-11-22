@@ -49,10 +49,11 @@ use tracing::{Instrument as _, info_span, warn};
 use crate::clock::Clock;
 use crate::crypto::{Argon2Params, Envelope, PasswordHasher, Verified};
 use crate::mail::{Mail, MailQueue, MailStatus, QueueError};
+use crate::pages::{AccessChange, AccessChanges, NoListener};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, auth as keys};
 
-pub use accounts::{NewAccount, RegisterInput, Registration};
+pub use accounts::{NewAccount, ProfileUpdate, RegisterInput, Registration};
 pub use admin::{UserPage, UserUpdate};
 pub use cleanup::{CLEANUP_INTERVAL, Cleanup, CleanupReport};
 pub use error::AuthError;
@@ -100,13 +101,14 @@ struct Inner {
     mail: MailQueue,
     envelope: Envelope,
     clock: Clock,
+    access: Arc<dyn AccessChanges>,
     background: TaskTracker,
     red: Red,
 }
 
 /// Puts an [`AuthService`] together. Without being told otherwise it limits rates in
-/// memory, sends no mail, hashes with [`Argon2Params::DEFAULT`], seals nothing and reads
-/// the system clock.
+/// memory, sends no mail, hashes with [`Argon2Params::DEFAULT`], seals nothing, tells
+/// nobody of sessions and tokens that end, and reads the system clock.
 pub struct AuthServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
@@ -115,6 +117,7 @@ pub struct AuthServiceBuilder {
     mail: Option<MailQueue>,
     envelope: Envelope,
     clock: Clock,
+    access: Arc<dyn AccessChanges>,
 }
 
 impl AuthServiceBuilder {
@@ -137,6 +140,14 @@ impl AuthServiceBuilder {
 
     pub fn clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
+        self
+    }
+
+    /// Who hears that someone's sessions or tokens ended, or their account changed, as
+    /// the page and workspace services' changes tell it too: what holds pages open for
+    /// them looks again.
+    pub fn access_changes(mut self, access: Arc<dyn AccessChanges>) -> Self {
+        self.access = access;
         self
     }
 
@@ -177,6 +188,7 @@ impl AuthServiceBuilder {
                 mail,
                 envelope: self.envelope,
                 clock: self.clock,
+                access: self.access,
                 background: TaskTracker::new(),
                 red: Red::new(SUBSYSTEM),
             }),
@@ -194,6 +206,7 @@ impl AuthService {
             mail: None,
             envelope: Envelope::default(),
             clock: Clock::system(),
+            access: Arc::new(NoListener),
         }
     }
 
@@ -229,6 +242,14 @@ impl AuthService {
 
     fn pool(&self) -> &PgPool {
         &self.inner.pool
+    }
+
+    /// Tells the port that a session or token of `user_id` ended, or their account
+    /// changed, once the change committed.
+    fn ended(&self, user_id: uuid::Uuid) {
+        self.inner
+            .access
+            .access_changed(AccessChange::Account { user_id });
     }
 
     fn policy(&self) -> PasswordPolicy {

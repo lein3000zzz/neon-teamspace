@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_invite_links (id, workspace_id, role, token_hash, token_sealed,\n                                             max_uses, uses, created_by, created_at,\n                                             expires_at, revoked_at, revoked_by)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Int4",
+        "Int4",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e4fe9b77852fd93d8a5262d743b21152eb0287bcc553df2e2ed8d436e5a397c"
+}

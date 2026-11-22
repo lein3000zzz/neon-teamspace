@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "neon-workspace-docs",
+      "name": "neon-teamspace-docs",
       "dependencies": {
         "@astrojs/starlight": "^0.43.1",
         "astro": "^7.4.13",

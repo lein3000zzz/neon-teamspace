@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE down (id, level) AS (\n               SELECT id, 0 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT c.id, d.level + 1\n               FROM down d JOIN pages c ON c.parent_id = d.id\n               WHERE d.level < $2\n           )\n           SELECT COALESCE(max(level), 0) AS \"height!\" FROM down",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "height!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f2e0cbc184cc71e38940ae000398f23bd24c421946229566ef3fdec4d78692b2"
+}

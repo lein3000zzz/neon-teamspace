@@ -7,7 +7,7 @@ use utoipa::{Modify, OpenApi as _};
 use super::error::ErrorBody;
 use super::web::SESSION_COOKIE;
 
-const DESCRIPTION: &str = "The HTTP API of Neon Workspace.\n\n\
+const DESCRIPTION: &str = "The HTTP API of Neon Teamspace.\n\n\
 Every error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. \
 `code` is stable and meant for programs, such as `not_found` or `invalid_json`; \
 `message` says what went wrong, for people. A request with several wrong fields, such as \
@@ -15,20 +15,24 @@ settings, also lists each in `problems`. A rate-limited request answers 429 with
 `Retry-After`.\n\n\
 A request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with \
 `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` \
-for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A request that \
+for safe methods, `write` for the others, `admin` for `/api/v1/admin`. Deleting a workspace \
+and transferring its ownership need a browser session. A request that \
 changes something and carries no `Authorization` header must come from the server's own \
 origin: its `Origin`, or else its `Referer`, must match the public URL.";
 
 #[derive(utoipa::OpenApi)]
 #[openapi(
-    info(title = "Neon Workspace API", description = DESCRIPTION),
+    info(title = "Neon Teamspace API", description = DESCRIPTION),
     components(schemas(ErrorBody)),
     modifiers(&Security),
     tags(
         (name = "meta", description = "What the server is."),
         (name = "auth", description = "Signing up, in and out, and the mailed links. Open to anyone."),
-        (name = "account", description = "The signed-in user's own account."),
-        (name = "admin", description = "Accounts, invites, requests to join and settings, for admins."),
+        (name = "account", description = "The signed-in user's own account, their favorite pages, and the invitations into workspaces waiting for them."),
+        (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
+        (name = "teamspaces", description = "A workspace's teamspaces and their members."),
+        (name = "pages", description = "Pages and their trees, sharing, and the trash."),
+        (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )
 )]
 struct ApiDoc;
@@ -94,7 +98,7 @@ mod tests {
     fn info_names_the_api_its_version_and_license() {
         let info = spec().info;
 
-        assert_eq!(info.title, "Neon Workspace API");
+        assert_eq!(info.title, "Neon Teamspace API");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         let license = info.license.expect("a license");
         assert_eq!(
@@ -128,9 +132,46 @@ mod tests {
             "/api/v1/auth/login",
             "/api/v1/account/me",
             "/api/v1/admin/settings",
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/{id}/teamspaces",
+            "/api/v1/workspace-invite-links/join",
+            "/api/v1/admin/workspaces",
+            "/api/v1/workspaces/{id}/pages",
+            "/api/v1/pages/{id}",
+            "/api/v1/teamspaces/{id}/pages",
+            "/api/v1/pages/{id}/shares",
+            "/api/v1/account/favorites",
         ] {
             assert!(paths.iter().any(|known| known == path), "{path} is missing");
         }
+    }
+
+    #[test]
+    fn every_operation_has_an_id_of_its_own() {
+        let mut ids: Vec<String> = spec()
+            .paths
+            .paths
+            .into_values()
+            .flat_map(|item| {
+                [
+                    item.get,
+                    item.put,
+                    item.post,
+                    item.delete,
+                    item.patch,
+                    item.head,
+                    item.options,
+                    item.trace,
+                ]
+            })
+            .flatten()
+            .map(|operation| operation.operation_id.expect("an operation id"))
+            .collect();
+        let all = ids.len();
+        ids.sort();
+        ids.dedup();
+
+        assert_eq!(ids.len(), all, "operation ids repeat: {ids:?}");
     }
 
     #[test]

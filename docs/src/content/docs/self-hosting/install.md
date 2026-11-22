@@ -1,9 +1,9 @@
 ---
 title: Install
-description: Run Neon Workspace with Docker Compose, or from source for development.
+description: Run Neon Teamspace with Docker Compose, or from source for development.
 ---
 
-Neon Workspace runs in two ways:
+Neon Teamspace runs in two ways:
 
 - **With Docker**: Postgres, the server and Caddy as containers, from the Compose file in
   `deployments/`. This is the way to run an instance.
@@ -16,8 +16,8 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 
 | Image | What it holds |
 |---|---|
-| `ghcr.io/lein3000zzz/neon-workspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
-| `ghcr.io/lein3000zzz/neon-workspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
+| `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
+| `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
 
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
 `deployments/` directory, which holds the Compose files: a clone, to build both images from
@@ -36,7 +36,7 @@ docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.b
 ```
 
 The first start builds the images, which takes some minutes. They are named
-`neon-workspace-server:local` and `neon-workspace-web:local`, never after a release. The
+`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. The
 instance is then at `http://127.0.0.1:3000/`, and these docs at
 `http://127.0.0.1:3000/docs/`. With `make`, `make up` builds and runs the same stack in the
 foreground, until Ctrl+C stops it, and `make down` stops it from another terminal.
@@ -129,7 +129,11 @@ Leave `NEON_DOMAIN` unset, so Caddy serves plain HTTP, point the proxy at `NEON_
 and set `NEON_WEB_TRUSTED_PROXIES` to the proxy's addresses, such as `10.0.0.0/8`, so Caddy
 takes the client's address from the proxy's `X-Forwarded-For`. The server only ever sees the
 client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
-set.
+set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
+do by default.
+
+`NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
+change something, and WebSocket upgrades, whose `Origin` is another.
 
 Caddy sets the same security headers on every answer: a Content-Security-Policy that allows
 only the instance's own scripts, styles, images, fonts and connections, with a policy of
@@ -206,7 +210,7 @@ A profile goes on the command that starts the stack, with the same files, for ex
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
 in a clone. These are separate programs under their own licenses: Postgres under the PostgreSQL License,
 Caddy under Apache-2.0, Mailpit under MIT, and the observability stack's Grafana, Loki,
-Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Workspace's code.
+Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Teamspace's code.
 
 ### The end-to-end tests
 
@@ -296,7 +300,7 @@ curl http://localhost:8080/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Workspace","version":"0.1.0"}
+{"name":"Neon Teamspace","version":"0.1.0"}
 ```
 
 The name is the [`instance.name`](/docs/reference/settings/) setting. Everything else the

@@ -1,5 +1,5 @@
 ---
-title: Neon Workspace
+title: Neon Teamspace
 description: A self-hosted team workspace with block-based pages, databases and boards, edited together in real time, and agents as teammates over MCP.
 template: splash
 hero:
@@ -14,17 +14,20 @@ hero:
 ---
 
 :::note[Early development]
-Neon Workspace is not usable yet. The foundation exists: the server's crates, configuration,
+Neon Teamspace is not usable yet. The foundation exists: the server's crates, configuration,
 the database layer and job queue, observability, the first API endpoint, the web app's shell,
 these docs, and the Docker images that serve them. Pages say what exists today and mark the rest of the design as **Planned**.
 :::
 
 ## Start here
 
-- **[Introduction](/docs/guides/introduction/)**: what Neon Workspace is, who it is for, and
+- **[Introduction](/docs/guides/introduction/)**: what Neon Teamspace is, who it is for, and
   what is built so far.
 - **[Concepts](/docs/guides/concepts/)**: the instance, workspaces, teamspaces, pages,
   databases and views, members, guests, agents and integrations.
+- **[Workspaces and teamspaces](/docs/guides/workspaces/)**: the switcher, getting into a
+  workspace by invitation or invite link, and teamspaces; their rules and API are in
+  [Workspace rules and API](/docs/guides/workspace-rules/).
 
 ## Running an instance
 
@@ -36,6 +39,8 @@ these docs, and the Docker images that serve them. Pages say what exists today a
 
 - **[Settings](/docs/reference/settings/)**: every runtime setting, with its default and
   variable.
+- **[Permissions](/docs/reference/permissions/)**: who may do what in a workspace and its
+  teamspaces.
 - **[API](/docs/reference/api/)**: the HTTP API, from `api/openapi.json`.
 
 The API reference is generated from the server's description of its API as the docs build,

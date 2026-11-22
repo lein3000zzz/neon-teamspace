@@ -12,7 +12,7 @@ use super::extract::Json;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Meta {
     /// The instance's name, from the `instance.name` setting.
-    #[schema(example = "Neon Workspace")]
+    #[schema(example = "Neon Teamspace")]
     pub name: String,
     /// The server's version.
     #[schema(example = "0.1.0")]

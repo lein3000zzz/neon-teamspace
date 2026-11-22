@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_invitations WHERE expires_at < $1 OR decided_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3787db88049fe49134e145daf842d556c0e376f8aa8c10e512920d6208050e7d"
+}

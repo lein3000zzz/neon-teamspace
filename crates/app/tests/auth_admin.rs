@@ -8,7 +8,7 @@ use neon_app::auth::{AuthError, CleanupReport, InviteSpec, NewAccount, RegisterI
 use neon_domain::auth::Role;
 use serde_json::json;
 use sqlx::PgPool;
-use support::{Harness, IP, PASSWORD, secret};
+use support::{Harness, IP, PASSWORD, renaming, secret};
 
 fn demote() -> UserUpdate {
     UserUpdate {
@@ -203,7 +203,11 @@ async fn a_rename_that_began_before_a_disable_keeps_it(pool: PgPool) {
         .update_user(&admin, bob.id, disable())
         .await
         .expect("disables");
-    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+    let renamed = h
+        .auth
+        .update_profile(&stale, renaming("Bob"))
+        .await
+        .expect("renames");
 
     assert_eq!(renamed.display_name, "Bob");
     assert!(
@@ -239,7 +243,11 @@ async fn a_rename_that_began_before_a_promotion_cannot_leave_no_admin(pool: PgPo
         .update_user(&admin, admin.user.id, demote())
         .await
         .expect("steps down");
-    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+    let renamed = h
+        .auth
+        .update_profile(&stale, renaming("Bob"))
+        .await
+        .expect("renames");
 
     assert_eq!(renamed.role, Role::Admin);
     let admins: i64 = h
@@ -274,7 +282,7 @@ async fn renaming_in_a_loop_with_a_token_does_not_undo_a_disable(pool: PgPool) {
                 while !stop.load(Ordering::Relaxed) {
                     if let Ok(principal) = auth.authenticate_token(&token).await {
                         // Whether each rename went through does not matter, only the disable.
-                        let _ = auth.update_profile(&principal, "Bob").await;
+                        let _ = auth.update_profile(&principal, renaming("Bob")).await;
                     }
                 }
             })

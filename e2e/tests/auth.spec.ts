@@ -20,7 +20,9 @@ test("the first admin signs in, and the shell shows the instance and the admin p
   await expect(page).toHaveURL(/\/login\?next=%2F$/);
 
   await signIn(page, email, password);
-  await expect(page.getByRole("heading", { level: 1, name: "Nothing here yet" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "You are in no workspace yet" }),
+  ).toBeVisible();
   const meta = (await (await answered).json()) as Meta;
 
   expect(meta.version).toBe(SERVER_VERSION);
@@ -81,7 +83,9 @@ test("an admin invites someone, who signs up with the link in another browser", 
     await other.getByLabel("Password").fill("a passphrase long enough");
     await other.getByRole("button", { name: "Create account" }).click();
 
-    await expect(other.getByRole("heading", { level: 1, name: "Nothing here yet" })).toBeVisible();
+    await expect(
+      other.getByRole("heading", { level: 1, name: "You are in no workspace yet" }),
+    ).toBeVisible();
     const sidebar = other.getByRole("complementary");
     await expect(sidebar.getByText(newcomer)).toBeVisible();
     await expect(sidebar.getByRole("link", { name: "Admin" })).toHaveCount(0);

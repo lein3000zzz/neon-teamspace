@@ -1,7 +1,7 @@
-//! The shapes the account routes share. Times are RFC 3339 strings, ids UUIDs.
+//! The shapes the routes share. Times are RFC 3339 strings, ids UUIDs.
 
-use neon_domain::auth;
-use serde::{Deserialize, Serialize};
+use neon_domain::{auth, workspaces};
+use serde::{Deserialize, Deserializer, Serialize};
 use time::OffsetDateTime;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -70,6 +70,12 @@ pub struct User {
     #[schema(example = "Ada Lovelace")]
     pub display_name: String,
     pub role: Role,
+    /// The hue they are drawn in, 0 to 359: the one they pinned, or else their id's.
+    #[schema(minimum = 0, maximum = 359, example = 250)]
+    pub hue: u16,
+    /// The hue they pinned, if any.
+    #[schema(minimum = 0, maximum = 359)]
+    pub hue_override: Option<u16>,
     /// Unset while the address must still be verified.
     #[serde(with = "time::serde::rfc3339::option")]
     pub email_verified_at: Option<OffsetDateTime>,
@@ -85,6 +91,8 @@ pub struct User {
 impl From<auth::User> for User {
     fn from(user: auth::User) -> Self {
         Self {
+            hue: user.hue(),
+            hue_override: user.hue_override,
             id: user.id,
             email: user.email.as_str().to_owned(),
             display_name: user.display_name,
@@ -213,4 +221,71 @@ pub struct CodeRequest {
 pub struct EmailRequest {
     #[schema(example = "ada@example.com")]
     pub email: String,
+}
+
+/// Reads a field that may be absent, `null` or a value, as `None`, `Some(None)` and
+/// `Some(Some(value))`, for changes where `null` removes what is set. The field needs
+/// `#[serde(default)]` too.
+pub fn nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// What a person may do in a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceRole {
+    Owner,
+    Admin,
+    Member,
+    Guest,
+}
+
+impl From<workspaces::WorkspaceRole> for WorkspaceRole {
+    fn from(role: workspaces::WorkspaceRole) -> Self {
+        match role {
+            workspaces::WorkspaceRole::Owner => Self::Owner,
+            workspaces::WorkspaceRole::Admin => Self::Admin,
+            workspaces::WorkspaceRole::Member => Self::Member,
+            workspaces::WorkspaceRole::Guest => Self::Guest,
+        }
+    }
+}
+
+impl From<WorkspaceRole> for workspaces::WorkspaceRole {
+    fn from(role: WorkspaceRole) -> Self {
+        match role {
+            WorkspaceRole::Owner => Self::Owner,
+            WorkspaceRole::Admin => Self::Admin,
+            WorkspaceRole::Member => Self::Member,
+            WorkspaceRole::Guest => Self::Guest,
+        }
+    }
+}
+
+/// An account as the people it works with see it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Person {
+    pub id: Uuid,
+    #[schema(example = "Ada Lovelace")]
+    pub display_name: String,
+    #[schema(example = "ada@example.com")]
+    pub email: String,
+    /// The hue they are drawn in, 0 to 359.
+    #[schema(minimum = 0, maximum = 359, example = 250)]
+    pub hue: u16,
+}
+
+impl From<workspaces::Person> for Person {
+    fn from(person: workspaces::Person) -> Self {
+        Self {
+            hue: person.hue(),
+            id: person.id,
+            display_name: person.display_name,
+            email: person.email,
+        }
+    }
 }

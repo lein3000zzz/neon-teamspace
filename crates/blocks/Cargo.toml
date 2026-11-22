@@ -1,0 +1,21 @@
+[package]
+name = "neon-blocks"
+description = "The block document of a page: its model, its Yjs form and markdown. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+pulldown-cmark.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+yrs.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

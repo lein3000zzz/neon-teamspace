@@ -1,9 +1,9 @@
 ---
 title: Key decisions
-description: The choices that shape Neon Workspace, and the reasons for them.
+description: The choices that shape Neon Teamspace, and the reasons for them.
 ---
 
-These are the choices that shape Neon Workspace most. Where a choice was made for a reason,
+These are the choices that shape Neon Teamspace most. Where a choice was made for a reason,
 the reason is given; where it was a starting point, what it gives. Some describe code that
 exists, and the rest the design the code is being built toward, marked **planned**.
 
@@ -18,10 +18,10 @@ yrs, so the server reads and writes the same documents the browsers do. The brow
 TypeScript, where the editor and component libraries are; the app is static files, with no
 rendering server to run beside it.
 
-**Five crates, dependencies pointing inward.** `neon-domain` holds the types and the rules,
-`neon-store` the SQL, `neon-app` the use cases, `neon-server` the HTTP, the command line and
-the wiring, and `neon-observability` stands to the side, open to all but the domain and
-installed by the server as it starts. A crate can use only what its `Cargo.toml` lists, so
+**Six crates, dependencies pointing inward.** `neon-domain` holds the types and the rules,
+`neon-blocks` the pages' block documents, `neon-store` the SQL, `neon-app` the use cases,
+`neon-server` the HTTP, the command line and the wiring, and `neon-observability` stands to
+the side, open to all but the domain and the blocks and installed by the server as it starts. A crate can use only what its `Cargo.toml` lists, so
 the direction is kept by the compiler rather than by discipline. The domain cannot reach the
 database because it does not depend on sqlx. [More](/docs/architecture/overview/#the-crates).
 
@@ -72,8 +72,9 @@ made at the same time by several people merge, in any order, to the same result,
 lock and no central sequencing of operations. A page is the unit that is loaded, shared and
 permitted, so it is the unit of the document too. Opening a page loads only that page, and a
 workspace's documents do not grow into one. The server runs yrs, so it checks each update
-against the editor's permissions, applies agents' edits to the live document, keeps the
-update log and snapshots in Postgres, and compacts them. **Planned.**
+against the editor's permissions, keeps the update log and snapshots in Postgres, and
+compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Applying agents'
+edits to the live document is **planned**.
 
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
@@ -85,9 +86,11 @@ stored; markdown is how content comes in and goes out. Shortcuts work while typi
 markdown becomes blocks, `.md` files and zips import, and pages and teamspaces export as
 markdown. Agents read and write markdown over MCP, as language models read and write it well.
 Callouts, toggles, mentions and embedded views, which markdown has no syntax for, use a small
-extension of it. A converter in Rust maps markdown to the editor's document schema and back,
-and an agent's edit is applied to the live document, where it merges with the people typing
-there. **Planned.**
+extension of it. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
+schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
+edit is applied to the live document, where it merges with the people typing there. Import
+and export exist, as [Import and export](/docs/guides/import-export/) describes; agents'
+edits are **planned**.
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
@@ -106,7 +109,7 @@ attribution that hold for people hold for them. **Planned.**
 cases through the same checks as a person, and there is nothing more to deploy. **Planned.**
 
 **OAuth 2.1 for clients with a person, tokens for the rest.** MCP clients that a person runs
-expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Workspace
+expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Teamspace
 is one, and its consent page asks whether the client acts as the person or as one of their
 agents. Agents that run on their own, with no browser to sign in from, use a bearer token
 instead. A token belongs to one workspace, has the scope read, write or admin, and never does
@@ -168,7 +171,14 @@ anyone or close it. **Planned.**
 
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
 A workspace at a limit takes no more uploads or invitations, and its members go on editing.
-**Planned.**
+The member limit holds now; storage and agents follow with the features they count.
+
+**Instance admins do not enter workspaces.** Being an instance admin counts only for the
+instance's own work: accounts, settings, and the list of workspaces with their limits. Inside
+a workspace, an admin is whatever their membership makes them, so running the server never
+means reading the teams on it. The permission rules live in one pure function that every use
+case calls, with tests over every role, action and resource.
+[More](/docs/reference/permissions/).
 
 **English, on the web.** The interface is in English, with its strings in one place for
 translations to follow. It is a responsive web app. The desktop and mobile apps, **planned**,
@@ -178,7 +188,7 @@ and there is no second client to build. No app-store release is planned yet.
 
 ## The license
 
-**Source available, for noncommercial use.** Neon Workspace is licensed under the
+**Source available, for noncommercial use.** Neon Teamspace is licensed under the
 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0):
 anyone may read, run, change and self-host it, for any purpose that is not commercial.
 

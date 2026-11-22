@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE teamspaces SET name = $3, icon = $4, hue = $5, access = $6, updated_at = $7\n         WHERE workspace_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int2",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1e6f60f3ecb23d15556a4bdb41e5871499661f0d3037696efdbf0d0233d651a"
+}

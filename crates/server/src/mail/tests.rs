@@ -256,7 +256,7 @@ async fn a_plain_send_writes_both_parts_and_the_headers(pool: PgPool) {
             .unwrap_or_else(|| panic!("no {name} header in {data}"))
             .to_owned()
     };
-    assert!(header("From").contains("Neon Workspace"), "{data}");
+    assert!(header("From").contains("Neon Teamspace"), "{data}");
     assert!(header("From").contains("<neon@example.com>"), "{data}");
     assert_eq!(header("To"), "To: Ada <ada@example.com>");
     assert_eq!(header("Subject"), "Subject: Hello");

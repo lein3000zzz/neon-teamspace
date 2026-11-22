@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pages p SET position = u.position\n         FROM UNNEST($1::uuid[], $2::text[]) AS u (id, position)\n         WHERE p.id = u.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cafa17d75f2560b08e8d855e30a8f7d1474fad5b8f724eeaae3a88b1ce2ae003"
+}
