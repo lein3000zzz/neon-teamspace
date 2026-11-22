@@ -2,7 +2,7 @@
 //! handing ownership over.
 
 use neon_domain::auth::Principal;
-use neon_domain::workspaces::permissions::check_owner_remains;
+use neon_domain::workspaces::permissions::{check_owner_remains, check_teamspace_owner_remains};
 use neon_domain::workspaces::{Action, Member, Resource, TeamspaceRole, WorkspaceRole, authorize};
 use neon_store::{teamspaces, workspace_invites, workspaces as repo};
 use sqlx::PgConnection;
@@ -131,7 +131,9 @@ impl WorkspaceService {
     }
 
     /// Leaves a workspace and its teamspaces. The last owner cannot: they make another
-    /// owner first, or delete the workspace.
+    /// owner first, or delete the workspace. Nor can the last owner of one of its
+    /// teamspaces, unless they own or administer the workspace, as leaving it would leave
+    /// the teamspace without an owner.
     pub async fn leave_workspace(
         &self,
         principal: &Principal,
@@ -144,6 +146,12 @@ impl WorkspaceService {
             let role = membership.role()?;
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
             check_owner_remains(owners, role == WorkspaceRole::Owner, false)?;
+            // The workspace's lock keeps every teamspace's owners as they are meanwhile.
+            for owners in
+                teamspaces::owners_where_owner(&mut *tx, workspace_id, principal.user.id).await?
+            {
+                check_teamspace_owner_remains(owners, true, false, role.manages())?;
+            }
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %workspace_id, "workspace left");

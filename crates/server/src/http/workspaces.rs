@@ -463,14 +463,16 @@ pub(super) async fn remove_member(
     tag = "workspaces",
     summary = "Leave a workspace",
     description = "Leaves it and its teamspaces. The last owner cannot: they make another \
-                   owner first, or delete the workspace.",
+                   owner first, or delete the workspace. Nor can the last owner of one of its \
+                   teamspaces, unless they own or administer the workspace: they make another \
+                   owner of it first, or delete it.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     responses(
         (status = NO_CONTENT, description = "Left."),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "last_owner.", body = ErrorBody),
+        (status = CONFLICT, description = "last_owner or last_teamspace_owner.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

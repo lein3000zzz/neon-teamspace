@@ -951,7 +951,7 @@ export interface paths {
         put?: never;
         /**
          * Leave a workspace
-         * @description Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace.
+         * @description Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it.
          */
         post: operations["leave_workspace"];
         delete?: never;
@@ -5569,7 +5569,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description last_owner. */
+            /** @description last_owner or last_teamspace_owner. */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -21,7 +21,7 @@ being one gives no access to any workspace.
 | Change its name, slug, icon, hue and settings | yes | yes | no | no |
 | Delete it, typing its name, at a browser | yes | no | no | no |
 | List its members | yes | yes | yes | only themselves |
-| Leave it | yes, unless the last owner | yes | yes | yes |
+| Leave it | yes, unless the last owner | yes | yes, unless the last owner of a teamspace | yes |
 | Invite as an admin, member or guest | yes | yes | no | no |
 | Invite as an owner | no | no | no | no |
 | List and revoke invitations | yes | yes | no | no |
@@ -77,8 +77,9 @@ becomes the default one. Its name, icon and hue change, and so do its members' r
 any teamspace.
 
 A teamspace keeps one owner while its own owners manage it: a change by anyone else that
-would leave it none answers `409 last_teamspace_owner`. The workspace's owners and admins
-may leave it without one, as they manage it themselves.
+would leave it none answers `409 last_teamspace_owner`, and so does leaving the workspace as
+its last owner. The workspace's owners and admins may leave it without one, as they manage
+it themselves.
 
 ## The instance
 

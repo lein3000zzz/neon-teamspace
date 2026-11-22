@@ -430,3 +430,50 @@ async fn teamspaces_belong_to_their_workspace(pool: PgPool) {
         "leaving the workspace left its teamspaces"
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn leaving_the_workspace_keeps_its_teamspaces_owners(pool: PgPool) {
+    let t = team(pool).await;
+    let w = &t.h.workspaces;
+    let secret = t.create(&t.cy, "Secret", TeamspaceAccess::Private).await;
+    let open = t.create(&t.dee, "Open", TeamspaceAccess::Open).await;
+    w.join_teamspace(&t.cy, t.id, open).await.expect("joined");
+
+    let left = w.leave_workspace(&t.cy, t.id).await;
+    assert!(
+        matches!(left, Err(WorkspaceError::LastTeamspaceOwner(_))),
+        "the last owner of a teamspace stays in the workspace: {left:?}"
+    );
+    assert_eq!(
+        w.teamspace_members(&t.cy, t.id, secret)
+            .await
+            .expect("still in it")
+            .len(),
+        1
+    );
+
+    w.delete_teamspace(&t.cy, t.id, secret)
+        .await
+        .expect("deleted");
+    w.leave_workspace(&t.cy, t.id)
+        .await
+        .expect("a member of a teamspace leaves, owning none alone");
+    let members = w
+        .teamspace_members(&t.dee, t.id, open)
+        .await
+        .expect("listed");
+    assert_eq!(members.len(), 1, "and its teamspaces with it");
+
+    // Owners and admins of the workspace manage its teamspaces, so they may leave them
+    // without an owner.
+    let bobs = t.create(&t.bob, "Bob's", TeamspaceAccess::Closed).await;
+    w.leave_workspace(&t.bob, t.id)
+        .await
+        .expect("an admin leaves");
+    assert!(
+        w.teamspace_members(&t.ada, t.id, bobs)
+            .await
+            .expect("listed")
+            .is_empty()
+    );
+}

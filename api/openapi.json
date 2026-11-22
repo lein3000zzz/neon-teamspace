@@ -4371,7 +4371,7 @@
           "workspaces"
         ],
         "summary": "Leave a workspace",
-        "description": "Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace.",
+        "description": "Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it.",
         "operationId": "leave_workspace",
         "parameters": [
           {
@@ -4420,7 +4420,7 @@
             }
           },
           "409": {
-            "description": "last_owner.",
+            "description": "last_owner or last_teamspace_owner.",
             "content": {
               "application/json": {
                 "schema": {

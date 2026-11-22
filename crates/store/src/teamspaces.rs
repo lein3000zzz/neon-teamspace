@@ -304,6 +304,25 @@ pub async fn count_owners(executor: impl PgExecutor<'_>, teamspace_id: Uuid) -> 
     .await
 }
 
+/// How many owners each teamspace of the workspace that the user owns has, the user
+/// included.
+pub async fn owners_where_owner(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar!(
+        r#"SELECT (SELECT count(*) FROM teamspace_members o
+                   WHERE o.teamspace_id = m.teamspace_id AND o.role = 'owner') AS "owners!"
+           FROM teamspace_members m
+           WHERE m.workspace_id = $1 AND m.user_id = $2 AND m.role = 'owner'"#,
+        workspace_id,
+        user_id,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 pub async fn count_members(executor: impl PgExecutor<'_>, teamspace_id: Uuid) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM teamspace_members WHERE teamspace_id = $1"#,

@@ -56,7 +56,7 @@ first, so two owners demoting themselves at the same moment cannot both succeed.
 | `GET /api/v1/workspaces/{id}/members` | Lists the members, owners first. A guest gets only themselves. |
 | `PATCH /api/v1/workspaces/{id}/members/{user_id}` | Changes a role. A member who becomes a guest leaves every teamspace; a guest who becomes more joins the default one. |
 | `DELETE /api/v1/workspaces/{id}/members/{user_id}` | Removes a member from the workspace and its teamspaces. Nobody removes themselves: they leave. |
-| `POST /api/v1/workspaces/{id}/leave` | Leaves the workspace and its teamspaces. |
+| `POST /api/v1/workspaces/{id}/leave` | Leaves the workspace and its teamspaces. The last owner of a teamspace who neither owns nor administers the workspace makes another owner of it first, or deletes it: else leaving answers `last_teamspace_owner`. |
 | `POST /api/v1/workspaces/{id}/transfer` | Makes another member an owner, and the owner calling an admin, together. |
 
 ## Invitations
@@ -129,8 +129,8 @@ themselves, or delete it.
 A teamspace's roles are owner and member. Its creator is its owner. Owners, and the
 workspace's owners and admins, change it, add and remove members and change their roles.
 A teamspace keeps at least one owner while its own owners manage it: its last owner can
-neither leave nor be demoted, which answers `last_teamspace_owner`, except by the workspace's
-owners and admins, who manage it then.
+neither leave it, nor leave the workspace, nor be demoted, which answers
+`last_teamspace_owner`, except by the workspace's owners and admins, who manage it then.
 
 | Route | What it does |
 |---|---|
