@@ -555,6 +555,7 @@ async fn sign_ups_follow_the_registration_mode(pool: PgPool) {
     );
     assert_eq!(registered.body["user"]["display_name"], "Ada");
     assert_eq!(registered.body["must_verify"], false);
+    assert!(registered.body.get("sent").is_none());
     assert!(
         registered.headers.get(SET_COOKIE).is_none(),
         "signing up signs nobody in"
@@ -717,7 +718,7 @@ async fn admins_make_invites_and_copy_their_codes(pool: PgPool) {
     assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
     assert_eq!(created.body["code"], "Team-Spring-2026");
     assert_eq!(created.body["invite"]["status"], "open");
-    assert!(created.body.get("sent").is_none());
+    assert!(created.body.get("queued").is_none());
     let id = created.body["invite"]["id"]
         .as_str()
         .expect("an id")

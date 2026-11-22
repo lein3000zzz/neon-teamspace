@@ -2,16 +2,16 @@
 
 mod support;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use neon_app::auth::{AuthError, InviteSpec, RegisterInput};
 use neon_app::crypto::{Envelope, hash_secret};
 use neon_app::mail::Message;
+use neon_app::settings::Change;
 use neon_domain::auth::{InviteStatus, JoinRequestStatus, Role};
 use serde_json::json;
 use sqlx::PgPool;
-use support::{FakeMailer, Harness, IP, Options, PASSWORD, secret};
+use support::{Harness, IP, Options, PASSWORD, secret};
 
 fn register(email: &str, code: &str) -> RegisterInput {
     RegisterInput {
@@ -286,7 +286,7 @@ async fn only_admins_manage_invites(pool: PgPool) {
 async fn the_sign_up_form_looks_an_invite_up_for_its_address(pool: PgPool) {
     let h = Harness::new(pool).await;
     let admin = h.admin().await;
-    let (mailed, _) = h
+    let mailed = h
         .auth
         .invite_by_email(&admin, "ada@example.com")
         .await
@@ -321,16 +321,15 @@ async fn mailed_invites_name_the_admin_and_refuse_existing_accounts(pool: PgPool
     let admin = h.admin().await;
     h.account("grace@example.com", Role::User).await;
 
-    let (created, sent) = h
+    let created = h
         .auth
         .invite_by_email(&admin, "Ada@Example.com")
         .await
         .expect("mailed");
 
-    assert!(sent);
     assert_eq!(created.invite.email.as_deref(), Some("Ada@Example.com"));
     assert_eq!(created.invite.max_uses, 1);
-    let mails = h.mailer.take();
+    let mails = h.mails().await;
     assert_eq!(mails.len(), 1);
     assert_eq!(mails[0].to.address, "Ada@Example.com");
     match &mails[0].message {
@@ -353,23 +352,9 @@ async fn mailed_invites_name_the_admin_and_refuse_existing_accounts(pool: PgPool
         .expect_err("an account");
     assert!(matches!(taken, AuthError::EmailTaken), "{taken:?}");
 
-    // A failed mail leaves the invite, to copy instead.
-    h.mailer.set_failing(true);
-    let (failed, sent) = h
-        .auth
-        .invite_by_email(&admin, "linus@example.com")
-        .await
-        .expect("made");
-    assert!(!sent);
-    assert_eq!(
-        h.auth
-            .invite_code_of(&admin, failed.invite.id)
-            .await
-            .expect("copies"),
-        failed.code
-    );
+    assert!(h.mails().await.is_empty(), "nothing for a refused address");
 
-    h.mailer.set_configured(false);
+    h.set("mail.enabled", json!(false)).await;
     assert!(matches!(
         h.auth.invite_by_email(&admin, "linus@example.com").await,
         Err(AuthError::InviteEmailOff)
@@ -389,23 +374,48 @@ async fn requests_on(pool: PgPool) -> Harness {
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn requests_are_open_only_with_the_setting_invite_mode_and_mail(pool: PgPool) {
-    let h = Harness::with(
-        pool,
-        Options {
-            mailer: Arc::new(FakeMailer::default()),
-            ..Options::default()
-        },
-    )
-    .await;
+    let h = Harness::new(pool).await;
     assert!(matches!(
         h.auth.request_to_join("ada@example.com", "", IP).await,
         Err(AuthError::RequestsOff)
     ));
+    h.set("mail.enabled", json!(false)).await;
+    let refused = h
+        .settings
+        .update(
+            [("auth.requests".to_owned(), Change::Set(json!(true)))],
+            None,
+        )
+        .await
+        .expect_err("needs mail");
+    assert!(
+        refused.to_string().contains("needs mail set up first"),
+        "{refused}"
+    );
+
+    h.set("mail.enabled", json!(true)).await;
     h.set("auth.requests", json!(true)).await;
-    assert!(!h.auth.requests_open(), "no mail yet");
-    h.mailer.set_configured(true);
     assert!(h.auth.requests_open());
     assert!(h.auth.config().requests);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn without_a_public_url_requests_stay_closed(pool: PgPool) {
+    let h = Harness::with(
+        pool,
+        Options {
+            public_url: None,
+            settings: vec![("auth.requests", json!(true))],
+            ..Options::default()
+        },
+    )
+    .await;
+
+    assert!(!h.auth.requests_open(), "mail cannot link anywhere");
+    assert!(matches!(
+        h.auth.request_to_join("ada@example.com", "", IP).await,
+        Err(AuthError::RequestsOff)
+    ));
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -418,7 +428,7 @@ async fn a_request_is_confirmed_by_mail_then_approved_with_a_bound_invite(pool: 
         .await
         .expect("taken");
     h.auth.settle().await;
-    let token = h.token_of("join_confirmation");
+    let token = h.token_of("join_confirmation").await;
     assert!(
         h.auth
             .list_join_requests(&admin)
@@ -434,7 +444,7 @@ async fn a_request_is_confirmed_by_mail_then_approved_with_a_bound_invite(pool: 
         h.auth.confirm_join(&token, IP).await,
         Err(AuthError::InvalidLink)
     ));
-    let told = h.mailer.take();
+    let told = h.mails().await;
     assert_eq!(told.len(), 1);
     assert_eq!(told[0].to.address, "admin@example.com");
     assert!(matches!(
@@ -446,12 +456,12 @@ async fn a_request_is_confirmed_by_mail_then_approved_with_a_bound_invite(pool: 
     let listed = h.auth.list_join_requests(&admin).await.expect("lists");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].status(), JoinRequestStatus::Pending);
-    let (created, sent) = h
+    let (created, queued) = h
         .auth
         .approve_join(&admin, listed[0].id)
         .await
         .expect("approves");
-    assert!(sent);
+    assert!(queued);
     assert_eq!(created.invite.email.as_deref(), Some("Ada@Example.com"));
     assert_eq!(created.invite.max_uses, 1);
     assert!(matches!(
@@ -459,7 +469,7 @@ async fn a_request_is_confirmed_by_mail_then_approved_with_a_bound_invite(pool: 
         Err(AuthError::NotFound(_))
     ));
 
-    let code = h.token_of("invite");
+    let code = h.token_of("invite").await;
     let registration = h
         .auth
         .register(register("ada@example.com", code.expose()))
@@ -482,7 +492,7 @@ async fn the_answer_is_the_same_whatever_comes_of_a_request(pool: PgPool) {
         .await
         .expect("answers");
     h.auth.settle().await;
-    assert!(h.mailer.take().is_empty());
+    assert!(h.mails().await.is_empty());
     let kept: i64 = h.scalar("SELECT count(*) FROM join_requests").await;
     assert_eq!(kept, 0);
 
@@ -509,7 +519,7 @@ async fn an_address_has_one_open_request_mailed_at_most_five_times(pool: PgPool)
             .await
             .expect("answers");
         h.auth.settle().await;
-        h.mailer.take().len()
+        h.mails().await.len()
     };
 
     assert_eq!(ask().await, 1);
@@ -543,7 +553,7 @@ async fn open_requests_are_capped(pool: PgPool) {
         .expect("the same answer");
     h.auth.settle().await;
 
-    assert!(h.mailer.take().is_empty());
+    assert!(h.mails().await.is_empty());
     let kept: i64 = h.scalar("SELECT count(*) FROM join_requests").await;
     assert_eq!(kept, 200);
 }
@@ -558,17 +568,17 @@ async fn a_denied_address_is_told_and_waits_30_days(pool: PgPool) {
         .expect("taken");
     h.auth.settle().await;
     h.auth
-        .confirm_join(&h.token_of("join_confirmation"), IP)
+        .confirm_join(&h.token_of("join_confirmation").await, IP)
         .await
         .expect("confirms");
     h.auth.settle().await;
-    h.mailer.take();
+    h.mails().await;
     let id = h.auth.list_join_requests(&admin).await.expect("lists")[0].id;
 
     h.auth.deny_join(&admin, id).await.expect("denies");
     h.auth.settle().await;
 
-    let mails = h.mailer.take();
+    let mails = h.mails().await;
     assert_eq!(mails.len(), 1);
     assert_eq!(mails[0].to.address, "ada@example.com");
     assert!(matches!(
@@ -586,7 +596,7 @@ async fn a_denied_address_is_told_and_waits_30_days(pool: PgPool) {
         .await
         .expect("the same answer");
     h.auth.settle().await;
-    assert!(h.mailer.take().is_empty(), "still blocked");
+    assert!(h.mails().await.is_empty(), "still blocked");
 
     h.time.advance(Duration::from_secs(2 * 24 * 3600));
     h.auth
@@ -594,7 +604,7 @@ async fn a_denied_address_is_told_and_waits_30_days(pool: PgPool) {
         .await
         .expect("taken");
     h.auth.settle().await;
-    assert_eq!(h.mailer.take().len(), 1);
+    assert_eq!(h.mails().await.len(), 1);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -608,17 +618,17 @@ async fn denials_go_unmailed_while_the_setting_is_off(pool: PgPool) {
         .expect("taken");
     h.auth.settle().await;
     h.auth
-        .confirm_join(&h.token_of("join_confirmation"), IP)
+        .confirm_join(&h.token_of("join_confirmation").await, IP)
         .await
         .expect("confirms");
     h.auth.settle().await;
-    h.mailer.take();
+    h.mails().await;
     let id = h.auth.list_join_requests(&admin).await.expect("lists")[0].id;
 
     h.auth.deny_join(&admin, id).await.expect("denies");
     h.auth.settle().await;
 
-    assert!(h.mailer.take().is_empty());
+    assert!(h.mails().await.is_empty());
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -629,7 +639,7 @@ async fn confirmation_links_last_a_day(pool: PgPool) {
         .await
         .expect("taken");
     h.auth.settle().await;
-    let token = h.token_of("join_confirmation");
+    let token = h.token_of("join_confirmation").await;
 
     h.time.advance(Duration::from_secs(24 * 3600));
 

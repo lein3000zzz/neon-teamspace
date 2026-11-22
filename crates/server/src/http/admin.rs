@@ -176,14 +176,13 @@ pub(super) async fn update_user(
     summary = "Mail an account its verification link again",
     params(("id" = Uuid, Path, description = "The account's id.")),
     responses(
-        (status = NO_CONTENT, description = "Mailed."),
+        (status = NO_CONTENT, description = "The link was made and its mail queued."),
         (status = BAD_REQUEST, description = "invalid_input: verified already.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "mail_not_set_up.", body = ErrorBody),
+        (status = CONFLICT, description = "mail_not_set_up, saying what is missing.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited: one a minute, five a day.", body = ErrorBody),
-        (status = BAD_GATEWAY, description = "mail_failed.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -259,8 +258,8 @@ pub struct CreateInvite {
     path = "/admin/invites",
     tag = "admin",
     summary = "Create an invite",
-    description = "With an address, mails the invite there, naming the admin; it is made even \
-                   when the mail fails, and `sent` says whether it went.",
+    description = "With an address, mails the invite there, naming the admin: the mail is \
+                   queued with the invite, and `queued` is true.",
     request_body = CreateInvite,
     responses(
         (status = CREATED, description = "The invite and its code.", body = CreatedInvite),
@@ -278,7 +277,7 @@ pub(super) async fn create_invite(
     JsonBody(body): JsonBody<CreateInvite>,
 ) -> Result<(StatusCode, JsonBody<CreatedInvite>), ApiError> {
     let email = body.email.filter(|email| !email.trim().is_empty());
-    let (created, sent) = match email {
+    let (created, queued) = match email {
         Some(email) => {
             if body.code.is_some() || body.max_uses.is_some() || body.expires_at.is_some() {
                 return Err(ApiError::new(
@@ -287,8 +286,8 @@ pub(super) async fn create_invite(
                     "a mailed invite admits its address once, with a code and an end the server picks",
                 ));
             }
-            let (created, sent) = state.auth.invite_by_email(&admin, &email).await?;
-            (created, Some(sent))
+            let created = state.auth.invite_by_email(&admin, &email).await?;
+            (created, Some(true))
         }
         None => {
             let spec = InviteSpec {
@@ -299,14 +298,14 @@ pub(super) async fn create_invite(
             (state.auth.create_invite(&admin, spec).await?, None)
         }
     };
-    Ok((StatusCode::CREATED, JsonBody(created_invite(created, sent))))
+    Ok((StatusCode::CREATED, JsonBody(created_invite(created, queued))))
 }
 
-fn created_invite(created: neon_app::auth::CreatedInvite, sent: Option<bool>) -> CreatedInvite {
+fn created_invite(created: neon_app::auth::CreatedInvite, queued: Option<bool>) -> CreatedInvite {
     CreatedInvite {
         code: created.code.expose().to_owned(),
         invite: Invite::new(created.invite, Vec::new(), OffsetDateTime::now_utc()),
-        sent,
+        queued,
     }
 }
 
@@ -487,8 +486,8 @@ pub(super) async fn list_join_requests(
     tag = "admin",
     summary = "Approve a request to join",
     description = "Makes an invite bound to the request's address, for one sign-up, and mails it \
-                   there. The invite is made even when the mail fails: `sent` says whether it \
-                   went, and the code can be copied.",
+                   there, the mail queued with the invite. While mail is not set up the invite \
+                   is made all the same, `queued` is false, and the code can be handed over.",
     params(("id" = Uuid, Path, description = "The request's id.")),
     responses(
         (status = OK, description = "The invite and its code.", body = CreatedInvite),
@@ -505,8 +504,8 @@ pub(super) async fn approve_join(
     Admin(admin): Admin,
     Path(id): Path<Uuid>,
 ) -> Result<JsonBody<CreatedInvite>, ApiError> {
-    let (created, sent) = state.auth.approve_join(&admin, id).await?;
-    Ok(JsonBody(created_invite(created, Some(sent))))
+    let (created, queued) = state.auth.approve_join(&admin, id).await?;
+    Ok(JsonBody(created_invite(created, Some(queued))))
 }
 
 #[utoipa::path(

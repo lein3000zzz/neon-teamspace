@@ -183,10 +183,11 @@ pub struct CreatedInvite {
     pub invite: Invite,
     #[schema(example = "inv_4yVd0q3oJ2...")]
     pub code: String,
-    /// For an invite mailed: whether the mail went. When it did not, the code can still be
-    /// handed over.
+    /// For an invite meant to be mailed: whether its mail was queued, with the invite. It
+    /// is not while mail is not set up; the code can be handed over instead. Delivery
+    /// shows in the mail status of `GET /admin/settings`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sent: Option<bool>,
+    pub queued: Option<bool>,
 }
 
 /// The body of routes that take a token from a mailed link.

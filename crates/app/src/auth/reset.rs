@@ -7,9 +7,10 @@ use neon_domain::settings::Secret;
 use neon_store::{email_tokens, sessions, users};
 use tracing::{info, warn};
 
+use super::verification::recipient;
 use super::{AuthError, AuthService};
 use crate::crypto::hash_secret;
-use crate::mail::{Mail, Message, Recipient};
+use crate::mail::{Mail, Message};
 use crate::ratelimit::Bucket;
 
 impl AuthService {
@@ -26,48 +27,47 @@ impl AuthService {
             let service = self.clone();
             let email = normalize(email);
             self.background("password_reset_mail", async move {
-                service.mail_reset(&email).await;
+                if let Err(error) = service.mail_reset(&email).await {
+                    warn!(%error, "no reset link mailed");
+                }
             });
             Ok(())
         })
         .await
     }
 
-    async fn mail_reset(&self, email: &str) {
-        let user = match users::by_email(self.pool(), email).await {
-            Ok(Some((user, _))) if !user.is_disabled() => user,
-            Ok(_) => return,
-            Err(error) => {
-                warn!(%error, "looking the account up failed");
-                return;
-            }
+    async fn mail_reset(&self, email: &str) -> Result<(), AuthError> {
+        let mut tx = self.pool().begin().await?;
+        let user = match users::by_email(&mut *tx, email).await? {
+            Some((user, _)) if !user.is_disabled() => user,
+            _ => return Ok(()),
         };
-        let token = match self.new_link(&user, EmailTokenPurpose::Reset).await {
+        let token = match self
+            .new_link(&mut tx, &user, EmailTokenPurpose::Reset)
+            .await
+        {
             Ok(token) => token,
-            Err(AuthError::RateLimited { .. }) => return,
-            Err(error) => {
-                warn!(user_id = %user.id, %error, "no reset link made");
-                return;
-            }
+            // An account past its links for now is sent nothing more.
+            Err(AuthError::RateLimited { .. }) => return Ok(()),
+            Err(error) => return Err(error),
         };
-        let sent = self
-            .send(Mail {
-                to: Recipient::new(user.email.as_str(), Some(user.display_name.clone())),
-                message: Message::PasswordReset {
-                    token,
-                    lasts: EmailTokenPurpose::Reset.lifetime(),
-                },
-            })
-            .await;
-        if sent {
-            info!(user_id = %user.id, "password reset link mailed");
-        }
+        let mail = Mail {
+            to: recipient(&user),
+            message: Message::PasswordReset {
+                token,
+                lasts: EmailTokenPurpose::Reset.lifetime(),
+            },
+        };
+        self.queue(&mut tx, &mail).await?;
+        tx.commit().await?;
+        info!(user_id = %user.id, "password reset link mailed");
+        Ok(())
     }
 
     /// Sets the password of the account a mailed link is for, and returns its address for
     /// the sign-in form. The link works once. It verifies the address, signs the account
-    /// out of every session, and the account is told by mail. A weak password leaves the
-    /// link working.
+    /// out of every session, and the account is told by mail, queued with the change. A
+    /// weak password leaves the link working.
     pub async fn reset_password(
         &self,
         token: &Secret,
@@ -100,10 +100,9 @@ impl AuthService {
             users::set_email_verified(&mut *tx, user_id, now).await?;
             email_tokens::use_all(&mut *tx, user_id, EmailTokenPurpose::Reset, now).await?;
             let ended = sessions::delete_for_user(&mut *tx, user_id, None).await?;
+            self.tell_password_changed(&mut tx, &user, now).await?;
             tx.commit().await?;
             info!(%user_id, ip, sessions_ended = ended, "password reset");
-
-            self.tell_password_changed(&user, now);
             Ok(user.email.as_str().to_owned())
         })
         .await

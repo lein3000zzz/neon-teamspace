@@ -10,7 +10,7 @@ use neon_app::ratelimit::Bucket;
 use neon_domain::auth::{Role, WeakPassword};
 use serde_json::json;
 use sqlx::PgPool;
-use support::{FakeMailer, Harness, IP, Options, PASSWORD, secret};
+use support::{Harness, IP, Options, PASSWORD, secret};
 
 fn register(email: &str, code: Option<&str>) -> RegisterInput {
     RegisterInput {
@@ -60,7 +60,8 @@ async fn open_registration_makes_a_verified_account_with_an_argon2id_hash(pool: 
     assert_eq!(user.display_name, "Ada Lovelace");
     assert_eq!(user.role, Role::User);
     assert!(user.is_verified());
-    assert!(!registration.must_verify && !registration.sent);
+    assert!(!registration.must_verify);
+    assert!(h.mails().await.is_empty());
     let hash: String = h.scalar("SELECT password_hash FROM users").await;
     assert!(hash.starts_with("$argon2id$v=19$"), "{hash}");
     assert!(!hash.contains(PASSWORD));
@@ -144,12 +145,11 @@ async fn a_bound_invite_admits_only_its_address_which_counts_as_verified(pool: P
     let h = Harness::new(pool).await;
     h.set("auth.verify_email", json!(true)).await;
     let admin = h.admin().await;
-    let (created, sent) = h
+    let created = h
         .auth
         .invite_by_email(&admin, "Ada@Example.com")
         .await
         .expect("mailed");
-    assert!(sent);
     let code = created.code.expose().to_owned();
 
     let error = h
@@ -179,7 +179,7 @@ async fn verifying_sign_ups_must_open_the_mailed_link_before_signing_in(pool: Pg
         .register(register("ada@example.com", None))
         .await
         .expect("registers");
-    assert!(registration.must_verify && registration.sent);
+    assert!(registration.must_verify);
     assert!(!registration.user.is_verified());
 
     let wrong = h
@@ -198,7 +198,7 @@ async fn verifying_sign_ups_must_open_the_mailed_link_before_signing_in(pool: Pg
         "{unverified:?}"
     );
 
-    let token = h.token_of("verification");
+    let token = h.token_of("verification").await;
     assert_eq!(token.expose().len(), 43);
     let email = h.auth.verify_email(&token, IP).await.expect("verifies");
     assert_eq!(email, "ada@example.com");
@@ -214,11 +214,11 @@ async fn verifying_sign_ups_must_open_the_mailed_link_before_signing_in(pool: Pg
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn without_mail_sign_ups_do_not_verify(pool: PgPool) {
-    let mailer = std::sync::Arc::new(FakeMailer::default());
+    // The settings set mail up, but with no public URL to link to, it cannot go.
     let h = Harness::with(
         pool,
         Options {
-            mailer,
+            public_url: None,
             settings: vec![
                 ("auth.registration", json!("open")),
                 ("auth.verify_email", json!(true)),
@@ -236,6 +236,48 @@ async fn without_mail_sign_ups_do_not_verify(pool: PgPool) {
 
     assert!(!registration.must_verify && registration.user.is_verified());
     assert!(!h.auth.config().verify_email);
+    assert!(h.mails().await.is_empty());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn verifying_sign_ups_cannot_be_turned_on_without_mail(pool: PgPool) {
+    let h = open(pool).await;
+    h.set("mail.enabled", json!(false)).await;
+
+    let refused = h
+        .settings
+        .update(
+            [(
+                "auth.verify_email".to_owned(),
+                neon_app::settings::Change::Set(json!(true)),
+            )],
+            None,
+        )
+        .await
+        .expect_err("needs mail");
+
+    assert!(
+        refused.to_string().contains("needs mail set up first"),
+        "{refused}"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_sign_up_that_fails_queues_no_mail(pool: PgPool) {
+    let h = open(pool).await;
+    h.set("auth.verify_email", json!(true)).await;
+    h.account("grace@example.com", Role::User).await;
+
+    let error = h
+        .auth
+        .register(register("Grace@example.com", None))
+        .await
+        .expect_err("taken");
+
+    assert!(matches!(error, AuthError::EmailTaken), "{error:?}");
+    let links: i64 = h.scalar("SELECT count(*) FROM email_tokens").await;
+    assert_eq!(links, 0);
+    assert!(h.mails().await.is_empty());
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -246,7 +288,7 @@ async fn verification_links_expire_after_a_day(pool: PgPool) {
         .register(register("ada@example.com", None))
         .await
         .expect("registers");
-    let token = h.token_of("verification");
+    let token = h.token_of("verification").await;
 
     h.time.advance(Duration::from_secs(24 * 3600));
     let error = h.auth.verify_email(&token, IP).await.expect_err("expired");
@@ -262,14 +304,13 @@ async fn links_are_mailed_again_at_most_once_a_minute_and_five_times_a_day(pool:
         .register(register("ada@example.com", None))
         .await
         .expect("registers");
-    let first = h.token_of("verification");
+    let first = h.token_of("verification").await;
     let resend = || async {
         h.auth
             .resend_verification("ada@example.com", IP)
             .await
             .expect("answers");
-        h.auth.settle().await;
-        h.mailer.take().len()
+        h.mails().await.len()
     };
 
     // Within the minute: nothing more.
@@ -316,7 +357,7 @@ async fn signing_up_again_replaces_an_unverified_account(pool: PgPool) {
 
     // A verified account keeps its address.
     h.auth
-        .verify_email(&h.token_of("verification"), IP)
+        .verify_email(&h.token_of("verification").await, IP)
         .await
         .expect("verifies");
     let error = h
@@ -425,7 +466,7 @@ async fn changing_the_password_signs_out_the_other_sessions(pool: PgPool) {
             .await
             .is_ok()
     );
-    let mails = h.mailer.take();
+    let mails = h.mails().await;
     assert!(
         mails.iter().any(
             |mail| matches!(mail.message, Message::PasswordChanged { .. })
@@ -481,8 +522,7 @@ async fn a_reset_link_sets_the_password_verifies_and_signs_out_everywhere(pool: 
         .request_password_reset("ADA@example.com", IP)
         .await
         .expect("answers");
-    h.auth.settle().await;
-    let token = h.token_of("password_reset");
+    let token = h.token_of("password_reset").await;
 
     let weak = h
         .auth
@@ -519,8 +559,8 @@ async fn a_reset_link_sets_the_password_verifies_and_signs_out_everywhere(pool: 
             .is_ok()
     );
     assert!(
-        h.mailer
-            .take()
+        h.mails()
+            .await
             .iter()
             .any(|mail| matches!(mail.message, Message::PasswordChanged { .. }))
     );
@@ -534,8 +574,7 @@ async fn reset_links_last_an_hour_and_skip_disabled_accounts(pool: PgPool) {
         .request_password_reset("ada@example.com", IP)
         .await
         .expect("answers");
-    h.auth.settle().await;
-    let token = h.token_of("password_reset");
+    let token = h.token_of("password_reset").await;
 
     h.time.advance(Duration::from_secs(3600));
     assert!(matches!(
@@ -554,8 +593,7 @@ async fn reset_links_last_an_hour_and_skip_disabled_accounts(pool: PgPool) {
         .request_password_reset("ada@example.com", IP)
         .await
         .expect("answers");
-    h.auth.settle().await;
-    assert!(h.mailer.take().is_empty());
+    assert!(h.mails().await.is_empty());
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -568,7 +606,7 @@ async fn resets_are_off_without_mail_or_the_setting(pool: PgPool) {
     ));
 
     h.set("auth.password_reset", json!(true)).await;
-    h.mailer.set_configured(false);
+    h.set("mail.enabled", json!(false)).await;
     assert!(matches!(
         h.auth
             .reset_password(&secret("token"), &secret(PASSWORD), IP)

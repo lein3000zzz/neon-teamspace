@@ -36,6 +36,8 @@ pub struct Entry {
     pub value: Json,
     pub default: Json,
     pub source: Source,
+    /// Changes only from a browser session: see [`Definition::browser_only`].
+    pub browser_only: bool,
     pub env_var: String,
 }
 
@@ -171,6 +173,7 @@ impl SettingsService {
                     value: resolved.value.to_display_json(),
                     default: def.default_value().to_display_json(),
                     source: resolved.source,
+                    browser_only: def.is_browser_only(),
                     env_var: def.env_var(),
                 })
             })

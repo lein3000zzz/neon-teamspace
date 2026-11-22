@@ -93,10 +93,9 @@ pub struct RegisterRequest {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Registered {
     pub user: User,
-    /// The account signs in only once it opened the link mailed to it.
+    /// The account signs in only once it opened the link mailed to it, which was queued
+    /// with the account. Another can be asked for with `POST /auth/verification`.
     pub must_verify: bool,
-    /// The link was mailed. When it was not, it can be asked for again.
-    pub sent: bool,
 }
 
 #[utoipa::path(
@@ -136,7 +135,6 @@ pub(super) async fn register(
         Json(Registered {
             user: registration.user.into(),
             must_verify: registration.must_verify,
-            sent: registration.sent,
         }),
     ))
 }

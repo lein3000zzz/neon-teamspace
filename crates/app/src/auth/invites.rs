@@ -11,7 +11,7 @@ use neon_domain::settings::Secret;
 use neon_store::{invites, is_unique_violation, users};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use super::{AuthError, AuthService, require_admin};
@@ -65,14 +65,13 @@ impl AuthService {
     }
 
     /// Makes an invite that only `email` signs up with, once, and mails it there, naming
-    /// the admin. An address with a verified account is refused; one whose account never
-    /// verified is not, as signing up replaces that. The invite is made even when the mail
-    /// fails: the flag says whether it went, and the code can be copied.
+    /// the admin, the mail queued with the invite. An address with a verified account is
+    /// refused; one whose account never verified is not, as signing up replaces that.
     pub async fn invite_by_email(
         &self,
         actor: &Principal,
         email: &str,
-    ) -> Result<(CreatedInvite, bool), AuthError> {
+    ) -> Result<CreatedInvite, AuthError> {
         self.observe("invite_by_email", async {
             require_admin(actor)?;
             if !self.invite_email_available() {
@@ -82,10 +81,10 @@ impl AuthService {
             self.refuse_existing_account(&email).await?;
             let now = self.now();
             let code = Secret::new(new_secret(GENERATED_PREFIX));
-            let mut conn = self.pool().acquire().await?;
+            let mut tx = self.pool().begin().await?;
             let created = self
                 .new_invite(
-                    &mut conn,
+                    &mut tx,
                     actor,
                     code,
                     Some(email.as_str().to_owned()),
@@ -93,9 +92,10 @@ impl AuthService {
                     now + self.invite_ttl(),
                 )
                 .await?;
-            drop(conn);
-            let sent = self.mail_invite(actor, &email, &created).await;
-            Ok((created, sent))
+            self.queue_invite(&mut tx, actor, &email, &created).await?;
+            tx.commit().await?;
+            info!(actor_id = %actor.user.id, invite_id = %created.invite.id, "invite mailed");
+            Ok(created)
         })
         .await
     }
@@ -279,30 +279,24 @@ impl AuthService {
         Ok(CreatedInvite { invite, code })
     }
 
-    /// Mails a bound invite, naming the admin. True when it went.
-    pub(super) async fn mail_invite(
+    /// Queues a bound invite's mail on `conn`, naming the admin.
+    pub(super) async fn queue_invite(
         &self,
+        conn: &mut PgConnection,
         actor: &Principal,
         to: &Email,
         created: &CreatedInvite,
-    ) -> bool {
-        let sent = self
-            .send(Mail {
-                to: Recipient::new(to.as_str(), None),
-                message: Message::Invite {
-                    inviter_name: actor.user.display_name.clone(),
-                    inviter_email: actor.user.email.as_str().to_owned(),
-                    code: created.code.clone(),
-                    expires_at: created.invite.expires_at,
-                },
-            })
-            .await;
-        if sent {
-            info!(actor_id = %actor.user.id, invite_id = %created.invite.id, "invite mailed");
-        } else {
-            warn!(actor_id = %actor.user.id, invite_id = %created.invite.id, "invite made but not mailed");
-        }
-        sent
+    ) -> Result<(), AuthError> {
+        let mail = Mail {
+            to: Recipient::new(to.as_str(), None),
+            message: Message::Invite {
+                inviter_name: actor.user.display_name.clone(),
+                inviter_email: actor.user.email.as_str().to_owned(),
+                code: created.code.clone(),
+                expires_at: created.invite.expires_at,
+            },
+        };
+        self.queue(conn, &mail).await
     }
 
     /// Refuses an address whose account is verified.

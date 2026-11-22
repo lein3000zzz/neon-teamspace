@@ -12,7 +12,7 @@ use super::{AuthError, AuthService, CreatedInvite, require_admin};
 use crate::crypto::{hash_secret, new_secret};
 use crate::mail::{Mail, Message, Recipient};
 use crate::ratelimit::Bucket;
-use crate::settings::auth as keys;
+use crate::settings::{auth as keys, mail as mail_keys};
 
 impl AuthService {
     /// Takes a request to join, mailing the address a link to confirm it. It answers the
@@ -51,21 +51,22 @@ impl AuthService {
 
     async fn take_request_inner(&self, email: &Email, note: String) -> Result<(), AuthError> {
         let now = self.now();
-        if let Some((user, _)) = users::by_email(self.pool(), email.normalized()).await?
+        let mut tx = self.pool().begin().await?;
+        if let Some((user, _)) = users::by_email(&mut *tx, email.normalized()).await?
             && user.is_verified()
         {
             return Ok(());
         }
-        if join_requests::denied_since(self.pool(), email.normalized(), now - DENIED_WAIT).await? {
+        if join_requests::denied_since(&mut *tx, email.normalized(), now - DENIED_WAIT).await? {
             return Ok(());
         }
 
         let token = new_secret("");
-        match join_requests::open_for(self.pool(), email.normalized()).await? {
+        match join_requests::open_for(&mut *tx, email.normalized()).await? {
             Some(open) if !open.may_mail_again(now) => return Ok(()),
             Some(open) => {
                 if !join_requests::remail(
-                    self.pool(),
+                    &mut *tx,
                     open.id,
                     &hash_secret(&token),
                     now + LINK_TTL,
@@ -93,7 +94,7 @@ impl AuthService {
                     mailed_at: now,
                 };
                 let kept = join_requests::insert_capped(
-                    self.pool(),
+                    &mut *tx,
                     &request,
                     email.normalized(),
                     &hash_secret(&token),
@@ -118,19 +119,21 @@ impl AuthService {
             }
         }
 
-        self.send(Mail {
+        let mail = Mail {
             to: Recipient::new(email.as_str(), None),
             message: Message::JoinConfirmation {
                 token: Secret::new(token),
                 lasts: LINK_TTL,
             },
-        })
-        .await;
+        };
+        self.queue(&mut tx, &mail).await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    /// Confirms the request of a mailed link. The admins see it from now, and are told by
-    /// mail.
+    /// Confirms the request of a mailed link. The admins see it from now, and each active
+    /// one is told by mail, queued with the confirmation, while `mail.notifications` is on
+    /// and mail is set up.
     pub async fn confirm_join(&self, token: &Secret, ip: &str) -> Result<(), AuthError> {
         self.observe("confirm_join", async {
             self.limit(Bucket::JoinConfirm, ip).await?;
@@ -138,37 +141,27 @@ impl AuthService {
             if token.is_empty() || token.len() > MAX_LINK_TOKEN {
                 return Err(AuthError::InvalidLink);
             }
-            let request = join_requests::confirm(self.pool(), &hash_secret(token), self.now())
+            let mut tx = self.pool().begin().await?;
+            let request = join_requests::confirm(&mut *tx, &hash_secret(token), self.now())
                 .await?
                 .ok_or(AuthError::InvalidLink)?;
+            if *self.settings().get(mail_keys::NOTIFICATIONS) && self.mail_configured() {
+                for admin in users::active_admin_emails(&mut *tx).await? {
+                    let mail = Mail {
+                        to: Recipient::new(admin, None),
+                        message: Message::JoinRequested {
+                            requester: request.email.clone(),
+                            note: request.note.clone(),
+                        },
+                    };
+                    self.queue(&mut tx, &mail).await?;
+                }
+            }
+            tx.commit().await?;
             info!(request_id = %request.id, "request to join confirmed");
-            let service = self.clone();
-            self.background("join_requested_mail", async move {
-                service.tell_admins(&request).await;
-            });
             Ok(())
         })
         .await
-    }
-
-    async fn tell_admins(&self, request: &JoinRequest) {
-        let admins = match users::active_admin_emails(self.pool()).await {
-            Ok(admins) => admins,
-            Err(error) => {
-                warn!(%error, "looking the admins up failed");
-                return;
-            }
-        };
-        for admin in admins {
-            self.send(Mail {
-                to: Recipient::new(admin, None),
-                message: Message::JoinRequested {
-                    requester: request.email.clone(),
-                    note: request.note.clone(),
-                },
-            })
-            .await;
-        }
     }
 
     /// The confirmed requests: those waiting first, then those decided in the last 30 days.
@@ -184,8 +177,8 @@ impl AuthService {
     }
 
     /// Approves a waiting request: an invite bound to its address, once, is made and
-    /// mailed there. The invite is made even when the mail fails: the flag says whether it
-    /// went, and the code can be copied.
+    /// mailed there, the mail queued with it. While mail is not set up, the invite is made
+    /// all the same and the flag says it was not mailed: the admin copies its code.
     pub async fn approve_join(
         &self,
         actor: &Principal,
@@ -205,42 +198,40 @@ impl AuthService {
             if !join_requests::decide(&mut *tx, id, true, actor.user.id, now, Some(created.invite.id)).await? {
                 return Err(AuthError::NotFound("the request is not waiting for an admin"));
             }
+            let queued = self.mail_configured();
+            if queued {
+                self.queue_invite(&mut tx, actor, &email, &created).await?;
+            }
             tx.commit().await?;
-            info!(actor_id = %actor.user.id, request_id = %id, invite_id = %created.invite.id, "request to join approved");
-
-            let sent = self.mail_invite(actor, &email, &created).await;
-            Ok((created, sent))
+            info!(actor_id = %actor.user.id, request_id = %id, invite_id = %created.invite.id, queued, "request to join approved");
+            Ok((created, queued))
         })
         .await
     }
 
     /// Denies a waiting request. The address may ask again in 30 days, and is told so by
-    /// mail while `auth.request_denied_mail` is on and mail is set up.
+    /// mail, queued with the decision, while `auth.request_denied_mail` is on and mail is
+    /// set up.
     pub async fn deny_join(&self, actor: &Principal, id: Uuid) -> Result<(), AuthError> {
         self.observe("deny_join", async {
             let request = self.pending_request(actor, id).await?;
-            if !join_requests::decide(self.pool(), id, false, actor.user.id, self.now(), None)
-                .await?
-            {
+            let mut tx = self.pool().begin().await?;
+            if !join_requests::decide(&mut *tx, id, false, actor.user.id, self.now(), None).await? {
                 return Err(AuthError::NotFound(
                     "the request is not waiting for an admin",
                 ));
             }
-            info!(actor_id = %actor.user.id, request_id = %id, "request to join denied");
-
             if *self.settings().get(keys::REQUEST_DENIED_MAIL) && self.mail_configured() {
-                let service = self.clone();
-                self.background("join_denied_mail", async move {
-                    service
-                        .send(Mail {
-                            to: Recipient::new(request.email, None),
-                            message: Message::JoinDenied {
-                                ask_again_after: DENIED_WAIT,
-                            },
-                        })
-                        .await;
-                });
+                let mail = Mail {
+                    to: Recipient::new(request.email, None),
+                    message: Message::JoinDenied {
+                        ask_again_after: DENIED_WAIT,
+                    },
+                };
+                self.queue(&mut tx, &mail).await?;
             }
+            tx.commit().await?;
+            info!(actor_id = %actor.user.id, request_id = %id, "request to join denied");
             Ok(())
         })
         .await

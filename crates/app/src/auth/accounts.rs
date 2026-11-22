@@ -11,9 +11,10 @@ use time::OffsetDateTime;
 use tracing::info;
 use uuid::Uuid;
 
+use super::verification::recipient;
 use super::{AuthError, AuthService, registration, require_admin, require_session};
 use crate::crypto::hash_secret;
-use crate::mail::{Mail, Message, Recipient};
+use crate::mail::{Mail, Message};
 use crate::ratelimit::Bucket;
 
 #[derive(Debug, Clone)]
@@ -31,10 +32,9 @@ pub struct RegisterInput {
 #[derive(Debug, Clone)]
 pub struct Registration {
     pub user: User,
-    /// The account signs in only once it has opened the link mailed to it.
+    /// The account signs in only once it has opened the link mailed to it, which was
+    /// queued with the account.
     pub must_verify: bool,
-    /// The link was mailed. When it was not, it can be asked for again.
-    pub sent: bool,
 }
 
 /// An account an admin, the bootstrap configuration or `neon admin create` makes.
@@ -52,7 +52,7 @@ impl AuthService {
     /// an address admits only that address, which counts as verified then. While sign-ups
     /// verify, any other account must open a mailed link before it signs in. An account of
     /// the address that never verified is replaced, so nobody holds an address that is not
-    /// theirs. The invite's use and the account are saved together.
+    /// theirs. The invite's use, the account and its link's mail are saved together.
     pub async fn register(&self, input: RegisterInput) -> Result<Registration, AuthError> {
         self.observe("register", self.register_inner(input)).await
     }
@@ -101,6 +101,9 @@ impl AuthService {
         {
             return Err(AuthError::InvalidInvite);
         }
+        if must_verify {
+            self.queue_verification(&mut tx, &user).await?;
+        }
         tx.commit().await?;
         info!(
             user_id = %user.id,
@@ -109,13 +112,7 @@ impl AuthService {
             must_verify,
             "account registered"
         );
-
-        let sent = must_verify && self.send_verification(&user).await;
-        Ok(Registration {
-            user,
-            must_verify,
-            sent,
-        })
+        Ok(Registration { user, must_verify })
     }
 
     async fn open_invite(
@@ -212,7 +209,8 @@ impl AuthService {
     }
 
     /// Changes the principal's password, given the current one, and signs out every other
-    /// session. Only from a browser session.
+    /// session. The account is told by mail, queued with the change. Only from a browser
+    /// session.
     pub async fn change_password(
         &self,
         principal: &Principal,
@@ -238,27 +236,30 @@ impl AuthService {
             users::set_password_hash(&mut *tx, user.id, &hash, now).await?;
             let ended =
                 sessions::delete_for_user(&mut *tx, user.id, principal.session_id()).await?;
+            self.tell_password_changed(&mut tx, user, now).await?;
             tx.commit().await?;
             info!(user_id = %user.id, other_sessions_ended = ended, "password changed");
-            self.tell_password_changed(user, now);
             Ok(())
         })
         .await
     }
 
-    /// Mails an account that its password changed, while mail is set up.
-    pub(super) fn tell_password_changed(&self, user: &User, at: OffsetDateTime) {
+    /// Queues a mail on `conn` telling an account its password changed, while mail is set
+    /// up.
+    pub(super) async fn tell_password_changed(
+        &self,
+        conn: &mut PgConnection,
+        user: &User,
+        at: OffsetDateTime,
+    ) -> Result<(), AuthError> {
         if !self.mail_configured() {
-            return;
+            return Ok(());
         }
-        let service = self.clone();
         let mail = Mail {
-            to: Recipient::new(user.email.as_str(), Some(user.display_name.clone())),
+            to: recipient(user),
             message: Message::PasswordChanged { at },
         };
-        self.background("password_changed_mail", async move {
-            service.send(mail).await;
-        });
+        self.queue(conn, &mail).await
     }
 
     /// Renames the principal's account.

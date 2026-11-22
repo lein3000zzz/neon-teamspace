@@ -175,7 +175,7 @@ export interface paths {
         put?: never;
         /**
          * Create an invite
-         * @description With an address, mails the invite there, naming the admin; it is made even when the mail fails, and `sent` says whether it went.
+         * @description With an address, mails the invite there, naming the admin: the mail is queued with the invite, and `queued` is true.
          */
         post: operations["create_invite"];
         delete?: never;
@@ -272,7 +272,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a request to join
-         * @description Makes an invite bound to the request's address, for one sign-up, and mails it there. The invite is made even when the mail fails: `sent` says whether it went, and the code can be copied.
+         * @description Makes an invite bound to the request's address, for one sign-up, and mails it there, the mail queued with the invite. While mail is not set up the invite is made all the same, `queued` is false, and the code can be handed over.
          */
         post: operations["approve_join"];
         delete?: never;
@@ -741,10 +741,11 @@ export interface components {
             code: string;
             invite: components["schemas"]["Invite"];
             /**
-             * @description For an invite mailed: whether the mail went. When it did not, the code can still be
-             *     handed over.
+             * @description For an invite meant to be mailed: whether its mail was queued, with the invite. It
+             *     is not while mail is not set up; the code can be handed over instead. Delivery
+             *     shows in the mail status of `GET /admin/settings`.
              */
-            sent?: boolean | null;
+            queued?: boolean | null;
         };
         /**
          * @description How a request proved who it is.
@@ -943,10 +944,11 @@ export interface components {
         };
         /** @description A new account. */
         Registered: {
-            /** @description The account signs in only once it opened the link mailed to it. */
+            /**
+             * @description The account signs in only once it opened the link mailed to it, which was queued
+             *     with the account. Another can be asked for with `POST /auth/verification`.
+             */
             must_verify: boolean;
-            /** @description The link was mailed. When it was not, it can be asked for again. */
-            sent: boolean;
             user: components["schemas"]["User"];
         };
         /**
@@ -2511,7 +2513,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Mailed. */
+            /** @description The link was made and its mail queued. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2554,7 +2556,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description mail_not_set_up. */
+            /** @description mail_not_set_up, saying what is missing. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2565,15 +2567,6 @@ export interface operations {
             };
             /** @description rate_limited: one a minute, five a day. */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description mail_failed. */
-            502: {
                 headers: {
                     [name: string]: unknown;
                 };

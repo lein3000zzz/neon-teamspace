@@ -167,10 +167,9 @@ impl From<AuthError> for ApiError {
             AuthError::InviteCodeTaken
             | AuthError::EmailTaken
             | AuthError::LastAdmin
-            | AuthError::MailNotSetUp
+            | AuthError::MailNotSetUp(_)
             | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
             AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
-            AuthError::MailFailed(_) => StatusCode::BAD_GATEWAY,
             AuthError::Database(_) | AuthError::Internal(_) => {
                 tracing::error!(error = %error, "an auth use case failed");
                 return Self::internal();

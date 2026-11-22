@@ -330,7 +330,7 @@ async fn the_cleanup_removes_old_requests_to_join(pool: PgPool) {
         h.auth.request_to_join(email, "", IP).await.expect("taken");
     }
     h.auth.settle().await;
-    let mails = h.mailer.take();
+    let mails = h.mails().await;
     let denied_token = mails
         .iter()
         .find(|mail| mail.to.address == "denied@example.com")

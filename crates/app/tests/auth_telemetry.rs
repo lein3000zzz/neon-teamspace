@@ -282,7 +282,7 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
         .await
         .expect("registers");
     assert!(registered.must_verify);
-    let link = h.token_of("verification");
+    let link = h.token_of("verification").await;
     secrets.push(link.expose().to_owned());
     h.auth.verify_email(&link, IP).await.expect("verifies");
 
@@ -329,7 +329,7 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
         .await
         .expect("answers");
     h.auth.settle().await;
-    let reset = h.token_of("password_reset");
+    let reset = h.token_of("password_reset").await;
     secrets.push(reset.expose().to_owned());
     let reset_password = "hunter2 reset passphrase";
     secrets.push(reset_password.to_owned());
@@ -349,7 +349,7 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
         .await
         .expect("answers");
     h.auth.settle().await;
-    let join = h.token_of("join_confirmation");
+    let join = h.token_of("join_confirmation").await;
     secrets.push(join.expose().to_owned());
     h.auth.confirm_join(&join, IP).await.expect("confirms");
     h.auth.settle().await;

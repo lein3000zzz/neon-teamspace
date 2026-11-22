@@ -824,7 +824,7 @@
           "admin"
         ],
         "summary": "Create an invite",
-        "description": "With an address, mails the invite there, naming the admin; it is made even when the mail fails, and `sent` says whether it went.",
+        "description": "With an address, mails the invite there, naming the admin: the mail is queued with the invite, and `queued` is true.",
         "operationId": "create_invite",
         "requestBody": {
           "content": {
@@ -1210,7 +1210,7 @@
           "admin"
         ],
         "summary": "Approve a request to join",
-        "description": "Makes an invite bound to the request's address, for one sign-up, and mails it there. The invite is made even when the mail fails: `sent` says whether it went, and the code can be copied.",
+        "description": "Makes an invite bound to the request's address, for one sign-up, and mails it there, the mail queued with the invite. While mail is not set up the invite is made all the same, `queued` is false, and the code can be handed over.",
         "operationId": "approve_join",
         "parameters": [
           {
@@ -1821,7 +1821,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Mailed."
+            "description": "The link was made and its mail queued."
           },
           "400": {
             "description": "invalid_input: verified already.",
@@ -1864,7 +1864,7 @@
             }
           },
           "409": {
-            "description": "mail_not_set_up.",
+            "description": "mail_not_set_up, saying what is missing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1875,16 +1875,6 @@
           },
           "429": {
             "description": "rate_limited: one a minute, five a day.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "mail_failed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2885,12 +2875,12 @@
           "invite": {
             "$ref": "#/components/schemas/Invite"
           },
-          "sent": {
+          "queued": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "For an invite mailed: whether the mail went. When it did not, the code can still be\nhanded over."
+            "description": "For an invite meant to be mailed: whether its mail was queued, with the invite. It\nis not while mail is not set up; the code can be handed over instead. Delivery\nshows in the mail status of `GET /admin/settings`."
           }
         }
       },
@@ -3391,17 +3381,12 @@
         "description": "A new account.",
         "required": [
           "user",
-          "must_verify",
-          "sent"
+          "must_verify"
         ],
         "properties": {
           "must_verify": {
             "type": "boolean",
-            "description": "The account signs in only once it opened the link mailed to it."
-          },
-          "sent": {
-            "type": "boolean",
-            "description": "The link was mailed. When it was not, it can be asked for again."
+            "description": "The account signs in only once it opened the link mailed to it, which was queued\nwith the account. Another can be asked for with `POST /auth/verification`."
           },
           "user": {
             "$ref": "#/components/schemas/User"
