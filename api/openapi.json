@@ -3276,7 +3276,7 @@
           "workspaces"
         ],
         "summary": "List the caller's workspaces",
-        "description": "Each workspace the caller is in, with their role, slug and hue.",
+        "description": "Each workspace the caller is in, with their role, slug and hue, and whether they may create one.",
         "operationId": "list_workspaces",
         "responses": {
           "200": {
@@ -8208,9 +8208,14 @@
       "WorkspaceList": {
         "type": "object",
         "required": [
-          "workspaces"
+          "workspaces",
+          "can_create"
         ],
         "properties": {
+          "can_create": {
+            "type": "boolean",
+            "description": "Whether the caller may create a workspace, as the `workspaces.creation` setting says."
+          },
           "workspaces": {
             "type": "array",
             "items": {

@@ -28,7 +28,8 @@ only.
 | `icon` | An emoji or a short text, at most 16 characters. |
 | `hue_override` | A hue from 0 to 359 to draw the workspace in, instead of the one its id hashes to. |
 
-`GET /api/v1/workspaces` lists the caller's workspaces with their role, slug and hue.
+`GET /api/v1/workspaces` lists the caller's workspaces with their role, slug and hue, and
+says in `can_create` whether the setting lets them create one.
 `GET /api/v1/workspaces/{id}` adds the member count, the limits that hold, and the
 workspace's settings. Owners and admins change the name, slug, icon, hue and
 `members_can_create_teamspaces` with `PATCH /api/v1/workspaces/{id}`; `null` removes the

@@ -118,6 +118,8 @@ impl From<WorkspaceDetails> for Workspace {
 pub struct WorkspaceList {
     /// By name.
     pub workspaces: Vec<WorkspaceSummary>,
+    /// Whether the caller may create a workspace, as the `workspaces.creation` setting says.
+    pub can_create: bool,
 }
 
 #[utoipa::path(
@@ -125,7 +127,8 @@ pub struct WorkspaceList {
     path = "/workspaces",
     tag = "workspaces",
     summary = "List the caller's workspaces",
-    description = "Each workspace the caller is in, with their role, slug and hue.",
+    description = "Each workspace the caller is in, with their role, slug and hue, and whether \
+                   they may create one.",
     responses(
         (status = OK, description = "The workspaces.", body = WorkspaceList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
@@ -144,6 +147,7 @@ pub(super) async fn list_workspaces(
             .iter()
             .map(|(workspace, role)| WorkspaceSummary::new(workspace, *role))
             .collect(),
+        can_create: state.workspaces.may_create_workspace(&principal),
     }))
 }
 

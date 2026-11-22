@@ -792,7 +792,7 @@ export interface paths {
         };
         /**
          * List the caller's workspaces
-         * @description Each workspace the caller is in, with their role, slug and hue.
+         * @description Each workspace the caller is in, with their role, slug and hue, and whether they may create one.
          */
         get: operations["list_workspaces"];
         put?: never;
@@ -2104,6 +2104,8 @@ export interface components {
             storage_bytes: components["schemas"]["Limit"];
         };
         WorkspaceList: {
+            /** @description Whether the caller may create a workspace, as the `workspaces.creation` setting says. */
+            can_create: boolean;
             /** @description By name. */
             workspaces: components["schemas"]["WorkspaceSummary"][];
         };

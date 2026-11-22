@@ -5,6 +5,7 @@ use axum::Router;
 use axum::http::header::{AUTHORIZATION, COOKIE, ORIGIN, RETRY_AFTER};
 use axum::http::{Method, StatusCode};
 use neon_app::crypto::Envelope;
+use neon_app::settings::Change;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use url::Url;
@@ -165,6 +166,7 @@ async fn a_workspace_is_created_listed_and_read(pool: PgPool) {
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.body["workspaces"][0]["id"], workspace);
     assert_eq!(listed.body["workspaces"][0]["role"], "owner");
+    assert_eq!(listed.body["can_create"], true);
     let read = ada.get(&format!("/api/v1/workspaces/{workspace}")).await;
     assert_eq!(read.status, StatusCode::OK);
     assert_eq!(read.body["icon"], "🚀");
@@ -190,6 +192,34 @@ async fn a_workspace_is_created_listed_and_read(pool: PgPool) {
         .await;
     assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(unknown.code(), "invalid_json");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_list_says_whether_the_caller_may_create_a_workspace(pool: PgPool) {
+    let state = state(pool).await;
+    user(&state, "ada@example.com").await;
+    state
+        .settings
+        .update(
+            [(
+                "workspaces.creation".to_owned(),
+                Change::Set(json!("admins")),
+            )],
+            None,
+        )
+        .await
+        .expect("saved");
+    let app = router(state, false);
+    let ada = Browser::sign_in(&app, "ada@example.com").await;
+
+    let listed = ada.get("/api/v1/workspaces").await;
+    assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
+    assert_eq!(listed.body, json!({"workspaces": [], "can_create": false}));
+    let refused = ada
+        .post("/api/v1/workspaces", json!({"name": "Design"}))
+        .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.body);
+    assert_eq!(refused.code(), "forbidden");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

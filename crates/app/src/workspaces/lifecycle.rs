@@ -153,6 +153,14 @@ impl WorkspaceService {
         .await
     }
 
+    /// Whether the principal may create a workspace now, as `workspaces.creation` says.
+    pub fn may_create_workspace(&self, principal: &Principal) -> bool {
+        let instance = Resource::Instance {
+            creation: self.creation(),
+        };
+        authorize(actor(principal, None), Action::CreateWorkspace, instance).is_ok()
+    }
+
     /// The workspaces the principal is in, with their role in each, by name.
     pub async fn list_workspaces(
         &self,

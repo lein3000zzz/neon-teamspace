@@ -192,8 +192,11 @@ async fn creation_can_be_left_to_instance_admins(pool: PgPool) {
     let h = Harness::new(pool).await;
     let admin = h.admin().await;
     let ada = h.person("ada@example.com").await;
+    assert!(h.workspaces.may_create_workspace(&ada));
     h.set("workspaces.creation", json!("admins")).await;
 
+    assert!(!h.workspaces.may_create_workspace(&ada));
+    assert!(h.workspaces.may_create_workspace(&admin));
     let refused = h.workspaces.create_workspace(&ada, named("Design")).await;
     assert!(
         matches!(refused, Err(WorkspaceError::Forbidden(_))),
@@ -202,6 +205,7 @@ async fn creation_can_be_left_to_instance_admins(pool: PgPool) {
     h.workspace(&admin, "Design").await;
 
     h.set("workspaces.creation", json!("anyone")).await;
+    assert!(h.workspaces.may_create_workspace(&ada));
     h.workspace(&ada, "Mine").await;
 }
 
