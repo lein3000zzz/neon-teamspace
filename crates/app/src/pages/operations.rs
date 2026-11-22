@@ -401,6 +401,11 @@ impl PageService {
                 },
             )
             .await?;
+            if page.kind == PageKind::Database && parent_id != page.parent_id {
+                // Back at the top of its space, away from the page that embedded it, it is a
+                // page of its own.
+                neon_store::databases::set_inline(&mut *tx, id, false).await?;
+            }
             let context = self.context(&mut tx, principal, id).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, page_id = %id, pages = restored, "page restored");

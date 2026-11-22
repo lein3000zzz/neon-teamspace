@@ -2311,6 +2311,61 @@ async fn a_row_shared_alone_does_not_name_its_database(pool: PgPool) {
     assert_eq!(read.database_id, Some(t.db()));
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_inline_database_restored_alone_is_a_page_of_its_own(pool: PgPool) {
+    let t = team(pool).await;
+    let notes =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.id,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Notes".to_owned(),
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("a page");
+    let make = || {
+        t.h.databases.create_database(
+            &t.ada,
+            t.id,
+            Location::Under(notes.page.id),
+            Placement::Last,
+            NewDatabase {
+                title: "Inline".to_owned(),
+                icon: None,
+                inline: true,
+            },
+        )
+    };
+    let alone = make().await.expect("made").page.page.id;
+    let with = make().await.expect("made").page.page.id;
+    // Trashed on its own, then its page: restored alone, it goes to the top of the space.
+    t.h.pages.trash_page(&t.ada, alone).await.expect("trashed");
+    t.h.pages
+        .trash_page(&t.ada, notes.page.id)
+        .await
+        .expect("trashed");
+    t.h.pages
+        .restore_page(&t.ada, alone)
+        .await
+        .expect("restored alone");
+    let read = t.h.databases.database(&t.ada, alone).await.expect("read");
+    assert_eq!(read.page.page.parent_id, None);
+    assert!(!read.inline);
+    // Restored with its page, it is embedded in it still.
+    t.h.pages
+        .restore_page(&t.ada, notes.page.id)
+        .await
+        .expect("restored");
+    let back = t.h.databases.database(&t.ada, with).await.expect("read");
+    assert_eq!(back.page.page.parent_id, Some(notes.page.id));
+    assert!(back.inline);
+}
+
 /// How many bytes a row's cells take, as JSON text: how the bound on them counts.
 async fn size_of(t: &Team, row: Uuid) -> usize {
     let bytes: i64 = sqlx::query_scalar(
