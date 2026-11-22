@@ -9,8 +9,9 @@ and the API. Who may do what is also listed, in one table, on the
 [permissions](/docs/reference/permissions/#pages) page.
 
 :::note[What is built]
-Everything here works through the API. A page's content, its blocks, arrives with the live
-editor, **planned**, and so do the web app's pages for all of this.
+Everything here works through the API, and in the web app as
+[Editing pages](/docs/guides/editing-pages/) describes, a page's content in its live editor
+included.
 :::
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`

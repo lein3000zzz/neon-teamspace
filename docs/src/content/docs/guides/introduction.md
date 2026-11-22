@@ -56,8 +56,9 @@ the features build on:
   and hues, through the API and the web app's switcher, workspace settings and the instance
   admins' list; see [Workspaces and teamspaces](/docs/guides/workspaces/), [Workspace rules
   and API](/docs/guides/workspace-rules/) and [Permissions](/docs/reference/permissions/).
-- Pages, without their content yet, through the API: nesting, private pages, sharing with
-  members and guests, moving, the trash and favorites; see [Pages](/docs/guides/pages/).
+- Pages, through the API and the web app's page trees, headers and live editor: nesting,
+  private pages, sharing with members and guests, moving, the trash and favorites; see
+  [Editing pages](/docs/guides/editing-pages/) and [Pages](/docs/guides/pages/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.

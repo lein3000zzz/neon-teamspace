@@ -7,10 +7,11 @@ description: The instance, workspaces, teamspaces and roles, pages, databases an
 The instance, workspaces, their members and roles, invitations, teamspaces, limits and hues
 work, in the API and the web app, as described here, in
 [Workspaces and teamspaces](/docs/guides/workspaces/) and in
-[Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API, without
-their content yet: nesting, private pages, sharing, moving, the trash and favorites, as
-[Pages](/docs/guides/pages/) has it. The rest, from the editor on, is **planned**: it
-describes the design the code is being built toward, so the details may still change.
+[Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API and the web
+app: nesting, private pages, sharing, moving, the trash and favorites, and their content in
+the live editor, as [Pages](/docs/guides/pages/) and
+[Editing pages](/docs/guides/editing-pages/) have it. The rest is **planned**: it describes
+the design the code is being built toward, so the details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -92,11 +93,12 @@ unless the teamspace is private. A page can also be shared with a person, who th
 edit** or **can view** it and every page under it. [Pages](/docs/guides/pages/) has the
 rules.
 
-**Planned.** A page is made of blocks: paragraphs, headings, lists, to-dos, code, callouts,
-toggles, mentions and embedded views of a database. Everyone on a page edits the same live
-document, people and agents alike: each sees the others' cursors, and their edits merge. Markdown is the way in and out. Markdown shortcuts
-work while typing, pasted markdown becomes blocks, `.md` files or a zip of them can be
-imported, and a page or a whole teamspace exports as a zip of markdown files.
+A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
+tables. Everyone on a page edits the same live document: each sees the others' cursors, and
+their edits merge. Markdown shortcuts work while typing. **Planned:** callouts, mentions and
+embedded views of a database, agents editing beside people, and markdown as the way in and
+out: pasted markdown becomes blocks, `.md` files or a zip of them can be imported, and a page
+or a whole teamspace exports as a zip of markdown files.
 
 A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
 full width. Members can mark pages as favorites. Trashed pages go to the trash with the

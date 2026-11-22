@@ -5,7 +5,8 @@ description: How the web app is built, how its API types stay in step with the s
 
 The web app is a single-page app in `web/`: React and TypeScript, built with Vite into static
 files that Caddy serves. Bun installs its packages and runs its scripts. It talks to the
-server only through the JSON API under `/api/v1` and, as they arrive, the WebSocket at `/ws`.
+server only through the JSON API under `/api/v1` and the WebSocket that syncs a page, under
+`/ws`.
 
 ## The stack
 
@@ -20,9 +21,9 @@ server only through the JSON API under `/api/v1` and, as they arrive, the WebSoc
 | oxlint, prettier | Lint and formatting. |
 | vitest, MSW | Tests of pages and components against a stand-in API. |
 
-**Planned.** The editor is BlockNote, with its shadcn variant, on the page's Yjs document.
-Its core is licensed MPL-2.0. Its XL packages are licensed GPL-3.0 and are not used; see
-[the license](/docs/architecture/decisions/#the-license).
+The editor is BlockNote, with its shadcn variant, on the page's Yjs document; see
+[Pages and the editor](#pages-and-the-editor). Its core is licensed MPL-2.0. Its XL packages
+are licensed GPL-3.0 and are not used; see [the license](/docs/architecture/decisions/#the-license).
 
 The interface is in English, with every string kept in one module, so a translation can
 follow without hunting through components. The app is responsive and works in a phone's
@@ -89,7 +90,7 @@ accounts](/docs/guides/signing-in/) describes them.
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message
 beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
-module each for auth, the account, the admin pages, workspaces and teamspaces.
+module each for auth, the account, the admin pages, workspaces, teamspaces and pages.
 
 ## Workspaces
 
@@ -110,6 +111,51 @@ describes the pages.
   outlives signing in on the way, and is dropped once the link is used or turns out not to
   work. A preview asks what the link admits to without using it, through
   `POST /api/v1/workspace-invite-links/preview`.
+
+## Pages and the editor
+
+A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
+[Editing pages](/docs/guides/editing-pages/) describes them. The calls are in
+`web/src/api/pages.ts`, cached under the workspace's key like the rest of its data:
+
+- Each tree, a teamspace's, the private and the shared one, is read whole, part after part
+  when it has more than 1000 pages, and the sidebar builds its rows from the list.
+- A change to a page's place, a move, a trash, a restore, reads the trees, the favorites,
+  the trash and every page read again, as the pages under it go along.
+- A title is shown in the trees, the favorites and the ways down to pages as it is typed,
+  by writing it into those cached lists, and saved over `PATCH /api/v1/pages/{id}` once
+  typing pauses for half a second, or as the field is left.
+- `web/src/lib/page-rules.ts` repeats the page rules only to decide which controls show.
+- The page trees' open pages, folded sections and the page being dragged are kept while the
+  app runs, shared by the sidebar's column and its drawer.
+
+The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
+about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
+document, to the `XmlFragment` named `document-store` that
+[Page documents](/docs/architecture/documents/) describes, and syncs it with the stock
+`y-websocket` provider:
+
+- It connects to `/ws/pages/{id}` on the app's own origin, `wss:` over HTTPS, so the session
+  cookie goes with the upgrade and the Content-Security-Policy's `connect-src 'self'` covers
+  it.
+- The y-sync protocol carries the document, and awareness carries each person's cursor and
+  presence: their name, their id, and their hue.
+- Tabs do not sync with each other through a `BroadcastChannel`, as the provider can, so
+  every change goes through the server and its checks.
+- Nothing can be typed until the server sent the document once. A viewer's editor never
+  takes input.
+- A close code from 4400 to 4499 means the server ended the connection on purpose, such as
+  when access changed; the provider then stops reconnecting, and the app reads the page
+  again. Any other close is tried again, with changes kept until the connection is back.
+
+BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
+every palette and mode: its `--bn-` variables take the palette's tokens, its text and
+highlight colours sit at the accent's lightness and chroma at fixed hues, and its shadcn
+menus use the app's shadcn variables, which Tailwind generates for its components too.
+Others' cursors carry their hue the way other elements do, with `data-hue` and
+`--accent-h`, so each is drawn at the reader's own lightness and chroma, and glows in dark
+mode. The tint over the text someone selects is the one colour drawn outside the theme:
+y-prosemirror writes it as an sRGB colour, which the app derives from their hue.
 
 ## The theme model
 
@@ -195,8 +241,8 @@ Apple systems, Segoe UI on Windows, and the platform's default elsewhere. Nothin
 downloaded for it.
 
 - **Per person**, the interface's font is Default or Mono.
-- **Per page**, **planned**: Default, Serif or Mono, as in Notion, and small text and full
-  width. Serif is the system's serif stack.
+- **Per page**: Default, Serif or Mono, as in Notion, and small text and full width. Serif
+  is the system's serif stack. The page's title and content take its font.
 - **Mono** is iA Writer Mono, licensed under the SIL Open Font License and bundled with the
   app, so it is the same on every system and served from the same origin.
 

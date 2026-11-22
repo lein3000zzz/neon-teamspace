@@ -14,8 +14,8 @@ Like `neon-domain`, it does no I/O and has no async code.
 ## The fragment
 
 A Yjs document can hold several shared types side by side, each under a name. The page's
-blocks are the `XmlFragment` named **`document-store`**. The web app's editor, **planned**,
-passes that fragment to BlockNote's collaboration options, and the crate exports the name as
+blocks are the `XmlFragment` named **`document-store`**. The web app's editor passes that
+fragment to BlockNote's collaboration options, and the crate exports the name as
 `neon_blocks::FRAGMENT`.
 Nothing else in the document belongs to the editor, so other data, such as comments, can sit
 beside it under names of its own.
@@ -219,7 +219,7 @@ text, and an image inside a paragraph splits it, since images are blocks.
 `tools/blocknote-fixtures` is a small Bun project that runs BlockNote's server-side editor,
 `@blocknote/server-util`. It pins `@blocknote/core`, `@blocknote/react` and
 `@blocknote/server-util` to 0.57.0, with `yjs` 13.6.33 and `y-prosemirror` 1.3.7, and the web
-app's editor, **planned**, takes the same versions. The fixtures live in
+app's editor takes the same versions, with `@blocknote/shadcn` at 0.57.0 too. The fixtures live in
 `crates/blocks/tests/fixtures`:
 
 ```mermaid
