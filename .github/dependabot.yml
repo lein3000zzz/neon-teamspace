@@ -1,0 +1,71 @@
+# Version updates once a month, into dev, one pull request per ecosystem covering all of its
+# directories. Each runs the checks like any other pull request.
+#
+# In the workflows Dependabot reads only the uses: lines, so their other pins are bumped by
+# hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and cargo-deny; in
+# release.yml the BuildKit and SBOM scanner images.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      cargo:
+        patterns: ['*']
+
+  # Bun's text lockfile, bun.lock, in each JS project.
+  - package-ecosystem: bun
+    directories: ['/web', '/docs', '/e2e']
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      javascript:
+        patterns: ['*']
+
+  # The actions in .github/workflows, pinned to commit SHAs: Dependabot moves the SHA and the
+  # version comment beside it together.
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories: ['/deployments', '/web']
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      images:
+        patterns: ['*']
+
+  - package-ecosystem: docker-compose
+    directory: /deployments
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      compose:
+        patterns: ['*']
