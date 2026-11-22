@@ -653,6 +653,87 @@ async fn an_accepted_invitation_is_kept_as_accepted(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_member_limit_holds_against_many_joining_at_once(pool: PgPool) {
+    const LIMIT: usize = 3;
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    let created = h
+        .workspaces
+        .create_invite_link(
+            &ada,
+            id,
+            LinkSpec {
+                role: WorkspaceRole::Member,
+                max_uses: Some(50),
+                expires_at: None,
+            },
+        )
+        .await
+        .expect("created");
+    let mut by_link = Vec::new();
+    for n in 0..8 {
+        by_link.push(h.person(&format!("link{n}@example.com")).await);
+    }
+    let mut invited = Vec::new();
+    for n in 0..8 {
+        let who = h.person(&format!("invited{n}@example.com")).await;
+        let sent = h
+            .workspaces
+            .invite(&ada, id, who.user.email.as_str(), WorkspaceRole::Member)
+            .await
+            .expect("invited");
+        invited.push((who, sent.invitation.id));
+    }
+    h.set("workspaces.limits.members", json!(LIMIT)).await;
+
+    let joins = by_link.iter().map(|who| {
+        let service = h.workspaces.clone();
+        let (who, token) = (who.clone(), created.token.clone());
+        tokio::spawn(async move { service.join_with_link(&who, &token).await.map(drop) })
+    });
+    let accepts = invited.iter().map(|(who, invitation)| {
+        let service = h.workspaces.clone();
+        let (who, invitation) = (who.clone(), *invitation);
+        tokio::spawn(async move { service.accept_invitation(&who, invitation).await.map(drop) })
+    });
+    let (joins, accepts): (Vec<_>, Vec<_>) = futures_util::future::join(
+        futures_util::future::join_all(joins),
+        futures_util::future::join_all(accepts),
+    )
+    .await;
+    let outcomes = |results: Vec<Result<Result<(), WorkspaceError>, tokio::task::JoinError>>| {
+        results
+            .into_iter()
+            .map(|joined| joined.expect("the task ran"))
+            .collect::<Vec<_>>()
+    };
+    let (joins, accepts) = (outcomes(joins), outcomes(accepts));
+
+    let admitted = joins.iter().chain(&accepts).filter(|r| r.is_ok()).count();
+    assert_eq!(admitted, LIMIT - 1, "room for all but the owner");
+    for refused in joins
+        .iter()
+        .chain(&accepts)
+        .filter_map(|r| r.as_ref().err())
+    {
+        assert!(
+            matches!(refused, WorkspaceError::MemberLimit { limit: 3 }),
+            "{refused:?}"
+        );
+    }
+    let members = h.workspaces.list_members(&ada, id).await.expect("listed");
+    assert_eq!(members.len(), LIMIT);
+    let links = h.workspaces.invite_links(&ada, id).await.expect("listed");
+    let joined_by_link = joins.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(
+        usize::try_from(links[0].uses).expect("a count"),
+        joined_by_link,
+        "a use for each join, and none for a refusal"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn link_rules_follow_the_invite_rules(pool: PgPool) {
     let h = Harness::new(pool).await;
     let ada = h.person("ada@example.com").await;
