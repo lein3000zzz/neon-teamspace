@@ -1,0 +1,30 @@
+[
+  {
+    "type": "toggleListItem",
+    "content": [{ "type": "text", "text": "A toggle", "styles": { "bold": true } }],
+    "children": [
+      { "type": "paragraph", "content": "Shown when open." },
+      {
+        "type": "toggleListItem",
+        "content": "A nested toggle",
+        "children": [{ "type": "bulletListItem", "content": "Deep inside" }]
+      }
+    ]
+  },
+  {
+    "type": "heading",
+    "props": { "level": 2, "isToggleable": true },
+    "content": "A toggleable heading",
+    "children": [
+      { "type": "paragraph", "content": "The section under it." },
+      { "type": "checkListItem", "props": { "checked": true }, "content": "A done task" }
+    ]
+  },
+  { "type": "toggleListItem", "content": "" },
+  {
+    "type": "heading",
+    "props": { "level": 3 },
+    "content": "A plain heading with children",
+    "children": [{ "type": "paragraph", "content": "A child of the heading." }]
+  }
+]

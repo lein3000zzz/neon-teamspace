@@ -83,6 +83,12 @@ export const POLICIES: Readonly<Record<string, Policy>> = {
       },
     ],
   },
+  // The tool that writes and checks the block fixtures with BlockNote, which ships nothing:
+  // every package must still be on the allow list.
+  "tools/blocknote-fixtures": {
+    exceptions: [],
+    clarifications: [],
+  },
   // The end-to-end tests, which ship nothing: every package must still be on the allow list.
   e2e: {
     exceptions: [],
