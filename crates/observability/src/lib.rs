@@ -252,7 +252,8 @@ pub fn init(
     });
     shutdown.on_shutdown("traces", || blocking(move || provider.shutdown()));
     if let Some(push) = push {
-        shutdown.on_shutdown("profiler", || blocking(move || push.stop()));
+        let timeout = push.stop_timeout(crate::shutdown::DEFAULT_HOOK_TIMEOUT);
+        shutdown.on_shutdown_with_timeout("profiler", timeout, || blocking(move || push.stop()));
     }
     if let Some(handle) = &metrics {
         for (subsystem, _) in subsystems {

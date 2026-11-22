@@ -322,6 +322,7 @@ fn text(status: StatusCode, message: impl Into<String>) -> Response {
 /// The running Pyroscope agents, one per profile type.
 pub(crate) struct Push {
     agents: Vec<(Profile, PyroscopeAgent<PyroscopeAgentRunning>)>,
+    upload_interval: Duration,
 }
 
 impl std::fmt::Debug for Push {
@@ -346,7 +347,10 @@ impl Push {
         config: &ProfilingConfig,
         service: &ServiceInfo,
     ) -> Result<Self, PyroscopeError> {
-        let mut push = Self { agents: Vec::new() };
+        let mut push = Self {
+            agents: Vec::new(),
+            upload_interval: Duration::from_secs(config.push.upload_interval_seconds),
+        };
         for profile in &config.profiles {
             if push.agents.iter().any(|(started, _)| started == profile) {
                 continue;
@@ -367,21 +371,44 @@ impl Push {
         Ok(push)
     }
 
-    /// Stops every agent, which flushes its last batch. Blocks until they are done.
+    /// How long [`stop`](Self::stop) may take: an agent sends its last batch at its next upload,
+    /// up to one upload interval away, plus `margin` for sending it.
+    pub(crate) fn stop_timeout(&self, margin: Duration) -> Duration {
+        stop_timeout(self.upload_interval, margin)
+    }
+
+    /// Stops every agent, which flushes its last batch. Blocks until they are done. The agents
+    /// stop side by side, as each waits for its next upload, so stopping takes up to one upload
+    /// interval however many there are.
     pub(crate) fn stop(self) -> Result<(), StopError> {
-        let mut failures = Vec::new();
-        for (profile, agent) in self.agents {
-            match agent.stop() {
-                Ok(ready) => ready.shutdown(),
-                Err(error) => failures.push(format!("{profile:?}: {error}")),
-            }
-        }
+        let failures: Vec<String> = std::thread::scope(|scope| {
+            let stopping: Vec<_> = self
+                .agents
+                .into_iter()
+                .map(|(profile, agent)| {
+                    let stopped = scope.spawn(move || agent.stop().map(|ready| ready.shutdown()));
+                    (profile, stopped)
+                })
+                .collect();
+            stopping
+                .into_iter()
+                .filter_map(|(profile, stopped)| match stopped.join() {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(format!("{profile:?}: {error}")),
+                    Err(_) => Some(format!("{profile:?}: the agent panicked while stopping")),
+                })
+                .collect()
+        });
         if failures.is_empty() {
             Ok(())
         } else {
             Err(StopError(failures.join("; ")))
         }
     }
+}
+
+fn stop_timeout(upload_interval: Duration, margin: Duration) -> Duration {
+    upload_interval.saturating_add(margin)
 }
 
 /// Some Pyroscope agents failed to stop.
@@ -628,11 +655,14 @@ mod tests {
         );
         tokio::time::sleep(Duration::from_millis(1500)).await;
         // Stopping waits for the agents' last upload, so it runs on a blocking thread, as it
-        // does on shutdown.
+        // does on shutdown, and ends within the time the shutdown registry gives it.
+        let timeout = push.stop_timeout(Duration::from_secs(1));
+        let begun = std::time::Instant::now();
         tokio::task::spawn_blocking(move || push.stop())
             .await
             .unwrap()
             .unwrap();
+        assert!(begun.elapsed() <= timeout, "{:?}", begun.elapsed());
 
         let pushes = pushes.lock().unwrap();
         assert!(!pushes.is_empty(), "no profile was pushed");
@@ -643,5 +673,17 @@ mod tests {
             .collect();
         assert_eq!(labels.get("service_name"), Some(&"neon-test"));
         assert_eq!(labels.get("env"), Some(&"test"));
+    }
+
+    #[test]
+    fn stopping_may_take_one_upload_interval_and_the_margin() {
+        assert_eq!(
+            stop_timeout(Duration::from_secs(10), Duration::from_secs(10)),
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            stop_timeout(Duration::MAX, Duration::from_secs(10)),
+            Duration::MAX
+        );
     }
 }
