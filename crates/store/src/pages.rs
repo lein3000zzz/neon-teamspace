@@ -740,3 +740,76 @@ pub async fn shared_tree(
     })
     .collect()
 }
+
+/// A page as an export lists it: its place in the tree, its title, and when its content
+/// last changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineNode {
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub title: String,
+    pub content_updated_at: OffsetDateTime,
+}
+
+/// A page, then every page under it that is where it is: out of the trash for a page out
+/// of it, or for a page in it, those that went to the trash with it. In the order of the
+/// tree, as [`space_tree`] has it; at most `limit`.
+pub async fn outline(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<OutlineNode>> {
+    sqlx::query_as!(
+        OutlineNode,
+        r#"WITH RECURSIVE tree (id, batch, path, depth) AS (
+               SELECT id, trashed_with, position COLLATE "C", 1 FROM pages WHERE id = $1
+             UNION ALL
+               SELECT c.id, t.batch, (t.path || '!' || c.position) COLLATE "C", t.depth + 1
+               FROM tree t
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_with IS NOT DISTINCT FROM t.batch
+               WHERE t.depth < $3
+           )
+           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           FROM tree t JOIN pages p ON p.id = t.id
+           ORDER BY t.path COLLATE "C", p.id
+           LIMIT $2"#,
+        id,
+        limit,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
+}
+
+/// Every page out of the trash in a space of a workspace, `space` being the teamspace's or
+/// the owner's id, in the order of the tree, as [`space_tree`] has it; at most `limit`.
+pub async fn space_outline(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    space: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<OutlineNode>> {
+    sqlx::query_as!(
+        OutlineNode,
+        r#"WITH RECURSIVE tree (id, path, depth) AS (
+               SELECT id, position COLLATE "C", 1 FROM pages
+               WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2
+                 AND parent_id IS NULL AND trashed_at IS NULL
+             UNION ALL
+               SELECT c.id, (t.path || '!' || c.position) COLLATE "C", t.depth + 1
+               FROM tree t
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL
+               WHERE t.depth < $4
+           )
+           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           FROM tree t JOIN pages p ON p.id = t.id
+           ORDER BY t.path COLLATE "C", p.id
+           LIMIT $3"#,
+        workspace_id,
+        space,
+        limit,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
+}

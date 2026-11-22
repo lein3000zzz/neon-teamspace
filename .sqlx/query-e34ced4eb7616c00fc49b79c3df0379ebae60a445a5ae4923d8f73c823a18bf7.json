@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE tree (id, path, depth) AS (\n               SELECT id, position COLLATE \"C\", 1 FROM pages\n               WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2\n                 AND parent_id IS NULL AND trashed_at IS NULL\n             UNION ALL\n               SELECT c.id, (t.path || '!' || c.position) COLLATE \"C\", t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL\n               WHERE t.depth < $4\n           )\n           SELECT p.id, p.parent_id, p.title, p.content_updated_at\n           FROM tree t JOIN pages p ON p.id = t.id\n           ORDER BY t.path COLLATE \"C\", p.id\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "parent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "content_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "content_updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e34ced4eb7616c00fc49b79c3df0379ebae60a445a5ae4923d8f73c823a18bf7"
+}

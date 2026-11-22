@@ -7,7 +7,7 @@
 //!
 //! These queries only move bytes. Encoding and decoding them is the live documents' work.
 
-use sqlx::PgExecutor;
+use sqlx::{PgExecutor, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -83,6 +83,28 @@ pub async fn updates_after(
     )
     .fetch_all(executor)
     .await
+}
+
+/// A page's document as saved: its snapshot, if any, and the updates logged after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Saved {
+    pub snapshot: Option<Snapshot>,
+    pub updates: Vec<LoggedUpdate>,
+}
+
+/// A page's snapshot and the updates logged after it, read in one transaction that sees the
+/// database as it was at one moment: a compaction between the two reads would otherwise
+/// delete updates the snapshot read lacks.
+pub async fn saved(pool: &PgPool, page_id: Uuid) -> sqlx::Result<Saved> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    let snapshot = snapshot(&mut *tx, page_id).await?;
+    let after = snapshot.as_ref().map_or(0, |snapshot| snapshot.last_seq);
+    let updates = updates_after(&mut *tx, page_id, after).await?;
+    tx.commit().await?;
+    Ok(Saved { snapshot, updates })
 }
 
 /// Logs updates in the order given, in one statement. Returns the number of the last one
