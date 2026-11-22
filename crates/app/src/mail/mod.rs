@@ -145,7 +145,8 @@ impl fmt::Debug for Outgoing {
 }
 
 /// Why a mail did not go. The messages are for logs and admins: what the mail server
-/// answered, never the mail's links or the password used to sign in.
+/// answered, with the addresses in it redacted, never the mail's links or the password
+/// used to sign in.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SendError {
     /// Mail is not set up now. It may be later, so the mail is tried again.

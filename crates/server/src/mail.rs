@@ -10,7 +10,8 @@
 //!
 //! A mail server's permanent refusal of the recipient or the mail, a 55x answer, is
 //! [`SendError::Rejected`], which ends the mail's job; everything else is retried. Errors
-//! carry what the server answered, on one line, never the password.
+//! carry what the server answered, on one line, with the addresses in it redacted, and
+//! never the password.
 
 use std::error::Error;
 use std::str::FromStr as _;
@@ -209,8 +210,12 @@ fn refusal(error: &lettre::transport::smtp::Error) -> SendError {
     }
 }
 
+/// What stands in for an address in a server's answer.
+const ADDRESS: &str = "[address]";
+
 /// An error with its causes, on one line and at most [`MAX_ANSWER`] characters, for logs
-/// and the admin page.
+/// and the admin page. Servers often name the recipient in a refusal, as in
+/// `550 5.1.1 <bob@example.com>: Recipient address rejected`; every address is redacted.
 fn answer(error: &(dyn Error + 'static)) -> String {
     let mut text = error.to_string();
     let mut source = error.source();
@@ -223,11 +228,36 @@ fn answer(error: &(dyn Error + 'static)) -> String {
         }
         source = cause.source();
     }
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = text
+        .split_whitespace()
+        .map(redact_address)
+        .collect::<Vec<_>>()
+        .join(" ");
     match text.char_indices().nth(MAX_ANSWER) {
         Some((end, _)) => format!("{}…", &text[..end]),
         None => text,
     }
+}
+
+/// A word of a server's answer, with the address it holds, if any, replaced by
+/// [`ADDRESS`] and the brackets and punctuation around it kept.
+fn redact_address(word: &str) -> std::borrow::Cow<'_, str> {
+    let around = |c: char| {
+        matches!(
+            c,
+            '<' | '>' | '(' | ')' | '[' | ']' | '"' | '\'' | ':' | ';' | ','
+        )
+    };
+    let core = word.trim_matches(around);
+    let Some((local, domain)) = core.split_once('@') else {
+        return word.into();
+    };
+    if local.is_empty() && domain.is_empty() {
+        return word.into();
+    }
+    let start = word.len() - word.trim_start_matches(around).len();
+    let end = start + core.len();
+    format!("{}{ADDRESS}{}", &word[..start], &word[end..]).into()
 }
 
 /// `Auto-Submitted: auto-generated`.

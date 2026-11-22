@@ -125,8 +125,9 @@ impl Fake {
             } else if upper.starts_with("MAIL FROM") {
                 say(&mut stream, "250 2.1.0 Ok").await;
             } else if upper.starts_with("RCPT TO") {
-                if self.refuse.is_some_and(|refused| command.contains(refused)) {
-                    say(&mut stream, "550 5.1.1 No such user here").await;
+                if let Some(refused) = self.refuse.filter(|refused| command.contains(refused)) {
+                    let refusal = format!("550 5.1.1 <{refused}>: No such user here");
+                    say(&mut stream, &refusal).await;
                 } else {
                     say(&mut stream, "250 2.1.5 Ok").await;
                 }
@@ -356,9 +357,10 @@ async fn a_refused_recipient_is_rejected_for_good(pool: PgPool) {
         panic!("a 550 is permanent: {error:?}");
     };
     assert!(
-        said.contains("550") && said.contains("No such user here"),
+        said.contains("550") && said.contains("5.1.1 <[address]>: No such user here"),
         "{said}"
     );
+    assert!(!said.contains("nobody@"), "{said}");
     assert!(fake.seen().messages.is_empty());
 }
 
@@ -538,6 +540,20 @@ async fn a_password_never_crosses_the_network_in_the_clear(pool: PgPool) {
         panic!("not sent: {error:?}");
     };
     assert!(said.contains("in the clear"), "{said}");
+}
+
+#[test]
+fn answers_name_no_address() {
+    let refusal = std::io::Error::other(
+        "550 5.1.1 <bob@example.com>: Recipient address rejected; (from neon@example.com) a@b",
+    );
+
+    assert_eq!(
+        answer(&refusal),
+        "550 5.1.1 <[address]>: Recipient address rejected; (from [address]) [address]"
+    );
+    let plain = std::io::Error::other("421 4.7.0 try again @ 10:00");
+    assert_eq!(answer(&plain), "421 4.7.0 try again @ 10:00");
 }
 
 #[test]

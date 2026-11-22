@@ -115,7 +115,10 @@ sequenceDiagram
   such as a relay that cannot be reached or refuses the sign-in, is tried again after a
   delay that starts at 10 seconds and doubles each time, ten tries in all, over at most an
   hour and a half.
-- Logs name the kind of mail, such as `password_reset`, never the recipient or the link.
+- Logs name the kind of mail, such as `password_reset`, never the recipient or the link. A
+  relay's answer often names the recipient, as in `550 5.1.1 <bob@example.com>: Recipient
+  address rejected`, so every address in it is replaced by `[address]` before it is logged
+  or kept.
 
 The links in mail open the app's pages, at `server.public_url`:
 
@@ -133,8 +136,8 @@ The links in mail open the app's pages, at `server.public_url`:
 `POST /api/v1/admin/mail/test` queues a test mail to the admin who calls it, and answers
 `202` once it is queued, or `409` with what is missing while mail cannot go. Whether the
 relay took it shows in the inbox, and in the mail status of `GET /api/v1/admin/settings`:
-`last_sent_at`, and `last_failure` with what the relay answered when it did not. The status
-covers deliveries since the server started.
+`last_sent_at`, and `last_failure` with what the relay answered when it did not, its
+addresses redacted. The status covers deliveries since the server started.
 
 ## A relay
 
