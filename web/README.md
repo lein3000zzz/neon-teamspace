@@ -90,11 +90,33 @@ anything that should take the entity's hue. `hueFor(id)` in `src/lib/hue.ts` com
 entity's hue from its id with FNV-1a, the same way as lein3000.dev. `src/lib/hue-vectors.json`
 holds test vectors that any other implementation must match.
 
-Preferences live in `localStorage` under `neon.theme`. `public/theme.js` applies them before
-first paint. `src/theme/preferences.ts` holds the same rules in TypeScript, and
+Preferences are kept with the account, at `/api/v1/account/preferences`: signing in loads them
+into the theme store (`src/components/theme/preferences-sync.tsx`), and the appearance page saves
+each change there once a slider drag stops. `localStorage` under `neon.theme` is this browser's
+copy of them, and `public/theme.js` applies it before first paint. `src/theme/preferences.ts` holds the same rules in TypeScript, and
 `boot-script.test.ts` checks that the two agree. Where the browser refuses storage, as it does
 with site data blocked, both fall back to the defaults. Where storage is full, the stored theme
 still loads. Either way, new choices apply for the rest of the visit without being saved.
+
+## Signing in and the API
+
+Every call to the server goes through `src/api`: `client.ts` is the typed `openapi-fetch` client,
+and `auth.ts`, `account.ts` and `admin.ts` hold the TanStack Query queries and mutations of each
+part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
+cookie, sent because the app and the API share an origin; the same origin satisfies the server's
+check of `Origin` on requests that change something.
+
+The routes hang off two layouts. `_app` is the shell, for everything that needs someone signed
+in: its `beforeLoad` asks `GET /api/v1/account/me` and sends a visitor without a session to
+`/login?next=…`. `_auth` is the centred card of the pages for signing in and up, the mailed links
+and requests to join. `createQueryClient` watches every failed request: a 401 `unauthenticated`
+means the session ended, which forgets the user and leads back to sign in, and a 403 `forbidden`
+asks again who is signed in, so a role taken away shows at once. Answers the server refused on
+purpose, any 4xx, are not retried.
+
+Search values stay strings (`src/router.tsx`), and the one-time token of a mailed link, or an
+invite link's code, is taken out of the address as its page opens (`useLinkSecret` in
+`src/lib/links.ts`).
 
 ## Content-Security-Policy
 

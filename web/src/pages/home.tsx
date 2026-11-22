@@ -10,7 +10,7 @@ export function HomePage() {
     <PageHeader eyebrow={strings.home.eyebrow} title={strings.home.title} lede={strings.home.lede}>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button asChild>
-          <Link to="/settings/appearance">
+          <Link to="/account/appearance">
             <Paintbrush aria-hidden />
             {strings.home.appearance}
           </Link>

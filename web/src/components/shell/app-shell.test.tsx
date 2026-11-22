@@ -21,10 +21,10 @@ describe("app shell", () => {
     // must be named by its own heading, not one with the same id behind it.
     const labelId = drawer.getByRole("list", { name: "Settings" }).getAttribute("aria-labelledby");
     expect(dialog).toContainElement(document.getElementById(labelId ?? ""));
-    await user.click(drawer.getByRole("link", { name: "Appearance" }));
+    await user.click(drawer.getByRole("link", { name: "Account" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/settings/appearance");
+    expect(router.state.location.pathname).toBe("/account");
   });
 
   it("closes the drawer with Escape", async () => {

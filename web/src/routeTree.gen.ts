@@ -9,86 +9,517 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as StyleguideRouteImport } from './routes/styleguide'
-import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AuthRouteImport } from './routes/_auth'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppSplatRouteImport } from './routes/_app/$'
+import { Route as AppAccountRouteImport } from './routes/_app/account'
+import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppStyleguideRouteImport } from './routes/_app/styleguide'
+import { Route as AuthForgotRouteImport } from './routes/_auth/forgot'
+import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
+import { Route as AuthResetRouteImport } from './routes/_auth/reset'
+import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
+import { Route as AppAccountIndexRouteImport } from './routes/_app/account/index'
+import { Route as AppAccountAppearanceRouteImport } from './routes/_app/account/appearance'
+import { Route as AppAccountSessionsRouteImport } from './routes/_app/account/sessions'
+import { Route as AppAccountTokensRouteImport } from './routes/_app/account/tokens'
+import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
+import { Route as AppAdminInvitesRouteImport } from './routes/_app/admin/invites'
+import { Route as AppAdminRequestsRouteImport } from './routes/_app/admin/requests'
+import { Route as AppAdminSettingsRouteImport } from './routes/_app/admin/settings'
+import { Route as AuthJoinIndexRouteImport } from './routes/_auth/join/index'
+import { Route as AuthJoinConfirmRouteImport } from './routes/_auth/join/confirm'
 
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/_auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const StyleguideRoute = StyleguideRouteImport.update({
+const AppSplatRoute = AppSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountRoute = AppAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStyleguideRoute = AppStyleguideRouteImport.update({
   id: '/styleguide',
   path: '/styleguide',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
-  id: '/settings/appearance',
-  path: '/settings/appearance',
-  getParentRoute: () => rootRouteImport,
+const AuthForgotRoute = AuthForgotRouteImport.update({
+  id: '/forgot',
+  path: '/forgot',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthRegisterRoute = AuthRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthResetRoute = AuthResetRouteImport.update({
+  id: '/reset',
+  path: '/reset',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthVerifyRoute = AuthVerifyRouteImport.update({
+  id: '/verify',
+  path: '/verify',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAccountRoute,
+} as any)
+const AppAccountAppearanceRoute = AppAccountAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => AppAccountRoute,
+} as any)
+const AppAccountSessionsRoute = AppAccountSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppAccountRoute,
+} as any)
+const AppAccountTokensRoute = AppAccountTokensRouteImport.update({
+  id: '/tokens',
+  path: '/tokens',
+  getParentRoute: () => AppAccountRoute,
+} as any)
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminInvitesRoute = AppAdminInvitesRouteImport.update({
+  id: '/invites',
+  path: '/invites',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminRequestsRoute = AppAdminRequestsRouteImport.update({
+  id: '/requests',
+  path: '/requests',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminSettingsRoute = AppAdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AuthJoinIndexRoute = AuthJoinIndexRouteImport.update({
+  id: '/join/',
+  path: '/join/',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthJoinConfirmRoute = AuthJoinConfirmRouteImport.update({
+  id: '/join/confirm',
+  path: '/join/confirm',
+  getParentRoute: () => AuthRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/styleguide': typeof StyleguideRoute
-  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/': typeof AppIndexRoute
+  '/$': typeof AppSplatRoute
+  '/account': typeof AppAccountRouteWithChildren
+  '/admin': typeof AppAdminRouteWithChildren
+  '/styleguide': typeof AppStyleguideRoute
+  '/forgot': typeof AuthForgotRoute
+  '/login': typeof AuthLoginRoute
+  '/register': typeof AuthRegisterRoute
+  '/reset': typeof AuthResetRoute
+  '/verify': typeof AuthVerifyRoute
+  '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/sessions': typeof AppAccountSessionsRoute
+  '/account/tokens': typeof AppAccountTokensRoute
+  '/admin/invites': typeof AppAdminInvitesRoute
+  '/admin/requests': typeof AppAdminRequestsRoute
+  '/admin/settings': typeof AppAdminSettingsRoute
+  '/join/confirm': typeof AuthJoinConfirmRoute
+  '/account/': typeof AppAccountIndexRoute
+  '/admin/': typeof AppAdminIndexRoute
+  '/join/': typeof AuthJoinIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/styleguide': typeof StyleguideRoute
-  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/': typeof AppIndexRoute
+  '/$': typeof AppSplatRoute
+  '/styleguide': typeof AppStyleguideRoute
+  '/forgot': typeof AuthForgotRoute
+  '/login': typeof AuthLoginRoute
+  '/register': typeof AuthRegisterRoute
+  '/reset': typeof AuthResetRoute
+  '/verify': typeof AuthVerifyRoute
+  '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/sessions': typeof AppAccountSessionsRoute
+  '/account/tokens': typeof AppAccountTokensRoute
+  '/admin/invites': typeof AppAdminInvitesRoute
+  '/admin/requests': typeof AppAdminRequestsRoute
+  '/admin/settings': typeof AppAdminSettingsRoute
+  '/join/confirm': typeof AuthJoinConfirmRoute
+  '/account': typeof AppAccountIndexRoute
+  '/admin': typeof AppAdminIndexRoute
+  '/join': typeof AuthJoinIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/styleguide': typeof StyleguideRoute
-  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/_app': typeof AppRouteWithChildren
+  '/_auth': typeof AuthRouteWithChildren
+  '/_app/$': typeof AppSplatRoute
+  '/_app/account': typeof AppAccountRouteWithChildren
+  '/_app/admin': typeof AppAdminRouteWithChildren
+  '/_app/styleguide': typeof AppStyleguideRoute
+  '/_auth/forgot': typeof AuthForgotRoute
+  '/_auth/login': typeof AuthLoginRoute
+  '/_auth/register': typeof AuthRegisterRoute
+  '/_auth/reset': typeof AuthResetRoute
+  '/_auth/verify': typeof AuthVerifyRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/account/appearance': typeof AppAccountAppearanceRoute
+  '/_app/account/sessions': typeof AppAccountSessionsRoute
+  '/_app/account/tokens': typeof AppAccountTokensRoute
+  '/_app/admin/invites': typeof AppAdminInvitesRoute
+  '/_app/admin/requests': typeof AppAdminRequestsRoute
+  '/_app/admin/settings': typeof AppAdminSettingsRoute
+  '/_auth/join/confirm': typeof AuthJoinConfirmRoute
+  '/_app/account/': typeof AppAccountIndexRoute
+  '/_app/admin/': typeof AppAdminIndexRoute
+  '/_auth/join/': typeof AuthJoinIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/styleguide' | '/settings/appearance'
+  fullPaths:
+    | '/'
+    | '/$'
+    | '/account'
+    | '/admin'
+    | '/styleguide'
+    | '/forgot'
+    | '/login'
+    | '/register'
+    | '/reset'
+    | '/verify'
+    | '/account/appearance'
+    | '/account/sessions'
+    | '/account/tokens'
+    | '/admin/invites'
+    | '/admin/requests'
+    | '/admin/settings'
+    | '/join/confirm'
+    | '/account/'
+    | '/admin/'
+    | '/join/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/styleguide' | '/settings/appearance'
-  id: '__root__' | '/' | '/styleguide' | '/settings/appearance'
+  to:
+    | '/'
+    | '/$'
+    | '/styleguide'
+    | '/forgot'
+    | '/login'
+    | '/register'
+    | '/reset'
+    | '/verify'
+    | '/account/appearance'
+    | '/account/sessions'
+    | '/account/tokens'
+    | '/admin/invites'
+    | '/admin/requests'
+    | '/admin/settings'
+    | '/join/confirm'
+    | '/account'
+    | '/admin'
+    | '/join'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/_auth'
+    | '/_app/$'
+    | '/_app/account'
+    | '/_app/admin'
+    | '/_app/styleguide'
+    | '/_auth/forgot'
+    | '/_auth/login'
+    | '/_auth/register'
+    | '/_auth/reset'
+    | '/_auth/verify'
+    | '/_app/'
+    | '/_app/account/appearance'
+    | '/_app/account/sessions'
+    | '/_app/account/tokens'
+    | '/_app/admin/invites'
+    | '/_app/admin/requests'
+    | '/_app/admin/settings'
+    | '/_auth/join/confirm'
+    | '/_app/account/'
+    | '/_app/admin/'
+    | '/_auth/join/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  StyleguideRoute: typeof StyleguideRoute
-  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  AppRoute: typeof AppRouteWithChildren
+  AuthRoute: typeof AuthRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_auth': {
+      id: '/_auth'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/styleguide': {
-      id: '/styleguide'
+    '/_app/$': {
+      id: '/_app/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof AppSplatRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account': {
+      id: '/_app/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AppAccountRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/styleguide': {
+      id: '/_app/styleguide'
       path: '/styleguide'
       fullPath: '/styleguide'
-      preLoaderRoute: typeof StyleguideRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppStyleguideRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/appearance': {
-      id: '/settings/appearance'
-      path: '/settings/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof SettingsAppearanceRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_auth/forgot': {
+      id: '/_auth/forgot'
+      path: '/forgot'
+      fullPath: '/forgot'
+      preLoaderRoute: typeof AuthForgotRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/login': {
+      id: '/_auth/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/register': {
+      id: '/_auth/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof AuthRegisterRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/reset': {
+      id: '/_auth/reset'
+      path: '/reset'
+      fullPath: '/reset'
+      preLoaderRoute: typeof AuthResetRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/verify': {
+      id: '/_auth/verify'
+      path: '/verify'
+      fullPath: '/verify'
+      preLoaderRoute: typeof AuthVerifyRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_app/account/': {
+      id: '/_app/account/'
+      path: '/'
+      fullPath: '/account/'
+      preLoaderRoute: typeof AppAccountIndexRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
+    '/_app/account/appearance': {
+      id: '/_app/account/appearance'
+      path: '/appearance'
+      fullPath: '/account/appearance'
+      preLoaderRoute: typeof AppAccountAppearanceRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
+    '/_app/account/sessions': {
+      id: '/_app/account/sessions'
+      path: '/sessions'
+      fullPath: '/account/sessions'
+      preLoaderRoute: typeof AppAccountSessionsRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
+    '/_app/account/tokens': {
+      id: '/_app/account/tokens'
+      path: '/tokens'
+      fullPath: '/account/tokens'
+      preLoaderRoute: typeof AppAccountTokensRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
+    '/_app/admin/': {
+      id: '/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AppAdminIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/invites': {
+      id: '/_app/admin/invites'
+      path: '/invites'
+      fullPath: '/admin/invites'
+      preLoaderRoute: typeof AppAdminInvitesRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/requests': {
+      id: '/_app/admin/requests'
+      path: '/requests'
+      fullPath: '/admin/requests'
+      preLoaderRoute: typeof AppAdminRequestsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/settings': {
+      id: '/_app/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AppAdminSettingsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_auth/join/': {
+      id: '/_auth/join/'
+      path: '/join'
+      fullPath: '/join/'
+      preLoaderRoute: typeof AuthJoinIndexRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/join/confirm': {
+      id: '/_auth/join/confirm'
+      path: '/join/confirm'
+      fullPath: '/join/confirm'
+      preLoaderRoute: typeof AuthJoinConfirmRouteImport
+      parentRoute: typeof AuthRoute
     }
   }
 }
 
+interface AppAccountRouteChildren {
+  AppAccountAppearanceRoute: typeof AppAccountAppearanceRoute
+  AppAccountSessionsRoute: typeof AppAccountSessionsRoute
+  AppAccountTokensRoute: typeof AppAccountTokensRoute
+  AppAccountIndexRoute: typeof AppAccountIndexRoute
+}
+
+const AppAccountRouteChildren: AppAccountRouteChildren = {
+  AppAccountAppearanceRoute: AppAccountAppearanceRoute,
+  AppAccountSessionsRoute: AppAccountSessionsRoute,
+  AppAccountTokensRoute: AppAccountTokensRoute,
+  AppAccountIndexRoute: AppAccountIndexRoute,
+}
+
+const AppAccountRouteWithChildren = AppAccountRoute._addFileChildren(
+  AppAccountRouteChildren,
+)
+
+interface AppAdminRouteChildren {
+  AppAdminInvitesRoute: typeof AppAdminInvitesRoute
+  AppAdminRequestsRoute: typeof AppAdminRequestsRoute
+  AppAdminSettingsRoute: typeof AppAdminSettingsRoute
+  AppAdminIndexRoute: typeof AppAdminIndexRoute
+}
+
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminInvitesRoute: AppAdminInvitesRoute,
+  AppAdminRequestsRoute: AppAdminRequestsRoute,
+  AppAdminSettingsRoute: AppAdminSettingsRoute,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
+
+interface AppRouteChildren {
+  AppSplatRoute: typeof AppSplatRoute
+  AppAccountRoute: typeof AppAccountRouteWithChildren
+  AppAdminRoute: typeof AppAdminRouteWithChildren
+  AppStyleguideRoute: typeof AppStyleguideRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppSplatRoute: AppSplatRoute,
+  AppAccountRoute: AppAccountRouteWithChildren,
+  AppAdminRoute: AppAdminRouteWithChildren,
+  AppStyleguideRoute: AppStyleguideRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
+interface AuthRouteChildren {
+  AuthForgotRoute: typeof AuthForgotRoute
+  AuthLoginRoute: typeof AuthLoginRoute
+  AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthResetRoute: typeof AuthResetRoute
+  AuthVerifyRoute: typeof AuthVerifyRoute
+  AuthJoinConfirmRoute: typeof AuthJoinConfirmRoute
+  AuthJoinIndexRoute: typeof AuthJoinIndexRoute
+}
+
+const AuthRouteChildren: AuthRouteChildren = {
+  AuthForgotRoute: AuthForgotRoute,
+  AuthLoginRoute: AuthLoginRoute,
+  AuthRegisterRoute: AuthRegisterRoute,
+  AuthResetRoute: AuthResetRoute,
+  AuthVerifyRoute: AuthVerifyRoute,
+  AuthJoinConfirmRoute: AuthJoinConfirmRoute,
+  AuthJoinIndexRoute: AuthJoinIndexRoute,
+}
+
+const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  StyleguideRoute: StyleguideRoute,
-  SettingsAppearanceRoute: SettingsAppearanceRoute,
+  AppRoute: AppRouteWithChildren,
+  AuthRoute: AuthRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
