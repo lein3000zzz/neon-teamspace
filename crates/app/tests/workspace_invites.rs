@@ -575,6 +575,84 @@ async fn a_links_last_use_goes_to_one_of_two_joining_at_once(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn joining_another_way_ends_a_pending_invitation(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let bob = h.person("bob@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    let invited = h
+        .workspaces
+        .invite(&ada, id, "bob@example.com", WorkspaceRole::Admin)
+        .await
+        .expect("invited as an admin");
+    let guests = h
+        .workspaces
+        .create_invite_link(&ada, id, link(WorkspaceRole::Guest))
+        .await
+        .expect("created");
+
+    let joined = h
+        .workspaces
+        .join_with_link(&bob, &guests.token)
+        .await
+        .expect("joined as a guest");
+    assert_eq!(joined.role, WorkspaceRole::Guest);
+    assert!(
+        h.workspaces
+            .sent_invitations(&ada, id)
+            .await
+            .expect("listed")
+            .is_empty(),
+        "the invitation is no longer pending"
+    );
+    assert!(
+        h.workspaces
+            .my_invitations(&bob)
+            .await
+            .expect("listed")
+            .is_empty()
+    );
+
+    h.workspaces
+        .remove_member(&ada, id, bob.user.id)
+        .await
+        .expect("removed");
+    let back = h
+        .workspaces
+        .accept_invitation(&bob, invited.invitation.id)
+        .await;
+    assert!(
+        matches!(back, Err(WorkspaceError::NotFound(_))),
+        "the old invitation does not undo the removal: {back:?}"
+    );
+    assert!(h.workspaces.workspace(&bob, id).await.is_err(), "still out");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_accepted_invitation_is_kept_as_accepted(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let bob = h.person("bob@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    let sent = h
+        .workspaces
+        .invite(&ada, id, "bob@example.com", WorkspaceRole::Member)
+        .await
+        .expect("invited");
+    h.workspaces
+        .accept_invitation(&bob, sent.invitation.id)
+        .await
+        .expect("accepted");
+
+    let state: String = sqlx::query_scalar("SELECT state FROM workspace_invitations WHERE id = $1")
+        .bind(sent.invitation.id)
+        .fetch_one(&h.pool)
+        .await
+        .expect("still stored");
+    assert_eq!(state, "accepted");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn link_rules_follow_the_invite_rules(pool: PgPool) {
     let h = Harness::new(pool).await;
     let ada = h.person("ada@example.com").await;

@@ -428,6 +428,61 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
     assert_eq!(admin_role.status, StatusCode::FORBIDDEN);
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_invitation_ends_when_its_account_joins_by_link(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    user(&state, "eve@example.com").await;
+    let eve = Browser::sign_in(&app, "eve@example.com").await;
+    let eve_id = eve.get("/api/v1/account/me").await.body["id"].clone();
+    let base = format!("/api/v1/workspaces/{}", t.workspace);
+
+    let invited = t
+        .ada
+        .post(
+            &format!("{base}/invitations"),
+            json!({"email": "eve@example.com", "role": "admin"}),
+        )
+        .await;
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.body);
+    let link = t
+        .ada
+        .post(&format!("{base}/invite-links"), json!({"role": "guest"}))
+        .await;
+    let joined = eve
+        .post(
+            "/api/v1/workspace-invite-links/join",
+            json!({"token": link.body["token"]}),
+        )
+        .await;
+    assert_eq!(joined.body["role"], "guest");
+    let pending = t.ada.get(&format!("{base}/invitations")).await;
+    assert_eq!(pending.body["invitations"], json!([]));
+
+    let removed = t
+        .ada
+        .send(
+            Method::DELETE,
+            &format!("{base}/members/{}", eve_id.as_str().expect("an id")),
+            None,
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    let back = eve
+        .post(
+            &format!("/api/v1/account/invitations/{}/accept", id(&invited)),
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        (back.status, back.code()),
+        (StatusCode::NOT_FOUND, "not_found"),
+        "{}",
+        back.body
+    );
+}
+
 fn keyed() -> Envelope {
     use base64::Engine as _;
     let entry = format!(

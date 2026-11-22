@@ -220,9 +220,10 @@ impl WorkspaceService {
                 return Err(WorkspaceError::AlreadyMember);
             }
             self.check_room(&mut tx, workspace_id).await?;
+            // Answered before the account joins, which drops what is still pending.
+            repo::decide(&mut *tx, workspace_id, id, InvitationState::Accepted, now).await?;
             self.add_member(&mut tx, workspace_id, user, invitation.role)
                 .await?;
-            repo::decide(&mut *tx, workspace_id, id, InvitationState::Accepted, now).await?;
             tx.commit().await?;
             info!(
                 user_id = %user,

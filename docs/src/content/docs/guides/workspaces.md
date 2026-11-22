@@ -77,7 +77,9 @@ answers with `POST /api/v1/account/invitations/{id}/accept` or `.../decline`. No
 joined until it accepts: then it joins with the invitation's role, and the default teamspace
 unless as a guest. Owners and admins list the pending invitations with
 `GET /api/v1/workspaces/{id}/invitations` and revoke one with
-`POST /api/v1/workspaces/{id}/invitations/{invitation_id}/revoke`.
+`POST /api/v1/workspaces/{id}/invitations/{invitation_id}/revoke`. An account that joins
+another way, by an invite link, loses its pending invitation then: once it leaves or is
+removed, an old invitation cannot bring it back.
 
 ## Invite links
 

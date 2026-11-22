@@ -4,7 +4,7 @@
 use neon_domain::auth::Principal;
 use neon_domain::workspaces::permissions::check_owner_remains;
 use neon_domain::workspaces::{Action, Member, Resource, TeamspaceRole, WorkspaceRole, authorize};
-use neon_store::{teamspaces, workspaces as repo};
+use neon_store::{teamspaces, workspace_invites, workspaces as repo};
 use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
@@ -248,7 +248,8 @@ impl WorkspaceService {
 
     /// Adds an account to a workspace with `role`, and to its default teamspace unless it
     /// is a guest. Run it on the transaction that locked the workspace and checked its
-    /// limit.
+    /// limit. Whatever invitation of the account was still pending goes: once it is in,
+    /// however it came in, no invitation may admit it again after it leaves or is removed.
     pub(super) async fn add_member(
         &self,
         conn: &mut PgConnection,
@@ -266,6 +267,7 @@ impl WorkspaceService {
                     WorkspaceError::Database(error)
                 }
             })?;
+        workspace_invites::delete_pending(&mut *conn, workspace_id, user_id).await?;
         if role.joins_teamspaces() {
             teamspaces::join_default(
                 &mut *conn,
