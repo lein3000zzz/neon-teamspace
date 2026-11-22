@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+neon-blocks.workspace = true
 neon-domain.workspace = true
 neon-observability.workspace = true
 neon-store.workspace = true
@@ -17,8 +18,10 @@ arc-swap.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
 base64.workspace = true
+bytes.workspace = true
 futures-util.workspace = true
 governor.workspace = true
+metrics.workspace = true
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -31,11 +34,12 @@ tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
+# With sync, yrs' awareness can move between threads, so a live document's task can own it.
+yrs = { workspace = true, features = ["sync"] }
 zeroize.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
-metrics.workspace = true
 metrics-util.workspace = true
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["testing", "trace"] }

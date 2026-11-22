@@ -1,7 +1,7 @@
 //! One page at a time: creating, reading and changing a page, moving it, trashing it,
 //! restoring it, deleting it for good, and the way down to it.
 
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageStyle, Placement, Space, check_title,
 };
@@ -149,6 +149,29 @@ impl PageService {
             let context = self.context(&mut conn, principal, id).await?;
             context.check(Action::ViewPage)?;
             context.view()
+        })
+        .await
+    }
+
+    /// What the caller may do with a page's document now: edit it when they edit the page,
+    /// it is out of the trash and their token, if any, has the write scope; else view it.
+    /// A page they may not see is not found, as for [`page`](Self::page).
+    pub async fn document_access(
+        &self,
+        principal: &Principal,
+        id: Uuid,
+    ) -> Result<PageView, PageError> {
+        self.observe("document_access", async {
+            let mut conn = self.pool().acquire().await?;
+            let context = self.context(&mut conn, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            let access = if principal.can(Scope::Write) && context.check(Action::EditPage).is_ok() {
+                PageAccess::Edit
+            } else {
+                PageAccess::View
+            };
+            let page = context.page().clone();
+            Ok(PageView { page, access })
         })
         .await
     }

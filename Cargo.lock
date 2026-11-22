@@ -1764,10 +1764,12 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.23.1",
+ "bytes",
  "futures-util",
  "governor",
  "metrics",
  "metrics-util",
+ "neon-blocks",
  "neon-domain",
  "neon-observability",
  "neon-store",
@@ -1788,6 +1790,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "yrs",
  "zeroize",
 ]
 
