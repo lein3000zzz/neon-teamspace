@@ -12,7 +12,7 @@ import {
   type Invite,
 } from "@/api/admin";
 import { authConfigQuery } from "@/api/auth";
-import { ApiError } from "@/api/errors";
+import { ApiError, hasCode } from "@/api/errors";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { CopyField } from "@/components/feedback/copy-field";
 import { ErrorNotice, errorText, Loading, sentence } from "@/components/feedback/error-notice";
@@ -122,12 +122,11 @@ function MakeInviteForm({ onCreated }: { onCreated: (invite: CreatedInvite) => v
   const taken = problem === undefined ? undefined : sentence(problem);
   const free = settled && checkable && check.isSuccess && check.data === null;
 
+  // Only a taken code is about the code alone. The server words any other
+  // refusal, of the code's form, the count or the end, as a sentence of its own,
+  // so it shows above the form.
   const error = create.error;
-  const codeRefused =
-    error instanceof ApiError &&
-    (error.code === "invite_code_taken" || error.code === "invalid_input")
-      ? errorText(error)
-      : undefined;
+  const codeRefused = hasCode(error, "invite_code_taken") ? errorText(error) : undefined;
   const codeProblem = problems.code ?? taken ?? codeRefused;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {

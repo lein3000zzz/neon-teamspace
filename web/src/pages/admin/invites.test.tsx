@@ -207,8 +207,28 @@ describe("invites", () => {
     const { user } = renderApp("/admin/invites");
 
     await user.click(await screen.findByRole("button", { name: "Make invite" }));
-    expect(
-      await screen.findByText("An invite ends after now and within a year."),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "An invite ends after now and within a year.",
+    );
+    expect(screen.getByLabelText("Code")).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("shows a code taken since it was checked under the code", async () => {
+    invites([]);
+    server.use(
+      http.post("/api/v1/admin/invites", () =>
+        apiError(409, "invite_code_taken", "another invite has this code"),
+      ),
+    );
+    const { user } = renderApp("/admin/invites");
+
+    await user.type(await screen.findByLabelText("Code"), "autumn-team");
+    await user.click(screen.getByRole("button", { name: "Make invite" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Code")).toHaveAccessibleDescription(
+        "Another invite has this code.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

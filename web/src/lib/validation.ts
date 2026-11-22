@@ -14,6 +14,10 @@ export const MAX_NOTE = 500;
 export const MAX_TOKEN_NAME = 64;
 export const INVITE_CODE_LENGTH = { min: 8, max: 64 } as const;
 export const MAX_INVITE_USES = 1000;
+/** The furthest ahead an invite may end, as the server counts it: 365 days of 24 hours. */
+export const MAX_INVITE_LIFETIME_MS = 365 * 24 * 3600 * 1000;
+/** Room for a browser clock a little ahead of the server's. */
+const CLOCK_SKEW_MS = 10 * 60 * 1000;
 
 const copy = strings.validation;
 const encoder = new TextEncoder();
@@ -97,12 +101,19 @@ export function today(now = new Date()): string {
   return localDate(now);
 }
 
-/** The last day an invite may end on: a year from now, less a day for time zones. */
+/**
+ * The last day an invite may end on: the last whose end, as `endOfDay` sends
+ * it, is still within the server's 365 days from now, with a few minutes to
+ * spare for the clocks. A calendar year is a day longer when it holds a 29
+ * February, so the cap is counted in days, as the server does.
+ */
 export function inAYear(now = new Date()): string {
-  const later = new Date(now);
-  later.setFullYear(now.getFullYear() + 1);
-  later.setDate(later.getDate() - 1);
-  return localDate(later);
+  const cap = now.getTime() + MAX_INVITE_LIFETIME_MS - CLOCK_SKEW_MS;
+  const day = new Date(cap);
+  while (new Date(endOfDay(localDate(day))).getTime() > cap) {
+    day.setDate(day.getDate() - 1);
+  }
+  return localDate(day);
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

@@ -6,6 +6,7 @@ import {
   emailProblem,
   endOfDay,
   inAYear,
+  MAX_INVITE_LIFETIME_MS,
   inviteCodeProblem,
   inviteUsesProblem,
   noteProblem,
@@ -68,5 +69,19 @@ describe("the server's rules, checked before sending", () => {
     expect(dayProblem("2000-01-01")).toBe("Pick today or a later day.");
     expect(dayProblem("2999-01-01", "2998-12-31")).toBe("Pick a day within a year from today.");
     expect(endOfDay("2026-11-21")).toBe(new Date(2026, 10, 21, 23, 59, 59).toISOString());
+  });
+
+  it("ends the last day it offers within the server's 365 days, 29 February or not", () => {
+    const cases: [Date, string][] = [
+      [new Date(2027, 5, 15, 10, 0), "2028-06-13"],
+      [new Date(2028, 1, 1, 9, 0), "2029-01-30"],
+      [new Date(2027, 2, 1, 10, 0), "2028-02-28"],
+      [new Date(2026, 11, 31, 23, 58), "2027-12-30"],
+    ];
+    for (const [now, last] of cases) {
+      const cap = now.getTime() + MAX_INVITE_LIFETIME_MS;
+      expect(inAYear(now)).toBe(last);
+      expect(new Date(endOfDay(last)).getTime()).toBeLessThanOrEqual(cap);
+    }
   });
 });
