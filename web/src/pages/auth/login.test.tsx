@@ -20,7 +20,7 @@ describe("signing in", () => {
     await fill(user, "ada@example.com", "correct horse battery");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
+      await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
     expect(router.state.location.pathname).toBe("/");
   });
@@ -128,7 +128,7 @@ describe("signing in", () => {
     await fill(user, "ada@example.com", "correct horse battery");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
+      await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
     expect(router.state.location.href).toBe("/");
   });

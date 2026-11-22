@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { HueDot } from "@/components/nodes/hue-dot";
+import { WorkspaceAccent } from "@/components/theme/workspace-accent";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { strings } from "@/lib/strings";
@@ -10,13 +11,15 @@ import { Sidebar } from "./sidebar";
 /**
  * Notion's layout: a sidebar on the left and the page on the dot grid beside
  * it. Below the md breakpoint the sidebar moves into a drawer opened from a
- * top bar, so the page keeps the full width of a phone.
+ * top bar, so the page keeps the full width of a phone. The accent follows
+ * the workspace the sidebar shows, for whoever chose none of their own.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
+      <WorkspaceAccent />
       <a
         href="#main"
         className="fixed top-[calc(--spacing(3)+env(safe-area-inset-top,0px))] left-3 z-50 -translate-y-24 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground focus:translate-y-0"

@@ -7,7 +7,8 @@ import { apiError, defaultPreferences } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { blockStorage, fillStorage } from "@/test/storage";
-import { DEFAULT_PREFERENCES, STORAGE_KEY } from "@/theme/preferences";
+import { design, fakeWorkspaces } from "@/test/workspaces";
+import { FALLBACK_ACCENT_HUE, FOLLOWED_HUE_KEY, STORAGE_KEY } from "@/theme/preferences";
 
 const html = () => document.documentElement;
 const stored = () => JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as unknown;
@@ -52,7 +53,7 @@ describe("appearance settings", () => {
     await renderAppearance();
 
     expect(html().dataset).toMatchObject({ palette: "nothing", mode: "dark", uiFont: "default" });
-    expect(html().style.getPropertyValue("--accent-h")).toBe(String(DEFAULT_PREFERENCES.accentHue));
+    expect(html().style.getPropertyValue("--accent-h")).toBe(String(FALLBACK_ACCENT_HUE));
     expect(within(group("Mode")).getByRole("radio", { name: "System" })).toBeChecked();
     expect(screen.getByText(/currently Dark/)).toBeInTheDocument();
   });
@@ -117,11 +118,53 @@ describe("appearance settings", () => {
     await settled();
   });
 
+  it("takes the hue of the workspace in view while no accent of one's own is chosen", async () => {
+    mockColorScheme("light");
+    accountLook();
+    fakeWorkspaces();
+    await renderAppearance();
+
+    const hue = String(design().hue);
+    await waitFor(() => expect(html().style.getPropertyValue("--accent-h")).toBe(hue));
+    expect(window.localStorage.getItem(FOLLOWED_HUE_KEY)).toBe(hue);
+    const source = group("Where the accent comes from");
+    expect(within(source).getByRole("radio", { name: "From the workspace" })).toBeChecked();
+    expect(screen.getByText(new RegExp(`workspace in view, ${hue} degrees now`))).toBeVisible();
+    expect(screen.queryByRole("slider", { name: "Accent hue" })).toBeNull();
+  });
+
+  it("starts an accent of one's own from the hue shown, and goes back to the workspace's", async () => {
+    mockColorScheme("light");
+    const saves = accountLook();
+    fakeWorkspaces();
+    const { user } = await renderAppearance();
+    const hue = design().hue;
+    await waitFor(() => expect(html().style.getPropertyValue("--accent-h")).toBe(String(hue)));
+
+    const source = group("Where the accent comes from");
+    await user.click(within(source).getByRole("radio", { name: "My own" }));
+    expect(screen.getByRole("slider", { name: "Accent hue" })).toHaveAttribute(
+      "aria-valuetext",
+      `${hue} degrees`,
+    );
+    expect(stored()).toMatchObject({ accentHue: hue });
+    await user.click(within(group("Accent")).getByRole("radio", { name: "Red" }));
+    expect(html().style.getPropertyValue("--accent-h")).toBe("25");
+
+    await user.click(within(source).getByRole("radio", { name: "From the workspace" }));
+    expect(html().style.getPropertyValue("--accent-h")).toBe(String(hue));
+    await waitFor(() => expect(saves.at(-1)).toMatchObject({ accent_hue: null }));
+    await settled();
+  });
+
   it("sets the accent from a preset and from the slider, saving once the moves stop", async () => {
     mockColorScheme("light");
     const saves = accountLook();
     const { user } = await renderAppearance();
 
+    await user.click(
+      within(group("Where the accent comes from")).getByRole("radio", { name: "My own" }),
+    );
     await user.click(within(group("Accent")).getByRole("radio", { name: "Violet" }));
     expect(html().style.getPropertyValue("--accent-h")).toBe("295");
 
@@ -156,7 +199,7 @@ describe("appearance settings", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
     expect(html().dataset).toMatchObject({ palette: "nothing", mode: "light", uiFont: "default" });
-    expect(html().style.getPropertyValue("--accent-h")).toBe(String(DEFAULT_PREFERENCES.accentHue));
+    expect(html().style.getPropertyValue("--accent-h")).toBe(String(FALLBACK_ACCENT_HUE));
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
     await waitFor(() => expect(saves).toEqual([defaultPreferences]));
     await settled();

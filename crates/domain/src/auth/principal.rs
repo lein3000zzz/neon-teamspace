@@ -80,6 +80,7 @@ mod tests {
             email: Email::parse("ada@example.com").expect("valid"),
             display_name: "Ada".into(),
             role,
+            hue_override: None,
             email_verified_at: Some(now),
             disabled_at: None,
             created_at: now,

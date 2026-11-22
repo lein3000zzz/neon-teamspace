@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO teamspace_members (teamspace_id, workspace_id, user_id, role, joined_at)\n         SELECT t.id, t.workspace_id, $2, $3, $4\n         FROM teamspaces t WHERE t.workspace_id = $1 AND t.access = 'default'\n         ON CONFLICT (teamspace_id, user_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd6c105a50659525007c91678fa6589bfa62c991f2bd1124a8e292eaeff2cf37"
+}

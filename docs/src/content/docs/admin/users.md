@@ -9,10 +9,11 @@ the app asks the server nothing for it. The server refuses those requests in any
 the menu decides nothing. When an admin stops being one, the admin pages say so as soon as
 they next ask the server for anything.
 
-They have four parts: **Users**, **Invites** and **Requests to join**, described in
-[Invites and requests](/docs/admin/invites/), and [Settings](/docs/admin/settings/). Each
-has its own address: `/admin`, `/admin/invites`, `/admin/join-requests`, which the mail
-telling admins of a new request links to, and `/admin/settings`.
+They have five parts: **Users**, **Invites** and **Requests to join**, described in
+[Invites and requests](/docs/admin/invites/), [Workspaces](/docs/admin/workspaces/) and
+[Settings](/docs/admin/settings/). Each has its own address: `/admin`, `/admin/invites`,
+`/admin/join-requests`, which the mail telling admins of a new request links to,
+`/admin/workspaces` and `/admin/settings`.
 
 ## The accounts
 

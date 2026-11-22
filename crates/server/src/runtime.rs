@@ -3,8 +3,8 @@
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the hourly auth cleanup stops, the auth work begun
-//! after earlier answers finishes, the database pool closes, the admin listener stops,
+//! the gauges stop if metrics are on, the hourly workspace and auth cleanups stop, the auth
+//! work begun after earlier answers finishes, the database pool closes, the admin listener stops,
 //! and the telemetry flushes last, so what the other parts log while stopping is still
 //! written.
 
@@ -29,7 +29,9 @@ use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
+use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
+use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
 use neon_domain::settings::{Pinned, Secret};
@@ -225,14 +227,22 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         Clock::system(),
     );
     report_mail(&mail, &settings);
+    // One set of buckets for every use case, so each key is counted once.
+    let limiter: Arc<dyn RateLimiter> = Arc::new(MemoryLimiter::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
-        .envelope(envelope)
+        .envelope(envelope.clone())
+        .limiter(Arc::clone(&limiter))
         .mail(mail.clone())
         .build()
         .await
         .context("starting the auth service")?;
+    let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+        .envelope(envelope)
+        .limiter(limiter)
+        .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
+    start_workspace_upkeep(shutdown, &workspaces);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
@@ -249,6 +259,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         AppState {
             settings,
             auth,
+            workspaces,
             web: Arc::new(web),
         },
         config.observability.tracing.trust_incoming,
@@ -320,6 +331,18 @@ fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
     on_stop(
         shutdown,
         "auth cleanup",
+        DEFAULT_HOOK_TIMEOUT,
+        cleanup.stop(),
+    );
+}
+
+/// Starts the hourly cleanup of ended invitations and invite links, which stops before the
+/// pool closes.
+fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService) {
+    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), CLEANUP_INTERVAL);
+    on_stop(
+        shutdown,
+        "workspace cleanup",
         DEFAULT_HOOK_TIMEOUT,
         cleanup.stop(),
     );

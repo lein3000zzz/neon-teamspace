@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT token_sealed FROM workspace_invite_links WHERE workspace_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_sealed",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "workspace_invite_links",
+            "name": "token_sealed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5cc448e2df112079d8d0d91080984ed57f8a2b5f818c4b38644a4561715408b1"
+}

@@ -15,7 +15,8 @@ settings, also lists each in `problems`. A rate-limited request answers 429 with
 `Retry-After`.\n\n\
 A request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with \
 `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` \
-for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A request that \
+for safe methods, `write` for the others, `admin` for `/api/v1/admin`. Deleting a workspace \
+and transferring its ownership need a browser session. A request that \
 changes something and carries no `Authorization` header must come from the server's own \
 origin: its `Origin`, or else its `Referer`, must match the public URL.";
 
@@ -27,8 +28,10 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
     tags(
         (name = "meta", description = "What the server is."),
         (name = "auth", description = "Signing up, in and out, and the mailed links. Open to anyone."),
-        (name = "account", description = "The signed-in user's own account."),
-        (name = "admin", description = "Accounts, invites, requests to join and settings, for admins."),
+        (name = "account", description = "The signed-in user's own account, and the invitations into workspaces waiting for them."),
+        (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
+        (name = "teamspaces", description = "A workspace's teamspaces and their members."),
+        (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )
 )]
 struct ApiDoc;
@@ -128,9 +131,41 @@ mod tests {
             "/api/v1/auth/login",
             "/api/v1/account/me",
             "/api/v1/admin/settings",
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/{id}/teamspaces",
+            "/api/v1/workspace-invite-links/join",
+            "/api/v1/admin/workspaces",
         ] {
             assert!(paths.iter().any(|known| known == path), "{path} is missing");
         }
+    }
+
+    #[test]
+    fn every_operation_has_an_id_of_its_own() {
+        let mut ids: Vec<String> = spec()
+            .paths
+            .paths
+            .into_values()
+            .flat_map(|item| {
+                [
+                    item.get,
+                    item.put,
+                    item.post,
+                    item.delete,
+                    item.patch,
+                    item.head,
+                    item.options,
+                    item.trace,
+                ]
+            })
+            .flatten()
+            .map(|operation| operation.operation_id.expect("an operation id"))
+            .collect();
+        let all = ids.len();
+        ids.sort();
+        ids.dedup();
+
+        assert_eq!(ids.len(), all, "operation ids repeat: {ids:?}");
     }
 
     #[test]

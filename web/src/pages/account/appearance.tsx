@@ -1,5 +1,5 @@
 import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
 import { useSavePreferences } from "@/api/account";
 import { errorText } from "@/components/feedback/error-notice";
 import { SettingSection } from "@/components/settings/setting-section";
@@ -61,6 +61,51 @@ function useSaveToAccount() {
   useEffect(() => flush, [flush]);
 
   return { schedule, save };
+}
+
+/**
+ * The accent: the hue of the workspace in view, by default, or one of the
+ * user's own, on the slider and presets. Choosing their own starts from the
+ * hue shown, so nothing changes until they move it.
+ */
+function AccentChoice({
+  labelledBy,
+  onChange,
+}: {
+  labelledBy: string;
+  onChange: (accentHue: number | null) => void;
+}) {
+  const { preferences, accent } = useTheme();
+  const sourceId = useId();
+  const own = preferences.accentHue;
+  const copy = strings.appearance;
+  return (
+    <div className="grid gap-4">
+      <span id={sourceId} className="sr-only">
+        {copy.accentSource}
+      </span>
+      <ToggleGroup
+        type="single"
+        aria-labelledby={sourceId}
+        value={own === null ? "workspace" : "own"}
+        onValueChange={(value) => {
+          if (value === "workspace") {
+            onChange(null);
+          } else if (value === "own") {
+            onChange(own ?? accent);
+          }
+        }}
+      >
+        <ToggleGroupItem value="workspace">{copy.accentWorkspace}</ToggleGroupItem>
+        <ToggleGroupItem value="own">{copy.accentOwn}</ToggleGroupItem>
+      </ToggleGroup>
+      {own === null ? (
+        <p className="text-sm text-muted-foreground">{copy.accentFollows(accent)}</p>
+      ) : (
+        <AccentPicker hue={own} labelledBy={labelledBy} onChange={onChange} />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -138,11 +183,7 @@ export function AppearancePage() {
 
       <SettingSection title={copy.accent} hint={copy.accentHint}>
         {(headingId) => (
-          <AccentPicker
-            hue={preferences.accentHue}
-            labelledBy={headingId}
-            onChange={(accentHue) => change({ accentHue })}
-          />
+          <AccentChoice labelledBy={headingId} onChange={(accentHue) => change({ accentHue })} />
         )}
       </SettingSection>
 

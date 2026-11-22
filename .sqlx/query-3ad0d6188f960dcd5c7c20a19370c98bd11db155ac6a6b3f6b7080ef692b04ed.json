@@ -1,0 +1,144 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.workspace_id, t.name, t.icon, t.hue, t.access, t.created_by,\n                  t.created_at, t.updated_at, mine.role AS \"role?\",\n                  (SELECT count(*) FROM teamspace_members c WHERE c.teamspace_id = t.id)\n                      AS \"members!\"\n           FROM teamspaces t\n           LEFT JOIN teamspace_members mine ON mine.teamspace_id = t.id AND mine.user_id = $2\n           WHERE t.workspace_id = $1\n           ORDER BY t.access <> 'default', lower(t.name), t.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "icon",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "icon"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "access",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "access"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "teamspaces",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teamspace_members",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "members!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "3ad0d6188f960dcd5c7c20a19370c98bd11db155ac6a6b3f6b7080ef692b04ed"
+}

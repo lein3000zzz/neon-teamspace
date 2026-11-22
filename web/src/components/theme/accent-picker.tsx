@@ -11,17 +11,24 @@ type AccentPickerProps = {
   onChange: (hue: number) => void;
   /** Id of the heading that names the control. */
   labelledBy: string;
+  /** The slider's name; the accent's unless given, for a hue of something else. */
+  sliderLabel?: string;
 };
 
 /** A free hue slider over the whole wheel, plus one-tap presets. */
-export function AccentPicker({ hue, onChange, labelledBy }: AccentPickerProps) {
+export function AccentPicker({
+  hue,
+  onChange,
+  labelledBy,
+  sliderLabel = strings.appearance.accentSlider,
+}: AccentPickerProps) {
   const preset = ACCENT_PRESETS.find((candidate) => candidate.hue === hue);
   return (
     <div className="grid gap-4">
       <div className="flex items-center gap-4">
         <Slider
           variant="spectrum"
-          label={strings.appearance.accentSlider}
+          label={sliderLabel}
           valueText={strings.appearance.accentValue(hue)}
           min={0}
           max={HUE_MAX}

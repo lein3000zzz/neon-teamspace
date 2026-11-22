@@ -39,6 +39,7 @@ metrics.workspace = true
 metrics-util.workspace = true
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["testing", "trace"] }
+tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = { workspace = true, features = ["fmt", "registry"] }

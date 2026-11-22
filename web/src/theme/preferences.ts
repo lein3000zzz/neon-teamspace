@@ -19,21 +19,29 @@ export type UiFont = (typeof UI_FONTS)[number];
 export interface ThemePreferences {
   palette: Palette;
   mode: ModePreference;
-  /** Integer hue in degrees, 0..359. */
-  accentHue: number;
+  /**
+   * The user's own accent, an integer hue in degrees, 0..359; null to take
+   * the hue of the workspace in view.
+   */
+  accentHue: number | null;
   uiFont: UiFont;
 }
 
 /** The largest accent hue; 360 would be 0 again. */
 export const HUE_MAX = 359;
 
+/** The accent where neither the user nor a workspace gives one: a blue. */
+export const FALLBACK_ACCENT_HUE = 250;
+
 export const STORAGE_KEY = "neon.theme";
+/** The hue of the workspace last in view, for the next first paint. */
+export const FOLLOWED_HUE_KEY = "neon.theme.workspace-hue";
 export const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 export const DEFAULT_PREFERENCES: Readonly<ThemePreferences> = Object.freeze({
   palette: "nothing",
   mode: "system",
-  accentHue: 250,
+  accentHue: null,
   uiFont: "default",
 });
 
@@ -101,6 +109,37 @@ export function savePreferences(storage: Storage | undefined, preferences: Theme
   }
 }
 
+/** The hue of the workspace last in view, as kept for the next first paint. */
+export function loadFollowedHue(storage: Storage | undefined): number | undefined {
+  try {
+    const value: unknown = JSON.parse(storage?.getItem(FOLLOWED_HUE_KEY) ?? "null");
+    return isHue(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keeps the hue of the workspace in view, or forgets it when none is. */
+export function saveFollowedHue(storage: Storage | undefined, hue: number | undefined) {
+  try {
+    if (hue === undefined) {
+      storage?.removeItem(FOLLOWED_HUE_KEY);
+    } else {
+      storage?.setItem(FOLLOWED_HUE_KEY, String(hue));
+    }
+  } catch {
+    // A hue that does not persist still applies for this visit.
+  }
+}
+
+/**
+ * The accent shown: the user's own, else the hue of the workspace in view,
+ * else the fallback blue.
+ */
+export function accentOf(preferences: ThemePreferences, followed: number | undefined): number {
+  return preferences.accentHue ?? followed ?? FALLBACK_ACCENT_HUE;
+}
+
 /** Forgets the stored choice, so later changes to the defaults reach this user too. */
 export function clearPreferences(storage: Storage | undefined) {
   try {
@@ -117,10 +156,18 @@ export function resolveMode(preference: ModePreference, systemPrefersDark: boole
   return preference;
 }
 
-/** Writes the theme onto an element: the attributes and the accent hue. */
-export function applyTheme(element: HTMLElement, preferences: ThemePreferences, mode: Mode) {
+/**
+ * Writes the theme onto an element: the attributes and the accent hue, which
+ * is the user's own or, without one, `followed`, the workspace's.
+ */
+export function applyTheme(
+  element: HTMLElement,
+  preferences: ThemePreferences,
+  mode: Mode,
+  followed?: number,
+) {
   element.dataset["palette"] = preferences.palette;
   element.dataset["mode"] = mode;
   element.dataset["uiFont"] = preferences.uiFont;
-  element.style.setProperty("--accent-h", String(preferences.accentHue));
+  element.style.setProperty("--accent-h", String(accentOf(preferences, followed)));
 }

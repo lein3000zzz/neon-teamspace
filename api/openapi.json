@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
@@ -10,6 +10,233 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/account/invitations": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List the invitations waiting for the user",
+        "description": "Invitations into workspaces that the user has not answered and that have not expired. Needs a session or an API token with the read scope.",
+        "operationId": "list_my_invitations",
+        "responses": {
+          "200": {
+            "description": "The invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivedInvitationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/invitations/{id}/accept": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Accept an invitation",
+        "description": "Joins the workspace with the invitation's role, and its default teamspace unless as a guest. Needs a session or an API token with the write scope.",
+        "operationId": "accept_invitation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invitation's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace joined.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such invitation waiting for the user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_member, or member_limit: the workspace is full; the invitation stays.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/invitations/{id}/decline": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Decline an invitation",
+        "description": "Needs a session or an API token with the write scope.",
+        "operationId": "decline_invitation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invitation's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Declined."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such invitation waiting for the user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/account/me": {
       "get": {
         "tags": [
@@ -73,8 +300,8 @@
         "tags": [
           "account"
         ],
-        "summary": "Rename the signed-in user",
-        "description": "Needs a session or an API token with the write scope.",
+        "summary": "Rename the signed-in user, or pin their hue",
+        "description": "Changes what the body names, all of it or, when any part is invalid, none. Needs a session or an API token with the write scope.",
         "operationId": "update_me",
         "requestBody": {
           "content": {
@@ -1974,6 +2201,272 @@
         ]
       }
     },
+    "/api/v1/admin/workspaces": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List workspaces",
+        "description": "Every workspace on the instance with its owners, member count, limits and usage. Nothing of what is in them.",
+        "operationId": "admin_list_workspaces",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Workspaces on the page, 1 to 200; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the page before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of workspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWorkspacePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input or invalid_query.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/workspaces/{id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete a workspace",
+        "description": "Deletes it with everything in it. Only from a browser session.",
+        "operationId": "admin_delete_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for an API token, or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/workspaces/{id}/limits": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Set a workspace's limits",
+        "description": "Changes the limits the body names. A workspace past a new limit keeps everyone in it, and takes no one more.",
+        "operationId": "set_workspace_limits",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLimits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWorkspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a limit below 0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/config": {
       "get": {
         "tags": [
@@ -2676,10 +3169,2927 @@
           }
         }
       }
+    },
+    "/api/v1/workspace-invite-links/join": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Join a workspace by invite link",
+        "description": "Using the link is accepting it: the caller joins with its role, and the default teamspace unless as a guest. Needs a signed-in account; links never make one.",
+        "operationId": "join_with_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace joined.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_invite_link: unknown, used up, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_member, or member_limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspace-invite-links/preview": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Look at an invite link before joining",
+        "description": "The workspace an invite link admits to and the role it admits with, without using it, for the page that asks before joining. Needs a signed-in account. It takes from the allowance that joining takes from.",
+        "operationId": "preview_invite_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the link admits to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLinkPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_invite_link: unknown, used up, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List the caller's workspaces",
+        "description": "Each workspace the caller is in, with their role, slug and hue, and whether they may create one.",
+        "operationId": "list_workspaces",
+        "responses": {
+          "200": {
+            "description": "The workspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Create a workspace",
+        "description": "Makes the workspace with its default teamspace, General, and the caller as the owner of both. `workspaces.creation` may leave this to instance admins.",
+        "operationId": "create_workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: only instance admins create workspaces here; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "slug_taken: another workspace has the slug given.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "A workspace",
+        "operationId": "get_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, or the caller is not in it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Delete a workspace",
+        "description": "Deletes it with everything in it, for an owner who types its name. Only from a browser session.",
+        "operationId": "delete_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteWorkspace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "confirmation_mismatch: the name typed is not the workspace's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not an owner, or not a browser session; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Change a workspace",
+        "description": "Changes what the body names. For owners and admins.",
+        "operationId": "update_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "slug_taken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/invitations": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List the invitations waiting for an answer",
+        "description": "For owners and admins.",
+        "operationId": "list_invitations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pending invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SentInvitationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Invite an account",
+        "description": "Invites the account of an address, which accepts or declines under `/account/invitations`; nothing is joined before. It expires after 14 days. Invitations only go to existing accounts: an address without one answers `no_account`, and as that tells whether an address has an account, each inviter's invitations are rate-limited. For owners and admins.",
+        "operationId": "create_invitation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The invitation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SentInvitation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: the address is not one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for an owner role, or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace; or no_account: no account here has the address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_member, already_invited, or member_limit: the workspace is full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/invitations/{invitation_id}/revoke": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Revoke an invitation",
+        "description": "It can no longer be accepted. For owners and admins.",
+        "operationId": "revoke_invitation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invitation_id",
+            "in": "path",
+            "description": "The invitation's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, or no such pending invitation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/invite-links": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List invite links",
+        "description": "Without their tokens: copy one with `GET .../invite-links/{link_id}/token`. For owners and admins.",
+        "operationId": "list_invite_links",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The links.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLinkList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Create an invite link",
+        "description": "Whoever opens it signed in joins with its role, up to its number of uses, until it expires or is revoked. For owners and admins.",
+        "operationId": "create_invite_link",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The link and its token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInviteLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for a role other than member or guest, or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "member_limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/invite-links/{link_id}/revoke": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Revoke an invite link",
+        "description": "It admits nobody more, and stays listed. For owners and admins.",
+        "operationId": "revoke_invite_link",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "description": "The link's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/invite-links/{link_id}/token": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Copy an invite link's token again",
+        "description": "Opens the token's sealed copy, which is kept while a secret key is configured. For owners and admins.",
+        "operationId": "invite_link_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "description": "The link's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLinkToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "token_unavailable: it was not kept, or its key is gone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/leave": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Leave a workspace",
+        "description": "Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it.",
+        "operationId": "leave_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Left."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_owner or last_teamspace_owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/members": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List a workspace's members",
+        "description": "Every member, or for a guest, only themselves.",
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Remove a member",
+        "description": "Takes them out of the workspace and its teamspaces. Owners remove anyone, admins anyone but an owner. To remove yourself, leave.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member's account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Change a member's role",
+        "description": "Owners change anyone's role, owner included; admins anyone's but an owner's, and make no owners. A member who becomes a guest leaves every teamspace; a guest who becomes more joins the default one.",
+        "operationId": "change_member_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member's account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace or member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_owner: the workspace would have no owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces": {
+      "get": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "List the teamspaces the caller may see",
+        "description": "With the caller's role in each. Private teamspaces show only to their members; the workspace's owners and admins also get their names.",
+        "operationId": "list_teamspaces",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The teamspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamspaceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Create a teamspace",
+        "description": "Open, closed or private, with the caller as its owner. Owners and admins create teamspaces, and members too unless the workspace's `members_can_create_teamspaces` is off.",
+        "operationId": "create_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamspace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The teamspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Teamspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input, as for the default access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces/{teamspace_id}": {
+      "get": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "A teamspace",
+        "description": "A private teamspace answers `not_found` to everyone outside it, the workspace's owners and admins included.",
+        "operationId": "get_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The teamspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Teamspace"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Delete a teamspace",
+        "description": "Any but the default one. For the teamspace's owners and the workspace's owners and admins, who delete a private one without being in it.",
+        "operationId": "delete_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Change a teamspace",
+        "description": "Changes what the body names. For the teamspace's owners and the workspace's owners and admins, who join a private one first.",
+        "operationId": "update_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamspace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The teamspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Teamspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for the default teamspace's access, or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/join": {
+      "post": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Join a teamspace",
+        "description": "Any member joins an open teamspace. Closed and private ones take whom their owners add; the workspace's owners and admins may join them themselves, which is how they come to manage a private one.",
+        "operationId": "join_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The teamspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Teamspace"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/leave": {
+      "post": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Leave a teamspace",
+        "description": "Any but the default one. Its last owner may not, unless they own or administer the workspace.",
+        "operationId": "leave_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Left."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_teamspace_owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/members": {
+      "get": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "List a teamspace's members",
+        "description": "For everyone who may see the teamspace: a private one's members are listed to its members only.",
+        "operationId": "list_teamspace_members",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamspaceMemberList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Add a member to a teamspace",
+        "description": "Any teamspace but the default one, which everyone is in. For the teamspace's owners and the workspace's owners and admins, who join a private one first. Guests are added to none.",
+        "operationId": "add_teamspace_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTeamspaceMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamspaceMember"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for a guest, who is in no teamspace; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such teamspace, or the account is not in the workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/teamspaces/{teamspace_id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Remove a member from a teamspace",
+        "description": "Any teamspace but the default one. For the teamspace's owners and the workspace's owners and admins, who join a private one first.",
+        "operationId": "remove_teamspace_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member's account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_teamspace_owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "teamspaces"
+        ],
+        "summary": "Change a teamspace member's role",
+        "description": "For the teamspace's owners and the workspace's owners and admins, who join a private one first. The last owner stays one unless an owner or admin of the workspace changes it.",
+        "operationId": "change_teamspace_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member's account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeTeamspaceRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamspaceMember"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "last_teamspace_owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/transfer": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Transfer ownership",
+        "description": "Makes another member an owner and the owner calling an admin, together. Only from a browser session.",
+        "operationId": "transfer_ownership",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOwnership"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Transferred."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not an owner, the member is one already, or not a browser session; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace or member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AddTeamspaceMember": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TeamspaceRole",
+                "description": "`member` when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A member of the workspace who is not a guest."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminWorkspace": {
+        "type": "object",
+        "description": "A workspace as instance admins see it: nothing of what is inside.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "owners",
+          "member_count",
+          "limits",
+          "usage",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/WorkspaceLimits"
+          },
+          "member_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "owners": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Person"
+            },
+            "description": "Oldest first."
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/WorkspaceUsage"
+          }
+        }
+      },
+      "AdminWorkspacePage": {
+        "type": "object",
+        "description": "A page of workspaces in the order they were made.",
+        "required": [
+          "workspaces"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass it as `after` for the next page; absent on the last one."
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminWorkspace"
+            }
+          }
+        }
+      },
       "ApiToken": {
         "type": "object",
         "description": "An API token, without its secret.",
@@ -2797,6 +6207,30 @@
         },
         "additionalProperties": false
       },
+      "ChangeRole": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChangeTeamspaceRole": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/TeamspaceRole"
+          }
+        },
+        "additionalProperties": false
+      },
       "CodeRequest": {
         "type": "object",
         "description": "The body of routes that take an invite code. It goes in the body, out of URLs and\ntheir logs.",
@@ -2841,6 +6275,25 @@
         },
         "additionalProperties": false
       },
+      "CreateInvitation": {
+        "type": "object",
+        "required": [
+          "email",
+          "role"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The address of an account on this instance.",
+            "example": "bob@example.com"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "Admin, member or guest. Owners are made by transferring ownership."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateInvite": {
         "type": "object",
         "properties": {
@@ -2877,6 +6330,70 @@
         },
         "additionalProperties": false
       },
+      "CreateInviteLink": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "After now and within a year; a week from now when absent."
+          },
+          "max_uses": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1 to 1000; 10 when absent."
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "Member or guest."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTeamspace": {
+        "type": "object",
+        "required": [
+          "name",
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/TeamspaceAccess",
+            "description": "Open, closed or private."
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "0 to 359; the id's hue when absent.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 100 characters.",
+            "example": "Design"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateUser": {
         "type": "object",
         "required": [
@@ -2908,6 +6425,45 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateWorkspace": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "0 to 359; the id's hue when absent.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An emoji or up to 16 characters of text."
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 100 characters.",
+            "example": "Design"
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Made from the name when absent, with a short suffix when another workspace has it.",
+            "example": "design"
           }
         },
         "additionalProperties": false
@@ -2954,6 +6510,24 @@
           }
         }
       },
+      "CreatedInviteLink": {
+        "type": "object",
+        "description": "A new invite link with its token. The token is shown here, and again only from its\nsealed copy when a secret key is configured.",
+        "required": [
+          "link",
+          "token"
+        ],
+        "properties": {
+          "link": {
+            "$ref": "#/components/schemas/InviteLink"
+          },
+          "token": {
+            "type": "string",
+            "description": "Joined with by `POST /api/v1/workspace-invite-links/join`.",
+            "example": "wsl_4yVd0q3oJ2..."
+          }
+        }
+      },
       "CredentialKind": {
         "type": "string",
         "description": "How a request proved who it is.",
@@ -2961,6 +6535,51 @@
           "session",
           "token"
         ]
+      },
+      "DeleteWorkspace": {
+        "type": "object",
+        "required": [
+          "confirm_name"
+        ],
+        "properties": {
+          "confirm_name": {
+            "type": "string",
+            "description": "The workspace's name, typed to confirm.",
+            "example": "Design"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EffectiveLimits": {
+        "type": "object",
+        "description": "The limits that hold for a workspace; absent is no limit.",
+        "properties": {
+          "agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "members": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The most people in it, guests included.",
+            "minimum": 0
+          },
+          "storage_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "EmailRequest": {
         "type": "object",
@@ -3112,6 +6731,128 @@
           }
         }
       },
+      "InviteLink": {
+        "type": "object",
+        "description": "An invite link, without its token.",
+        "required": [
+          "id",
+          "role",
+          "max_uses",
+          "uses",
+          "status",
+          "created_at",
+          "expires_at",
+          "token_kept"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "max_uses": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many people it admits, and how many joined with it."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What people join as: member or guest."
+          },
+          "status": {
+            "$ref": "#/components/schemas/InviteStatus"
+          },
+          "token_kept": {
+            "type": "boolean",
+            "description": "Whether its token can be copied again."
+          },
+          "uses": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "InviteLinkList": {
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InviteLink"
+            },
+            "description": "Newest first."
+          }
+        }
+      },
+      "InviteLinkPreview": {
+        "type": "object",
+        "description": "What an invite link admits to, for the signed-in account about to use it.",
+        "required": [
+          "workspace",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "member_role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceRole",
+                "description": "The caller's role in the workspace when they are in it already, so joining would\nanswer `already_member`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What it admits as: member or guest."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/InvitingWorkspace"
+          }
+        }
+      },
+      "InviteLinkToken": {
+        "type": "object",
+        "description": "An invite link's token, to copy again.",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
       "InviteList": {
         "type": "object",
         "required": [
@@ -3179,6 +6920,42 @@
             ],
             "format": "uuid",
             "description": "The account's id and address, absent once it is gone."
+          }
+        }
+      },
+      "InvitingWorkspace": {
+        "type": "object",
+        "description": "The workspace an invitation is to.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "hue"
+        ],
+        "properties": {
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
           }
         }
       },
@@ -3282,6 +7059,29 @@
           "approved",
           "denied"
         ]
+      },
+      "Limit": {
+        "type": "object",
+        "description": "One limit of a workspace.",
+        "properties": {
+          "effective": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "What holds: absent is no limit.",
+            "minimum": 0
+          },
+          "own": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Set for this workspace alone: 0 is no limit. Absent, it follows the instance's\ndefault, the setting `workspaces.limits.*`."
+          }
+        }
       },
       "LoginRequest": {
         "type": "object",
@@ -3398,6 +7198,42 @@
         ],
         "description": "The signed-in user, and what this request may do."
       },
+      "Member": {
+        "type": "object",
+        "description": "A member of a workspace.",
+        "required": [
+          "user",
+          "role",
+          "joined_at"
+        ],
+        "properties": {
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          },
+          "user": {
+            "$ref": "#/components/schemas/Person"
+          }
+        }
+      },
+      "MemberList": {
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "description": "Owners first, then admins, members and guests, each by name."
+          }
+        }
+      },
       "Meta": {
         "type": "object",
         "required": [
@@ -3435,20 +7271,54 @@
           "warm"
         ]
       },
+      "Person": {
+        "type": "object",
+        "description": "An account as the people it works with see it.",
+        "required": [
+          "id",
+          "display_name",
+          "email",
+          "hue"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "example": "Ada Lovelace"
+          },
+          "email": {
+            "type": "string",
+            "example": "ada@example.com"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue they are drawn in, 0 to 359.",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Preferences": {
         "type": "object",
         "description": "The look of the web app, kept with the account.",
         "required": [
           "palette",
           "mode",
-          "accent_hue",
           "ui_font"
         ],
         "properties": {
           "accent_hue": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
-            "description": "A whole number of degrees, 0 to 359.",
+            "description": "The user's own accent, a whole number of degrees, 0 to 359. Absent or null, the\naccent is the hue of the workspace in view, or a blue outside any.",
             "example": 250,
             "maximum": 359,
             "minimum": 0
@@ -3481,6 +7351,64 @@
           "message": {
             "type": "string",
             "example": "must be between 8 and 128"
+          }
+        }
+      },
+      "ReceivedInvitation": {
+        "type": "object",
+        "description": "An invitation the signed-in user waits on.",
+        "required": [
+          "id",
+          "workspace",
+          "role",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Person",
+                "description": "Who invited them; absent once that account is gone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What they would join as: admin, member or guest."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/InvitingWorkspace"
+          }
+        }
+      },
+      "ReceivedInvitationList": {
+        "type": "object",
+        "required": [
+          "invitations"
+        ],
+        "properties": {
+          "invitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceivedInvitation"
+            },
+            "description": "Newest first."
           }
         }
       },
@@ -3591,6 +7519,62 @@
           "admin"
         ]
       },
+      "SentInvitation": {
+        "type": "object",
+        "description": "An invitation a workspace sent, waiting for its answer.",
+        "required": [
+          "id",
+          "invitee",
+          "role",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who invited them; absent once their account is gone."
+          },
+          "invitee": {
+            "$ref": "#/components/schemas/Person",
+            "description": "The account invited."
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What they join as: admin, member or guest."
+          }
+        }
+      },
+      "SentInvitationList": {
+        "type": "object",
+        "required": [
+          "invitations"
+        ],
+        "properties": {
+          "invitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SentInvitation"
+            },
+            "description": "Newest first."
+          }
+        }
+      },
       "SessionInfo": {
         "type": "object",
         "description": "A browser session of the user.",
@@ -3651,6 +7635,39 @@
             "description": "Newest first."
           }
         }
+      },
+      "SetLimits": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The most agents, likewise.",
+            "minimum": 0
+          },
+          "members": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The most people, guests included: 0 for no limit, null to follow the instance's\ndefault. Absent stays as it is.",
+            "minimum": 0
+          },
+          "storage_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The most bytes of attachments, likewise.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "Setting": {
         "type": "object",
@@ -3766,6 +7783,177 @@
           }
         }
       },
+      "Teamspace": {
+        "type": "object",
+        "description": "A teamspace the caller may see.",
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "hue",
+          "access",
+          "member_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/TeamspaceAccess"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue it is drawn in, 0 to 359: the one it pinned, or else its id's.",
+            "example": 98,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "member_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TeamspaceRole",
+                "description": "The caller's role in it; absent when they are not in it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TeamspaceAccess": {
+        "type": "string",
+        "description": "Who sees a teamspace and who may join it.",
+        "enum": [
+          "default",
+          "open",
+          "closed",
+          "private"
+        ]
+      },
+      "TeamspaceList": {
+        "type": "object",
+        "required": [
+          "teamspaces",
+          "hidden"
+        ],
+        "properties": {
+          "hidden": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamspaceName"
+            },
+            "description": "For owners and admins of the workspace: the private teamspaces they are not in, by\nname only, to manage or delete them."
+          },
+          "teamspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Teamspace"
+            },
+            "description": "The teamspaces the caller sees, the default one first, then by name. None for a\nguest."
+          }
+        }
+      },
+      "TeamspaceMember": {
+        "type": "object",
+        "description": "A member of a teamspace.",
+        "required": [
+          "user",
+          "role",
+          "joined_at"
+        ],
+        "properties": {
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TeamspaceRole"
+          },
+          "user": {
+            "$ref": "#/components/schemas/Person"
+          }
+        }
+      },
+      "TeamspaceMemberList": {
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamspaceMember"
+            },
+            "description": "Owners first, then by name."
+          }
+        }
+      },
+      "TeamspaceName": {
+        "type": "object",
+        "description": "A private teamspace the caller is not in, by name only.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "TeamspaceRole": {
+        "type": "string",
+        "description": "What a person may do in a teamspace.",
+        "enum": [
+          "owner",
+          "member"
+        ]
+      },
       "TestMail": {
         "type": "object",
         "description": "Where a test mail went.",
@@ -3799,6 +7987,20 @@
         },
         "additionalProperties": false
       },
+      "TransferOwnership": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The member who becomes an owner."
+          }
+        },
+        "additionalProperties": false
+      },
       "UiFont": {
         "type": "string",
         "description": "The interface's typeface.",
@@ -3809,14 +8011,24 @@
       },
       "UpdateMe": {
         "type": "object",
-        "required": [
-          "display_name"
-        ],
         "properties": {
           "display_name": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "At most 100 characters; blank takes the address's local part.",
             "example": "Ada Lovelace"
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The hue to be drawn in, 0 to 359; null goes back to the one the id hashes to.",
+            "maximum": 359,
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -3830,6 +8042,46 @@
           "changes": {
             "type": "object",
             "description": "By key: the new value, as JSON of the setting's type, or null to go back to the\ndefault."
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTeamspace": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TeamspaceAccess",
+                "description": "Open, closed or private; the default teamspace keeps its access."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "0 to 359; null goes back to the id's hue.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null removes it."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
@@ -3864,6 +8116,48 @@
         },
         "additionalProperties": false
       },
+      "UpdateWorkspace": {
+        "type": "object",
+        "properties": {
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "0 to 359; null goes back to the id's hue.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null removes it."
+          },
+          "members_can_create_teamspaces": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A new name leaves the slug as it is; this changes it."
+          }
+        },
+        "additionalProperties": false
+      },
       "User": {
         "type": "object",
         "description": "An account.",
@@ -3872,6 +8166,7 @@
           "email",
           "display_name",
           "role",
+          "hue",
           "created_at",
           "updated_at"
         ],
@@ -3903,6 +8198,24 @@
             ],
             "format": "date-time",
             "description": "Unset while the address must still be verified."
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue they are drawn in, 0 to 359: the one they pinned, or else their id's.",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The hue they pinned, if any.",
+            "maximum": 359,
+            "minimum": 0
           },
           "id": {
             "type": "string",
@@ -3953,6 +8266,179 @@
             "example": "ada@example.com"
           }
         }
+      },
+      "Workspace": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorkspaceSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "members_can_create_teamspaces",
+              "limits",
+              "updated_at"
+            ],
+            "properties": {
+              "limits": {
+                "$ref": "#/components/schemas/EffectiveLimits"
+              },
+              "member_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "How many people are in it, guests included. Absent for a guest, who knows of no\nmember but themselves."
+              },
+              "members_can_create_teamspaces": {
+                "type": "boolean",
+                "description": "Members, besides owners and admins, may create teamspaces."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ],
+        "description": "A workspace the caller is in."
+      },
+      "WorkspaceLimits": {
+        "type": "object",
+        "required": [
+          "members",
+          "storage_bytes",
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "$ref": "#/components/schemas/Limit"
+          },
+          "members": {
+            "$ref": "#/components/schemas/Limit",
+            "description": "People, guests included."
+          },
+          "storage_bytes": {
+            "$ref": "#/components/schemas/Limit"
+          }
+        }
+      },
+      "WorkspaceList": {
+        "type": "object",
+        "required": [
+          "workspaces",
+          "can_create"
+        ],
+        "properties": {
+          "can_create": {
+            "type": "boolean",
+            "description": "Whether the caller may create a workspace, as the `workspaces.creation` setting says."
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceSummary"
+            },
+            "description": "By name."
+          }
+        }
+      },
+      "WorkspaceRole": {
+        "type": "string",
+        "description": "What a person may do in a workspace.",
+        "enum": [
+          "owner",
+          "admin",
+          "member",
+          "guest"
+        ]
+      },
+      "WorkspaceSummary": {
+        "type": "object",
+        "description": "A workspace the caller is in, as their list shows it.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "hue",
+          "role",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue it is drawn in, 0 to 359: the one it pinned, or else its id's.",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The hue it pinned, if any.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An emoji or a short text.",
+            "example": "🚀"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "The caller's role in it."
+          },
+          "slug": {
+            "type": "string",
+            "description": "For URLs: lowercase letters, digits and dashes, unique on the instance.",
+            "example": "design"
+          }
+        }
+      },
+      "WorkspaceUsage": {
+        "type": "object",
+        "description": "What a workspace holds.",
+        "required": [
+          "members",
+          "storage_bytes",
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Always 0 until agents exist."
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Always 0 until attachments exist."
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -3980,11 +8466,19 @@
     },
     {
       "name": "account",
-      "description": "The signed-in user's own account."
+      "description": "The signed-in user's own account, and the invitations into workspaces waiting for them."
+    },
+    {
+      "name": "workspaces",
+      "description": "Workspaces, their members, invitations and invite links."
+    },
+    {
+      "name": "teamspaces",
+      "description": "A workspace's teamspaces and their members."
     },
     {
       "name": "admin",
-      "description": "Accounts, invites, requests to join and settings, for admins."
+      "description": "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."
     }
   ]
 }

@@ -14,6 +14,8 @@ export type CreatedInvite = Schemas["CreatedInvite"];
 export type JoinRequest = Schemas["JoinRequest"];
 export type Setting = Schemas["Setting"];
 export type MailStatus = Schemas["MailStatus"];
+export type AdminWorkspace = Schemas["AdminWorkspace"];
+export type SetLimits = Schemas["SetLimits"];
 
 /** Accounts per page of the users list; the server takes up to 200. */
 export const USERS_PAGE = 50;
@@ -182,5 +184,59 @@ export function useSendTestMail() {
   return useMutation({
     mutationFn: async () => (await call(api.POST("/api/v1/admin/mail/test"))).to,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.settings }),
+  });
+}
+
+/** Workspaces per page of the admin list; the server takes up to 200. */
+export const WORKSPACES_PAGE = 50;
+
+/**
+ * Every workspace on the instance, a page at a time, in the order they were
+ * made: names, owners, counts, limits and usage, and nothing of what is in them.
+ */
+export const adminWorkspacesQuery = infiniteQueryOptions({
+  queryKey: keys.adminWorkspaces,
+  queryFn: ({ pageParam, signal }) =>
+    call(
+      api.GET("/api/v1/admin/workspaces", {
+        params: {
+          query: {
+            limit: WORKSPACES_PAGE,
+            ...(pageParam === undefined ? {} : { after: pageParam }),
+          },
+        },
+        signal,
+      }),
+    ),
+  initialPageParam: undefined as string | undefined,
+  getNextPageParam: (page) => page.next ?? undefined,
+});
+
+/**
+ * Sets a workspace's limits: a number, 0 for none; null to follow the
+ * instance's default; a field left out stays.
+ */
+export function useSetWorkspaceLimits() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: SetLimits & { id: string }) =>
+      call(api.PATCH("/api/v1/admin/workspaces/{id}/limits", { params: { path: { id } }, body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.adminWorkspaces }),
+  });
+}
+
+/** Deletes a workspace with everything in it, from a browser session. */
+export function useAdminDeleteWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      send(api.DELETE("/api/v1/admin/workspaces/{id}", { params: { path: { id } } })),
+    // Not awaited: the workspace leaves the list, and the page's own callbacks
+    // only run while its card is still there.
+    onSuccess: (_, id) => {
+      queryClient.removeQueries({ queryKey: keys.workspace(id) });
+      void queryClient.invalidateQueries({ queryKey: keys.adminWorkspaces });
+      void queryClient.invalidateQueries({ queryKey: keys.workspaces });
+    },
   });
 }

@@ -6,6 +6,7 @@ use neon_domain::auth::{Email, RegistrationMode, session};
 use neon_domain::duration;
 use neon_domain::mail::{self as rules, Security};
 use neon_domain::settings::{Definition, Key, Registry, Snapshot, checks};
+use neon_domain::workspaces::WorkspaceCreation;
 
 /// The instance's name, shown in the interface, in mail and by `GET /api/v1/meta`.
 pub const INSTANCE_NAME: Key<str> = Key::new("instance.name");
@@ -58,6 +59,21 @@ pub mod mail {
     pub const FROM_NAME: Key<str> = Key::new("mail.from_name");
     /// Mail about activity, such as a request to join waiting for the admins.
     pub const NOTIFICATIONS: Key<bool> = Key::new("mail.notifications");
+}
+
+/// Workspaces: who creates them, and the limits each takes unless an instance admin sets
+/// its own.
+pub mod workspaces {
+    use neon_domain::settings::Key;
+
+    /// Who may create a workspace: `anyone` or `admins`.
+    pub const CREATION: Key<str> = Key::new("workspaces.creation");
+    /// The most people a workspace holds, guests included; 0 is no limit.
+    pub const LIMIT_MEMBERS: Key<i64> = Key::new("workspaces.limits.members");
+    /// The most bytes a workspace's attachments take; 0 is no limit.
+    pub const LIMIT_STORAGE_BYTES: Key<i64> = Key::new("workspaces.limits.storage_bytes");
+    /// The most agents a workspace has; 0 is no limit.
+    pub const LIMIT_AGENTS: Key<i64> = Key::new("workspaces.limits.agents");
 }
 
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
@@ -278,6 +294,41 @@ pub fn registry() -> Registry {
              admins hear of each confirmed request to join. Off, they see requests on the \
              admin page only.",
         ))
+        .define(Definition::enumeration(
+            workspaces::CREATION,
+            WorkspaceCreation::OPTIONS,
+            WorkspaceCreation::DEFAULT.as_str(),
+            "Who may create a workspace: every account (anyone), or instance admins only \
+             (admins). Workspaces made before a change stay.",
+        ))
+        .define(
+            Definition::integer(
+                workspaces::LIMIT_MEMBERS,
+                0,
+                "The most people a workspace holds, guests included, unless an instance admin \
+                 sets its own limit; 0 is no limit. A workspace at its limit refuses \
+                 invitations, accepting them and joining by link; nobody in it is removed.",
+            )
+            .check(not_negative),
+        )
+        .define(
+            Definition::integer(
+                workspaces::LIMIT_STORAGE_BYTES,
+                0,
+                "The most bytes a workspace's attachments take, unless an instance admin sets \
+                 its own limit; 0 is no limit. Kept for attachments, which are not built yet.",
+            )
+            .check(not_negative),
+        )
+        .define(
+            Definition::integer(
+                workspaces::LIMIT_AGENTS,
+                0,
+                "The most agents a workspace has, unless an instance admin sets its own limit; \
+                 0 is no limit. Kept for agents, which are not built yet.",
+            )
+            .check(not_negative),
+        )
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
@@ -315,6 +366,15 @@ fn no_control(value: &str) -> Result<(), String> {
         Err("must not hold line breaks or other control characters".to_owned())
     } else {
         Ok(())
+    }
+}
+
+/// Refuses limits below 0, which is no limit.
+fn not_negative(value: &i64) -> Result<(), String> {
+    if *value >= 0 {
+        Ok(())
+    } else {
+        Err("must be 0, for no limit, or more".to_owned())
     }
 }
 
@@ -370,6 +430,10 @@ mod tests {
         assert_eq!(snapshot.get(mail::TLS), "starttls");
         assert_eq!(snapshot.get(mail::PASSWORD).expose(), "");
         assert!(*snapshot.get(mail::NOTIFICATIONS));
+        assert_eq!(snapshot.get(workspaces::CREATION), "anyone");
+        assert_eq!(*snapshot.get(workspaces::LIMIT_MEMBERS), 0);
+        assert_eq!(*snapshot.get(workspaces::LIMIT_STORAGE_BYTES), 0);
+        assert_eq!(*snapshot.get(workspaces::LIMIT_AGENTS), 0);
         assert!(!mail_set_up(&snapshot));
         assert!(snapshot.iter().all(|(_, r)| r.source == Source::Default));
         assert_eq!(registry.check_rules(&snapshot), Ok(()));
@@ -407,6 +471,21 @@ mod tests {
             "want one of open, invite, closed"
         );
         assert_eq!(refuse("mail.port", "0"), "must be between 1 and 65535");
+        assert_eq!(
+            refuse("workspaces.creation", "members"),
+            "want one of anyone, admins"
+        );
+        for limit in [
+            "workspaces.limits.members",
+            "workspaces.limits.storage_bytes",
+            "workspaces.limits.agents",
+        ] {
+            assert_eq!(
+                refuse(limit, "-1"),
+                "must be 0, for no limit, or more",
+                "{limit}"
+            );
+        }
         assert_eq!(refuse("mail.tls", "ssl"), "want one of starttls, tls, none");
         assert!(refuse("mail.host", "smtp.example.com:587").starts_with("want a host alone"));
         assert_eq!(

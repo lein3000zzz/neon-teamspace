@@ -56,7 +56,7 @@ describe("creating an account", () => {
     });
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
+      await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
     expect(router.state.location.pathname).toBe("/");
     expect(bodies).toEqual([
@@ -92,7 +92,7 @@ describe("creating an account", () => {
 
     await fillForm(user, { Password: "correct horse battery" });
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
+      await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
     expect(bodies[0]).toEqual({
       email: "ada@example.com",

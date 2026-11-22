@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (SELECT count(*) FROM teamspace_members o\n                   WHERE o.teamspace_id = m.teamspace_id AND o.role = 'owner') AS \"owners!\"\n           FROM teamspace_members m\n           WHERE m.workspace_id = $1 AND m.user_id = $2 AND m.role = 'owner'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owners!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e6e98fa6f26b5d164a555f9b93ed26a3dd0e0e7ca748eb9c8346ce4725ca3a2d"
+}

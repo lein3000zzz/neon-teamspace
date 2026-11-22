@@ -57,3 +57,17 @@ const SYSTEMS: readonly [RegExp, string][] = [
   [/CrOS/, "ChromeOS"],
   [/Linux/, "Linux"],
 ];
+
+const BYTE_UNITS = ["B", "kB", "MB", "GB", "TB"] as const;
+const decimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
+/** A size in the largest decimal unit that keeps it at 1 or more: 1.5 GB, 0 B. */
+export function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${decimal.format(value)} ${BYTE_UNITS[unit]}`;
+}

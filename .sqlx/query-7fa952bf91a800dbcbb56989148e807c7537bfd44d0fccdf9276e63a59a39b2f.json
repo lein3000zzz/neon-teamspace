@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_invitations SET state = $3, decided_at = $4\n         WHERE workspace_id = $1 AND id = $2 AND state = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7fa952bf91a800dbcbb56989148e807c7537bfd44d0fccdf9276e63a59a39b2f"
+}

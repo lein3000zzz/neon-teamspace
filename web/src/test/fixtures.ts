@@ -8,6 +8,7 @@ export const ada: Me = {
   id: "0193a5b2-1c4d-7e8f-a1b2-c3d4e5f60718",
   email: "ada@example.com",
   display_name: "Ada",
+  hue: 342,
   role: "user",
   email_verified_at: "2026-11-01T10:00:00Z",
   created_at: "2026-11-01T10:00:00Z",
@@ -22,6 +23,7 @@ export const grace: Me = {
   id: "018f3c1e-7b2a-7c3d-9e4f-5a6b7c8d9e0f",
   email: "grace@example.com",
   display_name: "Grace",
+  hue: 265,
   role: "admin",
   scopes: ["read", "write", "admin"],
 };
@@ -38,7 +40,7 @@ export const defaultAuthConfig: AuthConfig = {
 export const defaultPreferences: Schemas["Preferences"] = {
   palette: "nothing",
   mode: "system",
-  accent_hue: 250,
+  accent_hue: null,
   ui_font: "default",
 };
 

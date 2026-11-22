@@ -7,13 +7,15 @@ export const testMeta: Schemas["Meta"] = { name: "Test instance", version: "0.1.
 
 /**
  * The API as tests see it by default: Ada signed in, the server's default
- * auth settings, and her look left at the defaults. A test overrides a route
- * with server.use().
+ * auth settings, her look left at the defaults, and no workspace or
+ * invitation yet. A test overrides a route with server.use().
  */
 export const server = setupServer(
   http.get("/api/v1/meta", () => HttpResponse.json(testMeta)),
   http.get("/api/v1/account/me", () => HttpResponse.json(ada)),
   http.get("/api/v1/auth/config", () => HttpResponse.json(defaultAuthConfig)),
+  http.get("/api/v1/workspaces", () => HttpResponse.json({ workspaces: [], can_create: true })),
+  http.get("/api/v1/account/invitations", () => HttpResponse.json({ invitations: [] })),
   http.get("/api/v1/account/preferences", () => HttpResponse.json(defaultPreferences)),
   http.put("/api/v1/account/preferences", async ({ request }) =>
     HttpResponse.json(await request.json()),

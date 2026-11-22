@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM teamspaces WHERE workspace_id = $1 AND id = $2 AND access <> 'default'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78ba92bee6c9a85974be1dd0e1a01cbd00d20df5e574428a78e41cc9b3c132a8"
+}

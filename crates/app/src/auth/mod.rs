@@ -52,7 +52,7 @@ use crate::mail::{Mail, MailQueue, MailStatus, QueueError};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, auth as keys};
 
-pub use accounts::{NewAccount, RegisterInput, Registration};
+pub use accounts::{NewAccount, ProfileUpdate, RegisterInput, Registration};
 pub use admin::{UserPage, UserUpdate};
 pub use cleanup::{CLEANUP_INTERVAL, Cleanup, CleanupReport};
 pub use error::AuthError;
