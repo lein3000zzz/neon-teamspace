@@ -96,8 +96,10 @@ pub struct Workspace {
     pub summary: WorkspaceSummary,
     /// Members, besides owners and admins, may create teamspaces.
     pub members_can_create_teamspaces: bool,
-    /// How many people are in it, guests included.
-    pub member_count: i64,
+    /// How many people are in it, guests included. Absent for a guest, who knows of no
+    /// member but themselves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
     pub limits: EffectiveLimits,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
@@ -468,14 +470,16 @@ pub(super) async fn remove_member(
     tag = "workspaces",
     summary = "Leave a workspace",
     description = "Leaves it and its teamspaces. The last owner cannot: they make another \
-                   owner first, or delete the workspace.",
+                   owner first, or delete the workspace. Nor can the last owner of one of its \
+                   teamspaces, unless they own or administer the workspace: they make another \
+                   owner of it first, or delete it.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     responses(
         (status = NO_CONTENT, description = "Left."),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "last_owner.", body = ErrorBody),
+        (status = CONFLICT, description = "last_owner or last_teamspace_owner.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

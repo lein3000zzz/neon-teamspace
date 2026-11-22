@@ -236,46 +236,30 @@ pub async fn set_email_verified(
     Ok(())
 }
 
-/// Renames an account, and returns it as it is now. Only the name and the time are
-/// written, so a rename that started before an admin's change to the role or the disable
+/// Changes an account's name, its pinned hue, or both, and returns it as it is now: each
+/// part `None` stays as it is, and `Some(None)` unpins the hue. Only these and the time are
+/// written, so a change that started before an admin's change to the role or the disable
 /// cannot undo it. `None` when there is no such account.
-pub async fn rename(
+pub async fn update_profile(
     executor: impl PgExecutor<'_>,
     id: Uuid,
-    display_name: &str,
+    display_name: Option<&str>,
+    hue: Option<Option<u16>>,
     now: OffsetDateTime,
 ) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1
+        "UPDATE users
+         SET display_name = COALESCE($2, display_name),
+             hue = CASE WHEN $3 THEN $4 ELSE hue END,
+             updated_at = $5
+         WHERE id = $1
          RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,
                    created_at, updated_at",
         id,
         display_name,
-        now,
-    )
-    .fetch_optional(executor)
-    .await?
-    .map(User::try_from)
-    .transpose()
-}
-
-/// Pins a hue for an account, or with `None` goes back to its id's, and returns it as it is
-/// now. Only the hue and the time are written, as [`rename`] does. `None` when there is no
-/// such account.
-pub async fn set_hue(
-    executor: impl PgExecutor<'_>,
-    id: Uuid,
-    hue: Option<u16>,
-    now: OffsetDateTime,
-) -> sqlx::Result<Option<User>> {
-    sqlx::query_as!(
-        Row,
-        "UPDATE users SET hue = $2, updated_at = $3 WHERE id = $1
-         RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,
-                   created_at, updated_at",
-        id,
-        stored_hue(hue),
+        hue.is_some(),
+        stored_hue(hue.flatten()),
         now,
     )
     .fetch_optional(executor)

@@ -87,6 +87,24 @@ pub async fn set_aside_expired(
     Ok(result.rows_affected())
 }
 
+/// Deletes every pending invitation of the account into the workspace, expired or not: it
+/// is in the workspace now, however it came in, so none of them may admit it again.
+pub async fn delete_pending(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "DELETE FROM workspace_invitations
+         WHERE workspace_id = $1 AND user_id = $2 AND state = 'pending'",
+        workspace_id,
+        user_id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// The invitations a workspace sent that wait for an answer at `now`, with who each is
 /// for, newest first.
 pub async fn pending_for_workspace(

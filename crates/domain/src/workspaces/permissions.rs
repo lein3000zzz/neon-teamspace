@@ -2,8 +2,9 @@
 //! asks it before it acts, so the rules are read and tested here alone.
 //!
 //! A refusal is [`Denied::Hidden`] when the actor may not even know the thing exists, such
-//! as a workspace they are not in or a private teamspace, so the answer is the same as for
-//! one that does not exist; otherwise it is [`Denied::Forbidden`], with the reason.
+//! as a workspace they are not in, a private teamspace, or to a guest another member, so
+//! the answer is the same as for one that does not exist; otherwise it is
+//! [`Denied::Forbidden`], with the reason.
 //!
 //! Instance admins have no part inside a workspace: being one counts only for the
 //! instance's own actions, listing workspaces, setting their limits and deleting them.
@@ -16,6 +17,10 @@ use super::roles::{TeamspaceAccess, TeamspaceRole, WorkspaceCreation, WorkspaceR
 pub struct Actor {
     /// An instance admin, through a browser session or a token with the admin scope.
     pub instance_admin: bool,
+    /// Signed in at a browser rather than with an API token. Deleting a workspace and
+    /// transferring its ownership need it, so a token that leaked cannot take a team's work
+    /// away.
+    pub via_session: bool,
     /// Their role in the workspace concerned; `None` when they are not in it.
     pub role: Option<WorkspaceRole>,
 }
@@ -44,15 +49,17 @@ pub enum Action {
     /// Instance admins' list: names, owners, counts, limits, usage. No content.
     ListAllWorkspaces,
     SetLimits,
-    /// Deleting any workspace, as an instance admin.
+    /// Deleting any workspace, as an instance admin, from a browser session.
     DeleteAnyWorkspace,
 
     // On a workspace.
     ViewWorkspace,
     /// Its name, slug, icon, hue and settings.
     UpdateWorkspace,
+    /// From a browser session.
     DeleteWorkspace,
-    /// Every member; guests see only themselves.
+    /// Every member, and how many there are. A guest knows only themselves, by
+    /// [`ViewMember`](Self::ViewMember).
     ListMembers,
     Leave,
     /// Inviting an account by address, to join with `role`.
@@ -70,11 +77,13 @@ pub enum Action {
     CreateTeamspace,
 
     // On a member.
+    /// That they are in the workspace, with their role.
+    ViewMember,
     ChangeRole {
         to: WorkspaceRole,
     },
     RemoveMember,
-    /// Making the member an owner, the actor becoming an admin.
+    /// Making the member an owner, the actor becoming an admin, from a browser session.
     TransferOwnership,
 
     // On a teamspace.
@@ -91,7 +100,10 @@ pub enum Action {
     },
     DeleteTeamspace,
     ListTeamspaceMembers,
-    AddTeamspaceMember,
+    /// Adding a member of the workspace whose role there is `workspace_role`.
+    AddTeamspaceMember {
+        workspace_role: WorkspaceRole,
+    },
     RemoveTeamspaceMember,
     ChangeTeamspaceRole,
 }
@@ -117,8 +129,15 @@ pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(),
         Resource::Instance { creation } => on_instance(actor, action, creation),
         Resource::Workspace {
             members_can_create_teamspaces,
-        } => on_workspace(member(actor)?, action, members_can_create_teamspaces),
-        Resource::Member { role, is_actor } => on_member(member(actor)?, action, role, is_actor),
+        } => on_workspace(
+            member(actor)?,
+            actor.via_session,
+            action,
+            members_can_create_teamspaces,
+        ),
+        Resource::Member { role, is_actor } => {
+            on_member(member(actor)?, actor.via_session, action, role, is_actor)
+        }
         Resource::Teamspace { access, membership } => {
             on_teamspace(member(actor)?, action, access, membership)
         }
@@ -131,7 +150,17 @@ fn member(actor: Actor) -> Result<WorkspaceRole, Denied> {
     actor.role.ok_or(Hidden)
 }
 
+/// Refuses an action that cannot be undone to an API token.
+fn needs_session(via_session: bool, what: &'static str) -> Result<(), Denied> {
+    allow_if(via_session, Forbidden(what))
+}
+
+const DELETE_NEEDS_SESSION: &str =
+    "deleting a workspace needs a browser session: API tokens cannot";
+
 fn on_instance(actor: Actor, action: Action, creation: WorkspaceCreation) -> Result<(), Denied> {
+    const ADMINS_ONLY: Denied = Forbidden("only an instance admin may do this");
+
     match action {
         Action::CreateWorkspace => match creation {
             WorkspaceCreation::Anyone => Ok(()),
@@ -140,12 +169,12 @@ fn on_instance(actor: Actor, action: Action, creation: WorkspaceCreation) -> Res
                 Err(Forbidden("only instance admins create workspaces here"))
             }
         },
-        Action::ListAllWorkspaces | Action::SetLimits | Action::DeleteAnyWorkspace => {
-            if actor.instance_admin {
-                Ok(())
-            } else {
-                Err(Forbidden("only an instance admin may do this"))
-            }
+        Action::ListAllWorkspaces | Action::SetLimits => {
+            allow_if(actor.instance_admin, ADMINS_ONLY)
+        }
+        Action::DeleteAnyWorkspace => {
+            allow_if(actor.instance_admin, ADMINS_ONLY)?;
+            needs_session(actor.via_session, DELETE_NEEDS_SESSION)
         }
         _ => Err(NOT_APPLICABLE),
     }
@@ -153,6 +182,7 @@ fn on_instance(actor: Actor, action: Action, creation: WorkspaceCreation) -> Res
 
 fn on_workspace(
     role: WorkspaceRole,
+    via_session: bool,
     action: Action,
     members_can_create_teamspaces: bool,
 ) -> Result<(), Denied> {
@@ -165,10 +195,13 @@ fn on_workspace(
         Action::UpdateWorkspace | Action::ManageInvitations | Action::ManageInviteLinks => {
             allow_if(role.manages(), MANAGERS_ONLY)
         }
-        Action::DeleteWorkspace => allow_if(
-            role == Owner,
-            Forbidden("only an owner may delete the workspace"),
-        ),
+        Action::DeleteWorkspace => {
+            allow_if(
+                role == Owner,
+                Forbidden("only an owner may delete the workspace"),
+            )?;
+            needs_session(via_session, DELETE_NEEDS_SESSION)
+        }
         Action::ListMembers => allow_if(
             role != Guest,
             Forbidden("guests see no member but themselves"),
@@ -207,17 +240,23 @@ fn on_workspace(
 
 fn on_member(
     role: WorkspaceRole,
+    via_session: bool,
     action: Action,
     target: WorkspaceRole,
     is_actor: bool,
 ) -> Result<(), Denied> {
-    use WorkspaceRole::{Admin, Owner};
+    use WorkspaceRole::{Admin, Guest, Owner};
 
     const MANAGERS_ONLY: Denied =
         Forbidden("only the workspace's owners and admins manage its members");
     const OWNERS_ONLY: Denied = Forbidden("only an owner may change or remove an owner");
 
+    // Guests may not know who else is in the workspace.
+    if role == Guest && !is_actor {
+        return Err(Hidden);
+    }
     match action {
+        Action::ViewMember => Ok(()),
         Action::ChangeRole { to } => match role {
             Owner => Ok(()),
             Admin if target == Owner => Err(OWNERS_ONLY),
@@ -240,7 +279,10 @@ fn on_member(
                     "ownership goes to a member who is not an owner yet",
                 ))
             } else {
-                Ok(())
+                needs_session(
+                    via_session,
+                    "transferring ownership needs a browser session: API tokens cannot",
+                )
             }
         }
         _ => Err(NOT_APPLICABLE),
@@ -262,17 +304,21 @@ fn on_teamspace(
         return Err(Hidden);
     }
     let manager = role.manages();
-    let visible = access != TeamspaceAccess::Private || membership.is_some();
-    // Owners and admins see a private teamspace they are not in by its name, to manage it.
-    if !visible && !manager {
-        return Err(Hidden);
+    if access == TeamspaceAccess::Private && membership.is_none() {
+        // Owners and admins know a private teamspace they are not in by its name alone.
+        // They may delete it, or join it to manage it, which its members then see; all
+        // else about it stays hidden, as it is from everyone else outside it.
+        return match action {
+            Action::SeeTeamspace | Action::DeleteTeamspace | Action::JoinTeamspace if manager => {
+                Ok(())
+            }
+            _ => Err(Hidden),
+        };
     }
     let owns = membership == Some(TeamspaceRole::Owner) || manager;
 
     match action {
-        Action::SeeTeamspace => Ok(()),
-        Action::ViewTeamspace => allow_if(visible, Hidden),
-        Action::ListTeamspaceMembers => Ok(()),
+        Action::SeeTeamspace | Action::ViewTeamspace | Action::ListTeamspaceMembers => Ok(()),
         Action::JoinTeamspace => match access {
             _ if membership.is_some() => Err(Forbidden("you are in this teamspace already")),
             TeamspaceAccess::Default => {
@@ -307,15 +353,24 @@ fn on_teamspace(
             TeamspaceAccess::Default => Err(Forbidden("the default teamspace cannot be deleted")),
             _ => allow_if(owns, OWNERS_ONLY),
         },
-        Action::AddTeamspaceMember | Action::RemoveTeamspaceMember => match access {
-            TeamspaceAccess::Default => Err(Forbidden(
-                "everyone but guests is in the default teamspace, and stays in it",
-            )),
+        Action::AddTeamspaceMember { workspace_role } => match access {
+            TeamspaceAccess::Default => Err(IN_THE_DEFAULT),
+            _ if !owns => Err(OWNERS_ONLY),
+            _ => allow_if(
+                workspace_role.joins_teamspaces(),
+                Forbidden("guests are in no teamspace: make them a member first"),
+            ),
+        },
+        Action::RemoveTeamspaceMember => match access {
+            TeamspaceAccess::Default => Err(IN_THE_DEFAULT),
             _ => allow_if(owns, OWNERS_ONLY),
         },
         _ => Err(NOT_APPLICABLE),
     }
 }
+
+const IN_THE_DEFAULT: Denied =
+    Forbidden("everyone but guests is in the default teamspace, and stays in it");
 
 fn allow_if(allowed: bool, otherwise: Denied) -> Result<(), Denied> {
     if allowed { Ok(()) } else { Err(otherwise) }

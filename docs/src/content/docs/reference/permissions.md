@@ -11,7 +11,8 @@ explains each action, and the web app shows or offers only what a role allows.
 **Yes** is allowed and **no** refused with `403 forbidden`. **Hidden** answers
 `404 not_found`, as for something that does not exist, so the caller learns nothing of it.
 Someone outside a workspace gets **hidden** for everything in it, instance admins included:
-being one gives no access to any workspace.
+being one gives no access to any workspace. What needs a browser answers `403 forbidden` to
+an API token, whoever it belongs to.
 
 ## Workspaces
 
@@ -20,8 +21,8 @@ being one gives no access to any workspace.
 | See the workspace | yes | yes | yes | yes |
 | Change its name, slug, icon, hue and settings | yes | yes | no | no |
 | Delete it, typing its name, at a browser | yes | no | no | no |
-| List its members | yes | yes | yes | only themselves |
-| Leave it | yes, unless the last owner | yes | yes | yes |
+| List its members, and see how many there are | yes | yes | yes | only themselves, and no count |
+| Leave it | yes, unless the last owner | yes | yes, unless the last owner of a teamspace | yes |
 | Invite as an admin, member or guest | yes | yes | no | no |
 | Invite as an owner | no | no | no | no |
 | List and revoke invitations | yes | yes | no | no |
@@ -36,14 +37,15 @@ The column is the role of whoever acts; the row, the member it is done to.
 
 | Action | Owner | Admin | Member | Guest |
 |---|---|---|---|---|
-| Change an owner's role | yes | no | no | no |
-| Change an admin's, member's or guest's role to admin, member or guest | yes | yes | no | no |
-| Make anyone an owner | yes | no | no | no |
-| Change their own role, to anything but owner | yes | yes | no | no |
-| Remove an owner | yes | no | no | no |
-| Remove an admin, member or guest | yes | yes | no | no |
+| See another member and their role | yes | yes | yes | hidden |
+| Change an owner's role | yes | no | no | hidden |
+| Change an admin's, member's or guest's role to admin, member or guest | yes | yes | no | hidden |
+| Make another member an owner | yes | no | no | hidden |
+| Change their own role | yes | to admin, member or guest | no | no |
+| Remove an owner | yes | no | no | hidden |
+| Remove an admin, member or guest | yes | yes | no | hidden |
 | Remove themselves | no: they leave | no: they leave | no: they leave | no: they leave |
-| Transfer ownership to someone not an owner yet, at a browser | yes | no | no | no |
+| Transfer ownership to someone not an owner yet, at a browser | yes | no | no | hidden |
 
 Whatever the table allows, a workspace keeps one owner: a change that would leave it none
 answers `409 last_owner`. Guests may not know who else is in the workspace, so to them every
@@ -51,25 +53,28 @@ other member is **hidden**.
 
 ## Teamspaces
 
-Guests see no teamspace: every action on one is **hidden** to them. The columns here are
-the workspace roles that may join teamspaces; *teamspace owner* means an owner of that
-teamspace.
+Guests see no teamspace: every action on one is **hidden** to them, and adding one to a
+teamspace answers `403 forbidden`. The columns here are the workspace roles that may join
+teamspaces; *teamspace owner* means an owner of that teamspace. A workspace owner or admin
+who is in a teamspace may do all that its owners may.
 
-| Action | Workspace owner or admin | Teamspace owner | Teamspace member | Member outside it |
+| Action | Workspace owner or admin outside it | Teamspace owner | Teamspace member | Member outside it |
 |---|---|---|---|---|
 | See an open, closed or default teamspace, and list its members | yes | yes | yes | yes |
-| See a private teamspace in full | only if in it | yes | yes | hidden |
+| See a private teamspace in full, and list its members | hidden | yes | yes | hidden |
 | See that a private teamspace exists, by name | yes | yes | yes | hidden |
-| List a private teamspace's members | yes | yes | yes | hidden |
 | Join an open teamspace | yes | in it already | in it already | yes |
 | Join a closed teamspace | yes | in it already | in it already | no: an owner adds them |
 | Join a private teamspace | yes | in it already | in it already | hidden |
-| Leave a teamspace other than the default | if in it | yes, unless its last owner | yes | no: not in it, or hidden if private |
-| Change its name, icon and hue | yes | yes | no | no, or hidden if private |
-| Change its access between open, closed and private | yes | yes | no | no, or hidden if private |
+| Leave a teamspace other than the default | no: not in it, or hidden if private | yes, unless its last owner | yes | no: not in it, or hidden if private |
+| Change its name, icon and hue | yes, or hidden if private | yes | no | no, or hidden if private |
+| Change its access between open, closed and private | yes, or hidden if private | yes | no | no, or hidden if private |
 | Delete it | yes | yes | no | no, or hidden if private |
-| Add and remove its members | yes | yes | no | no, or hidden if private |
-| Change its members' roles | yes | yes | no | no, or hidden if private |
+| Add and remove its members | yes, or hidden if private | yes | no | no, or hidden if private |
+| Change its members' roles | yes, or hidden if private | yes | no | no, or hidden if private |
+
+Outside a private teamspace, the workspace's owners and admins know its name alone. They may
+delete it, or join it to manage it, which its members then see in its member list.
 
 The default teamspace holds everyone but guests, so nobody joins, leaves, is added to or is
 removed from it, and it is never deleted. Its access never changes, and no other teamspace
@@ -77,8 +82,9 @@ becomes the default one. Its name, icon and hue change, and so do its members' r
 any teamspace.
 
 A teamspace keeps one owner while its own owners manage it: a change by anyone else that
-would leave it none answers `409 last_teamspace_owner`. The workspace's owners and admins
-may leave it without one, as they manage it themselves.
+would leave it none answers `409 last_teamspace_owner`, and so does leaving the workspace as
+its last owner. The workspace's owners and admins may leave it without one, as they manage
+it themselves.
 
 ## The instance
 

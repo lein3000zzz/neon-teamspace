@@ -265,6 +265,42 @@ async fn an_invited_account_accepts_and_teamspaces_show_as_their_access_says(poo
         (peek.status, peek.code()),
         (StatusCode::NOT_FOUND, "not_found")
     );
+    // The admin outside it gets its name and no more, whatever they ask.
+    let by_admin_outside = [
+        t.bob.get(&format!("{base}/teamspaces/{private}")).await,
+        t.bob
+            .get(&format!("{base}/teamspaces/{private}/members"))
+            .await,
+        t.bob
+            .send(
+                Method::PATCH,
+                &format!("{base}/teamspaces/{private}"),
+                Some(json!({"icon": "X"})),
+            )
+            .await,
+        t.bob
+            .post(
+                &format!("{base}/teamspaces/{private}/members"),
+                json!({"user_id": t.dee.get("/api/v1/account/me").await.body["id"]}),
+            )
+            .await,
+    ];
+    for answer in by_admin_outside {
+        assert_eq!(
+            (answer.status, answer.code()),
+            (StatusCode::NOT_FOUND, "not_found"),
+            "{}",
+            answer.body
+        );
+    }
+    let joined = t
+        .bob
+        .post(&format!("{base}/teamspaces/{private}/join"), json!({}))
+        .await;
+    assert_eq!(joined.status, StatusCode::OK, "{}", joined.body);
+    assert_eq!(joined.body["role"], "member");
+    let in_it = t.bob.get(&format!("{base}/teamspaces/{private}")).await;
+    assert_eq!(in_it.status, StatusCode::OK, "in it, they see it in full");
     let by_owner_inside = t.cy.get(&format!("{base}/teamspaces/{private}")).await;
     assert_eq!(by_owner_inside.status, StatusCode::OK);
     assert_eq!(by_owner_inside.body["access"], "private");
@@ -465,6 +501,19 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
         .get(&format!("/api/v1/workspaces/{}/teamspaces", t.workspace))
         .await;
     assert_eq!(as_guest.body["teamspaces"], json!([]));
+    let seen_by_guest = eve
+        .get(&format!("/api/v1/workspaces/{}", t.workspace))
+        .await;
+    assert_eq!(seen_by_guest.body["role"], "guest");
+    assert!(
+        seen_by_guest.body.get("member_count").is_none(),
+        "a guest learns no head count: {}",
+        seen_by_guest.body
+    );
+    let seen_by_member =
+        t.cy.get(&format!("/api/v1/workspaces/{}", t.workspace))
+            .await;
+    assert_eq!(seen_by_member.body["member_count"], 5);
 
     let revoked = t
         .ada
@@ -492,6 +541,61 @@ async fn invite_links_show_their_token_once_and_admit_signed_in_accounts(pool: P
     assert_eq!(previewed_after.code(), "invalid_invite_link");
     let admin_role = t.ada.post(&links, json!({"role": "admin"})).await;
     assert_eq!(admin_role.status, StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_invitation_ends_when_its_account_joins_by_link(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    user(&state, "eve@example.com").await;
+    let eve = Browser::sign_in(&app, "eve@example.com").await;
+    let eve_id = eve.get("/api/v1/account/me").await.body["id"].clone();
+    let base = format!("/api/v1/workspaces/{}", t.workspace);
+
+    let invited = t
+        .ada
+        .post(
+            &format!("{base}/invitations"),
+            json!({"email": "eve@example.com", "role": "admin"}),
+        )
+        .await;
+    assert_eq!(invited.status, StatusCode::CREATED, "{}", invited.body);
+    let link = t
+        .ada
+        .post(&format!("{base}/invite-links"), json!({"role": "guest"}))
+        .await;
+    let joined = eve
+        .post(
+            "/api/v1/workspace-invite-links/join",
+            json!({"token": link.body["token"]}),
+        )
+        .await;
+    assert_eq!(joined.body["role"], "guest");
+    let pending = t.ada.get(&format!("{base}/invitations")).await;
+    assert_eq!(pending.body["invitations"], json!([]));
+
+    let removed = t
+        .ada
+        .send(
+            Method::DELETE,
+            &format!("{base}/members/{}", eve_id.as_str().expect("an id")),
+            None,
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    let back = eve
+        .post(
+            &format!("/api/v1/account/invitations/{}/accept", id(&invited)),
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        (back.status, back.code()),
+        (StatusCode::NOT_FOUND, "not_found"),
+        "{}",
+        back.body
+    );
 }
 
 fn keyed() -> Envelope {
@@ -778,4 +882,21 @@ async fn accounts_show_their_hue_and_may_pin_one(pool: PgPool) {
         .await;
     assert_eq!(renamed.body["display_name"], "Ada L");
     assert_eq!(renamed.body["hue_override"], Value::Null);
+
+    let half_bad = ada
+        .send(
+            Method::PATCH,
+            "/api/v1/account/me",
+            Some(json!({"display_name": "Ada Renamed", "hue_override": 999})),
+        )
+        .await;
+    assert_eq!(
+        (half_bad.status, half_bad.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input")
+    );
+    let after = ada.get("/api/v1/account/me").await;
+    assert_eq!(
+        after.body["display_name"], "Ada L",
+        "a change refused is not made in part"
+    );
 }

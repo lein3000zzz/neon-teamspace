@@ -301,7 +301,7 @@
           "account"
         ],
         "summary": "Rename the signed-in user, or pin their hue",
-        "description": "Changes what the body names. Needs a session or an API token with the write scope.",
+        "description": "Changes what the body names, all of it or, when any part is invalid, none. Needs a session or an API token with the write scope.",
         "operationId": "update_me",
         "requestBody": {
           "content": {
@@ -4461,7 +4461,7 @@
           "workspaces"
         ],
         "summary": "Leave a workspace",
-        "description": "Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace.",
+        "description": "Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it.",
         "operationId": "leave_workspace",
         "parameters": [
           {
@@ -4510,7 +4510,7 @@
             }
           },
           "409": {
-            "description": "last_owner.",
+            "description": "last_owner or last_teamspace_owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5015,6 +5015,7 @@
           "teamspaces"
         ],
         "summary": "A teamspace",
+        "description": "A private teamspace answers `not_found` to everyone outside it, the workspace's owners and admins included.",
         "operationId": "get_teamspace",
         "parameters": [
           {
@@ -5104,7 +5105,7 @@
           "teamspaces"
         ],
         "summary": "Delete a teamspace",
-        "description": "Any but the default one. For the teamspace's owners and the workspace's owners and admins.",
+        "description": "Any but the default one. For the teamspace's owners and the workspace's owners and admins, who delete a private one without being in it.",
         "operationId": "delete_teamspace",
         "parameters": [
           {
@@ -5187,7 +5188,7 @@
           "teamspaces"
         ],
         "summary": "Change a teamspace",
-        "description": "Changes what the body names. For the teamspace's owners and the workspace's owners and admins.",
+        "description": "Changes what the body names. For the teamspace's owners and the workspace's owners and admins, who join a private one first.",
         "operationId": "update_teamspace",
         "parameters": [
           {
@@ -5299,7 +5300,7 @@
           "teamspaces"
         ],
         "summary": "Join a teamspace",
-        "description": "Any member joins an open teamspace. Closed and private ones take whom their owners add; the workspace's owners and admins may join them themselves.",
+        "description": "Any member joins an open teamspace. Closed and private ones take whom their owners add; the workspace's owners and admins may join them themselves, which is how they come to manage a private one.",
         "operationId": "join_teamspace",
         "parameters": [
           {
@@ -5486,6 +5487,7 @@
           "teamspaces"
         ],
         "summary": "List a teamspace's members",
+        "description": "For everyone who may see the teamspace: a private one's members are listed to its members only.",
         "operationId": "list_teamspace_members",
         "parameters": [
           {
@@ -5575,7 +5577,7 @@
           "teamspaces"
         ],
         "summary": "Add a member to a teamspace",
-        "description": "Any teamspace but the default one, which everyone is in. For the teamspace's owners and the workspace's owners and admins.",
+        "description": "Any teamspace but the default one, which everyone is in. For the teamspace's owners and the workspace's owners and admins, who join a private one first. Guests are added to none.",
         "operationId": "add_teamspace_member",
         "parameters": [
           {
@@ -5620,16 +5622,6 @@
               }
             }
           },
-          "400": {
-            "description": "invalid_input: guests are in no teamspace.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
           "401": {
             "description": "unauthenticated.",
             "content": {
@@ -5641,7 +5633,7 @@
             }
           },
           "403": {
-            "description": "forbidden or insufficient_scope.",
+            "description": "forbidden, as for a guest, who is in no teamspace; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5697,7 +5689,7 @@
           "teamspaces"
         ],
         "summary": "Remove a member from a teamspace",
-        "description": "Any teamspace but the default one. For the teamspace's owners and the workspace's owners and admins.",
+        "description": "Any teamspace but the default one. For the teamspace's owners and the workspace's owners and admins, who join a private one first.",
         "operationId": "remove_teamspace_member",
         "parameters": [
           {
@@ -5800,7 +5792,7 @@
           "teamspaces"
         ],
         "summary": "Change a teamspace member's role",
-        "description": "For the teamspace's owners and the workspace's owners and admins. The last owner stays one unless an owner or admin of the workspace changes it.",
+        "description": "For the teamspace's owners and the workspace's owners and admins, who join a private one first. The last owner stays one unless an owner or admin of the workspace changes it.",
         "operationId": "change_teamspace_role",
         "parameters": [
           {
@@ -8282,7 +8274,6 @@
             "type": "object",
             "required": [
               "members_can_create_teamspaces",
-              "member_count",
               "limits",
               "updated_at"
             ],
@@ -8291,9 +8282,12 @@
                 "$ref": "#/components/schemas/EffectiveLimits"
               },
               "member_count": {
-                "type": "integer",
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "format": "int64",
-                "description": "How many people are in it, guests included."
+                "description": "How many people are in it, guests included. Absent for a guest, who knows of no\nmember but themselves."
               },
               "members_can_create_teamspaces": {
                 "type": "boolean",

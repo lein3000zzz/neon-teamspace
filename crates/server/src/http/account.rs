@@ -5,6 +5,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
+use neon_app::auth::ProfileUpdate;
 use neon_domain::auth::preferences::{
     Mode as DomainMode, Palette as DomainPalette, UiFont as DomainUiFont,
 };
@@ -84,8 +85,8 @@ pub struct UpdateMe {
     path = "/account/me",
     tag = "account",
     summary = "Rename the signed-in user, or pin their hue",
-    description = "Changes what the body names. Needs a session or an API token with the write \
-                   scope.",
+    description = "Changes what the body names, all of it or, when any part is invalid, none. \
+                   Needs a session or an API token with the write scope.",
     request_body = UpdateMe,
     responses(
         (status = OK, description = "The user.", body = User),
@@ -101,13 +102,11 @@ pub(super) async fn update_me(
     Authenticated(principal): Authenticated,
     Json(body): Json<UpdateMe>,
 ) -> Result<Json<User>, ApiError> {
-    let mut user = principal.user.clone();
-    if let Some(name) = &body.display_name {
-        user = state.auth.update_profile(&principal, name).await?;
-    }
-    if let Some(hue) = body.hue_override {
-        user = state.auth.set_hue(&principal, hue).await?;
-    }
+    let update = ProfileUpdate {
+        display_name: body.display_name,
+        hue_override: body.hue_override,
+    };
+    let user = state.auth.update_profile(&principal, update).await?;
     Ok(Json(user.into()))
 }
 

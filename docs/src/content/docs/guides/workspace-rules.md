@@ -32,8 +32,8 @@ only.
 
 `GET /api/v1/workspaces` lists the caller's workspaces with their role, slug and hue, and
 says in `can_create` whether the setting lets them create one.
-`GET /api/v1/workspaces/{id}` adds the member count, the limits that hold, and the
-workspace's settings. Owners and admins change the name, slug, icon, hue and
+`GET /api/v1/workspaces/{id}` adds the member count, which guests do not get, the limits
+that hold, and the workspace's settings. Owners and admins change the name, slug, icon, hue and
 `members_can_create_teamspaces` with `PATCH /api/v1/workspaces/{id}`; `null` removes the
 icon or the pinned hue. A new name keeps the slug, so links keep working.
 
@@ -46,7 +46,7 @@ Everything in the workspace goes with it: members, teamspaces, invitations and l
 | Role | What it may do |
 |---|---|
 | Owner | Everything, the workspace itself included: change anyone's role, make owners, transfer ownership, delete the workspace. |
-| Admin | Manage members and guests, invitations, invite links and teamspaces, private ones included. Never change or remove an owner, nor make one. |
+| Admin | Manage members and guests, invitations, invite links and teamspaces, a private one once they join it. Never change or remove an owner, nor make one. |
 | Member | Use the workspace and its teamspaces, and create teamspaces unless the workspace's `members_can_create_teamspaces` is off. |
 | Guest | See only the pages shared with them, once pages exist. A guest is in no teamspace, and sees no member but themselves. |
 
@@ -59,7 +59,7 @@ first, so two owners demoting themselves at the same moment cannot both succeed.
 | `GET /api/v1/workspaces/{id}/members` | Lists the members, owners first. A guest gets only themselves. |
 | `PATCH /api/v1/workspaces/{id}/members/{user_id}` | Changes a role. A member who becomes a guest leaves every teamspace; a guest who becomes more joins the default one. |
 | `DELETE /api/v1/workspaces/{id}/members/{user_id}` | Removes a member from the workspace and its teamspaces. Nobody removes themselves: they leave. |
-| `POST /api/v1/workspaces/{id}/leave` | Leaves the workspace and its teamspaces. |
+| `POST /api/v1/workspaces/{id}/leave` | Leaves the workspace and its teamspaces. The last owner of a teamspace who neither owns nor administers the workspace makes another owner of it first, or deletes it: else leaving answers `last_teamspace_owner`. |
 | `POST /api/v1/workspaces/{id}/transfer` | Makes another member an owner, and the owner calling an admin, together. |
 
 ## Invitations
@@ -80,7 +80,9 @@ answers with `POST /api/v1/account/invitations/{id}/accept` or `.../decline`. No
 joined until it accepts: then it joins with the invitation's role, and the default teamspace
 unless as a guest. Owners and admins list the pending invitations with
 `GET /api/v1/workspaces/{id}/invitations` and revoke one with
-`POST /api/v1/workspaces/{id}/invitations/{invitation_id}/revoke`.
+`POST /api/v1/workspaces/{id}/invitations/{invitation_id}/revoke`. An account that joins
+another way, by an invite link, loses its pending invitation then: once it leaves or is
+removed, an old invitation cannot bring it back.
 
 ## Invite links
 
@@ -127,15 +129,15 @@ workspace. Other teamspaces have one of three kinds of access:
 `GET /api/v1/workspaces/{id}/teamspaces` lists the teamspaces the caller sees, with their
 role in each, the default one first. For owners and admins, `hidden` lists the private
 teamspaces they are not in, by id and name only. A private teamspace answers `not_found` to
-a member outside it, and its full view stays closed to the workspace's owners and admins
-until they are in it; they may still rename it, change its access, manage its members, add
-themselves, or delete it.
+everyone outside it, the workspace's owners and admins included, whatever they ask of it,
+but for two things they may do: delete it, or join it to manage it, which its members then
+see in its member list.
 
 A teamspace's roles are owner and member. Its creator is its owner. Owners, and the
 workspace's owners and admins, change it, add and remove members and change their roles.
 A teamspace keeps at least one owner while its own owners manage it: its last owner can
-neither leave nor be demoted, which answers `last_teamspace_owner`, except by the workspace's
-owners and admins, who manage it then.
+neither leave it, nor leave the workspace, nor be demoted, which answers
+`last_teamspace_owner`, except by the workspace's owners and admins, who manage it then.
 
 | Route | What it does |
 |---|---|

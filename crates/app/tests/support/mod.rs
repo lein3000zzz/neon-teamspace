@@ -10,7 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use neon_app::auth::{AuthService, LoginInput};
+use neon_app::auth::{AuthService, LoginInput, ProfileUpdate};
 use neon_app::clock::ManualTime;
 use neon_app::crypto::{Argon2Params, Envelope, Keyring, PasswordHasher};
 use neon_app::jobs::Job;
@@ -42,6 +42,14 @@ pub const IP: &str = "203.0.113.7";
 
 pub fn secret(text: &str) -> Secret {
     Secret::new(text)
+}
+
+/// A change to one's own account that renames it alone.
+pub fn renaming(name: &str) -> ProfileUpdate {
+    ProfileUpdate {
+        display_name: Some(name.to_owned()),
+        ..ProfileUpdate::default()
+    }
 }
 
 /// 2026-11-22 12:00 UTC.

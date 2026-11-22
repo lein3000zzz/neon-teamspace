@@ -230,6 +230,7 @@ impl WorkspaceService {
 fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
     Actor {
         instance_admin: principal.is_admin(),
+        via_session: principal.via_session(),
         role,
     }
 }
@@ -285,12 +286,4 @@ async fn locked_membership(
         .ok_or(WorkspaceError::NotFound(NO_WORKSPACE))?;
     let role = repo::member_role(&mut *conn, id, principal.user.id).await?;
     Ok(Membership { workspace, role })
-}
-
-fn require_session(principal: &Principal, what: &'static str) -> Result<(), WorkspaceError> {
-    if principal.via_session() {
-        Ok(())
-    } else {
-        Err(WorkspaceError::Forbidden(what))
-    }
 }

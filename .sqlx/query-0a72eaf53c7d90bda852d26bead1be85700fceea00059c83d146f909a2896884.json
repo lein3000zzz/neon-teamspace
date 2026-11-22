@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE users SET hue = $2, updated_at = $3 WHERE id = $1\n         RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,\n                   created_at, updated_at",
+  "query": "UPDATE users\n         SET display_name = COALESCE($2, display_name),\n             hue = CASE WHEN $3 THEN $4 ELSE hue END,\n             updated_at = $5\n         WHERE id = $1\n         RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,\n                   created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -106,6 +106,8 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Text",
+        "Bool",
         "Int2",
         "Timestamptz"
       ]
@@ -122,5 +124,5 @@
       false
     ]
   },
-  "hash": "2c1b5565b29058b5c694da0a9b13e9ee9778d4b4cfa285966f4b191de69693e6"
+  "hash": "0a72eaf53c7d90bda852d26bead1be85700fceea00059c83d146f909a2896884"
 }

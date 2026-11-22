@@ -78,8 +78,9 @@ be deleted, left or made private. Other teamspaces are one of three kinds:
 | Private | Its own members; the workspace's owners and admins see its name, to manage it | Members its owners add |
 
 A teamspace has owners and members, and keeps at least one owner while its owners manage it.
-The workspace's owners and admins manage every teamspace, private ones included, without
-seeing a private one's content unless they join it.
+The workspace's owners and admins manage every teamspace. A private one they are not in,
+they know by name alone: they may delete it, or join it to manage it, which its members then
+see.
 
 ## Pages
 

@@ -3,6 +3,7 @@
 
 mod support;
 
+use neon_app::auth::{AuthError, ProfileUpdate};
 use neon_app::workspaces::{DEFAULT_TEAMSPACE_NAME, NewWorkspace, WorkspaceError, WorkspaceUpdate};
 use neon_domain::auth::{Credential, Principal, Role};
 use neon_domain::hue::hue_for_uuid;
@@ -57,7 +58,7 @@ async fn creating_a_workspace_makes_its_default_teamspace_and_owner_together(poo
     assert_eq!(workspace.hue(), 200);
     assert!(workspace.members_can_create_teamspaces);
     assert_eq!(created.role, WorkspaceRole::Owner);
-    assert_eq!(created.members, 1);
+    assert_eq!(created.members, Some(1));
     assert_eq!(created.limits.members, None);
 
     let list = h
@@ -269,7 +270,7 @@ async fn owners_and_admins_change_a_workspace_and_members_do_not(pool: PgPool) {
     assert_eq!(updated.workspace.hue(), 30);
     assert!(!updated.workspace.members_can_create_teamspaces);
     assert_eq!(updated.role, WorkspaceRole::Admin);
-    assert_eq!(updated.members, 3);
+    assert_eq!(updated.members, Some(3));
 
     let cleared = h
         .workspaces
@@ -553,9 +554,24 @@ async fn guests_see_only_themselves_and_no_teamspace(pool: PgPool) {
         .change_member_role(&gus, id, ada.user.id, WorkspaceRole::Guest)
         .await;
     assert!(matches!(guessed, Err(WorkspaceError::NotFound(_))));
+    let removed = h.workspaces.remove_member(&gus, id, ada.user.id).await;
+    assert!(matches!(removed, Err(WorkspaceError::NotFound(_))));
+    let nobody = h.workspaces.remove_member(&gus, id, Uuid::now_v7()).await;
     assert_eq!(
-        h.workspaces.workspace(&gus, id).await.expect("seen").role,
-        WorkspaceRole::Guest
+        nobody.expect_err("refused").to_string(),
+        removed.expect_err("refused").to_string(),
+        "someone there and nobody look the same"
+    );
+    let details = h.workspaces.workspace(&gus, id).await.expect("seen");
+    assert_eq!(details.role, WorkspaceRole::Guest);
+    assert_eq!(details.members, None, "a guest learns no head count");
+    assert_eq!(
+        h.workspaces
+            .workspace(&ada, id)
+            .await
+            .expect("seen")
+            .members,
+        Some(2)
     );
 }
 
@@ -655,17 +671,84 @@ async fn an_owner_transfers_ownership_and_becomes_an_admin(pool: PgPool) {
     );
 }
 
+fn pinning(hue: Option<i64>) -> ProfileUpdate {
+    ProfileUpdate {
+        hue_override: Some(hue),
+        ..ProfileUpdate::default()
+    }
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_pinned_user_hue_shows_in_member_lists(pool: PgPool) {
     let h = Harness::new(pool).await;
     let ada = h.person("ada@example.com").await;
     let id = h.workspace(&ada, "Design").await.workspace.id;
 
-    let renamed = h.auth.set_hue(&ada, Some(123)).await.expect("pinned");
+    let renamed = h
+        .auth
+        .update_profile(&ada, pinning(Some(123)))
+        .await
+        .expect("pinned");
     assert_eq!(renamed.hue(), 123);
     let members = h.workspaces.list_members(&ada, id).await.expect("listed");
     assert_eq!(members[0].person.hue(), 123);
-    let cleared = h.auth.set_hue(&ada, None).await.expect("cleared");
+    let cleared = h
+        .auth
+        .update_profile(&ada, pinning(None))
+        .await
+        .expect("cleared");
     assert_eq!(cleared.hue(), hue_for_uuid(ada.user.id));
     assert_eq!(cleared.role, Role::User);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_profile_change_with_a_bad_part_changes_nothing(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+
+    for bad in [
+        ProfileUpdate {
+            display_name: Some("Ada Lovelace".into()),
+            hue_override: Some(Some(999)),
+        },
+        ProfileUpdate {
+            display_name: Some("x".repeat(101)),
+            hue_override: Some(Some(40)),
+        },
+    ] {
+        let refused = h.auth.update_profile(&ada, bad).await;
+        assert!(
+            matches!(refused, Err(AuthError::InvalidInput(_))),
+            "{refused:?}"
+        );
+    }
+    let (name, hue): (String, Option<i16>) =
+        sqlx::query_as("SELECT display_name, hue FROM users WHERE id = $1")
+            .bind(ada.user.id)
+            .fetch_one(&h.pool)
+            .await
+            .expect("read");
+    assert_eq!((name.as_str(), hue), ("ada", None), "nothing was saved");
+
+    let both = h
+        .auth
+        .update_profile(
+            &ada,
+            ProfileUpdate {
+                display_name: Some("Ada Lovelace".into()),
+                hue_override: Some(Some(40)),
+            },
+        )
+        .await
+        .expect("changed");
+    assert_eq!(
+        (both.display_name.as_str(), both.hue()),
+        ("Ada Lovelace", 40)
+    );
+    let nothing = h
+        .auth
+        .update_profile(&ada, ProfileUpdate::default())
+        .await
+        .expect("nothing to change");
+    assert_eq!(nothing.id, ada.user.id);
 }

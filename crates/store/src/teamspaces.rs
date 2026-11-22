@@ -9,9 +9,6 @@ use uuid::Uuid;
 use crate::decode_error;
 use crate::users::{parse_hue, stored_hue};
 
-/// The index an insert breaks when the workspace has a default teamspace already.
-pub const DEFAULT_TAKEN: &str = "teamspaces_one_default";
-
 /// The constraint an insert breaks when the user is in the teamspace already.
 pub const ALREADY_MEMBER: &str = "teamspace_members_pkey";
 
@@ -51,7 +48,8 @@ fn parse_role(text: &str) -> sqlx::Result<TeamspaceRole> {
         .ok_or_else(|| decode_error(format!("unknown teamspace role {text:?}")))
 }
 
-/// Saves a new teamspace. Fails on [`DEFAULT_TAKEN`] for a second default one.
+/// Saves a new teamspace. Fails on the unique index `teamspaces_one_default` for a second
+/// default one.
 pub async fn insert(executor: impl PgExecutor<'_>, teamspace: &Teamspace) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO teamspaces (id, workspace_id, name, icon, hue, access, created_by,
@@ -303,6 +301,25 @@ pub async fn count_owners(executor: impl PgExecutor<'_>, teamspace_id: Uuid) -> 
         teamspace_id,
     )
     .fetch_one(executor)
+    .await
+}
+
+/// How many owners each teamspace of the workspace that the user owns has, the user
+/// included.
+pub async fn owners_where_owner(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar!(
+        r#"SELECT (SELECT count(*) FROM teamspace_members o
+                   WHERE o.teamspace_id = m.teamspace_id AND o.role = 'owner') AS "owners!"
+           FROM teamspace_members m
+           WHERE m.workspace_id = $1 AND m.user_id = $2 AND m.role = 'owner'"#,
+        workspace_id,
+        user_id,
+    )
+    .fetch_all(executor)
     .await
 }
 

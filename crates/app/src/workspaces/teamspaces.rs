@@ -51,7 +51,7 @@ pub struct TeamspaceList {
     /// Those they may see, the default one first.
     pub teamspaces: Vec<TeamspaceEntry>,
     /// Private teamspaces they are not in, which as an owner or admin of the workspace
-    /// they see by name only, to manage or delete them.
+    /// they see by name only, to delete them or join them to manage them.
     pub hidden: Vec<Teamspace>,
 }
 
@@ -195,7 +195,8 @@ impl WorkspaceService {
     }
 
     /// Changes a teamspace's name, icon, hue or access, for its owners and the workspace's
-    /// owners and admins. The default teamspace keeps its access.
+    /// owners and admins, who join a private one first. The default teamspace keeps its
+    /// access.
     pub async fn update_teamspace(
         &self,
         principal: &Principal,
@@ -247,7 +248,8 @@ impl WorkspaceService {
         .await
     }
 
-    /// Deletes a teamspace other than the default one.
+    /// Deletes a teamspace other than the default one, for its owners and the workspace's
+    /// owners and admins, private ones they are not in included.
     pub async fn delete_teamspace(
         &self,
         principal: &Principal,
@@ -274,7 +276,8 @@ impl WorkspaceService {
     }
 
     /// Joins an open teamspace as a member. Owners and admins of the workspace may join
-    /// closed and private ones too, as they may add anyone.
+    /// closed and private ones too: it is how they come to manage a private one, which its
+    /// members then see them in.
     pub async fn join_teamspace(
         &self,
         principal: &Principal,
@@ -361,7 +364,8 @@ impl WorkspaceService {
     }
 
     /// Adds a member of the workspace, not a guest, to a teamspace other than the default
-    /// one, which everyone is in.
+    /// one, which everyone is in. The account's role in the workspace is read only once the
+    /// caller may see the teamspace, so a caller who may not learns nothing of either.
     pub async fn add_teamspace_member(
         &self,
         principal: &Principal,
@@ -375,16 +379,11 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::AddTeamspaceMember)?;
-            match workspaces::member_role(&mut *tx, workspace_id, user_id).await? {
-                None => return Err(WorkspaceError::NotFound(NO_MEMBER)),
-                Some(role) if !role.joins_teamspaces() => {
-                    return Err(WorkspaceError::InvalidInput(
-                        "guests are in no teamspace: make them a member first".to_owned(),
-                    ));
-                }
-                Some(_) => {}
-            }
+            context.check(principal, Action::ViewTeamspace)?;
+            let workspace_role = workspaces::member_role(&mut *tx, workspace_id, user_id)
+                .await?
+                .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
+            context.check(principal, Action::AddTeamspaceMember { workspace_role })?;
             repo::add_member(&mut *tx, &context.teamspace, user_id, role, self.now())
                 .await
                 .map_err(|error| {
