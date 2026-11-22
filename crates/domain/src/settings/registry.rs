@@ -53,8 +53,10 @@ impl RegistryBuilder {
         self
     }
 
-    /// Adds a rule over the resolved settings. It runs on start and before every write,
-    /// against the settings as they would be after the write.
+    /// Adds a rule over the resolved settings. It runs before every write, against the
+    /// settings as they would be after the write, and on start: see
+    /// [`Registry::check_rules_on_start`]. Saved values that break it only warn there, so
+    /// what it guards must check again where it is used.
     pub fn rule<F>(mut self, key: &'static str, check: F) -> Self
     where
         F: Fn(&Snapshot) -> Result<(), String> + Send + Sync + 'static,
@@ -230,6 +232,41 @@ impl Registry {
             .collect();
 
         Snapshot { values }
+    }
+
+    /// Runs every rule as the server starts, against what `pinned` and `stored` resolve
+    /// to. A rule that the pinned values break alone, over the defaults, is an error: the
+    /// environment and the config file contradict each other, and only they can fix it.
+    /// A rule broken only with values saved from the admin page is returned as a warning,
+    /// so a change to the environment never keeps the server from starting over what an
+    /// admin saved, which they can only change once it runs.
+    pub fn check_rules_on_start(
+        &self,
+        pinned: &Pinned,
+        stored: &Stored,
+    ) -> Result<Vec<Problem>, Vec<Problem>> {
+        let snapshot = self.resolve(pinned, stored);
+        let pinned_alone = self.resolve(pinned, &Stored::new());
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        for rule in &self.rules {
+            let Err(message) = (rule.check)(&snapshot) else {
+                continue;
+            };
+            if (rule.check)(&pinned_alone).is_err() {
+                errors.push(Problem::new(rule.key, message));
+            } else {
+                warnings.push(Problem::new(
+                    rule.key,
+                    format!("the saved values break a rule: {message}"),
+                ));
+            }
+        }
+        if errors.is_empty() {
+            Ok(warnings)
+        } else {
+            Err(errors)
+        }
     }
 
     /// Runs every rule, reporting every failure at once.
@@ -409,6 +446,40 @@ mod tests {
             )])
         );
         assert_eq!(allowed, Ok(()));
+    }
+
+    #[test]
+    fn on_start_only_the_pinned_values_breaking_a_rule_is_an_error() {
+        let registry = registry();
+        let raw = RawLayers::default().with_env([(
+            "NEON_SETTINGS__AUTH__VERIFY_EMAIL".to_owned(),
+            "true".to_owned(),
+        )]);
+        let verify_pinned = registry.pin(&raw).expect("valid layers");
+        let host_saved = Stored::from([("mail.host", Value::String("smtp.example.com".into()))]);
+        let verify_saved = Stored::from([("auth.verify_email", Value::Bool(true))]);
+
+        // The environment breaks the rule by itself.
+        assert_eq!(
+            registry.check_rules_on_start(&verify_pinned, &Stored::new()),
+            Err(vec![Problem::new(
+                "auth.verify_email",
+                "needs mail.host set first"
+            )])
+        );
+        // What was saved completes what the environment pins.
+        assert_eq!(
+            registry.check_rules_on_start(&verify_pinned, &host_saved),
+            Ok(Vec::new())
+        );
+        // What was saved breaks it: a warning, for an admin to fix.
+        assert_eq!(
+            registry.check_rules_on_start(&Pinned::default(), &verify_saved),
+            Ok(vec![Problem::new(
+                "auth.verify_email",
+                "the saved values break a rule: needs mail.host set first"
+            )])
+        );
     }
 
     #[test]

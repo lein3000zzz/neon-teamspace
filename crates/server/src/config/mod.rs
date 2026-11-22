@@ -16,7 +16,11 @@
 //! The `observability` section is `neon-observability`'s own configuration. Its errors
 //! fail the load with the others; its warnings are logged once telemetry is installed.
 //! The server gives its `logging.level` a default of its own, [`DEFAULT_LOG_LEVEL`].
+//!
+//! The `admin` section names the first admin, made as the server starts while no admin can
+//! sign in, and `secrets.keys` the keys that seal secrets kept in the database.
 
+mod bootstrap;
 mod database_url;
 mod env;
 mod render;
@@ -29,13 +33,16 @@ use std::path::PathBuf;
 use figment::Figment;
 use figment::error::{Actual, Kind, OneOf};
 use figment::providers::Serialized;
+use ipnet::IpNet;
 use neon_app::jobs::LISTEN_CONNECTIONS;
+use neon_domain::auth::Email;
 use neon_domain::settings::{Pinned, Problem, RawLayers, Registry};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value as Json};
 use url::Url;
 
+pub use bootstrap::{AdminConfig, SecretString, SecretsConfig, default_trusted_proxies};
 pub use database_url::DatabaseUrl;
 
 use env::EnvVars;
@@ -65,6 +72,12 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub database: DatabaseConfig,
+    /// The first admin.
+    #[serde(default)]
+    pub admin: AdminConfig,
+    /// The keys that seal secrets kept in the database.
+    #[serde(default)]
+    pub secrets: SecretsConfig,
     /// Parsed by [`load`] into [`Loaded::settings`].
     #[serde(default)]
     settings: SettingsTree,
@@ -78,9 +91,15 @@ pub struct Config {
 pub struct ServerConfig {
     /// The address the HTTP API listens on.
     pub listen: SocketAddr,
-    /// Where users reach the server, such as `https://neon.example.com`.
+    /// Where users reach the server, such as `https://neon.example.com`. Browsers' `Origin`
+    /// must match it on requests that change something, and over https the session cookie
+    /// is `Secure` and named `__Host-neon_session`.
     #[serde(deserialize_with = "optional_url")]
     pub public_url: Option<Url>,
+    /// Peers whose `X-Forwarded-For` names the client, such as the reverse proxy in front.
+    /// Anyone else's is ignored, so a client cannot pick the address rate limits count.
+    #[serde(deserialize_with = "bootstrap::proxy_list")]
+    pub trusted_proxies: Vec<IpNet>,
 }
 
 impl Default for ServerConfig {
@@ -88,6 +107,7 @@ impl Default for ServerConfig {
         Self {
             listen: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)),
             public_url: None,
+            trusted_proxies: default_trusted_proxies(),
         }
     }
 }
@@ -245,6 +265,28 @@ impl Config {
             && let Err(message) = check_public_url(url)
         {
             report("server.public_url", message);
+        }
+        match (&self.admin.email, &self.admin.password) {
+            (Some(email), Some(_)) => {
+                if Email::parse(email).is_err() {
+                    report(
+                        "admin.email",
+                        "is not an email address like name@example.com".to_owned(),
+                    );
+                }
+            }
+            (Some(_), None) => report(
+                "admin.password",
+                "is required with admin.email: set both or neither".to_owned(),
+            ),
+            (None, Some(_)) => report(
+                "admin.email",
+                "is required with admin.password: set both or neither".to_owned(),
+            ),
+            (None, None) => {}
+        }
+        if let Err(error) = self.secrets.keyring() {
+            report("secrets.keys", error.to_string());
         }
         // Its warnings are logged as telemetry starts, which checks the section again.
         if let Err(invalid) = self.observability.validate() {

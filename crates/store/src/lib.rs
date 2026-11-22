@@ -4,9 +4,15 @@
 //! function takes an executor: `&PgPool` for a single statement, or `&mut *tx` to run
 //! inside the caller's transaction, so the caller decides what commits together.
 
+pub mod api_tokens;
+pub mod email_tokens;
+pub mod invites;
 pub mod jobs;
+pub mod join_requests;
 mod pool;
+pub mod sessions;
 pub mod settings;
+pub mod users;
 
 use sqlx::PgPool;
 use sqlx::migrate::{MigrateError, Migrator};
@@ -19,4 +25,17 @@ pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 /// Applies pending migrations. A lock keeps two servers starting together from racing.
 pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
     MIGRATOR.run(pool).await
+}
+
+/// Whether `error` is a write that broke the unique constraint or index `name`.
+pub fn is_unique_violation(error: &sqlx::Error, name: &str) -> bool {
+    error.as_database_error().is_some_and(|db| {
+        db.kind() == sqlx::error::ErrorKind::UniqueViolation && db.constraint() == Some(name)
+    })
+}
+
+/// A value the database holds that the code cannot read, such as a role a check
+/// constraint should have refused.
+pub(crate) fn decode_error(message: String) -> sqlx::Error {
+    sqlx::Error::Decode(message.into())
 }

@@ -1,5 +1,8 @@
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use neon_app::crypto::{Envelope, Keyring};
 use neon_app::settings::{Change, SettingsService, UpdateError};
 use neon_domain::settings::{
     Definition, Key, Pinned, Problem, REDACTED, RawLayers, Registry, Secret, Source, checks,
@@ -49,8 +52,18 @@ fn pinned(env: &[(&str, &str)], yaml: Json) -> Pinned {
     registry().pin(&raw).expect("valid layers")
 }
 
+/// An envelope with one key of `byte` repeated.
+fn envelope(byte: u8) -> Envelope {
+    let entry = format!("k1:{}", STANDARD.encode([byte; 32]));
+    Envelope::new(Keyring::parse(&[entry]).expect("a valid key"))
+}
+
 async fn service(pool: &PgPool, pinned: Pinned) -> SettingsService {
-    let (service, warnings) = SettingsService::load(pool.clone(), registry(), pinned)
+    service_with(pool, pinned, envelope(1)).await
+}
+
+async fn service_with(pool: &PgPool, pinned: Pinned, envelope: Envelope) -> SettingsService {
+    let (service, warnings) = SettingsService::load(pool.clone(), registry(), pinned, envelope)
         .await
         .expect("settings load");
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -124,9 +137,10 @@ async fn saved_values_that_no_longer_parse_are_warnings(pool: PgPool) {
         .await
         .unwrap();
 
-    let (service, warnings) = SettingsService::load(pool.clone(), registry(), Pinned::default())
-        .await
-        .unwrap();
+    let (service, warnings) =
+        SettingsService::load(pool.clone(), registry(), Pinned::default(), envelope(1))
+            .await
+            .unwrap();
 
     assert_eq!(*service.current().get(LIMIT), 10);
     assert_eq!(
@@ -348,4 +362,109 @@ async fn secrets_are_redacted_in_the_audit_and_for_display(pool: PgPool) {
     assert_eq!(entry.value, json!(REDACTED));
     assert_eq!(entry.env_var, "NEON_SETTINGS__MAIL__PASSWORD");
     assert_eq!(entry.source, Source::Database);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn secrets_are_saved_sealed_and_read_back(pool: PgPool) {
+    let service = service(&pool, Pinned::default()).await;
+
+    service
+        .update([set("mail.password", json!("hunter2"))], None)
+        .await
+        .unwrap();
+
+    let rows = saved(&pool).await;
+    assert_eq!(rows.len(), 1);
+    let stored = rows[0].1.to_string();
+    assert!(!stored.contains("hunter2"), "{stored}");
+    assert!(rows[0].1["sealed"].is_string(), "{stored}");
+
+    let reloaded = service_with(&pool, Pinned::default(), envelope(1)).await;
+    assert_eq!(reloaded.current().get(PASSWORD).expose(), "hunter2");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn secrets_are_refused_without_a_key(pool: PgPool) {
+    let service = service_with(&pool, Pinned::default(), Envelope::default()).await;
+
+    let problems = invalid(
+        service
+            .update(
+                [
+                    set("mail.password", json!("hunter2")),
+                    set("instance.name", json!("Acme")),
+                ],
+                None,
+            )
+            .await,
+    );
+
+    assert_eq!(problems.len(), 1);
+    assert_eq!(problems[0].key, "mail.password");
+    assert!(
+        problems[0]
+            .message
+            .contains("set secrets.keys (NEON_SECRETS__KEYS) first"),
+        "{}",
+        problems[0].message
+    );
+    assert!(saved(&pool).await.is_empty());
+    assert_eq!(service.current().get(NAME), "Neon Workspace");
+
+    // An empty secret hides nothing, so it needs no key.
+    service
+        .update([set("mail.password", json!(""))], None)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn secrets_that_do_not_open_are_warnings(pool: PgPool) {
+    let service = service(&pool, Pinned::default()).await;
+    service
+        .update([set("mail.password", json!("hunter2"))], None)
+        .await
+        .unwrap();
+
+    let (other_key, warnings) =
+        SettingsService::load(pool.clone(), registry(), Pinned::default(), envelope(2))
+            .await
+            .unwrap();
+    assert_eq!(other_key.current().get(PASSWORD).expose(), "");
+    assert_eq!(warnings.len(), 1);
+    assert!(
+        warnings[0]
+            .message
+            .starts_with("saved value ignored: it does not decrypt")
+    );
+
+    let (no_key, warnings) = SettingsService::load(
+        pool.clone(),
+        registry(),
+        Pinned::default(),
+        Envelope::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(no_key.current().get(PASSWORD).expose(), "");
+    assert_eq!(warnings[0].key, "mail.password");
+
+    // A secret written in the clear, past this service, is never used.
+    neon_store::settings::upsert(&pool, "mail.password", &json!("in the clear"), None)
+        .await
+        .unwrap();
+    let (_, warnings) =
+        SettingsService::load(pool.clone(), registry(), Pinned::default(), envelope(1))
+            .await
+            .unwrap();
+    assert_eq!(
+        warnings,
+        [Problem::new(
+            "mail.password",
+            "saved value ignored: a secret saved without encryption is not used"
+        )]
+    );
+    for warning in &warnings {
+        assert!(!warning.message.contains("hunter2"));
+    }
 }

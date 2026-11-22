@@ -65,8 +65,9 @@ Each person chooses three things, and the app's colours follow from them:
 - An **accent hue**, from 0 to 359 degrees: on a free slider, or one of the presets around
   the wheel. Blue, 250, is the default.
 
-The defaults are Nothing in system mode. Until accounts exist the choice is kept in the
-browser; **planned**, it is saved with the account and follows the person to every browser.
+The defaults are Nothing in system mode. The app keeps the choice in the browser. The server
+can keep it with the account, at `/api/v1/account/preferences`; **planned**, the app saves it
+there, so it follows the person to every browser.
 The theme is applied before the first paint, so a dark page never flashes white.
 
 ### Palettes

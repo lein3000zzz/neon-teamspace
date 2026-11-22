@@ -1,22 +1,65 @@
 //! The OpenAPI description, built from the same router that serves the API.
 
-use utoipa::OpenApi as _;
 use utoipa::openapi::OpenApi;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi as _};
 
 use super::error::ErrorBody;
+use super::web::SESSION_COOKIE;
 
 const DESCRIPTION: &str = "The HTTP API of Neon Workspace.\n\n\
 Every error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. \
 `code` is stable and meant for programs, such as `not_found` or `invalid_json`; \
-`message` says what went wrong, for people.";
+`message` says what went wrong, for people. A request with several wrong fields, such as \
+settings, also lists each in `problems`. A rate-limited request answers 429 with \
+`Retry-After`.\n\n\
+A request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with \
+`Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` \
+for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A request that \
+changes something and carries no `Authorization` header must come from the server's own \
+origin: its `Origin`, or else its `Referer`, must match the public URL.";
 
 #[derive(utoipa::OpenApi)]
 #[openapi(
     info(title = "Neon Workspace API", description = DESCRIPTION),
     components(schemas(ErrorBody)),
-    tags((name = "meta", description = "What the server is."))
+    modifiers(&Security),
+    tags(
+        (name = "meta", description = "What the server is."),
+        (name = "auth", description = "Signing up, in and out, and the mailed links. Open to anyone."),
+        (name = "account", description = "The signed-in user's own account."),
+        (name = "admin", description = "Accounts, invites, requests to join and settings, for admins."),
+    )
 )]
 struct ApiDoc;
+
+/// The two ways to authenticate.
+struct Security;
+
+impl Modify for Security {
+    fn modify(&self, openapi: &mut OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme(
+            "session_cookie",
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
+                SESSION_COOKIE,
+                "The browser session, set by POST /api/v1/auth/login. Named \
+                 __Host-neon_session when the server's public URL is https.",
+            ))),
+        );
+        components.add_security_scheme(
+            "api_token",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some(
+                        "An API token, nw_ and 43 characters, made under /api/v1/account/tokens.",
+                    ))
+                    .build(),
+            ),
+        );
+    }
+}
 
 /// The parts of the description that no route contributes: its info, tags and shared
 /// schemas. The routes add their own entries as they register.
@@ -76,7 +119,26 @@ mod tests {
     fn routes_are_documented_under_the_api_prefix() {
         let paths: Vec<String> = spec().paths.paths.into_keys().collect();
 
-        assert_eq!(paths, ["/api/v1/meta"]);
+        assert!(
+            paths.iter().all(|path| path.starts_with("/api/v1/")),
+            "{paths:?}"
+        );
+        for path in [
+            "/api/v1/meta",
+            "/api/v1/auth/login",
+            "/api/v1/account/me",
+            "/api/v1/admin/settings",
+        ] {
+            assert!(paths.iter().any(|known| known == path), "{path} is missing");
+        }
+    }
+
+    #[test]
+    fn both_ways_to_authenticate_are_described() {
+        let components = spec().components.expect("components");
+
+        assert!(components.security_schemes.contains_key("session_cookie"));
+        assert!(components.security_schemes.contains_key("api_token"));
     }
 
     #[test]

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invites SET uses = uses + 1\n         WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2 AND uses < max_uses",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "618d5e8abb16970b03c3a03c519127a41697dd1075a23d9f9a22cbf55f30be77"
+}

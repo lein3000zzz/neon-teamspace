@@ -91,11 +91,16 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts'],
+          items: ['guides/introduction', 'guides/concepts', 'guides/accounts'],
         },
         {
           label: 'Self-hosting',
-          items: ['self-hosting/install', 'self-hosting/configuration', 'self-hosting/observability'],
+          items: [
+            'self-hosting/install',
+            'self-hosting/configuration',
+            'self-hosting/mail',
+            'self-hosting/observability',
+          ],
         },
         {
           label: 'Reference',
@@ -106,6 +111,7 @@ export default defineConfig({
           items: [
             'architecture/overview',
             'architecture/data',
+            'architecture/security',
             'architecture/observability',
             'architecture/web',
             'architecture/decisions',

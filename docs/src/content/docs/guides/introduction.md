@@ -54,8 +54,9 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Accounts: registration that is open, by invite or closed, requests to join, email
-   verification, password reset, sessions and API tokens.
+1. Accounts in the web app: sign-in and sign-up pages, account settings and the admin
+   pages, over the server's [account API](/docs/guides/accounts/), and the mail that
+   verification, resets and requests to join send.
 2. Workspaces, teamspaces, roles, per-page sharing and per-workspace limits.
 3. Pages and the real-time editor, markdown import and export, the trash.
 4. Databases with table, board and list views.

@@ -12,21 +12,36 @@ publish.workspace = true
 neon-domain.workspace = true
 neon-observability.workspace = true
 neon-store.workspace = true
+aes-gcm.workspace = true
 arc-swap.workspace = true
+argon2.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 futures-util.workspace = true
+governor.workspace = true
 rand.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
+metrics.workspace = true
+metrics-util.workspace = true
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["testing", "trace"] }
 tower = { workspace = true, features = ["util"] }
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+tracing-subscriber = { workspace = true, features = ["fmt", "registry"] }
 
 [lints]
 workspace = true

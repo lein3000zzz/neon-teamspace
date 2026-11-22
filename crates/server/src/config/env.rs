@@ -1,7 +1,7 @@
 //! `NEON_` environment variables as a configuration layer.
 
 use figment::providers::Env;
-use figment::value::{Dict, Map, Uncased, UncasedStr};
+use figment::value::{Dict, Map, Uncased, UncasedStr, Value};
 use figment::{Error, Metadata, Profile, Provider};
 use neon_domain::settings::ENV_PREFIX as SETTINGS_PREFIX;
 
@@ -9,6 +9,10 @@ use super::CONFIG_ENV;
 
 /// Starts every variable the server reads.
 const PREFIX: &str = "NEON_";
+
+/// Keys whose variables are read as the text they hold. figment parses the others, so
+/// `123` would be a number and `true` a boolean: a password of digits must stay as typed.
+const VERBATIM: [&str; 3] = ["admin.email", "admin.password", "secrets.keys"];
 
 /// Bootstrap variables, `__` separating levels: `NEON_DATABASE__URL` sets
 /// `database.url`. Only the variables named here are read, so a `NEON_` variable that
@@ -31,7 +35,27 @@ impl Provider for EnvVars {
 
     fn data(&self) -> Result<Map<Profile, Dict>, Error> {
         let names: Vec<&str> = self.names.iter().map(String::as_str).collect();
-        Env::raw().only(&names).filter_map(bootstrap_key).data()
+        let mut data = Env::raw().only(&names).filter_map(bootstrap_key).data()?;
+        for name in &self.names {
+            let Some(key) = VERBATIM
+                .iter()
+                .find(|key| var_name(key).eq_ignore_ascii_case(name))
+            else {
+                continue;
+            };
+            let Ok(text) = std::env::var(name) else {
+                continue;
+            };
+            let dict = data.entry(Profile::Default).or_default();
+            let (section, field) = key.split_once('.').unwrap_or((key, ""));
+            let entry = dict
+                .entry(section.to_owned())
+                .or_insert_with(|| Value::from(Dict::new()));
+            if let Value::Dict(_, fields) = entry {
+                fields.insert(field.to_owned(), Value::from(text));
+            }
+        }
+        Ok(data)
     }
 }
 

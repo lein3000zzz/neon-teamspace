@@ -1,11 +1,17 @@
-//! The one error shape of the API: `{"error": {"code": string, "message": string}}`.
+//! The one error shape of the API: `{"error": {"code": string, "message": string}}`, with
+//! the problems of each field when there were several.
 
 use std::any::Any;
 use std::borrow::Cow;
+use std::time::Duration;
 
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
-use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use neon_app::auth::AuthError;
+use neon_app::settings::UpdateError;
+use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -24,6 +30,19 @@ pub struct ErrorDetail {
     /// What went wrong, for people.
     #[schema(example = "no such route")]
     pub message: String,
+    /// Each field that is wrong and why, when a request had several, such as settings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub problems: Vec<ProblemDetail>,
+}
+
+/// One field that is wrong.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProblemDetail {
+    /// The field, such as a setting's key.
+    #[schema(example = "auth.min_password_length")]
+    pub key: String,
+    #[schema(example = "must be between 8 and 128")]
+    pub message: String,
 }
 
 /// An error answer: a status, a stable code and a message.
@@ -32,6 +51,9 @@ pub struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: Cow<'static, str>,
+    problems: Vec<Problem>,
+    /// Sent as `Retry-After`, in whole seconds rounded up.
+    retry_after: Option<Duration>,
 }
 
 impl ApiError {
@@ -44,11 +66,28 @@ impl ApiError {
             status,
             code,
             message: message.into(),
+            problems: Vec::new(),
+            retry_after: None,
         }
     }
 
     pub fn not_found(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", message)
+    }
+
+    pub fn unauthenticated(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "unauthenticated", message)
+    }
+
+    pub fn forbidden(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    /// The same answer, naming each field it refuses.
+    #[must_use]
+    pub fn with_problems(mut self, problems: Vec<Problem>) -> Self {
+        self.problems = problems;
+        self
     }
 
     /// A failure the client cannot fix. Its cause belongs in the logs, never in the
@@ -91,9 +130,82 @@ impl IntoResponse for ApiError {
             error: ErrorDetail {
                 code: self.code.to_owned(),
                 message: self.message.into_owned(),
+                problems: self
+                    .problems
+                    .into_iter()
+                    .map(|problem| ProblemDetail {
+                        key: problem.key,
+                        message: problem.message,
+                    })
+                    .collect(),
             },
         };
-        (self.status, axum::Json(body)).into_response()
+        let mut response = (self.status, axum::Json(body)).into_response();
+        if let Some(wait) = self.retry_after {
+            let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(seconds.max(1)));
+        }
+        response
+    }
+}
+
+impl From<AuthError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: AuthError) -> Self {
+        let status = match &error {
+            AuthError::InvalidInput(_)
+            | AuthError::InvalidEmail(_)
+            | AuthError::WeakPassword(_)
+            | AuthError::InvalidInvite
+            | AuthError::InviteForOtherEmail
+            | AuthError::InvalidLink => StatusCode::BAD_REQUEST,
+            AuthError::InvalidCredentials | AuthError::Unauthenticated => StatusCode::UNAUTHORIZED,
+            AuthError::UserDisabled
+            | AuthError::EmailNotVerified
+            | AuthError::RegistrationClosed
+            | AuthError::Forbidden(_)
+            | AuthError::PasswordResetOff
+            | AuthError::InviteEmailOff
+            | AuthError::RequestsOff => StatusCode::FORBIDDEN,
+            AuthError::NotFound(_) => StatusCode::NOT_FOUND,
+            AuthError::InviteCodeTaken
+            | AuthError::EmailTaken
+            | AuthError::LastAdmin
+            | AuthError::MailNotSetUp(_)
+            | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
+            AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AuthError::Database(_) | AuthError::Internal(_) => {
+                tracing::error!(error = %error, "an auth use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let AuthError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<UpdateError> for ApiError {
+    fn from(error: UpdateError) -> Self {
+        match error {
+            UpdateError::Invalid(problems) => Self {
+                problems,
+                ..Self::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_settings",
+                    "nothing was saved: some settings are invalid",
+                )
+            },
+            UpdateError::Database(error) => {
+                tracing::error!(%error, "saving settings failed");
+                Self::internal()
+            }
+        }
     }
 }
 

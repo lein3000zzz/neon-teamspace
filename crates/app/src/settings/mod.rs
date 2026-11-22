@@ -4,5 +4,5 @@
 mod definitions;
 mod service;
 
-pub use definitions::{INSTANCE_NAME, registry};
+pub use definitions::{INSTANCE_NAME, auth, mail, mail_set_up, registry};
 pub use service::{Change, Entry, LoadError, SettingsService, UpdateError};

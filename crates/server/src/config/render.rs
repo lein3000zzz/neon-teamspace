@@ -6,17 +6,20 @@ use neon_domain::settings::{Registry, Source, Stored};
 use neon_observability::config::redact_url;
 use serde::Serialize;
 
-use super::{DatabaseConfig, Loaded, ServerConfig};
+use super::{AdminConfig, DatabaseConfig, Loaded, SecretsConfig, ServerConfig};
 
 #[derive(Serialize)]
 struct Shown<'a> {
     server: &'a ServerConfig,
     database: &'a DatabaseConfig,
+    admin: &'a AdminConfig,
+    secrets: &'a SecretsConfig,
     observability: neon_observability::Config,
 }
 
 impl Loaded {
-    /// The configuration as YAML with secrets redacted, followed by every runtime
+    /// The configuration as YAML with secrets redacted, the admin's password and the
+    /// secret keys' material among them, followed by every runtime
     /// setting as the environment and the file leave it, each marked with its source.
     /// Ignored `NEON_` variables and the observability section's warnings are listed
     /// first, as comments.
@@ -46,6 +49,8 @@ impl Loaded {
         out.push_str(&serde_saphyr::to_string(&Shown {
             server: &self.config.server,
             database: &self.config.database,
+            admin: &self.config.admin,
+            secrets: &self.config.secrets,
             observability: without_credentials(&self.config.observability),
         })?);
 
