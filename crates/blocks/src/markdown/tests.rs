@@ -259,7 +259,59 @@ fn quotes_join_their_paragraphs() {
         from_markdown("> one\n>\n> two\n>\n> - a list in it\n"),
         document
     );
-    assert_eq!(to_markdown(&document), "> one\\\n> two\n\n- a list in it\n");
+    both_ways(&document, "> one\\\n> two\n>\n> - a list in it\n");
+}
+
+#[test]
+fn quotes_hold_the_blocks_markdown_puts_in_them() {
+    let quote = |content: &str| {
+        Block::new(BlockKind::Quote {
+            props: Default::default(),
+            content: text(content),
+        })
+    };
+    // A quote of a list alone is a quote with no text of its own, holding the list.
+    let lists = doc(vec![
+        Block::new(BlockKind::Quote {
+            props: Default::default(),
+            content: Vec::new(),
+        })
+        .with_children(vec![bullet("a"), bullet("b")]),
+    ]);
+    assert_eq!(from_markdown("> - a\n> - b\n"), lists);
+    both_ways(&lists, "> - a\n> - b\n");
+    let nested = doc(vec![quote("outer").with_children(vec![
+        quote("inner"),
+        paragraph(text("after the inner quote")),
+    ])]);
+    both_ways(
+        &nested,
+        "> outer\n>\n> > inner\n>\n> after the inner quote\n",
+    );
+    // A paragraph under a quote would read as more of its text: it follows the quote.
+    let followed = doc(vec![
+        quote("said").with_children(vec![paragraph(text("then this")), bullet("and a list")]),
+    ]);
+    assert_eq!(
+        to_markdown(&followed),
+        "> said\n\nthen this\n\n- and a list\n"
+    );
+}
+
+#[test]
+fn what_markdown_bounds_is_written_within_its_bounds() {
+    // A carriage return in text stays one, rather than ending the line.
+    both_ways(&doc(vec![paragraph(text("a\rb"))]), "a&#13;b\n");
+    // CommonMark reads nine digits at most as a list item's number.
+    let big = doc(vec![
+        numbered("a", Some(4_000_000_000)),
+        numbered("b", None),
+    ]);
+    assert_eq!(to_markdown(&big), "999999999. a\n999999999. b\n");
+    assert_eq!(
+        from_markdown(&to_markdown(&big)),
+        doc(vec![numbered("a", Some(999_999_999)), numbered("b", None)])
+    );
 }
 
 #[test]
