@@ -2288,6 +2288,29 @@ async fn people_who_left_stay_on_rows_until_taken_off(pool: PgPool) {
     assert_eq!(owners(&taken_off), Some(json!([cy.to_string()])));
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_row_shared_alone_does_not_name_its_database(pool: PgPool) {
+    let t = team(pool).await;
+    let row = t.made("Shared alone").await;
+    t.h.pages
+        .share_page(&t.ada, row.id, t.gus.user.id, PageAccess::Edit)
+        .await
+        .expect("shared");
+    assert_code(t.h.databases.database(&t.gus, t.db()).await, "not_found");
+    let page = t.h.pages.page(&t.gus, row.id).await.expect("the page");
+    assert_eq!(page.page.parent_id, None);
+    let seen = t.h.databases.row(&t.gus, row.id).await.expect("the row");
+    assert_eq!(seen.database_id, None);
+    let changed = t
+        .update(&t.gus, row.id, json!({"Name": "Renamed"}))
+        .await
+        .expect("changed");
+    assert_eq!(changed.database_id, None);
+    // Those who see the database read it.
+    let read = t.h.databases.row(&t.ada, row.id).await.expect("the row");
+    assert_eq!(read.database_id, Some(t.db()));
+}
+
 /// How many bytes a row's cells take, as JSON text: how the bound on them counts.
 async fn size_of(t: &Team, row: Uuid) -> usize {
     let bytes: i64 = sqlx::query_scalar(

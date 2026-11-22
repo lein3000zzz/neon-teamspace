@@ -299,8 +299,13 @@ impl DatabaseService {
                         // A row deleted since shows the values it was listed with.
                         cells: cells.get(&listed.page.id).unwrap_or(&listed.cells),
                     };
-                    let mut view =
-                        row_view(&opened.schema, database_id, stored, access, members_hidden);
+                    let mut view = row_view(
+                        &opened.schema,
+                        Some(database_id),
+                        stored,
+                        access,
+                        members_hidden,
+                    );
                     view.group = entry.group;
                     view
                 })
@@ -396,7 +401,7 @@ impl DatabaseService {
             let access = opened.context.access().unwrap_or(PageAccess::Edit);
             Ok(row_view(
                 &opened.schema,
-                database_id,
+                Some(database_id),
                 snapshot.stored(),
                 access,
                 opened.context.members_hidden(),
@@ -611,11 +616,12 @@ impl DatabaseService {
     }
 }
 
-/// A row as the principal of `context`, the row's, sees it.
+/// A row as the principal of `context`, the row's, sees it: without its database's id when
+/// they see the row only through its own share, as its page leaves out the page above it.
 fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> RowView {
     row_view(
         &snapshot.schema,
-        database_id,
+        context.parent_seen().then_some(database_id),
         snapshot.stored(),
         context.access().unwrap_or(PageAccess::View),
         context.members_hidden(),

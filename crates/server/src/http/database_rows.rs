@@ -27,7 +27,9 @@ use super::principal::{Authenticated, Reader};
 pub struct Row {
     /// Its page's id.
     pub id: Uuid,
-    pub database_id: Uuid,
+    /// Its database; null for someone who sees the row only through its own share and not
+    /// its database, as its page then leaves out the page above it.
+    pub database_id: Option<Uuid>,
     /// Its number in the database, which no other row of it has had or will have.
     pub number: i64,
     /// Its number after the unique id property's prefix, `NW-42`, or alone without one.

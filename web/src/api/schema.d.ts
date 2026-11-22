@@ -2963,8 +2963,12 @@ export interface components {
              * @description Absent for guests, as is `last_edited_by`.
              */
             created_by?: string | null;
-            /** Format: uuid */
-            database_id: string;
+            /**
+             * Format: uuid
+             * @description Its database; null for someone who sees the row only through its own share and not
+             *     its database, as its page then leaves out the page above it.
+             */
+            database_id?: string | null;
             /**
              * Format: uuid
              * @description In a grouped query, the group it is listed in: an option's id, a person's id, or

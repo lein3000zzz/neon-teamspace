@@ -86,7 +86,9 @@ pub struct DatabaseView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowView {
     pub id: Uuid,
-    pub database_id: Uuid,
+    /// Its database; `None` for someone who sees the row only through its own share, as
+    /// its page leaves out the page above it then.
+    pub database_id: Option<Uuid>,
     /// Its number in the database.
     pub number: i64,
     /// Its number after the unique id property's prefix: `NW-42`.
@@ -404,7 +406,7 @@ pub(crate) struct StoredRow<'a> {
 /// A row as the caller sees it. `members_hidden` leaves out the people its values name.
 pub(crate) fn row_view(
     schema: &Schema,
-    database_id: Uuid,
+    database_id: Option<Uuid>,
     stored: StoredRow<'_>,
     access: PageAccess,
     members_hidden: bool,

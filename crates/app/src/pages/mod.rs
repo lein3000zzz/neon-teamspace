@@ -461,7 +461,7 @@ impl Context {
     pub(crate) fn view(self) -> Result<PageView, PageError> {
         let access = access_of(self.actor, self.space, self.chain[0].shared)
             .ok_or(PageError::NotFound(NO_PAGE))?;
-        let parent_seen = self.chain.get(1).is_some_and(|parent| self.sees(parent));
+        let parent_seen = self.parent_seen();
         let members_hidden = is_guest(self.actor);
         let mut page = self
             .chain
@@ -477,6 +477,12 @@ impl Context {
             access,
             members_hidden,
         })
+    }
+
+    /// Whether the principal may see the page above the page, which its view names only
+    /// then.
+    pub(crate) fn parent_seen(&self) -> bool {
+        self.chain.get(1).is_some_and(|parent| self.sees(parent))
     }
 
     /// Whether the principal may see a page of the chain.

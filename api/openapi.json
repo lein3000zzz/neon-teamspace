@@ -13026,7 +13026,6 @@
         "description": "A row of a database, with its values.",
         "required": [
           "id",
-          "database_id",
           "number",
           "unique_id",
           "title",
@@ -13053,8 +13052,12 @@
             "description": "Absent for guests, as is `last_edited_by`."
           },
           "database_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Its database; null for someone who sees the row only through its own share and not\nits database, as its page then leaves out the page above it."
           },
           "group": {
             "type": [

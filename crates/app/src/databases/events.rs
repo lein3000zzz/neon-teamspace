@@ -50,7 +50,7 @@ impl Snapshot {
     fn view(&self, database_id: Uuid, members_hidden: bool) -> RowView {
         row_view(
             &self.schema,
-            database_id,
+            Some(database_id),
             self.stored(),
             PageAccess::View,
             members_hidden,
@@ -148,7 +148,7 @@ impl Event<'_> {
 pub(crate) fn row_json(view: &RowView) -> Json {
     json!({
         "id": view.id.to_string(),
-        "database_id": view.database_id.to_string(),
+        "database_id": id_json(view.database_id),
         "number": view.number,
         "unique_id": view.unique_id,
         "title": view.title,
