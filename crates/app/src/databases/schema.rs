@@ -156,6 +156,7 @@ impl DatabaseService {
             let keys = position::sequence(defaults.len());
             for ((name, layout, spec), key) in defaults.into_iter().zip(keys) {
                 let settings = spec.resolve(&schema, layout, Fit::Strict)?;
+                settings.check_layout(layout)?;
                 repo::insert_view(
                     &mut *tx,
                     &StoredView {

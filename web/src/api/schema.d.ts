@@ -984,7 +984,7 @@ export interface paths {
         head?: never;
         /**
          * Change a view
-         * @description What the body names, each part checked against the schema, for those who edit the database.
+         * @description What the body names, each part checked against the schema, for those who edit the database. A board must group once it is made one or its grouping changes; one whose grouping property is gone takes other changes meanwhile.
          */
         patch: operations["change_view"];
         trace?: never;

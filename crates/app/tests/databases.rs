@@ -2366,6 +2366,67 @@ async fn an_inline_database_restored_alone_is_a_page_of_its_own(pool: PgPool) {
     assert!(back.inline);
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_board_whose_grouping_is_gone_takes_other_changes(pool: PgPool) {
+    let t = team(pool).await;
+    let status = t.property("Status");
+    t.h.databases
+        .delete_property(&t.ada, t.db(), status)
+        .await
+        .expect("deleted");
+    let renamed =
+        t.h.databases
+            .update_view(
+                &t.ada,
+                t.db(),
+                t.board(),
+                ViewChange {
+                    name: Some("Kanban".into()),
+                    sorts: Some(vec![SortSpec {
+                        property: "Name".into(),
+                        direction: Direction::Ascending,
+                    }]),
+                    ..ViewChange::default()
+                },
+            )
+            .await
+            .expect("renamed");
+    assert_eq!(renamed.settings.grouping, None);
+    // Made a board again, or regrouped, it must group.
+    for change in [
+        ViewChange {
+            layout: Some(Layout::Board),
+            ..ViewChange::default()
+        },
+        ViewChange {
+            group: Some(None),
+            ..ViewChange::default()
+        },
+    ] {
+        assert_code(
+            t.h.databases
+                .update_view(&t.ada, t.db(), t.board(), change)
+                .await,
+            "invalid_input",
+        );
+    }
+    assert_code(
+        t.h.databases
+            .create_view(
+                &t.ada,
+                t.db(),
+                NewView {
+                    name: "Board".into(),
+                    layout: Layout::Board,
+                    settings: ViewSpec::default(),
+                    placement: Placement::Last,
+                },
+            )
+            .await,
+        "invalid_input",
+    );
+}
+
 /// How many bytes a row's cells take, as JSON text: how the bound on them counts.
 async fn size_of(t: &Team, row: Uuid) -> usize {
     let bytes: i64 = sqlx::query_scalar(

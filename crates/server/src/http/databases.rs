@@ -933,7 +933,8 @@ pub struct ChangeView {
     tag = "databases",
     summary = "Change a view",
     description = "What the body names, each part checked against the schema, for those who edit \
-                   the database.",
+                   the database. A board must group once it is made one or its grouping \
+                   changes; one whose grouping property is gone takes other changes meanwhile.",
     params(
         ("id" = Uuid, Path, description = "The database's id."),
         ("view_id" = Uuid, Path, description = "The view's id."),

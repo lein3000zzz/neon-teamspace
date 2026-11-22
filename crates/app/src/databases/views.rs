@@ -54,6 +54,7 @@ impl DatabaseService {
             let settings = new
                 .settings
                 .resolve(&opened.schema, new.layout, Fit::Strict)?;
+            settings.check_layout(new.layout)?;
             let stored = repo::views(&mut *tx, database_id).await?;
             if stored.len() >= MAX_VIEWS {
                 return Err(too_many_views());
@@ -82,7 +83,9 @@ impl DatabaseService {
         .await
     }
 
-    /// Changes a view's name, layout or settings, each checked against the schema.
+    /// Changes a view's name, layout or settings, each checked against the schema. A board
+    /// must group once it is made one or its grouping changes; one whose grouping property
+    /// was deleted or changed type takes other changes while it shows its cards ungrouped.
     pub async fn update_view(
         &self,
         principal: &Principal,
@@ -99,6 +102,7 @@ impl DatabaseService {
                 stored.name = check_view_name(name)?;
             }
             let layout = change.layout.unwrap_or(stored.layout);
+            let regrouped = change.layout.is_some() || change.group.is_some();
             let mut spec = serde_json::from_value::<ViewSpec>(stored.config.clone())
                 .unwrap_or_default()
                 .fit(&opened.schema, stored.layout)
@@ -116,6 +120,9 @@ impl DatabaseService {
                 spec.properties = properties;
             }
             let settings = spec.resolve(&opened.schema, layout, Fit::Strict)?;
+            if regrouped {
+                settings.check_layout(layout)?;
+            }
             stored.layout = layout;
             stored.config = config_json(&settings.to_spec())?;
             repo::update_view(&mut *tx, &stored).await?;

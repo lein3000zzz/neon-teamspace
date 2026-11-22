@@ -102,9 +102,9 @@ pub struct View {
 }
 
 impl ViewSpec {
-    /// The settings resolved against `schema` for a view laid out as `layout`. Strictly, a
-    /// board must group, by a select, status or person property, and nothing may name what
-    /// the schema lacks; leniently, what does not fit is left out.
+    /// The settings resolved against `schema` for a view laid out as `layout`. Strictly,
+    /// nothing may name what the schema lacks; leniently, what does not fit is left out.
+    /// That a board groups is [`ViewSettings::check_layout`]'s to say.
     pub fn resolve(
         &self,
         schema: &Schema,
@@ -126,11 +126,6 @@ impl ViewSpec {
             },
             None => None,
         };
-        if layout == Layout::Board && grouping.is_none() && fit == Fit::Strict {
-            return Err(InvalidView(
-                "a board groups its cards by a select, status or person property".to_owned(),
-            ));
-        }
         let properties = resolve_properties(&self.properties, schema, layout, fit)?;
         Ok(ViewSettings {
             filter,
@@ -162,6 +157,19 @@ impl ViewSpec {
 }
 
 impl ViewSettings {
+    /// Refuses settings that do not suit `layout`: a board groups its cards, in columns.
+    /// Ask it when a view is made a board, or its grouping changes; a board whose grouping
+    /// property was deleted or changed type shows its cards ungrouped until it is given
+    /// another.
+    pub fn check_layout(&self, layout: Layout) -> Result<(), InvalidView> {
+        if layout == Layout::Board && self.grouping.is_none() {
+            return Err(InvalidView(
+                "a board groups its cards by a select, status or person property".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     /// The settings as a guest reads them, who knows no other member: without the people
     /// the filter names, nor those of a person grouping's groups placed or hidden by hand.
     /// What the view shows a guest is the same, as their rows name nobody.
@@ -441,11 +449,14 @@ mod tests {
             }),
             ..ViewSpec::default()
         };
-        assert!(
-            ViewSpec::default()
-                .resolve(&schema, Layout::Board, Fit::Strict)
-                .is_err()
-        );
+        let suits = |spec: ViewSpec, layout| {
+            spec.resolve(&schema, layout, Fit::Strict)
+                .and_then(|settings| settings.check_layout(layout))
+                .is_ok()
+        };
+        assert!(!suits(ViewSpec::default(), Layout::Board));
+        assert!(suits(ViewSpec::default(), Layout::Table));
+        assert!(suits(grouped("Status"), Layout::Board));
         assert!(
             grouped("Notes")
                 .resolve(&schema, Layout::Board, Fit::Strict)
