@@ -1,6 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { keys } from "@/api/keys";
+import { defaultPreferences } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
+import { server } from "@/test/server";
+import { design, fakeWorkspaces, studio, summaryOf } from "@/test/workspaces";
+import { FALLBACK_ACCENT_HUE, FOLLOWED_HUE_KEY } from "@/theme/preferences";
+
+const accent = () => document.documentElement.style.getPropertyValue("--accent-h");
 
 describe("app shell", () => {
   it("marks the current page in the navigation", async () => {
@@ -42,5 +50,36 @@ describe("app shell", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
     expect(screen.getByText("Nothing lives at /no/such/page.")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+  });
+});
+
+describe("the accent", () => {
+  it("is the hue of the workspace in view for someone with none of their own", async () => {
+    const api = fakeWorkspaces({ workspaces: [summaryOf(design()), studio] });
+    const { router, queryClient } = renderApp("/w/design");
+
+    await waitFor(() => expect(accent()).toBe(String(design().hue)));
+    await router.navigate({ to: "/w/$slug", params: { slug: "studio" } });
+    await waitFor(() => expect(accent()).toBe(String(studio.hue)));
+    expect(window.localStorage.getItem(FOLLOWED_HUE_KEY)).toBe(String(studio.hue));
+
+    // In no workspace any more, the app is drawn in the fallback blue again.
+    api.state.workspaces = [];
+    await router.navigate({ to: "/account" });
+    await queryClient.invalidateQueries({ queryKey: keys.workspaces });
+    await waitFor(() => expect(accent()).toBe(String(FALLBACK_ACCENT_HUE)));
+  });
+
+  it("stays the user's own where they chose one", async () => {
+    fakeWorkspaces();
+    server.use(
+      http.get("/api/v1/account/preferences", () =>
+        HttpResponse.json({ ...defaultPreferences, accent_hue: 25 }),
+      ),
+    );
+    renderApp("/w/design");
+
+    await waitFor(() => expect(accent()).toBe("25"));
+    expect(window.localStorage.getItem(FOLLOWED_HUE_KEY)).toBe(String(design().hue));
   });
 });

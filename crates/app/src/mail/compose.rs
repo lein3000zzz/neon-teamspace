@@ -5,9 +5,9 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use neon_domain::auth::Preferences;
 use neon_domain::auth::email_token::UNVERIFIED_TTL;
 use neon_domain::auth::join_request::DENIED_WAIT;
+use neon_domain::auth::preferences::DEFAULT_ACCENT_HUE;
 use time::OffsetDateTime;
 use url::form_urlencoded;
 
@@ -229,7 +229,7 @@ impl Letter {
     /// The HTML part: the app's Nothing palette in light mode, with inline styles, as mail
     /// clients drop style sheets, and the accent on the button.
     pub fn html(&self, sender: &Sender<'_>) -> String {
-        let accent = color::accent(Preferences::default().accent_hue());
+        let accent = color::accent(DEFAULT_ACCENT_HUE);
         let mut body = String::new();
         for paragraph in &self.paragraphs {
             let _ = writeln!(

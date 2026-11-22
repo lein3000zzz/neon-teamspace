@@ -590,7 +590,7 @@ async fn preferences_are_kept_and_checked(pool: PgPool) {
     .await;
     assert_eq!(
         defaults.body,
-        json!({"palette": "nothing", "mode": "system", "accent_hue": 250, "ui_font": "default"})
+        json!({"palette": "nothing", "mode": "system", "accent_hue": null, "ui_font": "default"})
     );
     let chosen = json!({"palette": "warm", "mode": "dark", "accent_hue": 25, "ui_font": "mono"});
     let saved = call(
@@ -611,6 +611,17 @@ async fn preferences_are_kept_and_checked(pool: PgPool) {
     )
     .await;
     assert_eq!(read.body, chosen);
+    let following =
+        json!({"palette": "warm", "mode": "dark", "accent_hue": null, "ui_font": "mono"});
+    let unset = call(
+        &app,
+        Method::PUT,
+        "/api/v1/account/preferences",
+        &cookie,
+        Some(following.clone()),
+    )
+    .await;
+    assert_eq!((unset.status, &unset.body), (StatusCode::OK, &following));
 
     let hue = call(
         &app,

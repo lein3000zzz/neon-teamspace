@@ -193,7 +193,8 @@ page for it, [Workspaces](/docs/admin/workspaces/).
 
 Each user's look of the web app, the palette, the mode, the accent hue and the interface
 font, is kept with their account at `/api/v1/account/preferences`, so it follows them from
-browser to browser.
+browser to browser. An `accent_hue` of `null`, the default, takes the hue of the workspace
+in view.
 
 Apart from the accent, which colours the app for them, each user is drawn in a hue of their
 own wherever others see them: the one their id hashes to, or one they pin with

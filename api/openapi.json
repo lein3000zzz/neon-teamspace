@@ -7309,14 +7309,16 @@
         "required": [
           "palette",
           "mode",
-          "accent_hue",
           "ui_font"
         ],
         "properties": {
           "accent_hue": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
-            "description": "A whole number of degrees, 0 to 359.",
+            "description": "The user's own accent, a whole number of degrees, 0 to 359. Absent or null, the\naccent is the hue of the workspace in view, or a blue outside any.",
             "example": 250,
             "maximum": 359,
             "minimum": 0

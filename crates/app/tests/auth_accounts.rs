@@ -680,7 +680,8 @@ async fn owners_rename_their_accounts_and_keep_their_preferences(pool: PgPool) {
         h.auth.preferences(&ada).await.expect("reads"),
         Preferences::default()
     );
-    let chosen = Preferences::new(Palette::Warm, Mode::Dark, 25, UiFont::Mono).expect("valid");
+    let chosen =
+        Preferences::new(Palette::Warm, Mode::Dark, Some(25), UiFont::Mono).expect("valid");
     h.auth.set_preferences(&ada, chosen).await.expect("saves");
     assert_eq!(h.auth.preferences(&ada).await.expect("reads"), chosen);
 }

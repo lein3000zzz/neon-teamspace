@@ -118,13 +118,20 @@ Each person chooses three things, and the app's colours follow from them:
 - A **palette**: Nothing, Soft or Warm.
 - A **mode**: system, light or dark. System follows the operating system's setting, and
   changes with it.
-- An **accent hue**, from 0 to 359 degrees: on a free slider, or one of the presets around
-  the wheel. Blue, 250, is the default.
+- An **accent hue**: by default the hue of the workspace in view, so each workspace looks
+  like itself to everyone in it; or one of the person's own, from 0 to 359 degrees, on a
+  free slider or one of the presets around the wheel.
 
-The defaults are Nothing in system mode. The choice is kept with the account, at
-`/api/v1/account/preferences`, so it follows the person to every browser: signing in loads
-it, and each change saves it, once a slider drag stops. The browser keeps a copy too, which
-the next visit applies before the first paint, so a dark page never flashes white.
+The defaults are Nothing in system mode, with the workspace's accent. The choice is kept with
+the account, at `/api/v1/account/preferences`, so it follows the person to every browser:
+signing in loads it, and each change saves it, once a slider drag stops. An `accent_hue` of
+`null` there is the workspace's. The browser keeps a copy too, which the next visit applies
+before the first paint, so a dark page never flashes white.
+
+Without an accent of their own, a person sees the app in the hue of the workspace the sidebar
+shows: the one in view, or, on pages outside any such as their account's, the one they used
+last. In no workspace, it is a blue, hue 250. The browser keeps that hue for the next first
+paint too.
 
 ### Palettes
 

@@ -28,7 +28,8 @@ it, as they see no member but themselves.
 ## Colour
 
 Owners and admins choose the hue the workspace is drawn in, for everyone: in the switcher,
-the sidebar and its invitations. **From its id**, the default, is the hue its id hashes to,
+the sidebar and its invitations. It is also the app's accent for every member who has not
+chosen one of their own under **Appearance**. **From its id**, the default, is the hue its id hashes to,
 the same on every device; [the web app](/docs/architecture/web/#hues-of-things) says how.
 **Pinned** opens the slider and presets of the accent picker, with a preview of the mark.
 **Save colour** keeps the choice.

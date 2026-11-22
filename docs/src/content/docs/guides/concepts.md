@@ -185,6 +185,6 @@ on its own hears of new work without polling.
 
 Users, workspaces and teamspaces each get a hue worked out from their ID, so the same one has
 the same colour everywhere, with nothing to choose or store. Each can pin a hue of its own
-instead. Agents, integrations and databases will get theirs the same way. Each person also
-picks an accent hue for the app; see
+instead. Agents, integrations and databases will get theirs the same way. A workspace's hue
+is also the accent of the app for its members, unless they pick one of their own; see
 [The web app](/docs/architecture/web/#the-theme-model).

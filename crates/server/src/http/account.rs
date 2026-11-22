@@ -587,9 +587,10 @@ pub enum UiFont {
 pub struct Preferences {
     pub palette: Palette,
     pub mode: Mode,
-    /// A whole number of degrees, 0 to 359.
+    /// The user's own accent, a whole number of degrees, 0 to 359. Absent or null, the
+    /// accent is the hue of the workspace in view, or a blue outside any.
     #[schema(minimum = 0, maximum = 359, example = 250)]
-    pub accent_hue: u16,
+    pub accent_hue: Option<u16>,
     pub ui_font: UiFont,
 }
 

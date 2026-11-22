@@ -40,7 +40,7 @@ export const defaultAuthConfig: AuthConfig = {
 export const defaultPreferences: Schemas["Preferences"] = {
   palette: "nothing",
   mode: "system",
-  accent_hue: 250,
+  accent_hue: null,
   ui_font: "default",
 };
 

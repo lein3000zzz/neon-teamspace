@@ -58,6 +58,11 @@ export const strings = {
     modes: { system: "System", light: "Light", dark: "Dark" },
     accent: "Accent",
     accentHint: "Primary actions, focus and selection take this hue.",
+    accentSource: "Where the accent comes from",
+    accentWorkspace: "From the workspace",
+    accentOwn: "My own",
+    accentFollows: (hue: number) =>
+      `The hue of the workspace in view, ${hue} degrees now. Outside any workspace, a blue.`,
     accentSlider: "Accent hue",
     accentValue: (hue: number) => `${hue} degrees`,
     preview: "Preview",
@@ -590,7 +595,7 @@ export const strings = {
   },
   hue: {
     title: "Colour",
-    hint: "The hue it is drawn in, in the sidebar and the switcher, for everyone.",
+    hint: "The hue it is drawn in, in the sidebar and the switcher, for everyone. It is also the accent of every member who chose no accent of their own.",
     modeLabel: "Where the hue comes from",
     hashed: "From its id",
     pinned: "Pinned",

@@ -1734,10 +1734,11 @@ export interface components {
         Preferences: {
             /**
              * Format: int32
-             * @description A whole number of degrees, 0 to 359.
+             * @description The user's own accent, a whole number of degrees, 0 to 359. Absent or null, the
+             *     accent is the hue of the workspace in view, or a blue outside any.
              * @example 250
              */
-            accent_hue: number;
+            accent_hue?: number | null;
             mode: components["schemas"]["Mode"];
             palette: components["schemas"]["Palette"];
             ui_font: components["schemas"]["UiFont"];

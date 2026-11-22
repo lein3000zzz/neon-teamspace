@@ -157,7 +157,7 @@ export function fromApiPreferences(preferences: Schemas["Preferences"]): ThemePr
   return {
     palette: preferences.palette,
     mode: preferences.mode,
-    accentHue: preferences.accent_hue,
+    accentHue: preferences.accent_hue ?? null,
     uiFont: preferences.ui_font,
   };
 }
