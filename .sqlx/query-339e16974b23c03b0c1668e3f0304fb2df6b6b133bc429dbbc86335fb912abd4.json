@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email, display_name, role, email_verified_at, disabled_at, created_at,\n                updated_at, password_hash\n         FROM users WHERE email_normalized = $1",
+  "query": "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,\n                updated_at, password_hash\n         FROM users WHERE email_normalized = $1",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "email_verified_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "password_hash",
         "type_info": "Text",
         "origin": {
@@ -115,10 +126,11 @@
       false,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "e3bb4cdac203e1d4f44651235e662bc7400d769f45127fd1c6897d957439005d"
+  "hash": "339e16974b23c03b0c1668e3f0304fb2df6b6b133bc429dbbc86335fb912abd4"
 }

@@ -4,6 +4,7 @@ use neon_domain::auth::invite::{MAX_CODE_INPUT, lookup_form};
 use neon_domain::auth::{
     Email, Invite, Preferences, Principal, RegistrationMode, Role, User, display_name,
 };
+use neon_domain::hue::check_hue;
 use neon_domain::settings::Secret;
 use neon_store::{invites, is_unique_violation, sessions, users};
 use sqlx::PgConnection;
@@ -85,6 +86,7 @@ impl AuthService {
             email,
             display_name: name,
             role: Role::User,
+            hue_override: None,
             email_verified_at: (!must_verify).then_some(now),
             disabled_at: None,
             created_at: now,
@@ -206,6 +208,7 @@ impl AuthService {
             email,
             display_name: name,
             role: account.role,
+            hue_override: None,
             email_verified_at: Some(now),
             disabled_at: None,
             created_at: now,
@@ -283,6 +286,22 @@ impl AuthService {
             let user = &principal.user;
             let name = display_name(Some(name), &user.email).map_err(AuthError::invalid)?;
             users::rename(self.pool(), user.id, &name, self.now())
+                .await?
+                .ok_or(AuthError::Unauthenticated)
+        })
+        .await
+    }
+
+    /// Pins the hue the principal is drawn in, 0 to 359, or with `None` goes back to the one
+    /// their id hashes to, and returns their account as it is now.
+    pub async fn set_hue(
+        &self,
+        principal: &Principal,
+        hue: Option<i64>,
+    ) -> Result<User, AuthError> {
+        self.observe("set_hue", async {
+            let hue = hue.map(check_hue).transpose().map_err(AuthError::invalid)?;
+            users::set_hue(self.pool(), principal.user.id, hue, self.now())
                 .await?
                 .ok_or(AuthError::Unauthenticated)
         })

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_invitations (id, workspace_id, user_id, role, invited_by,\n                                            created_at, expires_at, state, decided_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "510024be1529baa4a007e4d7858e8ff03b33d97714550a8c73771830c91b1132"
+}

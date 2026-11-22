@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::decode_error;
-use crate::users::parse_role;
+use crate::users::{parse_hue, parse_role};
 
 struct Row {
     id: Uuid,
@@ -78,7 +78,7 @@ pub async fn by_token_hash(
     let row = sqlx::query!(
         "SELECT t.id, t.user_id, t.name, t.prefix, t.scopes, t.created_at, t.expires_at,
                 t.last_used_at,
-                u.email, u.display_name, u.role, u.email_verified_at, u.disabled_at,
+                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
                 u.created_at AS user_created_at, u.updated_at AS user_updated_at
          FROM api_tokens t JOIN users u ON u.id = t.user_id
          WHERE t.token_hash = $1",
@@ -92,6 +92,7 @@ pub async fn by_token_hash(
             email: Email::from_stored(row.email),
             display_name: row.display_name,
             role: parse_role(&row.role)?,
+            hue_override: parse_hue(row.hue)?,
             email_verified_at: row.email_verified_at,
             disabled_at: row.disabled_at,
             created_at: row.user_created_at,

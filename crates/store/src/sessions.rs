@@ -5,7 +5,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::users::parse_role;
+use crate::users::{parse_hue, parse_role};
 
 /// Saves a new session, if its account still has the password hash `password_hash` and
 /// is not disabled, and says whether it did. The account's row is locked for share while
@@ -48,7 +48,7 @@ pub async fn by_token_hash(
     let row = sqlx::query!(
         "SELECT s.id, s.user_id, s.user_agent, s.ip, s.created_at, s.last_seen_at, s.expires_at,
                 s.absolute_expires_at,
-                u.email, u.display_name, u.role, u.email_verified_at, u.disabled_at,
+                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
                 u.created_at AS user_created_at, u.updated_at AS user_updated_at
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1",
@@ -62,6 +62,7 @@ pub async fn by_token_hash(
             email: Email::from_stored(row.email),
             display_name: row.display_name,
             role: parse_role(&row.role)?,
+            hue_override: parse_hue(row.hue)?,
             email_verified_at: row.email_verified_at,
             disabled_at: row.disabled_at,
             created_at: row.user_created_at,

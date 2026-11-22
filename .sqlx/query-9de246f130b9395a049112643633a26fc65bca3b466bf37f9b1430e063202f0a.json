@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, t.user_id, t.name, t.prefix, t.scopes, t.created_at, t.expires_at,\n                t.last_used_at,\n                u.email, u.display_name, u.role, u.email_verified_at, u.disabled_at,\n                u.created_at AS user_created_at, u.updated_at AS user_updated_at\n         FROM api_tokens t JOIN users u ON u.id = t.user_id\n         WHERE t.token_hash = $1",
+  "query": "SELECT t.id, t.user_id, t.name, t.prefix, t.scopes, t.created_at, t.expires_at,\n                t.last_used_at,\n                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,\n                u.created_at AS user_created_at, u.updated_at AS user_updated_at\n         FROM api_tokens t JOIN users u ON u.id = t.user_id\n         WHERE t.token_hash = $1",
   "describe": {
     "columns": [
       {
@@ -126,6 +126,17 @@
       },
       {
         "ordinal": 11,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
         "name": "email_verified_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "user_created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "user_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -188,9 +199,10 @@
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "5d26ced009f86ac0fe0c4473d1af7981e9cc043ed1a95223f49dd500381777ad"
+  "hash": "9de246f130b9395a049112643633a26fc65bca3b466bf37f9b1430e063202f0a"
 }

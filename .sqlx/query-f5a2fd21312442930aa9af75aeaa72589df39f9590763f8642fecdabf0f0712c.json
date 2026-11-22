@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1\n         RETURNING id, email, display_name, role, email_verified_at, disabled_at, created_at,\n                   updated_at",
+  "query": "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,\n                updated_at\n         FROM users WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "email_verified_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -94,9 +105,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Timestamptz"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -106,9 +115,10 @@
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "574475e5ab439fc142438d9dd4fe5336f172ff5acf300fdcb8e42f6851e7fb78"
+  "hash": "f5a2fd21312442930aa9af75aeaa72589df39f9590763f8642fecdabf0f0712c"
 }

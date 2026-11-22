@@ -11,3 +11,4 @@ pub mod mail;
 pub mod periodic;
 pub mod ratelimit;
 pub mod settings;
+pub mod workspaces;
