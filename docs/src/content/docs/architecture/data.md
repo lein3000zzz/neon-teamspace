@@ -164,7 +164,8 @@ file is in [Configuration](/docs/self-hosting/configuration/).
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, and from time to
   time a snapshot of the whole document, after which older updates are compacted into it.
-  Page history is built from the snapshots.
+  Page history is built from the snapshots. What a document holds, and how the server reads
+  it, is in [Page documents](/docs/architecture/documents/).
 - **Database properties**, such as a row's status or assignee, are plain columns and rows,
   so views filter, sort and group them in SQL.
 - **Search** uses Postgres full-text search with the `simple` configuration, which does not

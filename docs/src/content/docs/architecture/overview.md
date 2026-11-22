@@ -41,11 +41,12 @@ flowchart LR
 
 ## The crates
 
-The server is a cargo workspace of five crates:
+The server is a cargo workspace of six crates:
 
 | Crate | What it holds |
 |---|---|
 | `neon-domain` | Types, validation and permission rules. No I/O, no async, no database. |
+| `neon-blocks` | A page's block document: its model, its Yjs form and markdown. No I/O, no async. |
 | `neon-store` | The Postgres repositories, with sqlx. |
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
@@ -64,7 +65,10 @@ flowchart LR
 
 A crate can use only what its `Cargo.toml` lists, so the compiler holds the direction: code
 in `neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
-nothing in `neon-store` can call a use case. `neon-observability` stands alone.
+nothing in `neon-store` can call a use case. `neon-blocks` stands alone too, beside the
+domain: it depends on yrs and a markdown parser only, and the crates that handle pages will
+use it, as [Page documents](/docs/architecture/documents/) describes. `neon-observability`
+stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
 `neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure
 job runs, and `neon-server` for everything else.
