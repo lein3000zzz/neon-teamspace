@@ -54,7 +54,7 @@ async fn record_change_appends_to_the_audit(pool: PgPool) {
         &pool,
         AuditEntry {
             key: "instance.name",
-            old_value: &json!("Neon Workspace"),
+            old_value: &json!("Neon Teamspace"),
             new_value: &json!("Acme"),
             changed_by: Some(admin),
         },
@@ -73,7 +73,7 @@ async fn record_change_appends_to_the_audit(pool: PgPool) {
         row,
         (
             "instance.name".to_owned(),
-            json!("Neon Workspace"),
+            json!("Neon Teamspace"),
             json!("Acme"),
             Some(admin)
         )

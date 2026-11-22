@@ -4,7 +4,7 @@ apiVersion: 1
 
 providers:
   - name: neon
-    folder: Neon Workspace
+    folder: Neon Teamspace
     type: file
     disableDeletion: true
     allowUiUpdates: false

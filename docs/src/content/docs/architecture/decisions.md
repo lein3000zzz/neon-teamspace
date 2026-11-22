@@ -1,9 +1,9 @@
 ---
 title: Key decisions
-description: The choices that shape Neon Workspace, and the reasons for them.
+description: The choices that shape Neon Teamspace, and the reasons for them.
 ---
 
-These are the choices that shape Neon Workspace most. Where a choice was made for a reason,
+These are the choices that shape Neon Teamspace most. Where a choice was made for a reason,
 the reason is given; where it was a starting point, what it gives. Some describe code that
 exists, and the rest the design the code is being built toward, marked **planned**.
 
@@ -106,7 +106,7 @@ attribution that hold for people hold for them. **Planned.**
 cases through the same checks as a person, and there is nothing more to deploy. **Planned.**
 
 **OAuth 2.1 for clients with a person, tokens for the rest.** MCP clients that a person runs
-expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Workspace
+expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Teamspace
 is one, and its consent page asks whether the client acts as the person or as one of their
 agents. Agents that run on their own, with no browser to sign in from, use a bearer token
 instead. A token belongs to one workspace, has the scope read, write or admin, and never does
@@ -185,7 +185,7 @@ and there is no second client to build. No app-store release is planned yet.
 
 ## The license
 
-**Source available, for noncommercial use.** Neon Workspace is licensed under the
+**Source available, for noncommercial use.** Neon Teamspace is licensed under the
 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0):
 anyone may read, run, change and self-host it, for any purpose that is not commercial.
 

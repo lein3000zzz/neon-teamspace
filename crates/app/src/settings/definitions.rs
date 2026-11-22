@@ -110,7 +110,7 @@ pub fn registry() -> Registry {
         .define(
             Definition::string(
                 INSTANCE_NAME,
-                "Neon Workspace",
+                "Neon Teamspace",
                 "The instance's name, shown in the interface and in mail.",
             )
             .check(checks::non_blank)
@@ -407,7 +407,7 @@ mod tests {
         let registry = registry();
         let snapshot = registry.resolve(&Pinned::default(), &Stored::new());
 
-        assert_eq!(snapshot.get(INSTANCE_NAME), "Neon Workspace");
+        assert_eq!(snapshot.get(INSTANCE_NAME), "Neon Teamspace");
         assert_eq!(snapshot.get(auth::REGISTRATION), "invite");
         assert!(!*snapshot.get(auth::VERIFY_EMAIL));
         assert!(*snapshot.get(auth::PASSWORD_RESET));

@@ -345,7 +345,7 @@ mod tests {
     use super::*;
 
     const SENDER: Sender<'static> = Sender {
-        name: "Neon Workspace",
+        name: "Neon Teamspace",
         origin: "https://neon.example.com",
     };
 
@@ -415,7 +415,7 @@ mod tests {
             },
             &SENDER,
         );
-        assert_eq!(verification.subject, "Verify your email for Neon Workspace");
+        assert_eq!(verification.subject, "Verify your email for Neon Teamspace");
         assert!(verification.paragraphs[1].starts_with("It works for 24 hours."));
         assert!(verification.paragraphs[1].contains("removed within 7 days"));
 
@@ -459,10 +459,10 @@ mod tests {
             &SENDER,
         );
 
-        assert_eq!(invite.subject, "Grace invited you to Neon Workspace");
+        assert_eq!(invite.subject, "Grace invited you to Neon Teamspace");
         assert_eq!(
             invite.paragraphs[0],
-            "Grace (grace@example.com) invited you to Neon Workspace, at https://neon.example.com."
+            "Grace (grace@example.com) invited you to Neon Teamspace, at https://neon.example.com."
         );
         assert!(invite.paragraphs[1].contains("until 1 January 1970 at 00:00 UTC"));
     }
@@ -480,7 +480,7 @@ mod tests {
 
         assert_eq!(
             letter.text(&SENDER),
-            "One.\n\nTwo.\n\nGo: https://neon.example.com/go\n\n-- \nNeon Workspace, https://neon.example.com\n"
+            "One.\n\nTwo.\n\nGo: https://neon.example.com/go\n\n-- \nNeon Teamspace, https://neon.example.com\n"
         );
     }
 

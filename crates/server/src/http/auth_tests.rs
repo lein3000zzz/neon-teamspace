@@ -932,7 +932,7 @@ async fn api_tokens_cannot_change_where_secrets_go(pool: PgPool) {
     let listed = call(&app, Method::GET, "/api/v1/admin/settings", &token, None).await;
     assert_eq!(
         setting(&listed.body, "instance.name")["value"],
-        "Neon Workspace",
+        "Neon Teamspace",
         "nothing was saved"
     );
 

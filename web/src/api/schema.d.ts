@@ -1696,7 +1696,7 @@ export interface components {
         Meta: {
             /**
              * @description The instance's name, from the `instance.name` setting.
-             * @example Neon Workspace
+             * @example Neon Teamspace
              */
             name: string;
             /**

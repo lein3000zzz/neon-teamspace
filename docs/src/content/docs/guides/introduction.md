@@ -1,9 +1,9 @@
 ---
 title: Introduction
-description: What Neon Workspace is, who it is for, and what exists so far.
+description: What Neon Teamspace is, who it is for, and what exists so far.
 ---
 
-Neon Workspace is a team workspace that runs on a server you control. It follows Notion's
+Neon Teamspace is a team workspace that runs on a server you control. It follows Notion's
 model: pages made of blocks, databases whose rows are pages, and kanban boards as one way of
 viewing a database. Several people edit a page at the same time and see each other's cursors.
 
@@ -17,9 +17,9 @@ person would. Its edits merge with the typing of the people on the same page.
 Small teams that want their notes, specs and task boards on their own server, with no plan
 limits and no per-seat price.
 
-It is shaped in particular by hackathon teams that work with agents. Neon Workspace started
+It is shaped in particular by hackathon teams that work with agents. Neon Teamspace started
 after one, where a team and its agents ran out of room on a hosted workspace's free plan.
-On a board in Neon Workspace, an agent claims a card, which assigns it to the agent
+On a board in Neon Teamspace, an agent claims a card, which assigns it to the agent
 and moves it to **In progress** unless someone has it already. It works on the card, writes
 what it found into the card's page, comments, and moves it on to **Review** for a person to
 check.
@@ -29,7 +29,7 @@ the friends its owner lets in.
 
 ## What exists
 
-Neon Workspace is in early development and not usable yet. What exists is the foundation
+Neon Teamspace is in early development and not usable yet. What exists is the foundation
 the features build on:
 
 - The server, `neon`, as a cargo workspace of five crates; see the

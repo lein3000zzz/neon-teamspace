@@ -21,7 +21,7 @@ const IDLE: Key<Duration> = Key::new("auth.session_idle");
 /// Settings shaped like the server's, with a rule across two of them.
 fn registry() -> Registry {
     Registry::builder()
-        .define(Definition::string(NAME, "Neon Workspace", "The name.").check(checks::non_blank))
+        .define(Definition::string(NAME, "Neon Teamspace", "The name.").check(checks::non_blank))
         .define(Definition::bool(VERIFY, false, "Verify sign-ups by mail."))
         .define(Definition::string(HOST, "", "The mail server."))
         .define(Definition::secret(PASSWORD, "The mail server's password."))
@@ -220,7 +220,7 @@ async fn a_write_saves_the_value_and_its_audit_row_and_applies_at_once(pool: PgP
         audit(&pool).await,
         [(
             "instance.name".into(),
-            json!("Neon Workspace"),
+            json!("Neon Teamspace"),
             json!("Acme"),
             Some(admin)
         )]
@@ -237,14 +237,14 @@ async fn a_write_saves_the_value_and_its_audit_row_and_applies_at_once(pool: PgP
         .update([("instance.name".to_owned(), Change::Reset)], None)
         .await
         .unwrap();
-    assert_eq!(service.current().get(NAME), "Neon Workspace");
+    assert_eq!(service.current().get(NAME), "Neon Teamspace");
     assert!(saved(&pool).await.is_empty());
     assert_eq!(
         audit(&pool).await[1],
         (
             "instance.name".into(),
             json!("Acme"),
-            json!("Neon Workspace"),
+            json!("Neon Teamspace"),
             None
         )
     );
@@ -267,7 +267,7 @@ async fn a_failed_audit_write_rolls_back_the_value(pool: PgPool) {
         "{result:?}"
     );
     assert!(saved(&pool).await.is_empty());
-    assert_eq!(service.current().get(NAME), "Neon Workspace");
+    assert_eq!(service.current().get(NAME), "Neon Teamspace");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -409,7 +409,7 @@ async fn secrets_are_refused_without_a_key(pool: PgPool) {
         problems[0].message
     );
     assert!(saved(&pool).await.is_empty());
-    assert_eq!(service.current().get(NAME), "Neon Workspace");
+    assert_eq!(service.current().get(NAME), "Neon Teamspace");
 
     // An empty secret hides nothing, so it needs no key.
     service
