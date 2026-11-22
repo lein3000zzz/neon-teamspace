@@ -10,6 +10,7 @@
 //! or from its owner for a private page, and from what it, or a page above it, is shared
 //! for.
 
+pub mod files;
 mod page;
 pub mod position;
 
