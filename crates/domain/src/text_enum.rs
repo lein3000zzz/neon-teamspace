@@ -1,8 +1,8 @@
 //! Enums kept and sent as fixed texts, such as roles and a page's font.
 
 /// An enum whose values each have a text, as the database keeps them and the API sends
-/// them, with every value, its text, parsing and `Display`. Values compare in the order
-/// they are listed.
+/// them, with every value, its text, parsing, `Display`, and serde as that text. Values
+/// compare in the order they are listed.
 macro_rules! text_enum {
     ($(#[$doc:meta])* $name:ident { $($(#[$vdoc:meta])* $variant:ident => $text:literal),+ $(,)? }) => {
         $(#[$doc])*
@@ -29,6 +29,24 @@ macro_rules! text_enum {
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str(self.as_str())
+            }
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = <std::borrow::Cow<'de, str> as serde::Deserialize>::deserialize(deserializer)?;
+                Self::parse(&text).ok_or_else(|| {
+                    serde::de::Error::unknown_variant(
+                        &text,
+                        &[$($text),+],
+                    )
+                })
             }
         }
     };
