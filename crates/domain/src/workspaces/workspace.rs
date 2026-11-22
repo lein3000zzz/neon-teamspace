@@ -92,10 +92,6 @@ impl Teamspace {
     pub fn hue(&self) -> u16 {
         hue_or_hashed(self.hue_override, self.id)
     }
-
-    pub fn is_default(&self) -> bool {
-        self.access == TeamspaceAccess::Default
-    }
 }
 
 /// A name that cannot be kept.
@@ -319,7 +315,6 @@ mod tests {
         };
 
         assert_eq!(teamspace.hue(), 98);
-        assert!(!teamspace.is_default());
         teamspace.hue_override = Some(12);
         assert_eq!(teamspace.hue(), 12);
 

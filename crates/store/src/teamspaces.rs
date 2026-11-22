@@ -9,9 +9,6 @@ use uuid::Uuid;
 use crate::decode_error;
 use crate::users::{parse_hue, stored_hue};
 
-/// The index an insert breaks when the workspace has a default teamspace already.
-pub const DEFAULT_TAKEN: &str = "teamspaces_one_default";
-
 /// The constraint an insert breaks when the user is in the teamspace already.
 pub const ALREADY_MEMBER: &str = "teamspace_members_pkey";
 
@@ -51,7 +48,8 @@ fn parse_role(text: &str) -> sqlx::Result<TeamspaceRole> {
         .ok_or_else(|| decode_error(format!("unknown teamspace role {text:?}")))
 }
 
-/// Saves a new teamspace. Fails on [`DEFAULT_TAKEN`] for a second default one.
+/// Saves a new teamspace. Fails on the unique index `teamspaces_one_default` for a second
+/// default one.
 pub async fn insert(executor: impl PgExecutor<'_>, teamspace: &Teamspace) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO teamspaces (id, workspace_id, name, icon, hue, access, created_by,

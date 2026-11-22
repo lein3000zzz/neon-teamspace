@@ -127,7 +127,7 @@ async fn a_workspace_has_one_default_teamspace(pool: PgPool) {
         .await
         .expect_err("refused");
     assert!(
-        is_unique_violation(&again, teamspaces::DEFAULT_TAKEN),
+        is_unique_violation(&again, "teamspaces_one_default"),
         "{again}"
     );
     teamspaces::insert(&pool, &teamspace(second.id, TeamspaceAccess::Default))
@@ -140,7 +140,11 @@ async fn a_workspace_has_one_default_teamspace(pool: PgPool) {
         .await
         .expect("listed");
     assert_eq!(default.len(), 2);
-    assert!(default[0].0.is_default(), "the default one first");
+    assert_eq!(
+        default[0].0.access,
+        TeamspaceAccess::Default,
+        "the default one first"
+    );
     assert!(
         !teamspaces::delete(&pool, first.id, default[0].0.id)
             .await

@@ -78,13 +78,6 @@ pub struct Invitation {
     pub decided_at: Option<OffsetDateTime>,
 }
 
-impl Invitation {
-    /// Waiting for its answer at `now`: pending and not expired.
-    pub fn is_open(&self, now: OffsetDateTime) -> bool {
-        self.state == InvitationState::Pending && now < self.expires_at
-    }
-}
-
 /// An invite link, without its token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InviteLink {
@@ -184,35 +177,6 @@ mod tests {
             assert_eq!(InvitationState::parse(state.as_str()), Some(state));
         }
         assert_eq!(InvitationState::parse("expired"), None);
-    }
-
-    #[test]
-    fn an_invitation_is_open_while_pending_and_unexpired() {
-        let invitation = Invitation {
-            id: Uuid::now_v7(),
-            workspace_id: Uuid::now_v7(),
-            user_id: Uuid::now_v7(),
-            role: WorkspaceRole::Member,
-            invited_by: None,
-            created_at: now(),
-            expires_at: now() + INVITATION_TTL,
-            state: InvitationState::Pending,
-            decided_at: None,
-        };
-
-        assert!(invitation.is_open(now()));
-        assert!(!invitation.is_open(now() + INVITATION_TTL));
-        for state in [
-            InvitationState::Accepted,
-            InvitationState::Declined,
-            InvitationState::Revoked,
-        ] {
-            let decided = Invitation {
-                state,
-                ..invitation.clone()
-            };
-            assert!(!decided.is_open(now()), "{state:?}");
-        }
     }
 
     #[test]

@@ -276,7 +276,7 @@ async fn the_default_teamspace_stays_as_it_is(pool: PgPool) {
     let w = &t.h.workspaces;
     let list = w.list_teamspaces(&t.cy, t.id).await.expect("listed");
     let general = list.teamspaces[0].teamspace.clone();
-    assert!(general.is_default());
+    assert_eq!(general.access, TeamspaceAccess::Default);
     assert_eq!(list.teamspaces[0].members, 4, "everyone but the guest");
 
     let deleted = w.delete_teamspace(&t.ada, t.id, general.id).await;
