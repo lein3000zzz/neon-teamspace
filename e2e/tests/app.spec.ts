@@ -10,13 +10,14 @@ test("a visitor without a session is sent to sign in, with the way back", async 
 
 test("each signed-out page of the app loads from its own address", async ({ page }) => {
   // Without mail set up, which the e2e stack has not, the pages that need it say they are off.
+  // /reset without a token asks for a link, as /forgot does.
   for (const [path, heading] of [
     ["/login", "Sign in"],
     ["/register", "Create an account"],
     ["/forgot", "Password resets are off"],
     ["/join", "Requests to join are off"],
     ["/verify", "This link is incomplete"],
-    ["/reset", "This link is incomplete"],
+    ["/reset", "Password resets are off"],
   ] as const) {
     const response = await page.goto(path);
 

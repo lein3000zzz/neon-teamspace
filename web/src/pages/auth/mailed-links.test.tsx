@@ -183,12 +183,24 @@ describe("setting a new password", () => {
     expect(screen.getByRole("button", { name: "Set the password" })).toBeDisabled();
   });
 
-  it("says when the address carries no token", async () => {
-    server.use(signedOut);
-    renderApp("/reset");
+  it("asks for an address to mail a link to when opened without a token", async () => {
+    let body: unknown;
+    server.use(
+      signedOut,
+      authConfig({ password_reset: true }),
+      http.post("/api/v1/auth/password-reset", async ({ request }) => {
+        body = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { user } = renderApp("/reset");
+
+    await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await user.click(screen.getByRole("button", { name: "Send the link" }));
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "This link is incomplete" }),
+      await screen.findByRole("heading", { level: 1, name: "Check your inbox" }),
     ).toBeVisible();
+    expect(body).toEqual({ email: "ada@example.com" });
   });
 });

@@ -99,11 +99,7 @@ function RegisterForm({ config, linkCode }: { config: AuthConfig; linkCode: stri
   const result = register.data;
   if (result?.kind === "verify") {
     return (
-      <AuthCard
-        title={copy.checkInbox}
-        lede={result.sent ? copy.sent(result.email) : copy.notSent(result.email)}
-        footer={<SignInLine />}
-      >
+      <AuthCard title={copy.checkInbox} lede={copy.sent(result.email)} footer={<SignInLine />}>
         <ResendVerification email={result.email} />
       </AuthCard>
     );

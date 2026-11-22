@@ -33,8 +33,8 @@ export function useLogin() {
 export type SignUp =
   /** Signed straight in. */
   | { kind: "signed-in" }
-  /** The account waits for the link mailed to it; `sent` is false when the mail failed. */
-  | { kind: "verify"; email: string; sent: boolean }
+  /** The account waits for the link mailed to it, queued with the account. */
+  | { kind: "verify"; email: string }
   /** The account exists, but signing in right after failed, so the person signs in by hand. */
   | { kind: "created"; email: string; error: unknown };
 
@@ -50,7 +50,7 @@ export function useRegister() {
       const registered = await call(api.POST("/api/v1/auth/register", { body }));
       const email = registered.user.email;
       if (registered.must_verify) {
-        return { kind: "verify", email, sent: registered.sent };
+        return { kind: "verify", email };
       }
       try {
         await call(api.POST("/api/v1/auth/login", { body: { email, password: body.password } }));

@@ -172,8 +172,6 @@ export const strings = {
       checkInbox: "Check your inbox",
       sent: (email: string) =>
         `A link to verify ${email} is on its way. Open it within 24 hours, then sign in.`,
-      notSent: (email: string) =>
-        `The mail to ${email} did not go out. Ask for the link again in a minute, or ask an admin to mark the address verified.`,
       created: "Your account is ready",
       createdLede: (email: string) => `Sign in as ${email} to go on.`,
     },
@@ -406,9 +404,8 @@ export const strings = {
       mailHint: "Mails a single-use invite that only this address can use, signed with your name.",
       mailSubmit: "Mail the invite",
       madeTitle: "Invite made: share its link",
-      mailedTitle: (email: string) => `Invite mailed to ${email}`,
-      notMailedTitle: (email: string) =>
-        `The mail to ${email} did not go out: send the link yourself`,
+      mailedTitle: (email: string) => `Invite on its way to ${email}`,
+      notMailedTitle: (email: string) => `Mail is not set up: send ${email} the link yourself`,
       admits: (n: number, until: string) =>
         `It admits ${n === 1 ? "one sign-up" : `${n} sign-ups`} until ${until}.`,
       boundTo: (email: string) => `Only ${email} can use it.`,

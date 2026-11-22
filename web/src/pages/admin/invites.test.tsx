@@ -64,7 +64,7 @@ function invites(list: Invite[], { byEmail = false, kept = true } = {}) {
       const created: CreatedInvite = {
         invite,
         code: body.code ?? CODE,
-        ...(body.email ? { sent: false } : {}),
+        ...(body.email ? { queued: true } : {}),
       };
       return HttpResponse.json(created, { status: 201 });
     }),
@@ -176,7 +176,7 @@ describe("invites", () => {
     expect(screen.queryByRole("button", { name: /^Revoke the invite made/ })).toBeNull();
   });
 
-  it("mails an invite while mail is set up, and says when the mail did not go", async () => {
+  it("mails an invite while mail is set up", async () => {
     const api = invites([], { byEmail: true });
     const { user } = renderApp("/admin/invites");
 
@@ -184,11 +184,7 @@ describe("invites", () => {
     await user.type(form.getByLabelText("Invite by email"), "linus@example.com");
     await user.click(form.getByRole("button", { name: "Mail the invite" }));
 
-    expect(
-      await screen.findByText(
-        "The mail to linus@example.com did not go out: send the link yourself",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Invite on its way to linus@example.com")).toBeInTheDocument();
     expect(screen.getByText(/Only linus@example.com can use it/)).toBeInTheDocument();
     expect(api.made).toEqual([{ email: "linus@example.com" }]);
   });

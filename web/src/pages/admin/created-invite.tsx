@@ -10,8 +10,9 @@ const copy = strings.admin.invites;
 
 /**
  * A new invite's link and code, shown now; later only from its sealed copy,
- * when the server keeps one. A mailed invite whose mail did not go says so,
- * so the admin can hand the link over another way.
+ * when the server keeps one. An invite for an address whose mail could not be
+ * queued, as mail is not set up, says so, so the admin can hand the link over
+ * another way.
  */
 export function CreatedInviteNotice({
   created,
@@ -20,9 +21,9 @@ export function CreatedInviteNotice({
   created: CreatedInvite;
   onDone: () => void;
 }) {
-  const { invite, code, sent } = created;
+  const { invite, code, queued } = created;
   const bound = invite.email ?? undefined;
-  const failed = bound !== undefined && sent === false;
+  const failed = bound !== undefined && queued === false;
   const title =
     bound === undefined
       ? copy.madeTitle

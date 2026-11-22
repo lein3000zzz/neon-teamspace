@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useLinkSecret } from "@/lib/links";
 import { strings } from "@/lib/strings";
 import { passwordProblem } from "@/lib/validation";
-import { MissingToken } from "./link-pages";
+import { ForgotPage } from "./forgot";
 
 const copy = strings.auth.reset;
 
@@ -20,7 +20,9 @@ type Problems = { password?: string | undefined; repeat?: string | undefined };
 /**
  * Opened from the mailed link: a new password, twice. The link is spent only
  * when the password is set, so a refused password can be tried again. Then
- * on to sign in with it, as every session was signed out.
+ * on to sign in with it, as every session was signed out. Without a token,
+ * as the mail saying a password changed links here, it asks for an address to
+ * mail a link to, like /forgot.
  */
 export function ResetPage() {
   const { token: fromAddress } = useSearch({ from: "/_auth/reset" });
@@ -33,7 +35,7 @@ export function ResetPage() {
   const [problems, setProblems] = useState<Problems>({});
 
   if (token === undefined) {
-    return <MissingToken />;
+    return <ForgotPage />;
   }
   if (config.isPending) {
     return (

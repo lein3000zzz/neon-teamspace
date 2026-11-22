@@ -24,7 +24,7 @@ export function AdminLayout() {
         links={[
           { to: "/admin", label: copy.tabs.users },
           { to: "/admin/invites", label: copy.tabs.invites },
-          { to: "/admin/requests", label: copy.tabs.requests },
+          { to: "/admin/join-requests", label: copy.tabs.requests },
           { to: "/admin/settings", label: copy.tabs.settings },
         ]}
       />

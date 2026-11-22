@@ -27,7 +27,7 @@ import { Route as AppAccountSessionsRouteImport } from './routes/_app/account/se
 import { Route as AppAccountTokensRouteImport } from './routes/_app/account/tokens'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as AppAdminInvitesRouteImport } from './routes/_app/admin/invites'
-import { Route as AppAdminRequestsRouteImport } from './routes/_app/admin/requests'
+import { Route as AppAdminJoinRequestsRouteImport } from './routes/_app/admin/join-requests'
 import { Route as AppAdminSettingsRouteImport } from './routes/_app/admin/settings'
 import { Route as AuthJoinIndexRouteImport } from './routes/_auth/join/index'
 import { Route as AuthJoinConfirmRouteImport } from './routes/_auth/join/confirm'
@@ -120,9 +120,9 @@ const AppAdminInvitesRoute = AppAdminInvitesRouteImport.update({
   path: '/invites',
   getParentRoute: () => AppAdminRoute,
 } as any)
-const AppAdminRequestsRoute = AppAdminRequestsRouteImport.update({
-  id: '/requests',
-  path: '/requests',
+const AppAdminJoinRequestsRoute = AppAdminJoinRequestsRouteImport.update({
+  id: '/join-requests',
+  path: '/join-requests',
   getParentRoute: () => AppAdminRoute,
 } as any)
 const AppAdminSettingsRoute = AppAdminSettingsRouteImport.update({
@@ -156,7 +156,7 @@ export interface FileRoutesByFullPath {
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
-  '/admin/requests': typeof AppAdminRequestsRoute
+  '/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/admin/settings': typeof AppAdminSettingsRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
   '/account/': typeof AppAccountIndexRoute
@@ -176,7 +176,7 @@ export interface FileRoutesByTo {
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
-  '/admin/requests': typeof AppAdminRequestsRoute
+  '/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/admin/settings': typeof AppAdminSettingsRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
   '/account': typeof AppAccountIndexRoute
@@ -201,7 +201,7 @@ export interface FileRoutesById {
   '/_app/account/sessions': typeof AppAccountSessionsRoute
   '/_app/account/tokens': typeof AppAccountTokensRoute
   '/_app/admin/invites': typeof AppAdminInvitesRoute
-  '/_app/admin/requests': typeof AppAdminRequestsRoute
+  '/_app/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/_app/admin/settings': typeof AppAdminSettingsRoute
   '/_auth/join/confirm': typeof AuthJoinConfirmRoute
   '/_app/account/': typeof AppAccountIndexRoute
@@ -225,7 +225,7 @@ export interface FileRouteTypes {
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
-    | '/admin/requests'
+    | '/admin/join-requests'
     | '/admin/settings'
     | '/join/confirm'
     | '/account/'
@@ -245,7 +245,7 @@ export interface FileRouteTypes {
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
-    | '/admin/requests'
+    | '/admin/join-requests'
     | '/admin/settings'
     | '/join/confirm'
     | '/account'
@@ -269,7 +269,7 @@ export interface FileRouteTypes {
     | '/_app/account/sessions'
     | '/_app/account/tokens'
     | '/_app/admin/invites'
-    | '/_app/admin/requests'
+    | '/_app/admin/join-requests'
     | '/_app/admin/settings'
     | '/_auth/join/confirm'
     | '/_app/account/'
@@ -410,11 +410,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminInvitesRouteImport
       parentRoute: typeof AppAdminRoute
     }
-    '/_app/admin/requests': {
-      id: '/_app/admin/requests'
-      path: '/requests'
-      fullPath: '/admin/requests'
-      preLoaderRoute: typeof AppAdminRequestsRouteImport
+    '/_app/admin/join-requests': {
+      id: '/_app/admin/join-requests'
+      path: '/join-requests'
+      fullPath: '/admin/join-requests'
+      preLoaderRoute: typeof AppAdminJoinRequestsRouteImport
       parentRoute: typeof AppAdminRoute
     }
     '/_app/admin/settings': {
@@ -461,14 +461,14 @@ const AppAccountRouteWithChildren = AppAccountRoute._addFileChildren(
 
 interface AppAdminRouteChildren {
   AppAdminInvitesRoute: typeof AppAdminInvitesRoute
-  AppAdminRequestsRoute: typeof AppAdminRequestsRoute
+  AppAdminJoinRequestsRoute: typeof AppAdminJoinRequestsRoute
   AppAdminSettingsRoute: typeof AppAdminSettingsRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
 }
 
 const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminInvitesRoute: AppAdminInvitesRoute,
-  AppAdminRequestsRoute: AppAdminRequestsRoute,
+  AppAdminJoinRequestsRoute: AppAdminJoinRequestsRoute,
   AppAdminSettingsRoute: AppAdminSettingsRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
 }

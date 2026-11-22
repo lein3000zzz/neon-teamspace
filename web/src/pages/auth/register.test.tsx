@@ -14,10 +14,8 @@ function registration(answer: Partial<Schemas["Registered"]> = {}) {
   server.use(
     http.post("/api/v1/auth/register", async ({ request }) => {
       bodies.push((await request.json()) as Schemas["RegisterRequest"]);
-      return HttpResponse.json(
-        { user: ada, must_verify: false, sent: false, ...answer },
-        { status: 201 },
-      );
+      const registered: Schemas["Registered"] = { user: ada, must_verify: false, ...answer };
+      return HttpResponse.json(registered, { status: 201 });
     }),
   );
   return bodies;
@@ -183,7 +181,7 @@ describe("creating an account", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    registration({ must_verify: true, sent: true });
+    registration({ must_verify: true });
     const { user } = renderApp("/register");
 
     await fillForm(user, { Email: "ada@example.com", Password: "correct horse battery" });
@@ -195,16 +193,6 @@ describe("creating an account", () => {
     await user.click(screen.getByRole("button", { name: "Send the link again" }));
     expect(await screen.findByText(/a new link is on its way/)).toBeInTheDocument();
     expect(resent).toBe(1);
-  });
-
-  it("says when the verification mail did not go out", async () => {
-    server.use(signedOut, authConfig({ registration: "open", verify_email: true }));
-    registration({ must_verify: true, sent: false });
-    const { user } = renderApp("/register");
-
-    await fillForm(user, { Email: "ada@example.com", Password: "correct horse battery" });
-
-    expect(await screen.findByText(/did not go out/)).toBeInTheDocument();
   });
 
   it("sends to the sign-in form when signing in right after fails", async () => {

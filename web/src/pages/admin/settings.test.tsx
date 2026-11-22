@@ -15,6 +15,7 @@ const registration: Setting = {
   default: "invite",
   source: "default",
   pinned: false,
+  browser_only: false,
   env_var: "NEON_SETTINGS__AUTH__REGISTRATION",
 };
 
@@ -26,6 +27,7 @@ const requestsSetting: Setting = {
   default: false,
   source: "default",
   pinned: false,
+  browser_only: false,
   env_var: "NEON_SETTINGS__AUTH__REQUESTS",
 };
 
@@ -37,6 +39,7 @@ const minLength: Setting = {
   default: 12,
   source: "database",
   pinned: false,
+  browser_only: false,
   env_var: "NEON_SETTINGS__AUTH__MIN_PASSWORD_LENGTH",
 };
 
@@ -48,6 +51,7 @@ const idle: Setting = {
   default: "7d",
   source: "default",
   pinned: false,
+  browser_only: false,
   env_var: "NEON_SETTINGS__AUTH__SESSION_IDLE_TTL",
 };
 
@@ -59,18 +63,20 @@ const name: Setting = {
   default: "Neon Workspace",
   source: "env",
   pinned: true,
+  browser_only: false,
   env_var: "NEON_SETTINGS__INSTANCE__NAME",
 };
 
 const smtpPassword: Setting = {
-  key: "mail.smtp_password",
+  key: "mail.password",
   kind: "secret",
-  description: "The SMTP server's password.",
+  description: "The password of that account.",
   value: "[redacted]",
   default: "",
   source: "database",
   pinned: false,
-  env_var: "NEON_SETTINGS__MAIL__SMTP_PASSWORD",
+  browser_only: true,
+  env_var: "NEON_SETTINGS__MAIL__PASSWORD",
 };
 
 const ALL = [minLength, registration, requestsSetting, idle, name, smtpPassword];
@@ -127,7 +133,7 @@ describe("settings", () => {
     settings();
     await renderSettings();
 
-    const secret = screen.getByLabelText("mail.smtp_password");
+    const secret = screen.getByLabelText("mail.password");
     expect(secret).toHaveAttribute("type", "password");
     expect(secret).toHaveValue("");
     expect(secret).toHaveAttribute("placeholder", "Set. Type a new value to replace it.");
@@ -147,7 +153,7 @@ describe("settings", () => {
     const ttl = screen.getByLabelText("auth.session_idle_ttl");
     await user.clear(ttl);
     await user.type(ttl, "12h");
-    await user.type(screen.getByLabelText("mail.smtp_password"), "s3cret");
+    await user.type(screen.getByLabelText("mail.password"), "s3cret");
     expect(screen.getByText("4 unsaved changes")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -157,7 +163,7 @@ describe("settings", () => {
         "auth.registration": "open",
         "auth.requests": true,
         "auth.session_idle_ttl": "12h",
-        "mail.smtp_password": "s3cret",
+        "mail.password": "s3cret",
       },
     ]);
   });
@@ -198,7 +204,10 @@ describe("settings", () => {
       http.patch("/api/v1/admin/settings", () =>
         apiError(400, "invalid_settings", "nothing was saved: some settings are invalid", {
           problems: [
-            { key: "auth.requests", message: "needs auth.registration to be invite" },
+            {
+              key: "auth.requests",
+              message: "needs mail set up first: mail.enabled on, with mail.host and mail.from",
+            },
             { key: "auth.session_idle_ttl", message: "must be between 5m and 365d" },
           ],
         }),
@@ -221,7 +230,9 @@ describe("settings", () => {
     );
     expect(screen.getByText("must be between 5m and 365d")).toBeInTheDocument();
     expect(ttl).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("needs auth.registration to be invite")).toBeInTheDocument();
+    expect(
+      screen.getByText("needs mail set up first: mail.enabled on, with mail.host and mail.from"),
+    ).toBeInTheDocument();
     expect(screen.getByText("2 unsaved changes")).toBeInTheDocument();
   });
 

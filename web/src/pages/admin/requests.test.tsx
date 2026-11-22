@@ -50,7 +50,7 @@ function requests(list: JoinRequest[]) {
     http.get("/api/v1/admin/invites", () => HttpResponse.json({ invites: [], by_email: true })),
     http.post("/api/v1/admin/join-requests/:id/approve", ({ params }) => {
       decide("approved")(String(params["id"]));
-      const created: CreatedInvite = { invite, code: "inv_approved", sent: true };
+      const created: CreatedInvite = { invite, code: "inv_approved", queued: true };
       return HttpResponse.json(created);
     }),
     http.post("/api/v1/admin/join-requests/:id/deny", ({ params }) => {
@@ -64,7 +64,7 @@ function requests(list: JoinRequest[]) {
 describe("requests to join", () => {
   it("lists the requests with their notes, waiting first", async () => {
     requests([waiting, denied]);
-    renderApp("/admin/requests");
+    renderApp("/admin/join-requests");
 
     expect(await screen.findByText("linus@example.com")).toBeInTheDocument();
     expect(screen.getByText(/I run the build/)).toBeInTheDocument();
@@ -75,19 +75,39 @@ describe("requests to join", () => {
 
   it("approves a request, mailing an invite bound to the address", async () => {
     const decided = requests([waiting]);
-    const { user } = renderApp("/admin/requests");
+    const { user } = renderApp("/admin/join-requests");
 
     await user.click(await screen.findByRole("button", { name: "Approve: linus@example.com" }));
 
-    expect(await screen.findByText("Invite mailed to linus@example.com")).toBeInTheDocument();
+    expect(await screen.findByText("Invite on its way to linus@example.com")).toBeInTheDocument();
     expect(screen.getByText(/Only linus@example.com can use it/)).toBeInTheDocument();
     expect(decided).toEqual([`approved ${waiting.id}`]);
     expect(await screen.findByText("Approved")).toBeInTheDocument();
   });
 
+  it("hands over the invite's link when mail is not set up to send it", async () => {
+    requests([waiting]);
+    server.use(
+      http.post("/api/v1/admin/join-requests/:id/approve", () => {
+        const created: CreatedInvite = { invite, code: "inv_approved", queued: false };
+        return HttpResponse.json(created);
+      }),
+    );
+    const { user } = renderApp("/admin/join-requests");
+
+    await user.click(await screen.findByRole("button", { name: "Approve: linus@example.com" }));
+
+    expect(
+      await screen.findByText("Mail is not set up: send linus@example.com the link yourself"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Invite link")).toHaveValue(
+      `${window.location.origin}/register?invite=inv_approved`,
+    );
+  });
+
   it("denies a request once confirmed", async () => {
     const decided = requests([waiting]);
-    const { user } = renderApp("/admin/requests");
+    const { user } = renderApp("/admin/join-requests");
 
     await user.click(await screen.findByRole("button", { name: "Deny: linus@example.com" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Deny linus@example.com?" });
@@ -104,7 +124,7 @@ describe("requests to join", () => {
         apiError(409, "email_taken", "an account has this address already"),
       ),
     );
-    const { user } = renderApp("/admin/requests");
+    const { user } = renderApp("/admin/join-requests");
 
     await user.click(await screen.findByRole("button", { name: "Approve: linus@example.com" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -115,7 +135,7 @@ describe("requests to join", () => {
   it("says when requests are off", async () => {
     requests([]);
     server.use(authConfig({ requests: false }));
-    renderApp("/admin/requests");
+    renderApp("/admin/join-requests");
 
     expect(await screen.findByText(/Requests to join are off/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open the settings" })).toHaveAttribute(

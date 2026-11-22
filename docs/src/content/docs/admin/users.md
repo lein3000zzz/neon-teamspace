@@ -10,7 +10,9 @@ the menu decides nothing. When an admin stops being one, the admin pages say so 
 they next ask the server for anything.
 
 They have four parts: **Users**, **Invites** and **Requests to join**, described in
-[Invites and requests](/docs/admin/invites/), and [Settings](/docs/admin/settings/).
+[Invites and requests](/docs/admin/invites/), and [Settings](/docs/admin/settings/). Each
+has its own address: `/admin`, `/admin/invites`, `/admin/join-requests`, which the mail
+telling admins of a new request links to, and `/admin/settings`.
 
 ## The accounts
 
@@ -44,6 +46,6 @@ yourself a member closes the admin pages, and disabling yourself signs you out.
 ## Verifying addresses
 
 An account whose address is not verified has two more buttons. **Mark verified** takes the
-admin's word for it, for when the mail does not arrive. **Send a verification link** mails a
-new link, at most one a minute and five a day, and says so when the instance has no mail set
-up.
+admin's word for it, for when the mail does not arrive. **Send a verification link** queues
+a new link, at most one a minute and five a day, and says so, with what is missing, when the
+instance has no mail set up.

@@ -37,6 +37,8 @@ test("the first admin signs in, and the shell shows the instance and the admin p
     ["/account", "Account"],
     ["/account/appearance", "Account"],
     ["/admin", "Instance"],
+    // Where the mail telling admins of a request to join links.
+    ["/admin/join-requests", "Instance"],
     ["/no/such/page", "Page not found"],
   ] as const) {
     await page.goto(path);

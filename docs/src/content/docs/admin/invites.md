@@ -27,8 +27,8 @@ them, this is the only time the code shows, and the page says so.
 
 While inviting by email is on and mail is set up, **Invite by email** mails a single-use
 invite to an address, signed with the admin's name. Only that address can sign up with it,
-and it counts as verified. When the mail does not go out, the page says so and shows the link
-to hand over another way.
+and it counts as verified. The mail is queued with the invite and sent in the background.
+The link and code show as for any invite, to hand over another way.
 
 ## The invites
 
@@ -47,9 +47,10 @@ With requests to join on, people without an invite can ask for one from the sign
 then those decided in the last 30 days, each with its note.
 
 - **Approve** makes an invite bound to the address, for one sign-up, and mails it there. Its
-  link and code show as for any invite, and the page says when the mail did not go out.
+  link and code show as for any invite. While mail is not set up, the invite is made all the
+  same, and the page says to send the link another way.
 - **Deny**, after asking, mails no invite. The address may ask again in 30 days, and is told
   so while the denied-request mail is on.
 
 While requests are off, the page says so, with a link to the settings that turn them on.
-They need registration by invite and mail set up.
+They take registration by invite and mail set up as well.
