@@ -32,8 +32,8 @@ here has **Reset to default**, which takes it back to its default when saved.
 Changes collect at the foot of the page, which counts them, until **Save changes** sends them
 together, or **Discard** drops them. The server saves all of them or none. When it refuses
 any, the page says nothing was saved and shows each refusal beside its setting, such as a
-number out of its bounds, or requests to join turned on while registration is not by
-invite; the changes stay, to fix and save again.
+number out of its bounds, or verifying addresses turned on while mail is not set up; the
+changes stay, to fix and save again.
 
 ## Secrets
 
@@ -41,3 +41,15 @@ A secret setting never shows its value: the field stays empty, and says whether 
 Typing in it replaces the value when saved, and **Reset to default** clears it. The server
 keeps secrets sealed with the [secret keys](/docs/self-hosting/configuration/#secret-keys),
 and refuses to save one while none is set.
+
+## Mail
+
+The **Mail** group starts with the mail status: whether mail can go, and if not, what is
+missing, such as `mail.host is not set`. Under it, as the server has seen since it started,
+when the mail server last took a mail, and the last delivery that failed: which mail, when,
+what the mail server answered, and whether it is tried again. [Mail](/docs/self-hosting/mail/)
+explains the settings and what each failure means.
+
+**Send a test mail**, once mail can go, queues a test mail to the signed-in admin's own
+address, with the saved settings. The status then follows how it goes for a minute, without
+reloading the page.

@@ -13,6 +13,7 @@ export type Invite = Schemas["Invite"];
 export type CreatedInvite = Schemas["CreatedInvite"];
 export type JoinRequest = Schemas["JoinRequest"];
 export type Setting = Schemas["Setting"];
+export type MailStatus = Schemas["MailStatus"];
 
 /** Accounts per page of the users list; the server takes up to 200. */
 export const USERS_PAGE = 50;
@@ -140,34 +141,46 @@ export function useDenyJoin() {
   });
 }
 
+/** Every runtime setting, and whether mail can go and how it went lately. */
 export const settingsQuery = queryOptions({
   queryKey: keys.settings,
-  queryFn: async ({ signal }) =>
-    (await call(api.GET("/api/v1/admin/settings", { signal }))).settings,
+  queryFn: ({ signal }) => call(api.GET("/api/v1/admin/settings", { signal })),
 });
 
 /**
  * Saves setting changes by key, null going back to the default. All or
  * nothing: when one is invalid, none is saved and the error lists each. The
- * sign-in forms and the instance name read settings, so those are read again.
+ * sign-in forms and the instance name read settings, and whether invites can
+ * be mailed follows the mail settings, so those are read again.
  */
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (changes: Record<string, unknown>) =>
-      (
-        await call(
-          api.PATCH("/api/v1/admin/settings", {
-            // The spec says only that it is an object, which the generated type reads as
-            // one with no values; any JSON value per key is meant.
-            body: { changes: changes as Schemas["UpdateSettings"]["changes"] },
-          }),
-        )
-      ).settings,
-    onSuccess: async (settings) => {
-      queryClient.setQueryData(keys.settings, settings);
+    mutationFn: (changes: Record<string, unknown>) =>
+      call(
+        api.PATCH("/api/v1/admin/settings", {
+          // The spec says only that it is an object, which the generated type reads as
+          // one with no values; any JSON value per key is meant.
+          body: { changes: changes as Schemas["UpdateSettings"]["changes"] },
+        }),
+      ),
+    onSuccess: async (list) => {
+      queryClient.setQueryData(keys.settings, list);
       await queryClient.invalidateQueries({ queryKey: keys.authConfig });
       await queryClient.invalidateQueries({ queryKey: keys.meta });
+      await queryClient.invalidateQueries({ queryKey: keys.invites });
     },
+  });
+}
+
+/**
+ * Queues a test mail to the admin signed in; answers the address it goes to.
+ * How it went shows later, in the mail status of the settings.
+ */
+export function useSendTestMail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await call(api.POST("/api/v1/admin/mail/test"))).to,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.settings }),
   });
 }

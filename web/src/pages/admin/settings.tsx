@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { strings } from "@/lib/strings";
+import { MailStatusPanel } from "./mail-status";
 
 const copy = strings.admin.settings;
 
@@ -60,7 +61,7 @@ export function SettingsPage() {
   const submit = () => {
     const changes: Record<string, unknown> = {};
     const problems: Record<string, string> = {};
-    for (const setting of settings.data ?? []) {
+    for (const setting of settings.data?.settings ?? []) {
       if (!(setting.key in drafts)) {
         continue;
       }
@@ -101,8 +102,9 @@ export function SettingsPage() {
       )}
 
       {settings.data &&
-        groupByPrefix(settings.data).map(([prefix, group]) => (
+        groupByPrefix(settings.data.settings).map(([prefix, group]) => (
           <PageSection key={prefix} title={groupTitle(prefix)}>
+            {prefix === "mail" && <MailStatusPanel mail={settings.data.mail} />}
             <ul className="grid gap-6">
               {group.map((setting) => (
                 <SettingRow

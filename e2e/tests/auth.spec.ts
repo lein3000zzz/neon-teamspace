@@ -133,4 +133,10 @@ test("an admin reads the runtime settings, with what the stack pins", async ({ p
   await expect(instance.getByText("Pinned")).toBeVisible();
   await expect(instance.getByText("Environment")).toBeVisible();
   await expect(instance.getByText("Change it with NEON_SETTINGS__INSTANCE__NAME.")).toBeVisible();
+
+  // The stack sets no mail up, and the mail status says what is missing first.
+  const mail = page.getByRole("region", { name: "Mail" });
+  await expect(mail.getByText("Not set up")).toBeVisible();
+  await expect(mail.getByText("Mail cannot go yet: mail.enabled is off.")).toBeVisible();
+  await expect(mail.getByRole("button", { name: "Send a test mail" })).toBeDisabled();
 });

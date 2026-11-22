@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
-import type { Setting } from "@/api/admin";
+import { describe, expect, it, vi } from "vitest";
+import type { MailStatus, Setting } from "@/api/admin";
+import { formatDateTime } from "@/lib/format";
 import { apiError, grace, signedInAs } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
@@ -81,15 +82,19 @@ const smtpPassword: Setting = {
 
 const ALL = [minLength, registration, requestsSetting, idle, name, smtpPassword];
 
-function settings(list: Setting[] = ALL) {
+/** Mail as the server starts without it. */
+const NO_MAIL: MailStatus = { configured: false, problem: "mail.enabled is off" };
+
+function settings(list: Setting[] = ALL, mail: MailStatus = NO_MAIL) {
   const patches: Record<string, unknown>[] = [];
   server.use(
     signedInAs(grace),
-    http.get("/api/v1/admin/settings", () => HttpResponse.json({ settings: list })),
+    http.get("/api/v1/admin/settings", () => HttpResponse.json({ settings: list, mail })),
     http.patch("/api/v1/admin/settings", async ({ request }) => {
       const { changes } = (await request.json()) as { changes: Record<string, unknown> };
       patches.push(changes);
       return HttpResponse.json({
+        mail,
         settings: list.map((setting) =>
           setting.key in changes
             ? {
@@ -256,5 +261,111 @@ describe("settings", () => {
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("auth.registration"), "invite");
     expect(screen.queryByText(/unsaved change/)).toBeNull();
+  });
+});
+
+const mailRegion = () => within(screen.getByRole("region", { name: "Mail" }));
+
+describe("the mail status", () => {
+  const ready: MailStatus = { configured: true };
+
+  it("says what mail is missing, and offers a test only once mail can go", async () => {
+    settings();
+    await renderSettings();
+
+    const mail = mailRegion();
+    expect(mail.getByText("Not set up")).toBeInTheDocument();
+    expect(mail.getByText("Mail cannot go yet: mail.enabled is off.")).toBeInTheDocument();
+    expect(mail.getByRole("button", { name: "Send a test mail" })).toBeDisabled();
+  });
+
+  it("sends a test mail, then shows the mail server took it", async () => {
+    const sentAt = "2026-11-21T10:00:00Z";
+    let status = ready;
+    let tests = 0;
+    settings();
+    server.use(
+      http.get("/api/v1/admin/settings", () => HttpResponse.json({ settings: ALL, mail: status })),
+      http.post("/api/v1/admin/mail/test", () => {
+        tests += 1;
+        status = { ...ready, last_sent_at: sentAt };
+        return HttpResponse.json({ queued: true, to: grace.email }, { status: 202 });
+      }),
+    );
+    const { user } = await renderSettings();
+
+    const mail = mailRegion();
+    expect(mail.getByText("Set up")).toBeInTheDocument();
+    expect(mail.getAllByText("None since the server started")).toHaveLength(2);
+    await user.click(mail.getByRole("button", { name: "Send a test mail" }));
+
+    expect(
+      await mail.findByText(/A test mail to grace@example.com is in the queue/),
+    ).toBeInTheDocument();
+    expect(await mail.findByText(formatDateTime(sentAt))).toBeInTheDocument();
+    expect(tests).toBe(1);
+  });
+
+  it("asks again how a test mail went until the status changes, then stops", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+      shouldAdvanceTime: true,
+    });
+    const sentAt = "2026-11-21T10:00:00Z";
+    let delivered = false;
+    let reads = 0;
+    settings();
+    server.use(
+      http.get("/api/v1/admin/settings", () => {
+        reads += 1;
+        const mail = delivered ? { ...ready, last_sent_at: sentAt } : ready;
+        return HttpResponse.json({ settings: ALL, mail });
+      }),
+      http.post("/api/v1/admin/mail/test", () =>
+        HttpResponse.json({ queued: true, to: grace.email }, { status: 202 }),
+      ),
+    );
+    const { user } = await renderSettings();
+
+    await user.click(mailRegion().getByRole("button", { name: "Send a test mail" }));
+    await mailRegion().findByText(/is in the queue/);
+    delivered = true;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await mailRegion().findByText(formatDateTime(sentAt))).toBeInTheDocument();
+
+    const settled = reads;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reads).toBe(settled);
+  });
+
+  it("shows the last failure with what the mail server answered", async () => {
+    const failure = {
+      at: "2026-11-21T10:00:00Z",
+      kind: "password_reset",
+      error: "permanent error (535): 5.7.8 Authentication credentials invalid",
+      permanent: true,
+    };
+    settings(ALL, { ...ready, last_failure: failure });
+    await renderSettings();
+
+    const mail = mailRegion();
+    expect(mail.getByText(`Password reset, ${formatDateTime(failure.at)}:`)).toBeInTheDocument();
+    expect(mail.getByText(failure.error)).toBeInTheDocument();
+    expect(mail.getByText(/Not tried again/)).toBeInTheDocument();
+  });
+
+  it("says why a test mail was refused", async () => {
+    settings(ALL, ready);
+    server.use(
+      http.post("/api/v1/admin/mail/test", () =>
+        apiError(409, "mail_not_set_up", "mail is not set up: mail.host is not set"),
+      ),
+    );
+    const { user } = await renderSettings();
+
+    await user.click(mailRegion().getByRole("button", { name: "Send a test mail" }));
+    expect(await mailRegion().findByRole("alert")).toHaveTextContent(
+      "Mail is not set up: mail.host is not set.",
+    );
   });
 });

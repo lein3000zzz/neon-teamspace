@@ -27,7 +27,8 @@ them, this is the only time the code shows, and the page says so.
 
 While inviting by email is on and mail is set up, **Invite by email** mails a single-use
 invite to an address, signed with the admin's name. Only that address can sign up with it,
-and it counts as verified. The mail is queued with the invite and sent in the background.
+and it counts as verified. The mail is queued with the invite and sent in the background;
+whether the mail server took it shows in the [mail status](/docs/admin/settings/#mail).
 The link and code show as for any invite, to hand over another way.
 
 ## The invites
