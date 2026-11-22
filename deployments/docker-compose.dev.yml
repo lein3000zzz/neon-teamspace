@@ -1,9 +1,10 @@
-# Postgres for local development and tests.
+# Postgres and Mailpit for local development and tests.
 #
 #   docker compose -f deployments/docker-compose.dev.yml up -d
 #
-# The port is bound to 127.0.0.1 only, and is not 5432 so it does not clash with a
-# Postgres already installed on the machine. The credentials are for development only.
+# Every port is bound to 127.0.0.1 only, and none is the service's usual one, so nothing
+# clashes with a Postgres or a Mailpit already running on the machine. The credentials are
+# for development only.
 name: neon-dev
 
 services:
@@ -23,6 +24,16 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  # Takes every mail the server sends and shows it in a browser: SMTP without TLS or a
+  # password on 127.0.0.1:51025, the inbox at http://127.0.0.1:58025/. The mail is kept in
+  # memory, so a restart empties the inbox. .env.example has the settings that point the
+  # server here.
+  mailpit:
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
+    ports:
+      - "127.0.0.1:51025:1025"
+      - "127.0.0.1:58025:8025"
 
 volumes:
   postgres:

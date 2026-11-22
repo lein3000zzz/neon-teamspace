@@ -80,11 +80,11 @@ obs-up: ## Start Grafana, Prometheus, Tempo, Loki and Pyroscope on http://127.0.
 ## Database
 
 .PHONY: db-up
-db-up: ## Start the development Postgres on 127.0.0.1:55432 (Docker)
+db-up: ## Start the development Postgres on 127.0.0.1:55432 and Mailpit on http://127.0.0.1:58025 (Docker)
 	$(DEV_COMPOSE) up -d --wait
 
 .PHONY: db-down
-db-down: ## Stop the development Postgres; its data stays in a volume
+db-down: ## Stop the development Postgres and Mailpit; the database stays in a volume
 	$(DEV_COMPOSE) down
 
 .PHONY: migrate
