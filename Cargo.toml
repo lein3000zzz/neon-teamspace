@@ -80,6 +80,9 @@ uuid = { version = "1.29.3", features = ["v7"] }
 # Yjs in Rust: the pages' documents, which the editor in the browser edits with Yjs.
 yrs = "0.28.2"
 zeroize = "1.9.2"
+# Zip archives of markdown, imported and exported: stored and deflated entries only, read and
+# written in memory.
+zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

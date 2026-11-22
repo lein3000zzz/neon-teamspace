@@ -1,5 +1,6 @@
 //! Pages: creating, changing, moving, trashing, restoring and deleting them, the trees they
-//! make, sharing them, favorites, and the trash's hourly purge.
+//! make, sharing them, favorites, importing trees of them and outlining them for exports,
+//! and the trash's hourly purge.
 //!
 //! Every use case asks [`authorize`] before it acts, so who may do what is decided in one
 //! place, the domain. A change to a workspace's tree locks the tree first, in the
@@ -16,7 +17,9 @@
 mod access;
 mod error;
 mod favorites;
+mod imports;
 mod operations;
+mod outlines;
 mod shares;
 mod trees;
 
@@ -40,7 +43,9 @@ use crate::settings::{SettingsService, pages as keys};
 
 pub use access::{AccessChange, AccessChanges, NoListener};
 pub use error::PageError;
+pub use imports::{Imported, ImportedContent, ImportedPage};
 pub use operations::{Location, NewPage, PageUpdate};
+pub use outlines::{OutlinePage, TeamspaceOutline};
 pub use shares::ListedShare;
 pub use trees::{MAX_LIST, TrashList, Tree, TreePage};
 

@@ -37,6 +37,7 @@ uuid.workspace = true
 # With sync, yrs' awareness can move between threads, so a live document's task can own it.
 yrs = { workspace = true, features = ["sync"] }
 zeroize.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 axum.workspace = true

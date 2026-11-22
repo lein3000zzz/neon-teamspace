@@ -13,4 +13,5 @@ pub mod periodic;
 pub mod ratelimit;
 pub mod settings;
 pub mod sync;
+pub mod transfer;
 pub mod workspaces;
