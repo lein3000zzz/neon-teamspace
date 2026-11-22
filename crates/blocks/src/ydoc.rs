@@ -111,9 +111,39 @@ pub fn read<T: ReadTxn>(txn: &T, fragment: &XmlFragmentRef) -> Result<Document, 
     match fragment.first_child() {
         None => Ok(Document::default()),
         Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => {
-            Ok(Document::new(read_group(txn, &group)?))
+            Ok(Document::new(read_group(txn, &group, None)?))
         }
         Some(other) => Err(unexpected("a blockGroup", &other)),
+    }
+}
+
+/// What [`read_lenient`] read, and how much it left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lenient {
+    pub document: Document,
+    /// How many blocks did not read, each counted once with the blocks under it.
+    pub dropped: usize,
+}
+
+/// Reads what of a fragment's blocks reads, as the editor shows a document: a block that
+/// does not read, such as one of a type the editor's schema does not know, is left out with
+/// the blocks under it, and a fragment that holds no block group reads as empty. Use it to
+/// show or export what there is; [`read`] tells what is wrong.
+pub fn read_lenient<T: ReadTxn>(txn: &T, fragment: &XmlFragmentRef) -> Lenient {
+    let mut dropped = 0;
+    let blocks = match fragment.first_child() {
+        None => Vec::new(),
+        Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => {
+            read_group(txn, &group, Some(&mut dropped)).unwrap_or_default()
+        }
+        Some(_) => {
+            dropped += 1;
+            Vec::new()
+        }
+    };
+    Lenient {
+        document: Document::new(blocks),
+        dropped,
     }
 }
 
@@ -189,19 +219,35 @@ fn unexpected(expected: &'static str, found: &XmlOut) -> ReadError {
     ReadError::Unexpected { expected, found }
 }
 
-fn read_group<T: ReadTxn>(txn: &T, group: &XmlElementRef) -> Result<Vec<Block>, ReadError> {
-    group
-        .children(txn)
-        .map(|child| match child {
+/// The blocks of a group. Strict, with `dropped` `None`, the first that does not read is
+/// the error; lenient, it is left out and counted.
+fn read_group<T: ReadTxn>(
+    txn: &T,
+    group: &XmlElementRef,
+    mut dropped: Option<&mut usize>,
+) -> Result<Vec<Block>, ReadError> {
+    let mut blocks = Vec::new();
+    for child in group.children(txn) {
+        let block = match child {
             XmlOut::Element(container) if container.tag().as_ref() == BLOCK_CONTAINER => {
-                read_container(txn, &container)
+                read_container(txn, &container, dropped.as_deref_mut())
             }
             other => Err(unexpected("a blockContainer", &other)),
-        })
-        .collect()
+        };
+        match (block, dropped.as_deref_mut()) {
+            (Ok(block), _) => blocks.push(block),
+            (Err(_), Some(dropped)) => *dropped += 1,
+            (Err(error), None) => return Err(error),
+        }
+    }
+    Ok(blocks)
 }
 
-fn read_container<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> Result<Block, ReadError> {
+fn read_container<T: ReadTxn>(
+    txn: &T,
+    container: &XmlElementRef,
+    dropped: Option<&mut usize>,
+) -> Result<Block, ReadError> {
     let id = match container.get_attribute(txn, "id") {
         Some(Out::Any(Any::String(id))) => Some(id.to_string()),
         None | Some(Out::Any(Any::Null | Any::Undefined)) => None,
@@ -227,7 +273,7 @@ fn read_container<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> Result<Bloc
     let nested = match children.next() {
         None => Vec::new(),
         Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => {
-            read_group(txn, &group)?
+            read_group(txn, &group, dropped)?
         }
         Some(other) => return Err(unexpected("a blockGroup of children", &other)),
     };
@@ -1115,6 +1161,85 @@ mod tests {
         assert_eq!(
             read_doc(&doc),
             Err(ReadError::UnknownBlock("callout".into()))
+        );
+    }
+
+    #[test]
+    fn a_lenient_read_leaves_out_what_does_not_read() {
+        let doc = Doc::with_client_id(1);
+        let fragment = fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            let document = Document::new(vec![
+                Block::paragraph("first")
+                    .with_id("a")
+                    .with_children(vec![Block::paragraph("child").with_id("b")]),
+                Block::paragraph("last").with_id("c"),
+            ]);
+            replace(
+                &mut txn,
+                &fragment,
+                &document,
+                &mut SequentialIds::new("block"),
+            );
+            let group = fragment
+                .get(&txn, 0)
+                .and_then(XmlOut::into_xml_element)
+                .expect("a group");
+            // An unknown block between the two, and one under the first.
+            let unknown = group.insert(&mut txn, 1, XmlElementPrelim::empty(BLOCK_CONTAINER));
+            let callout = unknown.push_back(&mut txn, XmlElementPrelim::empty("callout"));
+            let nested = callout.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_GROUP));
+            nested.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_CONTAINER));
+            let first = group
+                .get(&txn, 0)
+                .and_then(XmlOut::into_xml_element)
+                .expect("a block");
+            let children = first
+                .get(&txn, 1)
+                .and_then(XmlOut::into_xml_element)
+                .expect("its children");
+            children.push_back(&mut txn, XmlTextPrelim::new("stray"));
+        }
+        let txn = doc.transact();
+        assert!(read(&txn, &fragment).is_err());
+        let lenient = read_lenient(&txn, &fragment);
+        assert_eq!(lenient.dropped, 2);
+        assert_eq!(
+            lenient.document,
+            Document::new(vec![
+                Block::paragraph("first")
+                    .with_id("a")
+                    .with_children(vec![Block::paragraph("child").with_id("b")]),
+                Block::paragraph("last").with_id("c"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_lenient_read_of_a_fragment_without_blocks_is_empty() {
+        let doc = Doc::with_client_id(1);
+        let fragment = fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+        }
+        let txn = doc.transact();
+        assert_eq!(
+            read_lenient(&txn, &fragment),
+            Lenient {
+                document: Document::default(),
+                dropped: 1,
+            }
+        );
+        let empty = Doc::new();
+        let fragment = super::fragment(&empty);
+        assert_eq!(
+            read_lenient(&empty.transact(), &fragment),
+            Lenient {
+                document: Document::default(),
+                dropped: 0,
+            }
         );
     }
 
