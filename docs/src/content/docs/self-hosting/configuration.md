@@ -17,12 +17,14 @@ Both come from the same two places, a YAML file and the environment.
 ## The config file
 
 The server reads `neon.yaml` in the directory it runs from, or the file `NEON_CONFIG` names
-instead. It has four sections:
+instead. It has six sections:
 
 | Section | What it holds |
 |---|---|
-| `server` | `listen`, the address the app's port binds, `0.0.0.0:8080` unless set; `public_url`, the address people use to reach the instance. |
+| `server` | `listen`, the address the app's port binds, `0.0.0.0:8080` unless set; `public_url`, the address people use to reach the instance; `trusted_proxies`, see [below](#the-client-address). |
 | `database` | `url`, the Postgres connection URL; `max_connections`, the size of the connection pool; `auto_migrate`, whether the server updates the schema as it starts, `true` unless set. |
+| `admin` | `email` and `password` of the first admin; see [below](#the-first-admin). |
+| `secrets` | `keys`, the keys that seal secrets kept in the database; see [below](#secret-keys). |
 | `observability` | Logs, metrics, traces, profiles and the internal [admin listener](/docs/architecture/observability/#the-admin-listener), in five sections; see [below](#the-observability-section). |
 | `settings` | Runtime settings, each under its key, nested at its dots. |
 
@@ -58,6 +60,63 @@ The file is YAML 1.2, so the booleans are `true` and `false`, which may also be 
 `True`, `TRUE`, `False` or `FALSE`. Words that older YAML read as booleans, such as `on`,
 `off`, `yes` and `no`, are plain words, and `mode: off` needs no quotes.
 `neon.example.yaml` in the repository lists every key with its default.
+
+## The public URL
+
+Set `server.public_url` to the address people type, such as `https://neon.example.com`,
+with no path. Browsers' `Origin` must match it on every request that changes something, or
+the server refuses the request. Over https the session cookie is `Secure` and named
+`__Host-neon_session`. Unset, the server compares `Origin` with the `Host` each request was
+sent to, and the cookie is `neon_session` without `Secure`, which suits development on
+plain http. [Security model](/docs/architecture/security/#cross-site-requests) has the
+details.
+
+## The client address
+
+Rate limits count by the client's address. The server takes it from the connection, unless
+the connection comes from one of `server.trusted_proxies`: then it takes the last entry of
+`X-Forwarded-For`. The default trusts loopback and the private networks, `127.0.0.0/8`,
+`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `::1` and `fc00::/7`, which is where Caddy
+of the web image or another reverse proxy usually sits. Narrow it to the proxy's address
+when clients on the same private network reach the server directly, as they could pick
+their own address otherwise. The variable takes the ranges separated by commas:
+
+```sh
+NEON_SERVER__TRUSTED_PROXIES=10.1.0.4,192.168.10.0/24
+```
+
+## The first admin
+
+`admin.email` and `admin.password` make the first admin as the server starts, while no
+admin can sign in. Set both or neither. Once an admin exists, they do nothing, so they can
+stay set. The password is better kept in `NEON_ADMIN__PASSWORD` than in the file. The server
+reads these variables as typed, so a password of digits stays a string of digits.
+`neon admin create` makes an admin without them; see
+[Accounts and registration](/docs/guides/accounts/#the-first-admin).
+
+## Secret keys
+
+`secrets.keys` lists the keys that seal secrets kept in the database: copies of invite codes,
+so admins can copy them again, and secret settings. Each entry is an id and 32 random bytes
+in base64, joined by a colon. Make a key with:
+
+```sh
+echo "$(date +%Y):$(openssl rand -base64 32)"
+```
+
+The first key seals new values, and every listed key opens what it sealed. To rotate, put a
+new key first and keep the old one after it. In the environment, separate the entries with
+commas:
+
+```sh
+NEON_SECRETS__KEYS=2027:<new key>,2026:<old key>
+```
+
+Without keys, the server still runs. Invite codes show once, when they are made, and saving
+a secret setting is refused with a message that names `secrets.keys`. A key that does not
+parse stops the start, with an error naming the entry and never its material. Losing a key
+loses what it sealed: invite codes can no longer be copied, and secret settings must be
+saved again. Back the keys up, apart from the database backups.
 
 ## The observability section
 
@@ -97,7 +156,11 @@ underscores, between its levels.
 | Key | Variable |
 |---|---|
 | `server.listen` | `NEON_SERVER__LISTEN` |
+| `server.trusted_proxies` | `NEON_SERVER__TRUSTED_PROXIES` |
 | `database.url` | `NEON_DATABASE__URL` |
+| `admin.email` | `NEON_ADMIN__EMAIL` |
+| `admin.password` | `NEON_ADMIN__PASSWORD` |
+| `secrets.keys` | `NEON_SECRETS__KEYS` |
 | `database.max_connections` | `NEON_DATABASE__MAX_CONNECTIONS` |
 | `observability.logging.level` | `NEON_OBSERVABILITY__LOGGING__LEVEL` |
 | `observability.tracing.trust_incoming` | `NEON_OBSERVABILITY__TRACING__TRUST_INCOMING` |
@@ -126,14 +189,16 @@ flowchart LR
 So an operator can fix any value with the deployment, and admins change the rest while the
 server runs.
 
-**Planned.** The admin page, where instance admins see every setting, where its value comes
-from, and change it. It arrives with accounts.
+Admins read every setting, with its value, its default and where the value comes from, at
+`GET /api/v1/admin/settings`, and change them with `PATCH /api/v1/admin/settings`.
+
+**Planned.** The admin page in the web app, on top of these routes.
 
 ## Pinned settings
 
 A runtime setting that an environment variable or `neon.yaml` sets is **pinned**. Its value
-comes from there whatever the database holds, and the admin page will show it locked,
-naming the variable or the file. Pinning suits values managed with the deployment, such as the
+comes from there whatever the database holds. The settings routes mark it `pinned` and
+refuse to change it, naming the variable or the file. Pinning suits values managed with the deployment, such as the
 instance's name on a hosted instance.
 
 Removing the variable or the key unpins the setting: a value saved in the database applies
@@ -143,9 +208,11 @@ again, or else the default.
 
 A value saved in the database applies without a restart. Before a value is saved, the
 settings registry checks it, and checks it against the other settings where they depend on
-each other, so a combination that cannot work is refused rather than discovered later. Once
-mail exists, for example, email verification cannot be turned on while no mail server is
-configured.
+each other, so a combination that cannot work is refused rather than discovered later.
+`auth.requests`, for example, cannot be on unless `auth.registration` is `invite`. Once
+mail exists, email verification cannot be turned on while no mail server is configured.
+
+Secret settings are kept sealed with the [secret keys](#secret-keys), each bound to its key.
 
 ## The settings audit
 

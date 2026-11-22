@@ -143,6 +143,7 @@ The `neon` binary has these commands:
 |---|---|
 | `neon serve` | Runs the server. The default when no command is given. |
 | `neon migrate` | Applies pending migrations and exits. |
+| `neon admin create --email ADDRESS` | Creates an admin account, whatever the registration mode. Asks for the password at a terminal, or reads it from stdin. |
 | `neon openapi [--out PATH]` | Prints the OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the runtime settings reference as markdown. |
 | `neon config check` | Loads and checks the configuration, then prints it with secrets redacted. |

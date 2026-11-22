@@ -91,7 +91,7 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts'],
+          items: ['guides/introduction', 'guides/concepts', 'guides/accounts'],
         },
         {
           label: 'Self-hosting',
@@ -106,6 +106,7 @@ export default defineConfig({
           items: [
             'architecture/overview',
             'architecture/data',
+            'architecture/security',
             'architecture/observability',
             'architecture/web',
             'architecture/decisions',

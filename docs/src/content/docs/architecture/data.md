@@ -4,7 +4,7 @@ description: What Neon Workspace keeps in Postgres, how its SQL is checked, how 
 ---
 
 Everything Neon Workspace keeps lasting is in one Postgres 18 database: settings, the job
-queue, and, as they arrive, accounts, sessions, workspaces and their content. There is no
+queue, accounts, sessions, invites, and, as they arrive, workspaces and their content. There is no
 cache server and no message broker beside it. Attachments are the one exception, **planned**:
 they go to local disk or an S3-compatible store, as files are better kept outside the
 database.
@@ -71,8 +71,9 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail, outgoing
-webhooks, cleanup and exports will be jobs, **planned** with the features that need them;
-the queue itself exists. Nothing else goes through it: edits apply live, and search text is
+webhooks and exports will be jobs, **planned** with the features that need them; the queue
+itself exists. The hourly cleanup of expired sessions, links and invites is not a job but a
+task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
 The queue is a Postgres table, `jobs`. Each row has a kind, a JSON payload, a status
