@@ -31,8 +31,9 @@ flowchart LR
   Postgres and starts the job worker and the HTTP server; it stops them in the reverse
   order, as [Observability](/docs/architecture/observability/#shutdown) describes.
 - **Caddy** serves the app and the docs, proxies the server's paths on the same origin, gets
-  the TLS certificate, and sets the security headers. **Planned**, with the Docker images; in
-  development the server is reached on its own port, 8080.
+  the TLS certificate, and sets the security headers. It is the web image of the
+  [Docker deployment](/docs/self-hosting/install/#with-docker); in development, Vite's server
+  passes the same paths on to the server's own port, 8080.
 - **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
 - **Attachments**, the mail server and the agents' endpoint are **planned**.
 

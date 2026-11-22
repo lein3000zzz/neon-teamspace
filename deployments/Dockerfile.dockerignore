@@ -1,0 +1,12 @@
+# The server image builds from the repository's root and needs only the crates, the lockfile,
+# the toolchain pin, the migrations, the query cache, and cargo-about's configuration for the
+# license notices.
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates
+!migrations
+!.sqlx
+!about.toml
+!about.hbs

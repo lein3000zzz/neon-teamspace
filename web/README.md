@@ -47,10 +47,11 @@ layout that the check walks.
 `../scripts` has no packages of its own, so this app's tools check it: `tsc -b` type-checks it
 through `tsconfig.node.json`, and `lint`, `format` and `test` cover it as well, with the
 configuration in `../scripts`. Its `package.json` only marks the scripts as ES modules, for the
-Vite config, which imports two of them.
+Vite config, which imports some of them.
 
 The minifier strips the license comments from the bundle, so the build writes
-`dist/THIRD_PARTY_NOTICES.txt` instead (`scripts/licenses/notices.ts`). It holds the license
+`dist/THIRD_PARTY_NOTICES.txt` instead (`scripts/licenses/notices.ts`, on helpers it shares
+with the docs in `../scripts/licenses/notices.ts`). It holds the license
 text of every package whose code or stylesheet ends up in `dist/`, and of every bundled font,
 and it is served like any other static file. The build fails when a bundled package ships no
 license text. In that case, copy the text from the package's source repository into

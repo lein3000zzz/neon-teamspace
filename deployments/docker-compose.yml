@@ -1,0 +1,143 @@
+# Neon Workspace on one machine: Postgres, the server, and Caddy serving the app and the docs.
+#
+# Built from this checkout, which docker-compose.build.yml adds:
+#   cp deployments/.env.example deployments/.env     # then set POSTGRES_PASSWORD in it
+#   docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
+#
+# This file alone runs the published images of the release NEON_VERSION names. It has no
+# build sections, so an image that cannot be pulled stops the start:
+#   docker compose -f deployments/docker-compose.yml pull
+#   docker compose -f deployments/docker-compose.yml up -d
+#
+# Compose reads deployments/.env, beside this file, for the variables below; .env.example
+# describes each one. The server's own settings go in deployments/server.env, which only the
+# server reads; server.env.example describes it. `make up` runs the stack built from the
+# checkout in the foreground on http://127.0.0.1:3000.
+#
+# Profiles add services for development:
+#   mail            Mailpit, which catches mail, with its inbox on http://127.0.0.1:8025.
+#   observability   Grafana's otel-lgtm image (Grafana, Prometheus, Tempo, Loki, Pyroscope
+#                   and an OpenTelemetry collector) on http://127.0.0.1:3001, with a dashboard
+#                   of the server's metrics. `make obs-up` starts it alone, for `make run`.
+name: neon
+
+services:
+  postgres:
+    image: postgres:18.7-trixie@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
+    environment:
+      POSTGRES_USER: neon
+      # Read once, when the volume is first created: changing it later needs ALTER USER.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deployments/.env}
+      POSTGRES_DB: neon
+    volumes:
+      # Postgres 18 images keep their data under /var/lib/postgresql/18/docker.
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neon -d neon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+
+  # Not published: clients reach it through web, on the same origin as the app.
+  server:
+    image: ghcr.io/lein3000zzz/neon-workspace-server:${NEON_VERSION:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The server's settings, as environment variables: NEON_ ones for any key the docs'
+    # Configuration page describes, and the standard OTEL_ ones. Optional, as every key has
+    # a default; a blank value leaves its key to it.
+    env_file:
+      - path: ./server.env
+        required: false
+    # Set by the stack, over anything server.env says.
+    environment:
+      NEON_DATABASE__URL: postgres://neon:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deployments/.env}@postgres:5432/neon
+      # On every address inside the stack's network, for Prometheus to scrape, and never
+      # published: it serves profiles and memory contents. The server warns that it is not
+      # on loopback; here that is meant.
+      NEON_OBSERVABILITY__ADMIN__ADDR: 0.0.0.0:9090
+      # Where traces go once NEON_OBSERVABILITY__TRACING__ENABLED is true: the observability
+      # profile's collector, unless NEON_OBSERVABILITY__TRACING__ENDPOINT in server.env names
+      # another.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+    # The admin listener's /readyz: ready once migrations ran and while Postgres answers.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/neon", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+      start_interval: 1s
+    # On SIGTERM the server drains open requests for up to 30 seconds, then gives the job
+    # worker up to 30 more, then closes the pool and flushes its telemetry. Docker kills it
+    # once this runs out.
+    stop_grace_period: 90s
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/lein3000zzz/neon-workspace-web:${NEON_VERSION:-latest}
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      # Caddy takes a blank variable as it is, so a blank domain becomes Caddy's own default,
+      # plain HTTP on :80.
+      NEON_DOMAIN: ${NEON_DOMAIN:-:80}
+      NEON_WEB_TRUSTED_PROXIES: ${NEON_WEB_TRUSTED_PROXIES:-}
+    ports:
+      - "${NEON_HTTP_PORT:-127.0.0.1:3000}:80"
+      - "${NEON_HTTPS_PORT:-127.0.0.1:3443}:443"
+      - "${NEON_HTTPS_PORT:-127.0.0.1:3443}:443/udp"
+    volumes:
+      # The certificates Caddy gets for NEON_DOMAIN, kept across new images.
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  mailpit:
+    profiles: [mail]
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
+    # SMTP on mailpit:1025 inside the network; the inbox on the published port.
+    ports:
+      - "${MAILPIT_PORT:-127.0.0.1:8025}:8025"
+    restart: unless-stopped
+
+  otel-lgtm:
+    profiles: [observability]
+    image: grafana/otel-lgtm:0.41.1@sha256:1b852b77d7bcadb7699bfe7c78a51d059dff85168de674728cf7abf4474645e5
+    environment:
+      # The dashboard opens first.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/neon/neon.json
+    ports:
+      # Grafana, signed in as an admin without a password: keep it on loopback.
+      - "${GRAFANA_PORT:-127.0.0.1:3001}:3000"
+      # For a server outside the stack, as `make run` starts: OTLP over HTTP, and Pyroscope.
+      - "${OTLP_HTTP_PORT:-127.0.0.1:4318}:4318"
+      - "${PYROSCOPE_PORT:-127.0.0.1:4040}:4040"
+    volumes:
+      # The image's Prometheus configuration, plus the server as a target.
+      - ./grafana/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro
+      - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/neon.yaml:ro
+      - ./grafana/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards/neon:ro
+      - otel-lgtm:/data
+    # The server outside the stack, on the host's loopback (Docker Desktop's name for it).
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD", "/otel-lgtm/docker/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+      start_interval: 2s
+    restart: unless-stopped
+
+volumes:
+  postgres:
+  caddy-data:
+  caddy-config:
+  otel-lgtm:

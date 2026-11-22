@@ -1,0 +1,17 @@
+Third-party notices
+
+Neon Workspace's server, the neon binary, is built from the Rust crates below, each under
+the license named with it. Each section is one license text, as the crates it lists ship
+it, with their copyright notices.
+{{#each licenses}}
+
+================================================================================
+{{{name}}} ({{{id}}})
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{{crate.version}}}
+{{/each}}
+--------------------------------------------------------------------------------
+
+{{{text}}}
+{{/each}}

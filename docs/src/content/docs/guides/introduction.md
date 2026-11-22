@@ -46,6 +46,8 @@ the features build on:
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
+- The server and web images, and a Compose file that runs them with Postgres; see
+  [Install](/docs/self-hosting/install/).
 
 ## What is planned
 
@@ -59,7 +61,7 @@ in the order it is built:
 4. Databases with table, board and list views.
 5. Comments, mentions and an inbox, page history, search and attachments.
 6. Agents over MCP, and webhooks in and out.
-7. Docker images, signed releases and the first version, 0.1.0.
+7. Signed releases and the first version, 0.1.0.
 8. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 

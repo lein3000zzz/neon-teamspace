@@ -18,12 +18,49 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
-| `web` | The web app: React, Vite and TanStack. |
+| `web` | The web app: React, Vite and TanStack. Its `Dockerfile` and `Caddyfile` make the web image. |
 | `docs` | The documentation site, Astro Starlight. |
-| `scripts` | Tooling shared by the web app and the docs, such as the license check. |
+| `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
+| `e2e` | End-to-end tests of the whole stack, with Playwright. |
+| `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. Each crate's
 `Cargo.toml` lists what it may use, so the compiler enforces the direction.
+
+## Running it with Docker
+
+Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
+`ghcr.io/lein3000zzz/neon-workspace-server`, the `neon` binary on distroless, and
+`ghcr.io/lein3000zzz/neon-workspace-web`, Caddy with the app and the docs, which passes the
+server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
+Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
+`deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
+under local names:
+
+```sh
+cp deployments/.env.example deployments/.env   # then set POSTGRES_PASSWORD in it
+make up                                        # http://127.0.0.1:3000/, Ctrl+C stops it
+```
+
+`make up` builds the images and runs the stack in the foreground; `make down` stops it and
+keeps the data. Without make,
+`docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build`
+runs it in the background. `deployments/.env.example` lists the stack's settings, among them
+`NEON_DOMAIN`, a domain for which Caddy gets its TLS certificate itself. The server's own
+settings go in `deployments/server.env`, which only the server reads; `server.env.example`
+beside it lists the usual ones. The
+[install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
+published images, domains and TLS, upgrades, stopping, and where the data lives.
+
+The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
+a dashboard of the server's metrics) add services for development. `make obs-up` starts the
+observability stack on its own, beside `make run`; see
+[its page](docs/src/content/docs/self-hosting/observability.md).
+
+`make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
+the Playwright tests in `e2e/` against it, and removes it, leaving the report in
+`e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
+and headless Chromium itself.
 
 ## Development
 
@@ -81,12 +118,13 @@ make web-install
 make web-dev               # http://localhost:5173/, passing /api and the server's paths to :8080
 make docs-install
 make docs-dev              # http://localhost:4321/docs/
+make e2e-install           # the end-to-end tests' packages, which make check checks too
 ```
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and
 the advisory database are downloaded, no network: formatting, clippy, a build from the
-`.sqlx/` cache, the generated files, the web app's and the docs' checks, and the license and
-advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+`.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
+checks, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -108,6 +146,7 @@ The `neon` binary has these commands:
 | `neon openapi [--out PATH]` | Prints the OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the runtime settings reference as markdown. |
 | `neon config check` | Loads and checks the configuration, then prints it with secrets redacted. |
+| `neon health [--live]` | Asks the admin listener's `/readyz`, or `/livez`, and exits 0 when it answers 200, else 1. For container health checks. |
 
 ### Generated files
 
@@ -129,9 +168,16 @@ runs, so commit it with the route change.
 
 Every dependency must be under a license that `deny.toml` allows. `make licenses` runs all of
 cargo-deny's checks on the crates (licenses, advisories, bans and sources), then checks the
-packages installed in `web/` and `docs/` with `scripts/licenses.ts`, which reads the same
-allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
+packages installed in `web/`, `docs/` and `e2e/` with `scripts/licenses.ts`, which reads the
+same allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
 with the reason none of it ships.
+
+What ships carries its dependencies' license notices. The web app's and the docs' builds
+write `THIRD_PARTY_NOTICES.txt` beside their files, served at `/THIRD_PARTY_NOTICES.txt` and
+`/docs/THIRD_PARTY_NOTICES.txt`. The server image holds the crates' notices at
+`/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`, which [cargo-about](https://github.com/EmbarkStudios/cargo-about)
+writes as the image builds, as `about.toml` sets out; its accepted licenses are the allow list
+of `deny.toml`, and a test keeps the two the same.
 
 ### Configuration
 
