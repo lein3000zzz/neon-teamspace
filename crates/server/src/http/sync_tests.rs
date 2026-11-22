@@ -652,8 +652,13 @@ async fn compaction_keeps_the_content_identical(pool: PgPool) {
         ada.write(line).await;
         dee.until(line, |doc, _| text_of(doc).ends_with(line)).await;
     }
-    eventually("a snapshot to take the updates in", || async {
-        has_snapshot(&pool, page).await && logged_updates(&pool, page).await == 0
+    // Updates are logged in short batches, so the log can be empty while the last change is
+    // still on its way: wait until the snapshot holds everything Ada wrote.
+    let written = ada.doc.transact().state_vector();
+    eventually("a snapshot to take every update in", || async {
+        has_snapshot(&pool, page).await
+            && logged_updates(&pool, page).await == 0
+            && saved(&pool, page).await.transact().state_vector() == written
     })
     .await;
 
