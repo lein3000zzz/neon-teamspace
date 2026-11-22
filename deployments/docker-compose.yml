@@ -56,6 +56,10 @@ services:
     # Set by the stack, over anything server.env says.
     environment:
       NEON_DATABASE__URL: postgres://neon:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deployments/.env}@postgres:5432/neon
+      # Rate limits count the client address Caddy forwards. Its peer is web on the stack's
+      # network, whose range Docker picks from the private ones. Only the stack's containers
+      # reach the server, as its port is not published, so they may all be believed here.
+      NEON_SERVER__TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7
       # On every address inside the stack's network, for Prometheus to scrape, and never
       # published: it serves profiles and memory contents. The server warns that it is not
       # on loopback; here that is meant.

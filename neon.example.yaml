@@ -16,14 +16,12 @@ server:
   # and no mail goes out: its links point here.
   public_url:
   # Peers whose X-Forwarded-For names the client, for rate limits: the reverse proxy in
-  # front. Ranges or single addresses. In the environment, separate them with commas.
+  # front. Ranges or single addresses. In the environment, separate them with commas. The
+  # default is loopback; name a proxy elsewhere by its address, as anyone a range covers
+  # can pick the address rate limits count.
   trusted_proxies:
     - 127.0.0.0/8
-    - 10.0.0.0/8
-    - 172.16.0.0/12
-    - 192.168.0.0/16
     - ::1/128
-    - fc00::/7
 
 database:
   # The Postgres URL. Required, and better set as NEON_DATABASE__URL, since it holds a

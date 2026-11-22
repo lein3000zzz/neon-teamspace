@@ -75,15 +75,18 @@ details.
 
 Rate limits count by the client's address. The server takes it from the connection, unless
 the connection comes from one of `server.trusted_proxies`: then it takes the last entry of
-`X-Forwarded-For`. The default trusts loopback and the private networks, `127.0.0.0/8`,
-`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `::1` and `fc00::/7`, which is where Caddy
-of the web image or another reverse proxy usually sits. Narrow it to the proxy's address
-when clients on the same private network reach the server directly, as they could pick
-their own address otherwise. The variable takes the ranges separated by commas:
+`X-Forwarded-For`. The default trusts loopback alone, `127.0.0.0/8` and `::1`, for a reverse
+proxy on the same machine. A proxy elsewhere is named by its address. Name as little as
+possible: a client whose address a range covers, and that reaches the server directly, could
+pick the address it is counted by. The variable takes the ranges separated by commas:
 
 ```sh
 NEON_SERVER__TRUSTED_PROXIES=10.1.0.4,192.168.10.0/24
 ```
+
+The Compose stack sets it to the private networks, where Docker puts the stack's own network:
+the server's port is not published there, so only the stack's containers reach it, and
+Caddy replaces `X-Forwarded-For` with the one address it sees.
 
 ## The first admin
 

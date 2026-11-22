@@ -127,7 +127,8 @@ each kind per account, and five confirmation links per request to join.
 
 The limits count by the client's address. The server takes it from the connection, or from
 the last `X-Forwarded-For` entry when the connection comes from `server.trusted_proxies`,
-which are loopback and the private networks unless set. Caddy in the web image replaces
+which is loopback alone unless set. The Compose stack trusts the private networks, as only
+its own containers reach the server there. Caddy in the web image replaces
 `X-Forwarded-For` with the one address it sees, so a client cannot choose the address the
 server counts. A server process counts on its own, and a second process would need a shared
 counter behind the same port.
