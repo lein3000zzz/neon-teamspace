@@ -97,7 +97,7 @@ mod tests {
         let registry = Registry::builder()
             .define(Definition::string(
                 Key::new("instance.name"),
-                "Neon Workspace",
+                "Neon Teamspace",
                 "The name | shown.",
             ))
             .define(Definition::enumeration(
@@ -128,7 +128,7 @@ mod tests {
             [
                 "| `auth.registration` | enum: open, invite, closed | `invite` | `NEON_SETTINGS__AUTH__REGISTRATION` | Who may sign up. |",
                 "| `auth.session_idle` | duration | `7d` | `NEON_SETTINGS__AUTH__SESSION_IDLE` | Idle sign-out. |",
-                "| `instance.name` | string | `Neon Workspace` | `NEON_SETTINGS__INSTANCE__NAME` | The name \\| shown. |",
+                "| `instance.name` | string | `Neon Teamspace` | `NEON_SETTINGS__INSTANCE__NAME` | The name \\| shown. |",
                 "| `mail.password` | secret | empty | `NEON_SETTINGS__MAIL__PASSWORD` | The password. *Browser session only.* |",
             ]
         );

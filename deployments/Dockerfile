@@ -95,9 +95,9 @@ FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384def
 COPY --from=build /neon /usr/local/bin/neon
 COPY --from=notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
 
-LABEL org.opencontainers.image.title="neon-workspace-server" \
-      org.opencontainers.image.description="Neon Workspace's server, the neon binary" \
-      org.opencontainers.image.source="https://github.com/lein3000zzz/neon-workspace" \
+LABEL org.opencontainers.image.title="neon-teamspace-server" \
+      org.opencontainers.image.description="Neon Teamspace's server, the neon binary" \
+      org.opencontainers.image.source="https://github.com/lein3000zzz/neon-teamspace" \
       org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 # Heap profiling switched on in jemalloc, which reads this once as the process starts. It costs

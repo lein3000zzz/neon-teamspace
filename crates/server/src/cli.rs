@@ -17,7 +17,7 @@ use crate::{config, http, runtime};
 #[command(
     name = "neon",
     version,
-    about = "Neon Workspace, a self-hosted team workspace."
+    about = "Neon Teamspace, a self-hosted team workspace."
 )]
 pub struct Cli {
     #[command(subcommand)]

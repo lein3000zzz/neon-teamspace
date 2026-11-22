@@ -6,7 +6,7 @@
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 export const strings = {
-  product: "neon workspace",
+  product: "neon teamspace",
   skipToContent: "Skip to content",
   nav: {
     label: "Main",
@@ -48,7 +48,7 @@ export const strings = {
     home: "Back to home",
   },
   appearance: {
-    lede: "How neon workspace looks. Changes apply as you make them, and are kept with your account, so your other browsers follow.",
+    lede: "How neon teamspace looks. Changes apply as you make them, and are kept with your account, so your other browsers follow.",
     palette: "Palette",
     paletteHint: "The ground, ink and rules everything else sits on.",
     palettes: { nothing: "Nothing", soft: "Soft", warm: "Warm" },

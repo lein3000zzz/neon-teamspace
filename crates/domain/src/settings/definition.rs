@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(def.parse_text("Neon"), Ok(Value::String("Neon".into())));
         assert_eq!(def.parse_text("   "), Err("must not be empty".into()));
         assert_eq!(
-            def.parse_json(&json!("Neon Workspace")),
+            def.parse_json(&json!("Neon Teamspace")),
             Err("must be at most 5 characters".into())
         );
     }

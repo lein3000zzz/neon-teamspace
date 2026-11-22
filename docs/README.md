@@ -1,4 +1,4 @@
-# Neon Workspace docs
+# Neon Teamspace docs
 
 The documentation site, served at `/docs`. It is [Astro](https://astro.build) with
 [Starlight](https://starlight.astro.build), built into static files.

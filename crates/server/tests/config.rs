@@ -90,7 +90,7 @@ fn defaults_apply_without_a_file() {
         assert_eq!(loaded.config.observability, default_observability());
         assert_eq!(
             instance_name(&loaded),
-            ("Neon Workspace".to_owned(), Source::Default)
+            ("Neon Teamspace".to_owned(), Source::Default)
         );
         Ok(())
     });
@@ -175,7 +175,7 @@ fn blank_variables_and_empty_keys_count_as_unset() {
         assert_eq!(loaded.config.server, ServerConfig::default());
         assert_eq!(
             instance_name(&loaded),
-            ("Neon Workspace".to_owned(), Source::Default)
+            ("Neon Teamspace".to_owned(), Source::Default)
         );
         Ok(())
     });

@@ -115,7 +115,7 @@ export function collectNotices({
 
   return noticesFile(
     [
-      "Neon Workspace's documentation includes code and styles from the packages below,",
+      "Neon Teamspace's documentation includes code and styles from the packages below,",
       'each under the license named with it. The text after each heading is the license',
       'and copyright notice that came with it.',
     ],

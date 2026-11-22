@@ -36,12 +36,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: neon-workspace-server
+          - image: neon-teamspace-server
             dockerfile: deployments/Dockerfile
-            description: The Neon Workspace server, the neon binary
-          - image: neon-workspace-web
+            description: The Neon Teamspace server, the neon binary
+          - image: neon-teamspace-web
             dockerfile: web/Dockerfile
-            description: The Neon Workspace web app and docs, behind Caddy
+            description: The Neon Teamspace web app and docs, behind Caddy
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -126,7 +126,7 @@ jobs:
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
           notes="## Images
 
-          - \`$IMAGES/neon-workspace-server:${TAG#v}\`
-          - \`$IMAGES/neon-workspace-web:${TAG#v}\`"
+          - \`$IMAGES/neon-teamspace-server:${TAG#v}\`
+          - \`$IMAGES/neon-teamspace-web:${TAG#v}\`"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
             --generate-notes --notes "$notes" "${prerelease[@]}"
