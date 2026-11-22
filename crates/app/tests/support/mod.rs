@@ -1,5 +1,6 @@
-//! What the auth and workspace tests share: the services on a fresh database with fakes
-//! for their ports, a clock that moves by hand, cheap password hashes, and the mail queued.
+//! What the auth, workspace and page tests share: the services on a fresh database with
+//! fakes for their ports, a clock that moves by hand, cheap password hashes, the mail
+//! queued, and the access changes told.
 
 #![allow(dead_code, reason = "each test binary uses a part of it")]
 
@@ -15,6 +16,7 @@ use neon_app::clock::ManualTime;
 use neon_app::crypto::{Argon2Params, Envelope, Keyring, PasswordHasher};
 use neon_app::jobs::Job;
 use neon_app::mail::{KIND, Mail, MailQueue, Message};
+use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::workspaces::{NewWorkspace, WorkspaceDetails, WorkspaceService};
@@ -108,14 +110,33 @@ pub fn envelope() -> Envelope {
     Envelope::new(Keyring::parse(&[entry]).expect("a valid key"))
 }
 
+/// Keeps every access change told, in order.
+#[derive(Default)]
+pub struct ToldChanges(Mutex<Vec<AccessChange>>);
+
+impl ToldChanges {
+    /// The changes told since the last call, oldest first.
+    pub fn take(&self) -> Vec<AccessChange> {
+        std::mem::take(&mut *self.0.lock().expect("lock"))
+    }
+}
+
+impl AccessChanges for ToldChanges {
+    fn access_changed(&self, change: AccessChange) {
+        self.0.lock().expect("lock").push(change);
+    }
+}
+
 /// A service on a fresh database, with its fakes.
 pub struct Harness {
     pub pool: PgPool,
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
+    pub pages: PageService,
     pub mail: MailQueue,
     pub limiter: Arc<ScriptedLimiter>,
+    pub changes: Arc<ToldChanges>,
     pub time: ManualTime,
 }
 
@@ -174,9 +195,15 @@ impl Harness {
             options.public_url,
             time.clock(),
         );
+        let changes = Arc::new(ToldChanges::default());
         let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
             .envelope(options.envelope.clone())
+            .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
+            .clock(time.clock())
+            .build();
+        let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
+            .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
             .clock(time.clock())
             .build();
         let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
@@ -193,8 +220,10 @@ impl Harness {
             settings,
             auth,
             workspaces,
+            pages,
             mail,
             limiter,
+            changes,
             time,
         }
     }

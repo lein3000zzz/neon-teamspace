@@ -9,7 +9,7 @@ use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{WorkspaceError, WorkspaceService, actor, locked_membership, membership};
+use super::{AccessChange, WorkspaceError, WorkspaceService, actor, locked_membership, membership};
 
 const NO_MEMBER: &str = "no such member";
 
@@ -88,6 +88,7 @@ impl WorkspaceService {
                 to = %role,
                 "member role changed"
             );
+            self.member_changed(workspace_id, user_id);
             Ok(member)
         })
         .await
@@ -126,6 +127,7 @@ impl WorkspaceService {
                 user_id = %user_id,
                 "member removed"
             );
+            self.member_changed(workspace_id, user_id);
             Ok(())
         })
         .await
@@ -156,6 +158,7 @@ impl WorkspaceService {
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %workspace_id, "workspace left");
+            self.member_changed(workspace_id, principal.user.id);
             Ok(())
         })
         .await
@@ -200,9 +203,19 @@ impl WorkspaceService {
                 workspace_id = %workspace_id,
                 "ownership transferred"
             );
+            self.member_changed(workspace_id, to);
+            self.member_changed(workspace_id, principal.user.id);
             Ok(())
         })
         .await
+    }
+
+    /// Tells the port that a member's role changed, or that they left or were removed.
+    fn member_changed(&self, workspace_id: Uuid, user_id: Uuid) {
+        self.changed(AccessChange::Workspace {
+            workspace_id,
+            user_id: Some(user_id),
+        });
     }
 
     /// Saves a new role, with what it means for teamspaces: guests are in none, everyone

@@ -76,6 +76,16 @@ pub mod workspaces {
     pub const LIMIT_AGENTS: Key<i64> = Key::new("workspaces.limits.agents");
 }
 
+/// Pages: how long the trash keeps them.
+pub mod pages {
+    use std::time::Duration;
+
+    use neon_domain::settings::Key;
+
+    /// How long a page stays in the trash before the hourly cleanup deletes it for good.
+    pub const TRASH_RETENTION: Key<Duration> = Key::new("pages.trash_retention");
+}
+
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
 /// From address. Mailing links needs more, which the mail queue checks: a secret key to
 /// seal them while they wait, and the public URL they point to.
@@ -90,6 +100,10 @@ const NEEDS_MAIL: &str = "needs mail set up first: mail.enabled on, with mail.ho
 
 /// The longest a session may last, either way.
 const MAX_SESSION_TTL: Duration = Duration::from_secs(365 * 24 * 3600);
+
+/// The shortest and longest the trash keeps pages.
+const MIN_TRASH_RETENTION: Duration = Duration::from_secs(3600);
+const MAX_TRASH_RETENTION: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
 
 /// Every runtime setting the server reads.
 ///
@@ -329,6 +343,16 @@ pub fn registry() -> Registry {
             )
             .check(not_negative),
         )
+        .define(
+            Definition::duration(
+                pages::TRASH_RETENTION,
+                Duration::from_secs(30 * 24 * 3600),
+                "How long a page stays in the trash, with the pages trashed along with it, \
+                 before the hourly cleanup deletes it for good. Until then, those who could \
+                 edit it restore it. Applies to the whole trash at the next cleanup.",
+            )
+            .check(between(MIN_TRASH_RETENTION, MAX_TRASH_RETENTION)),
+        )
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
@@ -434,6 +458,10 @@ mod tests {
         assert_eq!(*snapshot.get(workspaces::LIMIT_MEMBERS), 0);
         assert_eq!(*snapshot.get(workspaces::LIMIT_STORAGE_BYTES), 0);
         assert_eq!(*snapshot.get(workspaces::LIMIT_AGENTS), 0);
+        assert_eq!(
+            *snapshot.get(pages::TRASH_RETENTION),
+            Duration::from_secs(30 * 24 * 3600)
+        );
         assert!(!mail_set_up(&snapshot));
         assert!(snapshot.iter().all(|(_, r)| r.source == Source::Default));
         assert_eq!(registry.check_rules(&snapshot), Ok(()));
@@ -486,6 +514,10 @@ mod tests {
                 "{limit}"
             );
         }
+        assert_eq!(
+            refuse("pages.trash_retention", "30m"),
+            "must be between 1h and 3650d"
+        );
         assert_eq!(refuse("mail.tls", "ssl"), "want one of starttls, tls, none");
         assert!(refuse("mail.host", "smtp.example.com:587").starts_with("want a host alone"));
         assert_eq!(

@@ -9,7 +9,7 @@ use neon_store::workspaces as repo;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{NO_WORKSPACE, WorkspaceError, WorkspaceService, actor};
+use super::{AccessChange, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor};
 
 /// The most workspaces one page lists, and how many it lists unless told.
 pub const MAX_PAGE: i64 = 200;
@@ -191,6 +191,10 @@ impl WorkspaceService {
                 return Err(WorkspaceError::NotFound(NO_WORKSPACE));
             }
             info!(actor_id = %principal.user.id, workspace_id = %id, "workspace deleted by an instance admin");
+            self.changed(AccessChange::Workspace {
+                workspace_id: id,
+                user_id: None,
+            });
             Ok(())
         })
         .await
