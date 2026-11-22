@@ -41,12 +41,21 @@ test("index.html is checked on every load and hashed assets are cached for good"
   expect((await request.get("/theme.js")).headers()["cache-control"]).toBe("no-cache");
 });
 
-test("missing files are 404s, not the app", async ({ request }) => {
-  for (const path of ["/assets/missing.js", "/assets/missing", "/missing.png", "/fonts/missing"]) {
+test("missing files are 404s, not the app, and never cached", async ({ request }) => {
+  for (const path of [
+    "/assets/missing.js",
+    "/assets/missing",
+    "/missing.png",
+    "/fonts/missing",
+    "/docs/_astro/missing.js",
+    "/docs/missing/",
+  ]) {
     const response = await request.get(path);
 
     expect(response.status(), path).toBe(404);
     expect(await response.text(), path).not.toContain('<div id="root">');
+    // A 404 cached under a hashed asset's path would outlive the asset's next deployment.
+    expect(response.headers()["cache-control"], path).toBe("no-store");
   }
 });
 

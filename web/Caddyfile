@@ -96,10 +96,13 @@
 	}
 
 	# Errors: a missing file, or the server unreachable. They keep the headers set above but
-	# for the deletion. A page missing from the docs gets the docs' own not-found page, with
-	# its 404; the rest get their status alone.
+	# for the deletion, and Cache-Control, which is set again: an error must never be kept, as
+	# the one a hashed asset's path got would be for a year, even once the file is there. A
+	# page missing from the docs gets the docs' own not-found page, with its 404; the rest get
+	# their status alone.
 	handle_errors {
 		header -Server
+		header Cache-Control no-store
 		@docs_missing {
 			path /docs /docs/*
 			expression {err.status_code} == 404
