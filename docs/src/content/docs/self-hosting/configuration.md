@@ -97,8 +97,9 @@ reads these variables as typed, so a password of digits stays a string of digits
 ## Secret keys
 
 `secrets.keys` lists the keys that seal secrets kept in the database: copies of invite codes,
-so admins can copy them again, and secret settings. Each entry is an id and 32 random bytes
-in base64, joined by a colon. Make a key with:
+so admins can copy them again, secret settings, and mail waiting in the job queue, whose
+links work once. Each entry is an id and 32 random bytes in base64, joined by a colon. Make
+a key with:
 
 ```sh
 echo "$(date +%Y):$(openssl rand -base64 32)"
@@ -112,11 +113,12 @@ commas:
 NEON_SECRETS__KEYS=2027:<new key>,2026:<old key>
 ```
 
-Without keys, the server still runs. Invite codes show once, when they are made, and saving
-a secret setting is refused with a message that names `secrets.keys`. A key that does not
-parse stops the start, with an error naming the entry and never its material. Losing a key
-loses what it sealed: invite codes can no longer be copied, and secret settings must be
-saved again. Back the keys up, apart from the database backups.
+Without keys, the server still runs. Invite codes show once, when they are made, saving a
+secret setting is refused with a message that names `secrets.keys`, and no mail goes out. A
+key that does not parse stops the start, with an error naming the entry and never its
+material. Losing a key loses what it sealed: invite codes can no longer be copied, secret
+settings must be saved again, and mail still waiting in the queue is dropped. Back the keys
+up, apart from the database backups.
 
 ## The observability section
 
@@ -166,6 +168,7 @@ underscores, between its levels.
 | `observability.tracing.trust_incoming` | `NEON_OBSERVABILITY__TRACING__TRUST_INCOMING` |
 | `observability.admin.addr` | `NEON_OBSERVABILITY__ADMIN__ADDR` |
 | `settings.instance.name` | `NEON_SETTINGS__INSTANCE__NAME` |
+| `settings.mail.password` | `NEON_SETTINGS__MAIL__PASSWORD` |
 
 The separator is two underscores because keys have single ones of their own:
 `NEON_DATABASE__MAX_CONNECTIONS` can only mean `database.max_connections`.
@@ -209,10 +212,13 @@ again, or else the default.
 A value saved in the database applies without a restart. Before a value is saved, the
 settings registry checks it, and checks it against the other settings where they depend on
 each other, so a combination that cannot work is refused rather than discovered later.
-`auth.requests`, for example, cannot be on unless `auth.registration` is `invite`. Once
-mail exists, email verification cannot be turned on while no mail server is configured.
+`auth.requests`, for example, cannot be on unless `auth.registration` is `invite`, and
+neither it nor `auth.verify_email` can be on while [mail](/docs/self-hosting/mail/) is not
+set up.
 
 Secret settings are kept sealed with the [secret keys](#secret-keys), each bound to its key.
+They, and the settings that say where a secret goes, such as `mail.host`, change only from a
+browser session: an API token is refused, even an admin's.
 
 ## The settings audit
 

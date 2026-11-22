@@ -8,9 +8,10 @@ a role, `admin` or `user`. Admins manage accounts, invites, requests to join and
 runtime settings. Everyone else uses the workspaces they are in.
 
 :::note[Mail]
-Verifying sign-ups, password resets, mailed invites and requests to join all send mail. The
-server has no mail transport yet, so these flows stay off whatever their settings say, and
-`GET /api/v1/auth/config` reports them off. The rest of this page works without mail.
+Verifying sign-ups, password resets, mailed invites and requests to join all send mail, so
+they work once [mail is set up](/docs/self-hosting/mail/). Until then they stay off, and
+`GET /api/v1/auth/config` reports them off. The rest of this page works without mail. Each
+mail is queued with the change it tells of, so a change that fails sends nothing.
 :::
 
 ## The first admin
@@ -86,10 +87,12 @@ for one with a note of up to 500 characters. The steps:
 2. After the answer, the server mails the address a link that confirms the request. It
    works for 24 hours. Asking again mails a new link, at most one a minute and five in all.
 3. Opening the link confirms the request, through `POST /api/v1/auth/join-requests/confirm`.
-   Only then do admins see it, and each admin gets a mail about it.
+   Only then do admins see it, and each active admin gets a mail about it while
+   `mail.notifications` is on.
 4. An admin approves it, which makes an invite bound to the address, for one sign-up, and
-   mails it there. Or the admin denies it. With `auth.request_denied_mail` on, the address
-   is told so, and it may ask again in 30 days.
+   mails it there. While mail cannot go, the invite is made all the same, the answer's
+   `queued` is false, and the admin hands the code over. Or the admin denies it. With
+   `auth.request_denied_mail` on, the address is told so, and it may ask again in 30 days.
 
 Nothing is mailed to an address with an account, one whose request waits for the admins,
 or one denied in the last 30 days. An address has one open request at most, and the

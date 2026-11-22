@@ -95,7 +95,12 @@ export default defineConfig({
         },
         {
           label: 'Self-hosting',
-          items: ['self-hosting/install', 'self-hosting/configuration', 'self-hosting/observability'],
+          items: [
+            'self-hosting/install',
+            'self-hosting/configuration',
+            'self-hosting/mail',
+            'self-hosting/observability',
+          ],
         },
         {
           label: 'Reference',
