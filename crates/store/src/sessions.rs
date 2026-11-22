@@ -7,15 +7,23 @@ use uuid::Uuid;
 
 use crate::users::parse_role;
 
+/// Saves a new session, if its account still has the password hash `password_hash` and
+/// is not disabled, and says whether it did. The account's row is locked for share while
+/// it is checked, so a change of password or a disable either commits first, and no
+/// session is made, or waits for this one, and ends it with the others.
 pub async fn insert(
     executor: impl PgExecutor<'_>,
     session: &Session,
     token_hash: &[u8],
-) -> sqlx::Result<()> {
-    sqlx::query!(
+    password_hash: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
         "INSERT INTO sessions (id, user_id, token_hash, user_agent, ip, created_at, last_seen_at,
                                expires_at, absolute_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+         SELECT $1, u.id, $3, $4, $5, $6, $7, $8, $9
+         FROM users u
+         WHERE u.id = $2 AND u.password_hash = $10 AND u.disabled_at IS NULL
+         FOR SHARE",
         session.id,
         session.user_id,
         token_hash,
@@ -25,10 +33,11 @@ pub async fn insert(
         session.last_seen_at,
         session.expires_at,
         session.absolute_expires_at,
+        password_hash,
     )
     .execute(executor)
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
 /// The session of a token hash with its user, in one query, as every request asks.

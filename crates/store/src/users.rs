@@ -162,6 +162,25 @@ pub async fn password_hash(
         .await
 }
 
+/// Replaces the password hash `old` with `new`, the same password hashed again, and says
+/// whether it did: not when the password changed since `old` was read.
+pub async fn upgrade_password_hash(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    old: &str,
+    new: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "UPDATE users SET password_hash = $3 WHERE id = $1 AND password_hash = $2",
+        id,
+        old,
+        new,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn set_password_hash(
     executor: impl PgExecutor<'_>,
     id: Uuid,
