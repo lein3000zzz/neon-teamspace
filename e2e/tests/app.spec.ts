@@ -1,29 +1,22 @@
-import { type Meta, SERVER_VERSION, expect, test } from "./fixtures";
+import { expect, test } from "./fixtures";
 
-test("the sidebar shows the instance's name and the server's version from the API", async ({
-  page,
-}) => {
-  const answered = page.waitForResponse("**/api/v1/meta");
-  await page.goto("/");
-  const response = await answered;
-  expect(response.status()).toBe(200);
-  const meta = (await response.json()) as Meta;
+test("a visitor without a session is sent to sign in, with the way back", async ({ page }) => {
+  const response = await page.goto("/account/tokens");
 
-  expect(meta.version).toBe(SERVER_VERSION);
-  const configured = process.env.E2E_INSTANCE_NAME;
-  if (configured !== undefined && configured !== "") {
-    expect(meta.name).toBe(configured);
-  }
-  const footer = page.getByRole("complementary").getByRole("status");
-  await expect(footer).toContainText(meta.name);
-  await expect(footer).toContainText(`v${SERVER_VERSION}`);
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveURL(/\/login\?next=%2Faccount%2Ftokens$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
 
-test("each route of the app loads from its own address", async ({ page }) => {
+test("each signed-out page of the app loads from its own address", async ({ page }) => {
+  // Without mail set up, which the e2e stack has not, the pages that need it say they are off.
   for (const [path, heading] of [
-    ["/", "Nothing here yet"],
-    ["/styleguide", "Styleguide"],
-    ["/settings/appearance", "Appearance"],
+    ["/login", "Sign in"],
+    ["/register", "Create an account"],
+    ["/forgot", "Password resets are off"],
+    ["/join", "Requests to join are off"],
+    ["/verify", "This link is incomplete"],
+    ["/reset", "This link is incomplete"],
   ] as const) {
     const response = await page.goto(path);
 
@@ -32,8 +25,11 @@ test("each route of the app loads from its own address", async ({ page }) => {
   }
 });
 
-test("an address the app has no route for gets its not-found page", async ({ page }) => {
-  await page.goto("/no/such/page");
+test("the sign-in page names the instance", async ({ page }) => {
+  await page.goto("/login");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
+  const configured = process.env.E2E_INSTANCE_NAME;
+  if (configured !== undefined && configured !== "") {
+    await expect(page.getByText(configured, { exact: true })).toBeVisible();
+  }
 });
