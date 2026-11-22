@@ -63,6 +63,10 @@ impl AuthService {
     /// demoted nor disabled, so the instance never locks itself out: every such change
     /// locks the active admins first, so changes run one at a time and each sees the
     /// admins as the one before left them.
+    ///
+    /// A change of role or of the disable needs a browser session. With an API token,
+    /// only verifying the address goes through, so a token that leaked can neither make
+    /// an admin of an account its holder controls nor lock admins out.
     pub async fn update_user(
         &self,
         actor: &Principal,
@@ -84,6 +88,16 @@ impl AuthService {
                 .await?
                 .ok_or(AuthError::NotFound("no such user"))?;
             let was_active_admin = user.is_active_admin();
+            let changes_access = update.role.is_some_and(|role| role != user.role)
+                || update
+                    .disabled
+                    .is_some_and(|disabled| disabled != user.is_disabled());
+            if changes_access && !actor.via_session() {
+                return Err(AuthError::Forbidden(
+                    "changing a role, or disabling or enabling an account, needs a browser \
+                     session: API tokens may only verify addresses here",
+                ));
+            }
 
             if let Some(role) = update.role {
                 user.role = role;

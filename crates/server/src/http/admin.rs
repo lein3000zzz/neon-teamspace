@@ -1,5 +1,7 @@
 //! `/api/v1/admin`: accounts, invites, requests to join, runtime settings and mail. Every
-//! route needs an admin: a session of one, or their API token with the admin scope.
+//! route needs an admin: a session of one, or their API token with the admin scope. Making
+//! accounts, changing their role or disable, and the settings that say where secrets go
+//! need the session.
 
 use std::collections::BTreeMap;
 
@@ -89,13 +91,13 @@ pub struct CreateUser {
     tag = "admin",
     summary = "Create an account",
     description = "Works whatever the registration mode, closed included. The address counts as \
-                   verified.",
+                   verified. Only from a browser session: an API token invites people instead.",
     request_body = CreateUser,
     responses(
         (status = CREATED, description = "The account.", body = User),
         (status = BAD_REQUEST, description = "invalid_input, invalid_email or weak_password.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, as for an API token, or insufficient_scope.", body = ErrorBody),
         (status = CONFLICT, description = "email_taken.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -140,14 +142,15 @@ pub struct UpdateUser {
     tag = "admin",
     summary = "Change an account's role, disable or enable it, or verify its address",
     description = "Changes only what the body names. The last admin who can sign in can be \
-                   neither demoted nor disabled.",
+                   neither demoted nor disabled. A change of role or of the disable needs a \
+                   browser session; an API token may only verify the address.",
     params(("id" = Uuid, Path, description = "The account's id.")),
     request_body = UpdateUser,
     responses(
         (status = OK, description = "The account.", body = User),
         (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, as for an API token changing a role or the disable, or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = CONFLICT, description = "last_admin.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),

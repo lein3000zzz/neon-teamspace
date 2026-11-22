@@ -92,6 +92,105 @@ async fn two_admins_demoting_each_other_at_once_leave_one(pool: PgPool) {
     assert_eq!(admins, 1);
 }
 
+/// A leaked admin token must not make an account its holder can sign in to at a browser,
+/// where the settings that say where secrets go change, nor lock admins out.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn admin_tokens_invite_and_verify_but_change_no_one_s_access(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    h.account("grace@example.com", Role::Admin).await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (token, _) = h
+        .auth
+        .create_api_token(&admin, "ops", None, &["read", "write", "admin"])
+        .await
+        .expect("a token");
+    let by_token = h
+        .auth
+        .authenticate_token(token.expose())
+        .await
+        .expect("the token works");
+
+    for role in [Role::Admin, Role::User] {
+        let error = h
+            .auth
+            .create_user(
+                &by_token,
+                NewAccount {
+                    email: "mallory@example.com".into(),
+                    password: secret(PASSWORD),
+                    display_name: None,
+                    role,
+                },
+            )
+            .await
+            .expect_err("tokens invite instead");
+        assert!(
+            matches!(error, AuthError::Forbidden(_)),
+            "{role}: {error:?}"
+        );
+    }
+    let promote = UserUpdate {
+        role: Some(Role::Admin),
+        ..UserUpdate::default()
+    };
+    let enable = UserUpdate {
+        disabled: Some(false),
+        ..UserUpdate::default()
+    };
+    for (id, update) in [
+        (bob.id, promote),
+        (bob.id, disable()),
+        (admin.user.id, demote()),
+        (admin.user.id, disable()),
+    ] {
+        let error = h
+            .auth
+            .update_user(&by_token, id, update)
+            .await
+            .expect_err("needs a browser session");
+        assert!(
+            matches!(error, AuthError::Forbidden(_)),
+            "{update:?}: {error:?}"
+        );
+    }
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("a session disables");
+    let error = h
+        .auth
+        .update_user(&by_token, bob.id, enable)
+        .await
+        .expect_err("needs a browser session");
+    assert!(matches!(error, AuthError::Forbidden(_)), "{error:?}");
+
+    // What changes nobody's access goes through: the role as it is, and verifying.
+    let same = h
+        .auth
+        .update_user(
+            &by_token,
+            bob.id,
+            UserUpdate {
+                role: Some(Role::User),
+                disabled: Some(true),
+                email_verified: Some(true),
+            },
+        )
+        .await
+        .expect("changes nothing that matters");
+    assert_eq!(same.role, Role::User);
+    h.auth
+        .create_invite(&by_token, InviteSpec::default())
+        .await
+        .expect("tokens invite");
+    let accounts: i64 = h.scalar("SELECT count(*) FROM users").await;
+    let admins: i64 = h
+        .scalar("SELECT count(*) FROM users WHERE role = 'admin' AND disabled_at IS NULL")
+        .await;
+    assert_eq!((accounts, admins), (3, 2));
+}
+
 /// Bob's principal is read as his request begins, so it may predate the admin's change.
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_rename_that_began_before_a_disable_keeps_it(pool: PgPool) {

@@ -935,3 +935,87 @@ async fn api_tokens_cannot_change_where_secrets_go(pool: PgPool) {
     .await;
     assert_eq!(renamed.status, StatusCode::OK, "{}", renamed.body);
 }
+
+/// The settings that say where secrets go change only at a browser, so a token must not
+/// make an account to sign in to one with, nor promote one it made through an invite.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn api_tokens_cannot_make_an_admin_to_sign_in_with(pool: PgPool) {
+    let state = state_with(pool, keyed(), WebConfig::new(None, Vec::new())).await;
+    admin(&state).await;
+    user(&state, "bob@example.com").await;
+    let app = router(state, false);
+    let session = sign_in(&app, "admin@example.com").await;
+    let created = call(
+        &app,
+        Method::POST,
+        "/api/v1/account/tokens",
+        &[(COOKIE.as_str(), &session)],
+        Some(json!({"name": "ops", "scopes": ["read", "write", "admin"]})),
+    )
+    .await;
+    // The scheme is case-insensitive.
+    let bearer = format!(
+        "bearer {}",
+        created.body["token"].as_str().expect("a token")
+    );
+    let token = [(AUTHORIZATION.as_str(), bearer.as_str())];
+
+    for role in ["admin", "user"] {
+        let made = call(
+            &app,
+            Method::POST,
+            "/api/v1/admin/users",
+            &token,
+            Some(json!({"email": "mallory@example.com", "password": PASSWORD, "role": role})),
+        )
+        .await;
+        assert_eq!(
+            (made.status, made.code()),
+            (StatusCode::FORBIDDEN, "forbidden"),
+            "{role}"
+        );
+    }
+    let listed = call(&app, Method::GET, "/api/v1/admin/users", &token, None).await;
+    assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
+    let users = listed.body["users"].as_array().expect("users");
+    assert_eq!(users.len(), 2, "nobody was made");
+    let bob = users
+        .iter()
+        .find(|user| user["email"] == "bob@example.com")
+        .expect("bob");
+    let path = format!("/api/v1/admin/users/{}", bob["id"].as_str().expect("an id"));
+
+    let promoted = call(
+        &app,
+        Method::PATCH,
+        &path,
+        &token,
+        Some(json!({"role": "admin"})),
+    )
+    .await;
+    assert_eq!(
+        (promoted.status, promoted.code()),
+        (StatusCode::FORBIDDEN, "forbidden")
+    );
+    let verified = call(
+        &app,
+        Method::PATCH,
+        &path,
+        &token,
+        Some(json!({"email_verified": true})),
+    )
+    .await;
+    assert_eq!(verified.status, StatusCode::OK, "{}", verified.body);
+    assert_eq!(verified.body["role"], "user");
+
+    let by_browser = call(
+        &app,
+        Method::PATCH,
+        &path,
+        &[(COOKIE.as_str(), &session)],
+        Some(json!({"role": "admin"})),
+    )
+    .await;
+    assert_eq!(by_browser.status, StatusCode::OK, "{}", by_browser.body);
+    assert_eq!(by_browser.body["role"], "admin");
+}

@@ -46,7 +46,8 @@ rescues an instance whose admins all lost their passwords.
 | `invite` | People with an invite an admin made. The default. |
 | `closed` | Nobody. Admins add accounts themselves with `POST /api/v1/admin/users`. |
 
-Admins can add accounts in every mode. An account an admin makes counts as verified.
+Admins can add accounts in every mode, signed in at a browser. An account an admin makes
+counts as verified.
 
 Signing up never signs anyone in. The sign-up form calls `POST /api/v1/auth/register`, and
 then the person signs in with their password.
@@ -160,14 +161,20 @@ A token never does more than its owner's role allows. When an admin stops being 
 tokens lose the `admin` scope at once. Tokens cannot change passwords, end sessions, or make
 and revoke tokens. Those need a browser session.
 
+An admin's token can do less than the admin at a browser. It cannot create an account with a
+password, change a role, or disable or enable an account, and it cannot change the settings
+marked *browser session only*. It invites people, approves requests to join and verifies
+addresses instead. A token that leaked therefore cannot give its holder an account to sign
+in with at a browser, nor lock an admin out.
+
 Revoking a token with `DELETE /api/v1/account/tokens/{id}` stops it at once.
 
 ## Managing accounts
 
 Admins list accounts with `GET /api/v1/admin/users`, in pages of up to 200, in the order the
 accounts were made. `PATCH /api/v1/admin/users/{id}` changes a role, disables or enables an
-account, or marks an address verified. Disabling an account signs it out everywhere, and its
-tokens stop working.
+account, or marks an address verified; with an API token, only the last goes through.
+Disabling an account signs it out everywhere, and its tokens stop working.
 
 The last admin who can sign in can be neither demoted nor disabled, which answers
 `last_admin`. Two admins demoting each other at the same moment cannot both succeed: each

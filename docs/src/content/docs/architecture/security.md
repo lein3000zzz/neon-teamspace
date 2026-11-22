@@ -68,6 +68,13 @@ working there when its owner stops being an admin. Reading needs `read`, every o
 revoking tokens need a browser session, so a leaked token cannot lock its owner out or make
 more tokens.
 
+An admin's token does less than the admin at a browser. Creating an account with a password,
+changing a role, and disabling or enabling an account need a browser session; a token
+invites people and verifies addresses instead. So does a setting that is a secret or says
+where one goes, such as `mail.host`. A leaked admin token therefore cannot make an account
+its holder signs in to at a browser, nor make an admin of one it got through an invite, nor
+demote or disable any admin, its owner included.
+
 ## Cross-site requests
 
 A request with a method other than `GET`, `HEAD` or `OPTIONS` and no `Authorization` header

@@ -357,7 +357,7 @@ export interface paths {
         put?: never;
         /**
          * Create an account
-         * @description Works whatever the registration mode, closed included. The address counts as verified.
+         * @description Works whatever the registration mode, closed included. The address counts as verified. Only from a browser session: an API token invites people instead.
          */
         post: operations["create_user"];
         delete?: never;
@@ -381,7 +381,7 @@ export interface paths {
         head?: never;
         /**
          * Change an account's role, disable or enable it, or verify its address
-         * @description Changes only what the body names. The last admin who can sign in can be neither demoted nor disabled.
+         * @description Changes only what the body names. The last admin who can sign in can be neither demoted nor disabled. A change of role or of the disable needs a browser session; an API token may only verify the address.
          */
         patch: operations["update_user"];
         trace?: never;
@@ -2520,7 +2520,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, as for an API token, or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2592,7 +2592,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, as for an API token changing a role or the disable, or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

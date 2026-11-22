@@ -130,7 +130,10 @@ impl AuthService {
     }
 
     /// Makes an account for an admin, whatever the registration mode. It counts as
-    /// verified: the admin vouches for the address.
+    /// verified: the admin vouches for the address. Only from a browser session: an API
+    /// token invites people instead, so a token that leaked cannot make an account its
+    /// holder signs in to at a browser, where the settings that say where secrets go
+    /// change.
     pub async fn create_user(
         &self,
         actor: &Principal,
@@ -138,6 +141,12 @@ impl AuthService {
     ) -> Result<User, AuthError> {
         self.observe("create_user", async {
             require_admin(actor)?;
+            if !actor.via_session() {
+                return Err(AuthError::Forbidden(
+                    "API tokens invite people rather than set their passwords: make an \
+                     invite, or create the account signed in at a browser",
+                ));
+            }
             let user = self.create_account(account).await?;
             info!(actor_id = %actor.user.id, user_id = %user.id, role = %user.role, "account created");
             Ok(user)
