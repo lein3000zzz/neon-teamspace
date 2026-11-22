@@ -8,8 +8,9 @@ A page's content is one Yjs document. The browser edits it with
 document through y-prosemirror. The server holds the same document with yrs, the Rust port of
 Yjs. The `neon-blocks` crate reads the blocks out of that document into a typed model, writes
 a model back into it in the shape the editor writes, and converts the model to and from
-markdown. The live documents read a page's text through it for search as they save; export,
-import and agents' edits, all **planned**, are to go through it too.
+markdown. The live documents read a page's text through it for search as they save, and
+[import and export](/docs/guides/import-export/) convert pages through it. Agents' edits,
+**planned**, are to go through it too.
 Like `neon-domain`, it does no I/O and has no async code.
 
 ## The fragment

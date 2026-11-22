@@ -61,6 +61,8 @@ the features build on:
 - Real-time sync of pages' documents over WebSocket, in y-websocket's protocol, saved as a
   log of updates and snapshots, with connections closed or made read-only as access
   changes; see [Real-time sync](/docs/architecture/realtime/).
+- Import of markdown files and zips of them as pages, and export of pages and teamspaces as
+  markdown, through the API; see [Import and export](/docs/guides/import-export/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -72,7 +74,7 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. The web app's editor for pages, on the real-time sync, and markdown import and export.
+1. The web app's editor for pages, on the real-time sync, with import and export.
 2. Databases with table, board and list views.
 3. Comments, mentions and an inbox, page history, search and attachments.
 4. Agents over MCP, and webhooks in and out.

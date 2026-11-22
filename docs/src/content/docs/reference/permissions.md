@@ -112,9 +112,10 @@ With that access:
 | Action | Edit | View | Nothing |
 |---|---|---|---|
 | See the page, its place and the pages under it, and add it to favorites | yes | yes | hidden |
+| Export it as markdown, with the pages under it | yes | yes | hidden |
 | Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
 | Change its document | yes, with a token only by the `write` scope | no | hidden |
-| Change its title, icon, cover and style, and add pages under it | yes | no | hidden |
+| Change its title, icon, cover and style, and add or import pages under it | yes | no | hidden |
 | Move it, from where it is | yes | no | hidden |
 | Move a page under it | yes | no | hidden |
 | Trash it, with the pages under it | yes | no | hidden |
@@ -136,13 +137,13 @@ the trash needs that right too, at the top of its space.
 
 | Action | Teamspace member | Outside a default, open or closed teamspace | Outside a private teamspace | Guest |
 |---|---|---|---|---|
-| List a teamspace's pages | yes | yes | hidden | hidden |
-| Add a page at its top, or move one there | yes | no: join it first | hidden | hidden |
+| List a teamspace's pages, and export them | yes | yes | hidden | hidden |
+| Add a page at its top, import pages there, or move one there | yes | no: join it first | hidden | hidden |
 
 | Action | Owner, admin or member | Guest |
 |---|---|---|
 | List their own private pages | yes | no: guests have none |
-| Add a private page, or move one into their private pages | yes | no |
+| Add a private page, import private pages, or move one into their private pages | yes | no |
 
 Nobody lists or adds to another member's private pages: they are hidden.
 

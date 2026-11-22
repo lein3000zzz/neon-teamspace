@@ -99,6 +99,7 @@ export default defineConfig({
             'guides/workspaces',
             'guides/workspace-rules',
             'guides/pages',
+            'guides/import-export',
           ],
         },
         {

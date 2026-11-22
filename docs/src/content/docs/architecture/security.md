@@ -128,6 +128,8 @@ attempts, then one more every 30 seconds:
 | `password:user:` | Password changes, by user. |
 | `workspace-invite:user:` | Invitations into workspaces by address, by inviter. |
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
+| `page-import:user:` | Imports of pages, by user. |
+| `page-export:user:` | Exports of pages and teamspaces, by user. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -210,6 +212,27 @@ Every change to a workspace's members locks the workspace's row first, and every
 a teamspace's members its row too, so concurrent changes run one at a time: a workspace
 keeps its last owner, and stays within its member limit, however many changes arrive at
 once.
+
+## Imports and exports
+
+An import reads a file someone uploads, so it is bounded before it starts. The import route
+takes a body of at most 32 MiB and a form around it, larger than any other route. The server
+asks the rate limit and the rules before it reads the body, and holds one of four places
+for imports and exports while one runs, so a few people cannot fill its memory.
+
+A zip is read in memory, as uploaded, and none of its files is ever written to disk. Before
+the server parses a zip's directory, it counts the entries the zip says it lists, taking the
+largest count of every end record a reader might use, and refuses more than 2000. It refuses
+a zip with an entry whose path starts at a root, `/` or a drive letter, or climbs out with
+`..`, or holds a NUL, with backslashes taken as slashes. It reads only the deflated or stored
+markdown files, at most 4 MiB each and 64 MiB together, and stops reading a file at its limit
+whatever size the zip states. A page's document may be at most 16 MiB. The work that unpacks
+and parses runs off the async threads, and both imports and exports stop after 20 seconds.
+Nothing is made unless all of it can be.
+
+Exports name their files after titles with the characters file systems refuse taken out, so
+a title cannot make a path either. They answer with `Cache-Control: no-store`. The full list
+of limits is in [Import and export](/docs/guides/import-export/#limits).
 
 ## Cleanup
 

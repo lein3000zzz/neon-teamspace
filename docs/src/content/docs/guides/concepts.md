@@ -97,8 +97,11 @@ rules.
 **Planned.** A page is made of blocks: paragraphs, headings, lists, to-dos, code, callouts,
 toggles, mentions and embedded views of a database. Everyone on a page edits the same live
 document, people and agents alike: each sees the others' cursors, and their edits merge. Markdown is the way in and out. Markdown shortcuts
-work while typing, pasted markdown becomes blocks, `.md` files or a zip of them can be
-imported, and a page or a whole teamspace exports as a zip of markdown files.
+work while typing and pasted markdown becomes blocks.
+
+`.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
+zip of markdown files. That works through the API already; see
+[Import and export](/docs/guides/import-export/).
 
 A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
 full width. Members can mark pages as favorites. Trashed pages go to the trash with the

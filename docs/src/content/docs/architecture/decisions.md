@@ -88,8 +88,9 @@ markdown. Agents read and write markdown over MCP, as language models read and w
 Callouts, toggles, mentions and embedded views, which markdown has no syntax for, use a small
 extension of it. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
 schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
-edit is applied to the live document, where it merges with the people typing there. Import,
-export and agents' edits are **planned**.
+edit is applied to the live document, where it merges with the people typing there. Import
+and export exist, as [Import and export](/docs/guides/import-export/) describes; agents'
+edits are **planned**.
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.

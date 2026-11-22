@@ -117,6 +117,11 @@ Thirty seconds after the last connection leaves, the document is saved and unloa
 connection that arrives meanwhile keeps it loaded, and so does a save that fails, to try
 again 30 seconds later.
 
+An [export](/docs/guides/import-export/#exporting) of an open page reads its live document,
+through the same queue, so it holds every update applied before it, saved or not. An export
+of a page nobody has open reads the snapshot and the updates logged after it, and loads no
+live document.
+
 ## Saving
 
 An update the server applies waits a quarter of a second, or until 256 KiB of them wait, and

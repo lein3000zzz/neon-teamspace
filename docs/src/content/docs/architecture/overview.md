@@ -66,8 +66,9 @@ flowchart LR
 A crate can use only what its `Cargo.toml` lists, so the compiler holds the direction: code
 in `neon-domain` cannot reach the database, because the crate does not depend on sqlx, and
 nothing in `neon-store` can call a use case. `neon-blocks` stands alone too, beside the
-domain: it depends on yrs and a markdown parser only, and the crates that handle pages will
-use it, as [Page documents](/docs/architecture/documents/) describes. `neon-observability`
+domain: it depends on yrs and a markdown parser only, and `neon-app` uses it for the live
+documents and for import and export, as [Page documents](/docs/architecture/documents/)
+describes. `neon-observability`
 stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
 `neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure

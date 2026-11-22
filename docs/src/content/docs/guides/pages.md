@@ -1,6 +1,6 @@
 ---
 title: Pages
-description: Where pages live and who reaches them, their order, sharing, moving, the trash, favorites, and the API for all of it.
+description: Where pages live and who reaches them, their order, sharing, moving, the trash, favorites, import and export, and the API for all of it.
 ---
 
 A page is a document of a workspace. Pages nest under other pages, as deep as 100 levels,
@@ -169,6 +169,12 @@ Each account keeps favorite pages in an order of its own, across its workspaces.
 
 A favorite the caller can no longer see, or one in the trash, stays saved and is left out of
 the list until it can be seen again.
+
+## Import and export
+
+Markdown files and zips of them import as pages, and a page, a page with the pages under it,
+or a teamspace exports as markdown. [Import and export](/docs/guides/import-export/) has the
+rules, the layout of the zips and the limits.
 
 ## When access changes
 

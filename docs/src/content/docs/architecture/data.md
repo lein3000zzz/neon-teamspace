@@ -73,8 +73,10 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`; outgoing webhooks and exports will be, **planned** with the features that need
-them. The hourly cleanup of expired sessions, links and invites is not a job but a
+`mail.send`; outgoing webhooks will be, **planned** with the feature. Imports and exports are
+not jobs: the request that asks for one waits for it, within
+[their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
+answer. The hourly cleanup of expired sessions, links and invites is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
@@ -193,7 +195,8 @@ database properties, search and attachments are **planned**.
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
   numbered in order with their authors, and the latest snapshot of the whole document,
   `page_snapshots`, which takes in the updates before it: they are deleted in the same
-  transaction. Page history, **planned**, is to be built from the snapshots. What a document
+  transaction. An imported page starts with a snapshot of its content and an empty log.
+  Page history, **planned**, is to be built from the snapshots. What a document
   holds, and how the server reads it, is in [Page documents](/docs/architecture/documents/);
   how the live documents log and compact, in [Real-time sync](/docs/architecture/realtime/#saving).
 - **Database properties**, such as a row's status or assignee, are plain columns and rows,
