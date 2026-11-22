@@ -9,6 +9,7 @@ import { server, syncLink } from "@/test/server";
 import { awarenessMessage, fakeSync } from "@/test/sync";
 import { fakeWorkspaces, people, TEAMSPACE_IDS } from "@/test/workspaces";
 import { FRAGMENT, syncServer } from "./connection";
+import { collaborator } from "./cursor";
 
 const PATH = `/w/design/p/${PAGE_IDS.roadmap}`;
 
@@ -134,6 +135,56 @@ describe("the live editor", () => {
     renderApp(PATH);
 
     expect(await screen.findByText("Also here: Bob")).toBeInTheDocument();
+  });
+
+  it("draws another's selection in a colour made from their hue, whatever their state says", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    const line = paragraph("block-1", "Kick-off on Monday");
+    blocks.insert(0, [line]);
+    const inline = line.firstChild;
+    const text = inline instanceof Y.XmlElement ? inline.firstChild : null;
+    if (!(text instanceof Y.XmlText)) {
+      throw new Error("no text");
+    }
+    // Bob's client, or one claiming to be his, with a colour that is not one.
+    const theirs = new Awareness(new Y.Doc());
+    theirs.setLocalState({
+      user: {
+        id: people.bob.id,
+        name: "Bob",
+        hue: people.bob.hue,
+        color:
+          "#000000; position: fixed; inset: 0; z-index: 2147483647; background-image: url(data:image/svg+xml,x); x:",
+      },
+      cursor: {
+        anchor: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(text, 0)),
+        head: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(text, 8)),
+      },
+    });
+    server.use(
+      syncLink.addEventListener("connection", ({ client }) => {
+        client.send(awarenessMessage(encodeAwarenessUpdate(theirs, [theirs.clientID])));
+      }),
+    );
+    renderApp(PATH);
+    // Bob's caret, with his name, sits after "Kick-off".
+    await waitFor(async () => expect(await content()).toHaveTextContent(/Kick-off.*on Monday/));
+
+    const region = await screen.findByRole("region", { name: "Page content" });
+    const selection = await waitFor(() => {
+      const found = region.querySelector(".ProseMirror-yjs-selection");
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(selection.getAttribute("style")).not.toMatch(/position|inset|z-index|image/);
+    const tint = collaborator(people.bob.id, "Bob", people.bob.hue).color;
+    const probe = document.createElement("span");
+    probe.style.backgroundColor = `${tint}70`;
+    expect(selection.style.backgroundColor).toBe(probe.style.backgroundColor);
   });
 });
 

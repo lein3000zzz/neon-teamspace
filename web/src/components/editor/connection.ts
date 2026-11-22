@@ -1,8 +1,10 @@
+import * as decoding from "lib0/decoding";
 import { useMemo, useSyncExternalStore } from "react";
-import { WebsocketProvider } from "y-websocket";
+import { applyAwarenessUpdate, modifyAwarenessUpdate } from "y-protocols/awareness";
+import { messageAwareness, WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 import { STARTING, type Connection, type ConnectionStatus, type Peer } from "./connection-state";
-import { collaboratorOf } from "./cursor";
+import { cleanState, collaboratorOf } from "./cursor";
 
 /**
  * The XmlFragment of a page's Yjs document that holds its blocks. The server's
@@ -65,6 +67,11 @@ function syncSource(pageId: string, selfId: string, onClosed: () => void) {
         status("closed");
         onClosed();
       });
+      // Others' presence is cleaned before the editor sees it: see cleanState.
+      provider.messageHandlers[messageAwareness] = (_encoder, decoder, from) => {
+        const update = decoding.readVarUint8Array(decoder);
+        applyAwarenessUpdate(from.awareness, modifyAwarenessUpdate(update, cleanState), from);
+      };
       const awareness = provider.awareness;
       // Only the others count, so the user's own presence, which the editor
       // sets as it is made, changes nothing here.

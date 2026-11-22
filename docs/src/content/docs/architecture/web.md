@@ -139,7 +139,11 @@ document, to the `XmlFragment` named `document-store` that
   cookie goes with the upgrade and the Content-Security-Policy's `connect-src 'self'` covers
   it.
 - The y-sync protocol carries the document, and awareness carries each person's cursor and
-  presence: their name, their id, and their hue.
+  presence: their name, their id, and their hue, which the server writes into each state
+  itself. The app still cleans every state it gets before the editor reads it
+  (`cleanState` in `cursor.ts`): it keeps the name, the id, the hue and the cursor's two
+  positions, checked, and makes the selection's colour from the hue, as y-prosemirror
+  writes that colour into a style attribute as it finds it.
 - Tabs do not sync with each other through a `BroadcastChannel`, as the provider can, so
   every change goes through the server and its checks.
 - Nothing can be typed until the server sent the document once. A viewer's editor never
