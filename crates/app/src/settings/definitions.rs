@@ -110,7 +110,7 @@ pub fn registry() -> Registry {
             "People who sign up themselves get a link by mail and can sign in once they \
              open it; an account still unverified after 7 days is removed. Those who sign \
              up with an invite mailed to them, and accounts admins make, count as verified. \
-             Works while mail is set up.",
+             Needs mail set up first: see mail.enabled.",
         ))
         .define(Definition::bool(
             auth::PASSWORD_RESET,
@@ -139,7 +139,8 @@ pub fn registry() -> Registry {
             false,
             "While registration is by invite, people without one can ask for it with a \
              note. They confirm their address by a mailed link first; admins then approve, \
-             which mails them an invite, or deny. Works while mail is set up.",
+             which mails them an invite, or deny. Needs mail set up first: see \
+             mail.enabled.",
         ))
         .define(Definition::bool(
             auth::REQUEST_DENIED_MAIL,
@@ -184,10 +185,10 @@ pub fn registry() -> Registry {
         .define(Definition::bool(
             mail::ENABLED,
             false,
-            "Sends mail through the SMTP server below. Mail is set up once this is on and \
-             mail.host and mail.from are set. Mailing links also needs server.public_url, \
-             which they point to, and secrets.keys, which seals them while they wait in the \
-             queue.",
+            "Sends mail through the SMTP server mail.host names. Mail is set up once this is \
+             on and mail.host and mail.from are set. Mail also needs server.public_url, \
+             which its links point to, and secrets.keys, which seals it while it waits in \
+             the queue.",
         ))
         .define(
             Definition::string(
