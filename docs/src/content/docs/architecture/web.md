@@ -69,8 +69,9 @@ accounts](/docs/guides/signing-in/) describes them.
   there only when `next` is a path of this origin.
 - A request that later answers 401 `unauthenticated` means the session ended, and does the
   same, whatever page sent it. A 401 for a wrong password is the form's to show.
-- A 403 `forbidden` makes the app ask again who is signed in, so a role taken away shows at
-  once; the admin pages then say they are not allowed.
+- A 403 `forbidden` makes the app ask again who is signed in, and read the workspaces'
+  data again, so a role taken away, on the instance or in a workspace, shows at once; the
+  admin pages then say they are not allowed.
 - A 429 is shown with the wait its `Retry-After` gives. Answers the server chose, any 4xx,
   are never retried.
 - One-time tokens in mailed links, and an invite link's code, are taken out of the address
@@ -84,7 +85,27 @@ accounts](/docs/guides/signing-in/) describes them.
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message
 beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
-module each for auth, the account and the admin pages.
+module each for auth, the account, the admin pages, workspaces and teamspaces.
+
+## Workspaces
+
+A workspace's pages hang under `/w/{slug}`. The app finds the slug in the user's own list of
+workspaces, `GET /api/v1/workspaces`, and asks for the rest by the workspace's id, as the
+API takes ids only. A slug not in the list is **Workspace not found**, whether no workspace
+has it or the user is not in it. [Workspaces and teamspaces](/docs/guides/workspaces/)
+describes the pages.
+
+- The workspace used last is kept in `localStorage`, by account and by the workspace's id,
+  which outlives a new slug; `/` opens it while the user is still in it.
+- Each workspace's data is cached under its own key, so a change to who is in it refreshes
+  all of it at once. A `404 not_found` from a workspace's data reads the list again, as the
+  user may have been removed from it.
+- `web/src/lib/workspace-rules.ts` repeats the server's [permissions](/docs/reference/permissions/)
+  only to decide which controls to show; the server decides.
+- An invite link's token is moved out of the address into the tab's `sessionStorage`, which
+  outlives signing in on the way, and is dropped once the link is used or turns out not to
+  work. A preview asks what the link admits to without using it, through
+  `POST /api/v1/workspace-invite-links/preview`.
 
 ## The theme model
 

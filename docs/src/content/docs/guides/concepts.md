@@ -5,8 +5,9 @@ description: The instance, workspaces, teamspaces and roles, pages, databases an
 
 :::note[What is built]
 The instance, workspaces, their members and roles, invitations, teamspaces, limits and hues
-work in the server's API, as described here and in
-[Workspaces and teamspaces](/docs/guides/workspaces/). Everything from pages on is
+work, in the API and the web app, as described here, in
+[Workspaces and teamspaces](/docs/guides/workspaces/) and in
+[Workspace rules and API](/docs/guides/workspace-rules/). Everything from pages on is
 **planned**: it describes the design the code is being built toward, so the details may
 still change.
 :::

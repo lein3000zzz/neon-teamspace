@@ -49,9 +49,10 @@ the features build on:
   registration](/docs/guides/accounts/) and [Administration](/docs/admin/users/).
 - Outgoing mail over SMTP for verification, password resets, mailed invites and requests
   to join, queued with the change it reports; see [Mail](/docs/self-hosting/mail/).
-- Workspaces in the API: their members and roles, invitations and invite links,
-  teamspaces, limits and hues; see [Workspaces and teamspaces](/docs/guides/workspaces/)
-  and [Permissions](/docs/reference/permissions/).
+- Workspaces: their members and roles, invitations and invite links, teamspaces, limits
+  and hues, through the API and the web app's switcher, workspace settings and the instance
+  admins' list; see [Workspaces and teamspaces](/docs/guides/workspaces/), [Workspace rules
+  and API](/docs/guides/workspace-rules/) and [Permissions](/docs/reference/permissions/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -63,14 +64,12 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Workspaces in the web app: the switcher, and the pages for members, invitations,
-   teamspaces and the instance admins' list of workspaces.
-2. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
-3. Databases with table, board and list views.
-4. Comments, mentions and an inbox, page history, search and attachments.
-5. Agents over MCP, and webhooks in and out.
-6. Signed releases and the first version, 0.1.0.
-7. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
+2. Databases with table, board and list views.
+3. Comments, mentions and an inbox, page history, search and attachments.
+4. Agents over MCP, and webhooks in and out.
+5. Signed releases and the first version, 0.1.0.
+6. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

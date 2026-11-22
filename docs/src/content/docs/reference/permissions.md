@@ -5,8 +5,8 @@ description: Who may do what in a workspace and its teamspaces, and what instanc
 
 These tables are the rules the server enforces. They live in one function in `neon-domain`,
 which every workspace use case calls before it acts, and its tests check every role against
-every action and kind of resource. [Workspaces and teamspaces](/docs/guides/workspaces/)
-explains each action.
+every action and kind of resource. [Workspace rules and API](/docs/guides/workspace-rules/)
+explains each action, and the web app shows or offers only what a role allows.
 
 **Yes** is allowed and **no** refused with `403 forbidden`. **Hidden** answers
 `404 not_found`, as for something that does not exist, so the caller learns nothing of it.

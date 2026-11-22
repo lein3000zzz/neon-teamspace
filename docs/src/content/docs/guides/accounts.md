@@ -186,7 +186,8 @@ The last admin who can sign in can be neither demoted nor disabled, which answer
 change locks the admins first, so the second sees the first's result.
 
 Instance admins also list, limit and delete workspaces, without seeing what is in them; see
-[Workspaces and teamspaces](/docs/guides/workspaces/#for-instance-admins).
+[Workspace rules and API](/docs/guides/workspace-rules/#for-instance-admins), and the admin
+page for it, [Workspaces](/docs/admin/workspaces/).
 
 ## Preferences
 

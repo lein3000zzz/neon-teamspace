@@ -25,8 +25,9 @@ these docs, and the Docker images that serve them. Pages say what exists today a
   what is built so far.
 - **[Concepts](/docs/guides/concepts/)**: the instance, workspaces, teamspaces, pages,
   databases and views, members, guests, agents and integrations.
-- **[Workspaces and teamspaces](/docs/guides/workspaces/)**: members and roles, invitations,
-  invite links, teamspaces and limits.
+- **[Workspaces and teamspaces](/docs/guides/workspaces/)**: the switcher, getting into a
+  workspace by invitation or invite link, and teamspaces; their rules and API are in
+  [Workspace rules and API](/docs/guides/workspace-rules/).
 
 ## Running an instance
 

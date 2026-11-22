@@ -97,11 +97,20 @@ export default defineConfig({
             'guides/signing-in',
             'guides/accounts',
             'guides/workspaces',
+            'guides/workspace-rules',
+          ],
+        },
+        {
+          label: 'Workspace settings',
+          items: [
+            'workspace-settings/general',
+            'workspace-settings/members',
+            'workspace-settings/teamspaces',
           ],
         },
         {
           label: 'Administration',
-          items: ['admin/users', 'admin/invites', 'admin/settings'],
+          items: ['admin/users', 'admin/invites', 'admin/workspaces', 'admin/settings'],
         },
         {
           label: 'Self-hosting',
