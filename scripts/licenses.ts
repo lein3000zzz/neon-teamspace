@@ -6,7 +6,7 @@
  * exception in scripts/licenses/policy.ts.
  *
  * Usage: bun scripts/licenses.ts <project>, where the project is the directory
- * of web, docs or e2e, from wherever the command runs.
+ * of web, docs, e2e or tools/blocknote-fixtures, from wherever the command runs.
  */
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";

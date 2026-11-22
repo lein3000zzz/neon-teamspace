@@ -1,0 +1,177 @@
+[
+  {
+    "id": "block-1",
+    "type": "toggleListItem",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A toggle",
+        "styles": {
+          "bold": true
+        }
+      }
+    ],
+    "children": [
+      {
+        "id": "block-2",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Shown when open.",
+            "styles": {}
+          }
+        ],
+        "children": []
+      },
+      {
+        "id": "block-3",
+        "type": "toggleListItem",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A nested toggle",
+            "styles": {}
+          }
+        ],
+        "children": [
+          {
+            "id": "block-4",
+            "type": "bulletListItem",
+            "props": {
+              "backgroundColor": "default",
+              "textColor": "default",
+              "textAlignment": "left"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Deep inside",
+                "styles": {}
+              }
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "block-5",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 2,
+      "isToggleable": true
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A toggleable heading",
+        "styles": {}
+      }
+    ],
+    "children": [
+      {
+        "id": "block-6",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "The section under it.",
+            "styles": {}
+          }
+        ],
+        "children": []
+      },
+      {
+        "id": "block-7",
+        "type": "checkListItem",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left",
+          "checked": true
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A done task",
+            "styles": {}
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "block-8",
+    "type": "toggleListItem",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [],
+    "children": []
+  },
+  {
+    "id": "block-9",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 3,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A plain heading with children",
+        "styles": {}
+      }
+    ],
+    "children": [
+      {
+        "id": "block-10",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A child of the heading.",
+            "styles": {}
+          }
+        ],
+        "children": []
+      }
+    ]
+  }
+]

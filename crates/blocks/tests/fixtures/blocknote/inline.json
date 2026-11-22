@@ -1,0 +1,247 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Plain text with ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "bold",
+        "styles": {
+          "bold": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ", ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "italic",
+        "styles": {
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ", ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "bold italic",
+        "styles": {
+          "bold": true,
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ", ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "strikethrough",
+        "styles": {
+          "strike": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ", ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "underline",
+        "styles": {
+          "underline": true
+        }
+      },
+      {
+        "type": "text",
+        "text": " and ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "inline code",
+        "styles": {
+          "code": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ".",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A ",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "https://example.com/page",
+        "content": [
+          {
+            "type": "text",
+            "text": "link",
+            "styles": {}
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": ", a ",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "https://example.com/bold",
+        "content": [
+          {
+            "type": "text",
+            "text": "bold link",
+            "styles": {
+              "bold": true
+            }
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": " and an autolink ",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "https://example.com/auto",
+        "content": [
+          {
+            "type": "text",
+            "text": "https://example.com/auto",
+            "styles": {}
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": ".",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Escaped *asterisks*, _underscores_, `backticks` and a # sign.",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Nested ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "bold with ",
+        "styles": {
+          "bold": true
+        }
+      },
+      {
+        "type": "text",
+        "text": "italic",
+        "styles": {
+          "bold": true,
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": " inside",
+        "styles": {
+          "bold": true
+        }
+      },
+      {
+        "type": "text",
+        "text": " and ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "italic with ",
+        "styles": {
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": "bold",
+        "styles": {
+          "bold": true,
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": " inside",
+        "styles": {
+          "italic": true
+        }
+      },
+      {
+        "type": "text",
+        "text": ".",
+        "styles": {}
+      }
+    ],
+    "children": []
+  }
+]

@@ -1,0 +1,21 @@
+[
+  {
+    "type": "image",
+    "props": {
+      "url": "https://example.com/photo.png",
+      "name": "photo.png",
+      "caption": "A caption",
+      "previewWidth": 320,
+      "textAlignment": "center"
+    }
+  },
+  { "type": "image", "props": { "url": "https://example.com/hidden.png", "showPreview": false } },
+  { "type": "image", "props": {} },
+  {
+    "type": "video",
+    "props": { "url": "https://example.com/clip.mp4", "name": "clip.mp4", "caption": "A clip", "previewWidth": 512.5 }
+  },
+  { "type": "audio", "props": { "url": "https://example.com/talk.mp3", "name": "talk.mp3", "showPreview": false } },
+  { "type": "file", "props": { "url": "https://example.com/report.pdf", "name": "report.pdf", "caption": "The report" } },
+  { "type": "divider" }
+]

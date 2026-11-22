@@ -32,8 +32,11 @@ the friends its owner lets in.
 Neon Teamspace is in early development and not usable yet. What exists is the foundation
 the features build on:
 
-- The server, `neon`, as a cargo workspace of five crates; see the
+- The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
+- The model of a page's blocks, read from and written to its Yjs document in the editor's
+  shape, and converted to and from markdown; see
+  [Page documents](/docs/architecture/documents/).
 - Configuration from `neon.yaml` and `NEON_` environment variables, and runtime settings
   kept in the database with an audit of every change; see
   [Configuration](/docs/self-hosting/configuration/).
