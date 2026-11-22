@@ -15,6 +15,11 @@
 //! - A private page is its owner's alone.
 //! - A share, to view or to edit, holds for the page and every page under it.
 //! - Guests reach pages only through shares.
+//! - A page leaves its space, for another teamspace or someone's private pages, only by
+//!   those its space lets edit it: a teamspace's members, a private page's owner. A share
+//!   to edit lets its holder move the page within its space, under pages they edit, never
+//!   out of it, so a share never hands a private page or a private teamspace's page to
+//!   others.
 //!
 //! A page in the trash shows only to those who could edit it, to restore it or delete it
 //! for good.
@@ -151,9 +156,12 @@ pub enum Action {
     // On a page.
     /// Its title, icon, cover, style, content and place, and the pages under it.
     ViewPage,
-    /// Changing what it holds, adding subpages under it, and moving it, or another page
-    /// under it.
+    /// Changing what it holds, adding subpages under it, and moving it within its space,
+    /// or another page under it.
     EditPage,
+    /// Moving it, with the pages under it, out of its space: to another teamspace, or to
+    /// private pages. For those its space lets edit it, whatever is shared with them.
+    ChangePageSpace,
     /// Moving it to the trash, with its subpages.
     TrashPage,
     RestorePage,
@@ -514,6 +522,21 @@ fn on_page(
                 Err(IN_THE_TRASH)
             } else {
                 allow_if(edits, VIEW_ONLY)
+            }
+        }
+        Action::ChangePageSpace => {
+            if trashed {
+                Err(IN_THE_TRASH)
+            } else if !edits {
+                Err(VIEW_ONLY)
+            } else {
+                allow_if(
+                    space_access(role, space) == Some(PageAccess::Edit),
+                    Forbidden(
+                        "a page shared with you moves only within its space: those in its \
+                         teamspace, or its owner, may move it elsewhere",
+                    ),
+                )
             }
         }
         Action::RestorePage => allow_if(trashed, Forbidden("this page is not in the trash")),
