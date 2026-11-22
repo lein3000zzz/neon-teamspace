@@ -41,7 +41,9 @@ jobs:
       - id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          base: ${{ github.ref }}
+          # A push only: for a pull request the files come from the API, and the filter warns
+          # about a base it would ignore.
+          base: ${{ github.event_name == 'push' && github.ref || '' }}
           # Every job runs its checks through the Makefile, so a change to it, or to a
           # workflow, runs them all.
           filters: |
@@ -71,6 +73,7 @@ jobs:
               - scripts/**
               - deny.toml
               - .editorconfig # Prettier reads it
+              - docs/package.json # the Bun version
             docs:
               - *shared
               - docs/**
