@@ -2,9 +2,10 @@
 //! each besides its content.
 
 use neon_domain::auth::Principal;
-use neon_domain::workspaces::Action;
+use neon_domain::workspaces::{Action, Teamspace};
 use neon_store::pages::{self as repo, OutlineNode};
 use neon_store::{teamspaces, workspaces};
+use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -81,6 +82,21 @@ impl PageService {
         .await
     }
 
+    /// Whether the caller may list a teamspace's pages, as
+    /// [`teamspace_outline`](Self::teamspace_outline) asks, without reading them.
+    pub async fn check_teamspace_pages(
+        &self,
+        principal: &Principal,
+        teamspace_id: Uuid,
+    ) -> Result<(), PageError> {
+        self.observe("check_teamspace_pages", async {
+            let mut conn = self.pool().acquire().await?;
+            listed_teamspace(&mut conn, principal, teamspace_id).await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// A teamspace's pages out of the trash, for everyone who may list them, as
     /// [`teamspace_tree`](Self::teamspace_tree) has them. At most `limit`, and one more
     /// when there are more.
@@ -91,20 +107,9 @@ impl PageService {
         limit: usize,
     ) -> Result<TeamspaceOutline, PageError> {
         self.observe("teamspace_outline", async {
-            let user = principal.user.id;
             let mut conn = self.pool().acquire().await?;
-            let teamspace = teamspaces::find(&mut *conn, teamspace_id)
-                .await?
-                .ok_or(PageError::NotFound(NO_TEAMSPACE))?;
+            let teamspace = listed_teamspace(&mut conn, principal, teamspace_id).await?;
             let workspace_id = teamspace.workspace_id;
-            let role = workspaces::member_role(&mut *conn, workspace_id, user).await?;
-            let space = teamspace_space(&mut conn, workspace_id, teamspace_id, user).await?;
-            check_space(
-                actor(principal, role),
-                space,
-                Action::ListPages,
-                NO_TEAMSPACE,
-            )?;
             let limit = i64::try_from(limit).unwrap_or(i64::MAX - 1) + 1;
             let pages = repo::space_outline(&mut *conn, workspace_id, teamspace_id, limit)
                 .await?
@@ -118,4 +123,26 @@ impl PageService {
         })
         .await
     }
+}
+
+/// A teamspace whose pages the principal may list.
+async fn listed_teamspace(
+    conn: &mut PgConnection,
+    principal: &Principal,
+    teamspace_id: Uuid,
+) -> Result<Teamspace, PageError> {
+    let user = principal.user.id;
+    let teamspace = teamspaces::find(&mut *conn, teamspace_id)
+        .await?
+        .ok_or(PageError::NotFound(NO_TEAMSPACE))?;
+    let workspace_id = teamspace.workspace_id;
+    let role = workspaces::member_role(&mut *conn, workspace_id, user).await?;
+    let space = teamspace_space(conn, workspace_id, teamspace_id, user).await?;
+    check_space(
+        actor(principal, role),
+        space,
+        Action::ListPages,
+        NO_TEAMSPACE,
+    )?;
+    Ok(teamspace)
 }

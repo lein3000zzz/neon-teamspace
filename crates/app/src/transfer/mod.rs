@@ -1,9 +1,10 @@
 //! Import and export: pages in from a markdown file or a zip of them, and out as markdown, a
 //! page alone, a page with the pages under it, or a teamspace's pages, zipped.
 //!
-//! - **Importing** is let in first, by [`TransferService::admit_import`]: the caller's rate
-//!   limit, a place among the imports running, and the rules' word that they may add pages
-//!   where the import goes. Then the upload is read: a markdown file is one page, and in a
+//! - **Importing** is let in first, by [`TransferService::admit_import`]: the rules' word
+//!   that the caller may add pages where the import goes, their rate limit, and a turn
+//!   among the transfers they run. Then the upload is read, and once it is, the import
+//!   takes a place among those the server runs: a markdown file is one page, and in a
 //!   zip each markdown file is one and each folder holding some is one too, a folder and a
 //!   markdown file of its name beside it being the same page. A file's first heading, or
 //!   else its name, is the title. The pages are made in one transaction, each with its
@@ -15,8 +16,12 @@
 //!   the page is open, else from what is saved.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
 //!   deep they go, the pages one import makes and one export holds, the time each takes,
-//!   and how many run at once; see [`Limits`]. A zip is read and written in memory, never on
-//!   disk, and no entry's path may lead outside it.
+//!   and how many run at once, on the server and for each person; see [`Limits`]. The rules
+//!   answer before any limit, so someone who may not see a page or place is told so. A
+//!   zip is read and written in memory, never on disk, and no entry's path may lead
+//!   outside it.
+//! - **Content** that does not read as blocks, which the editor would not show either, is
+//!   left out of an export rather than failing it.
 //!
 //! Every use case runs in a span named `transfer <operation>` and is measured as RED
 //! metrics of [`SUBSYSTEM`], counted as the page use cases are: a refusal is `ok`.
@@ -27,8 +32,9 @@ mod error;
 mod limits;
 mod write;
 
+use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -148,12 +154,30 @@ pub struct Export {
 }
 
 /// An import let in: the rules let the caller add pages where it goes, and it holds one of
-/// the places of [`Limits::parallel`] until it ends.
+/// the caller's turns of [`Limits::per_user`] until it ends.
 pub struct ImportTicket {
     principal: Principal,
     workspace_id: Uuid,
     location: Location,
-    _place: OwnedSemaphorePermit,
+    _turn: Turn,
+}
+
+/// One of a person's turns of [`Limits::per_user`], held while their import or export runs.
+struct Turn {
+    running: Arc<Mutex<HashMap<Uuid, usize>>>,
+    user_id: Uuid,
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = running.get_mut(&self.user_id) {
+            *count -= 1;
+            if *count == 0 {
+                running.remove(&self.user_id);
+            }
+        }
+    }
 }
 
 /// The import and export use cases. Cheap to clone; clones share everything.
@@ -168,6 +192,8 @@ struct Inner {
     limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     places: Arc<Semaphore>,
+    /// How many transfers each person runs.
+    running: Arc<Mutex<HashMap<Uuid, usize>>>,
     red: Red,
 }
 
@@ -201,6 +227,7 @@ impl TransferServiceBuilder {
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
                 places: Arc::new(Semaphore::new(self.limits.parallel)),
+                running: Arc::default(),
                 limits: self.limits,
                 red: Red::new(SUBSYSTEM),
             }),
@@ -223,9 +250,8 @@ impl TransferService {
         &self.inner.limits
     }
 
-    /// Lets an import in, before its file is read: the caller's rate limit, a place among
-    /// the imports and exports running, and the rules' word that they may add pages at
-    /// `location` of the workspace.
+    /// Lets an import in, before its file is read: the rules' word that the caller may add
+    /// pages at `location` of the workspace, their rate limit, and one of their turns.
     pub async fn admit_import(
         &self,
         principal: &Principal,
@@ -233,17 +259,17 @@ impl TransferService {
         location: Location,
     ) -> Result<ImportTicket, TransferError> {
         self.observe("admit_import", async {
-            self.limit(Bucket::PageImport, principal).await?;
-            let place = self.place()?;
             self.inner
                 .pages
                 .check_place(principal, workspace_id, location)
                 .await?;
+            self.limit(Bucket::PageImport, principal).await?;
+            let turn = self.turn(principal)?;
             Ok(ImportTicket {
                 principal: principal.clone(),
                 workspace_id,
                 location,
-                _place: place,
+                _turn: turn,
             })
         })
         .await
@@ -257,6 +283,7 @@ impl TransferService {
         upload: Upload,
     ) -> Result<ImportReport, TransferError> {
         self.observe("import", async {
+            let _place = self.place()?;
             let limits = self.inner.limits.clone();
             let deadline = Deadline::after(limits.time_limit);
             let max_document = self.inner.sync.limits().max_document;
@@ -305,7 +332,9 @@ impl TransferService {
         children: bool,
     ) -> Result<Export, TransferError> {
         self.observe("export_page", async {
+            self.inner.pages.page(principal, page_id).await?;
             self.limit(Bucket::PageExport, principal).await?;
+            let _turn = self.turn(principal)?;
             let _place = self.place()?;
             let deadline = Deadline::after(self.inner.limits.time_limit);
             let export = deadline
@@ -359,7 +388,12 @@ impl TransferService {
         teamspace_id: Uuid,
     ) -> Result<Export, TransferError> {
         self.observe("export_teamspace", async {
+            self.inner
+                .pages
+                .check_teamspace_pages(principal, teamspace_id)
+                .await?;
             self.limit(Bucket::PageExport, principal).await?;
+            let _turn = self.turn(principal)?;
             let _place = self.place()?;
             let deadline = Deadline::after(self.inner.limits.time_limit);
             let export = deadline
@@ -430,6 +464,25 @@ impl TransferService {
             )));
         }
         Ok(())
+    }
+
+    /// One of the caller's turns of [`Limits::per_user`], held while their transfer runs.
+    fn turn(&self, principal: &Principal) -> Result<Turn, TransferError> {
+        let user_id = principal.user.id;
+        let mut running = self
+            .inner
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let count = running.entry(user_id).or_default();
+        if *count >= self.inner.limits.per_user {
+            return Err(TransferError::Busy);
+        }
+        *count += 1;
+        Ok(Turn {
+            running: Arc::clone(&self.inner.running),
+            user_id,
+        })
     }
 
     /// One of the places of [`Limits::parallel`], held while the work runs.

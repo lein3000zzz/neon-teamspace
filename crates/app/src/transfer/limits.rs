@@ -26,9 +26,12 @@ pub struct Limits {
     pub max_export_bytes: usize,
     /// The longest an import or export may take, once its file is uploaded.
     pub time_limit: Duration,
-    /// How many imports and exports run at once on the server; one more is refused until
-    /// one ends.
+    /// How many imports and exports run at once on the server, once their file is
+    /// uploaded; one more is refused until one ends.
     pub parallel: usize,
+    /// How many imports and exports one person runs at once, an import's upload included;
+    /// one more is refused until one ends.
+    pub per_user: usize,
 }
 
 impl Default for Limits {
@@ -44,6 +47,7 @@ impl Default for Limits {
             max_export_bytes: 128 * MIB,
             time_limit: Duration::from_secs(20),
             parallel: 4,
+            per_user: 2,
         }
     }
 }

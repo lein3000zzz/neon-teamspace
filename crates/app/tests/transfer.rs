@@ -29,7 +29,10 @@ use uuid::Uuid;
 use yrs::sync::{Message, SyncMessage};
 use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::Encode as _;
-use yrs::{Doc, ReadTxn as _, Transact as _, Update};
+use yrs::{
+    Doc, ReadTxn as _, Transact as _, TransactionMut, Update, XmlElementPrelim, XmlFragment as _,
+    XmlFragmentRef, XmlOut,
+};
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
@@ -75,7 +78,7 @@ async fn team_with(pool: PgPool, limits: Limits) -> Team {
     let (_, feed) = access_feed();
     // Updates wait an hour to be logged, so what an export reads of an open page comes
     // from the live document alone.
-    let sync = SyncService::builder(h.pool.clone(), h.pages.clone(), feed)
+    let sync = SyncService::builder(h.pool.clone(), h.pages.clone(), h.auth.clone(), feed)
         .limits(SyncLimits {
             persist_delay: Duration::from_secs(3600),
             idle_unload: Duration::from_secs(3600),
@@ -451,36 +454,76 @@ async fn imports_keep_to_the_rules(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn imports_are_limited_by_rate_place_and_time(pool: PgPool) {
+async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
     let t = team_with(
         pool,
         Limits {
-            parallel: 1,
+            per_user: 1,
             ..Limits::default()
         },
     )
     .await;
     let general = Location::Teamspace(t.general);
 
+    // A ticket holds one of its person's turns, while the upload comes, and nobody else's.
     let held = t
         .transfer
         .admit_import(&t.ada, t.workspace, general)
         .await
         .expect("let in");
-    let busy = t.transfer.admit_import(&t.dee, t.workspace, general).await;
+    let busy = t.transfer.admit_import(&t.ada, t.workspace, general).await;
     assert!(matches!(busy, Err(TransferError::Busy)), "{:?}", busy.err());
-    let export = t.transfer.export_teamspace(&t.dee, t.general).await;
+    let export = t.transfer.export_teamspace(&t.ada, t.general).await;
     assert!(
         matches!(export, Err(TransferError::Busy)),
         "{:?}",
         export.err()
     );
-    drop(held);
-    t.transfer
+    let other = t
+        .transfer
         .admit_import(&t.dee, t.workspace, general)
         .await
-        .expect("a place came free");
+        .expect("another person is let in");
+    drop((held, other));
+    t.transfer
+        .admit_import(&t.ada, t.workspace, general)
+        .await
+        .expect("a turn came free");
 
+    // The server's places are taken once the upload is in, not while it comes.
+    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+        .limits(Limits {
+            parallel: 0,
+            ..Limits::default()
+        })
+        .build();
+    let ticket = full
+        .admit_import(&t.ada, t.workspace, general)
+        .await
+        .expect("let in, though no place is free");
+    let upload = Upload {
+        name: "notes.md".to_owned(),
+        bytes: Bytes::from_static(b"notes"),
+    };
+    let busy = full.import(ticket, upload).await;
+    assert!(matches!(busy, Err(TransferError::Busy)), "{:?}", busy.err());
+    let export = full.export_teamspace(&t.dee, t.general).await;
+    assert!(
+        matches!(export, Err(TransferError::Busy)),
+        "{:?}",
+        export.err()
+    );
+
+    // The rules answer before the limits: a place the caller may not see is not found.
+    t.h.limiter.refuse(Bucket::PageImport);
+    t.h.limiter.refuse(Bucket::PageExport);
+    let hidden = t
+        .transfer
+        .admit_import(&t.dee, t.workspace, Location::Teamspace(t.secret))
+        .await;
+    assert_eq!(hidden.err().map(|error| error.code()), Some("not_found"));
+    let hidden = t.transfer.export_teamspace(&t.dee, t.secret).await;
+    assert_eq!(hidden.err().map(|error| error.code()), Some("not_found"));
     t.h.limiter.refuse(Bucket::PageImport);
     let limited = t.transfer.admit_import(&t.ada, t.workspace, general).await;
     assert!(
@@ -704,6 +747,24 @@ async fn exports_keep_to_their_limits(pool: PgPool) {
 /// Opens a page's live document as a client, syncs, then adds a paragraph to it. The
 /// connection stays open, so the document stays live.
 async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
+    edit_live(t, page, |txn, fragment| {
+        neon_blocks::append(
+            txn,
+            fragment,
+            &[Block::paragraph(text)],
+            &mut SequentialIds::new("live"),
+        )
+        .expect("a document");
+    })
+    .await
+}
+
+/// Opens a page's live document as a client, syncs, then sends what `edit` changes of it.
+async fn edit_live(
+    t: &Team,
+    page: Uuid,
+    edit: impl FnOnce(&mut TransactionMut<'_>, &XmlFragmentRef),
+) -> Connection {
     let admission = t.sync.admit(t.ada.clone(), page).await.expect("admitted");
     let mut connection = t.sync.connect(admission).await.expect("connected");
     let doc = Doc::new();
@@ -731,13 +792,7 @@ async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
     }
     let update = {
         let mut txn = doc.transact_mut();
-        neon_blocks::append(
-            &mut txn,
-            &fragment,
-            &[Block::paragraph(text)],
-            &mut SequentialIds::new("live"),
-        )
-        .expect("a document");
+        edit(&mut txn, &fragment);
         txn.encode_update_v1()
     };
     connection
@@ -747,6 +802,51 @@ async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
         .await
         .expect("sent");
     connection
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn blocks_that_do_not_read_are_left_out_of_exports(pool: PgPool) {
+    let t = team(pool).await;
+    t.roadmap().await;
+    let welcome = t.id_of(t.general, "Welcome").await;
+    // A block of a type the editor does not know, as a client may write one.
+    let open = edit_live(&t, welcome, |txn, fragment| {
+        let group = fragment
+            .get(txn, 0)
+            .and_then(XmlOut::into_xml_element)
+            .expect("a block group");
+        let container = group.push_back(txn, XmlElementPrelim::empty("blockContainer"));
+        container.push_back(txn, XmlElementPrelim::empty("callout"));
+        neon_blocks::append(
+            txn,
+            fragment,
+            &[Block::paragraph("After it.")],
+            &mut SequentialIds::new("live"),
+        )
+        .expect("a document");
+    })
+    .await;
+
+    let exported = String::from_utf8(t.export(welcome, false).await.bytes).expect("text");
+    assert_eq!(
+        exported,
+        "# Welcome\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nAfter it.\n"
+    );
+    let zip = t
+        .transfer
+        .export_teamspace(&t.ada, t.general)
+        .await
+        .expect("the teamspace exports");
+    assert!(
+        unzipped(&zip.bytes)
+            .values()
+            .any(|markdown| markdown.ends_with("After it.\n"))
+    );
+    // Saved, it reads the same.
+    drop(open);
+    t.sync.shutdown().await;
+    let saved = t.sync.content(welcome).await.expect("read");
+    assert_eq!(saved.blocks.len(), 2);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
