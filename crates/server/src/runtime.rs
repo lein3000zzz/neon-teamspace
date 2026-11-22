@@ -3,7 +3,8 @@
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the database pool closes, the admin listener stops,
+//! the gauges stop if metrics are on, the hourly auth cleanup stops, the auth work begun
+//! after earlier answers finishes, the database pool closes, the admin listener stops,
 //! and the telemetry flushes last, so what the other parts log while stopping is still
 //! written.
 
@@ -13,17 +14,23 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::pin;
 use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use anyhow::Context as _;
 use axum::Router;
+use axum::extract::ConnectInfo;
+use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
+use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
+use neon_app::crypto::Envelope;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::settings::{SettingsService, registry};
+use neon_domain::auth::{Role, User};
 use neon_domain::duration;
-use neon_domain::settings::Pinned;
+use neon_domain::settings::{Pinned, Secret};
 use neon_observability::Telemetry;
 use neon_observability::admin::{self, Readiness};
 use neon_observability::shutdown::{DEFAULT_HOOK_TIMEOUT, Shutdown};
@@ -34,9 +41,9 @@ use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::config::{DatabaseConfig, Loaded};
+use crate::config::{AdminConfig, Config, DatabaseConfig, Loaded};
 use crate::gauges::{self, Gauges};
-use crate::http::{self, AppState};
+use crate::http::{self, AppState, WebConfig};
 use crate::telemetry;
 
 /// How long stopping waits for open requests before closing their connections.
@@ -53,6 +60,10 @@ const STOP_MARGIN: Duration = Duration::from_secs(10);
 
 /// How long `/readyz` waits for the database to answer.
 const PING_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long stopping waits for auth work begun after earlier answers, such as mail after a
+/// request to join. Each piece gives up after a minute itself.
+const BACKGROUND_STOP: Duration = Duration::from_secs(60);
 
 /// Runs the server until SIGINT or SIGTERM, then stops it.
 pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
@@ -71,6 +82,45 @@ pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         Ok(())
     })
     .await
+}
+
+/// Makes an admin, whatever the registration mode and however many admins there are, for
+/// `neon admin create`. Applies pending migrations first, as `serve` does.
+pub async fn create_admin(loaded: Loaded, account: NewAccount) -> anyhow::Result<User> {
+    let mut created = None;
+    with_telemetry(loaded, |loaded, _| async {
+        let Loaded {
+            config, settings, ..
+        } = loaded;
+        let pool = connect(&config.database, 2).await?;
+        let made = async {
+            if config.database.auto_migrate {
+                apply_migrations(&pool).await?;
+            }
+            let envelope = envelope(&config)?;
+            let settings = load_settings(&pool, settings, envelope.clone()).await?;
+            let auth = AuthService::builder(pool.clone(), settings)
+                .envelope(envelope)
+                .build()
+                .await
+                .context("starting the auth service")?;
+            let user = auth
+                .bootstrap_admin(NewAccount {
+                    role: Role::Admin,
+                    ..account
+                })
+                .await
+                .context("creating the admin")?;
+            auth.settle().await;
+            Ok::<_, anyhow::Error>(user)
+        }
+        .await;
+        pool.close().await;
+        created = Some(made?);
+        Ok(())
+    })
+    .await?;
+    created.context("the admin was not created")
 }
 
 /// Applies pending migrations, then closes the connection.
@@ -161,20 +211,91 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     if config.database.auto_migrate {
         apply_migrations(&pool).await?;
     }
-    let settings = load_settings(&pool, settings).await?;
+    let envelope = envelope(&config)?;
+    let settings = load_settings(&pool, settings, envelope.clone()).await?;
+    let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
+        .envelope(envelope)
+        .build()
+        .await
+        .context("starting the auth service")?;
+    ensure_first_admin(&auth, &config.admin).await?;
+    start_auth_upkeep(shutdown, &auth);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
     let worker = Worker::new(pool.clone(), WorkerConfig::default())
         .span(jobs::run_span)
         .hook(jobs::RedHook::new());
+    let web = WebConfig::new(
+        config.server.public_url.as_ref(),
+        config.server.trusted_proxies.clone(),
+    );
     let router = http::router(
-        AppState { settings },
+        AppState {
+            settings,
+            auth,
+            web: Arc::new(web),
+        },
         config.observability.tracing.trust_incoming,
     );
     let sample_gauges = config.observability.metrics.enabled;
     start_parts(shutdown, &pool, sample_gauges, worker, listener, router).await?;
     Ok(pool)
+}
+
+/// The keys `secrets.keys` lists. The load checked them, so this only fails on a
+/// configuration built some other way.
+fn envelope(config: &Config) -> anyhow::Result<Envelope> {
+    let keys = config.secrets.keyring().context("reading secrets.keys")?;
+    if keys.is_none() {
+        info!(
+            "no secrets.keys: invite codes cannot be copied again, and secret settings cannot be saved"
+        );
+    }
+    Ok(Envelope::new(keys))
+}
+
+/// Makes the first admin from `admin.email` and `admin.password` while no admin can sign
+/// in. Their values are never logged.
+async fn ensure_first_admin(auth: &AuthService, admin: &AdminConfig) -> anyhow::Result<()> {
+    let (Some(email), Some(password)) = (&admin.email, &admin.password) else {
+        return Ok(());
+    };
+    let created = auth
+        .ensure_admin(email, &Secret::new(password.expose()))
+        .await
+        .context("creating the first admin from admin.email and admin.password")?;
+    match created {
+        Some(user) => info!(user_id = %user.id, "first admin created from admin.email"),
+        None => info!("an admin can sign in already; admin.email and admin.password are not used"),
+    }
+    Ok(())
+}
+
+/// Starts the hourly auth cleanup, and registers its stop and the wait for the auth work
+/// begun after answers. Both stop before the pool closes, as they use it.
+fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
+    let settling = auth.clone();
+    on_stop(
+        shutdown,
+        "auth background work",
+        BACKGROUND_STOP + STOP_MARGIN,
+        async move {
+            if tokio::time::timeout(BACKGROUND_STOP, settling.settle())
+                .await
+                .is_err()
+            {
+                warn!("auth work begun after answers did not finish in time");
+            }
+        },
+    );
+    let cleanup = Cleanup::spawn(auth.clone(), CLEANUP_INTERVAL);
+    on_stop(
+        shutdown,
+        "auth cleanup",
+        DEFAULT_HOOK_TIMEOUT,
+        cleanup.stop(),
+    );
 }
 
 /// Closes the pool when stopping, after every part registered later, which all use it.
@@ -252,8 +373,12 @@ async fn apply_migrations(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn load_settings(pool: &PgPool, pinned: Pinned) -> anyhow::Result<Arc<SettingsService>> {
-    let (settings, warnings) = SettingsService::load(pool.clone(), registry(), pinned)
+async fn load_settings(
+    pool: &PgPool,
+    pinned: Pinned,
+    envelope: Envelope,
+) -> anyhow::Result<Arc<SettingsService>> {
+    let (settings, warnings) = SettingsService::load(pool.clone(), registry(), pinned, envelope)
         .await
         .context("loading runtime settings")?;
     for warning in warnings {
@@ -271,7 +396,30 @@ struct Http {
     accepting: JoinHandle<JoinSet<()>>,
 }
 
-type Connection = http1::UpgradeableConnection<TokioIo<TcpStream>, TowerToHyperService<Router>>;
+type Connection = http1::UpgradeableConnection<TokioIo<TcpStream>, TowerToHyperService<WithPeer>>;
+
+/// The router, with each request told the address of the connection it came on, for the
+/// client address rate limits count.
+#[derive(Clone)]
+struct WithPeer {
+    router: Router,
+    peer: SocketAddr,
+}
+
+impl tower::Service<hyper::Request<Incoming>> for WithPeer {
+    type Response = <Router as tower::Service<hyper::Request<Incoming>>>::Response;
+    type Error = Infallible;
+    type Future = <Router as tower::Service<hyper::Request<Incoming>>>::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        tower::Service::<hyper::Request<Incoming>>::poll_ready(&mut self.router, cx)
+    }
+
+    fn call(&mut self, mut request: hyper::Request<Incoming>) -> Self::Future {
+        request.extensions_mut().insert(ConnectInfo(self.peer));
+        self.router.call(request)
+    }
+}
 
 impl Http {
     fn spawn(listener: TcpListener, router: Router, header_timeout: Duration) -> io::Result<Self> {
@@ -335,8 +483,11 @@ async fn accept(
             () = stop.cancelled() => break,
             Some(joined) = connections.join_next() => connection_ended(joined),
             accepted = listener.accept() => match accepted {
-                Ok((stream, _)) => {
-                    let service = TowerToHyperService::new(router.clone());
+                Ok((stream, peer)) => {
+                    let service = TowerToHyperService::new(WithPeer {
+                        router: router.clone(),
+                        peer,
+                    });
                     let connection = builder
                         .serve_connection(TokioIo::new(stream), service)
                         .with_upgrades();

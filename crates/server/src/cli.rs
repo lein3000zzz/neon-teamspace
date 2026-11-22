@@ -1,11 +1,14 @@
 //! The `neon` command line.
 
-use std::io::{self, Write as _};
+use std::io::{self, BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
+use neon_app::auth::NewAccount;
 use neon_app::settings::registry;
+use neon_domain::auth::Role;
+use neon_domain::settings::Secret;
 
 use crate::health::{self, Probe};
 use crate::{config, http, runtime};
@@ -27,6 +30,9 @@ enum Command {
     Serve,
     /// Apply pending database migrations, then exit.
     Migrate,
+    /// Accounts.
+    #[command(subcommand)]
+    Admin(AdminCommand),
     /// Print the OpenAPI description of the HTTP API.
     Openapi {
         /// Write it to this file instead of stdout.
@@ -46,6 +52,21 @@ enum Command {
         /// traffic.
         #[arg(long)]
         live: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AdminCommand {
+    /// Create an admin account, whatever the registration mode and however many admins
+    /// there are. The password is asked for at the terminal, or read from the first line
+    /// of stdin when that is not a terminal.
+    Create {
+        /// The admin's address.
+        #[arg(long)]
+        email: String,
+        /// The local part of the address when not given.
+        #[arg(long)]
+        display_name: Option<String>,
     },
 }
 
@@ -70,6 +91,21 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command.unwrap_or(Command::Serve) {
         Command::Serve => runtime::serve(config::load(&registry())?).await,
         Command::Migrate => runtime::migrate(config::load(&registry())?).await,
+        Command::Admin(AdminCommand::Create {
+            email,
+            display_name,
+        }) => {
+            let loaded = config::load(&registry())?;
+            let password = read_password()?;
+            let account = NewAccount {
+                email,
+                password,
+                display_name,
+                role: Role::Admin,
+            };
+            let user = runtime::create_admin(loaded, account).await?;
+            print(&format!("created the admin {} ({})\n", user.email, user.id))
+        }
         Command::Openapi { out: Some(path) } => std::fs::write(&path, http::spec_json())
             .with_context(|| format!("writing {}", path.display())),
         Command::Openapi { out: None } => print(&http::spec_json()),
@@ -85,6 +121,25 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             health::check(&loaded.config.observability.admin, probe).await
         }
     }
+}
+
+/// A password typed twice at the terminal without echo, or else the first line of stdin.
+fn read_password() -> anyhow::Result<Secret> {
+    if io::stdin().is_terminal() {
+        let first = rpassword::prompt_password("Password: ").context("reading the password")?;
+        let again =
+            rpassword::prompt_password("The password again: ").context("reading the password")?;
+        if first != again {
+            bail!("the two passwords differ");
+        }
+        return Ok(Secret::new(first));
+    }
+    let mut line = String::new();
+    io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .context("reading the password from stdin")?;
+    Ok(Secret::new(line.trim_end_matches(['\r', '\n'])))
 }
 
 /// Writes command output. Unlike `print!`, a closed pipe, as in `neon openapi | head`,
@@ -124,6 +179,27 @@ mod tests {
             Some(Command::Health { live: false })
         ));
         assert!(matches!(live.command, Some(Command::Health { live: true })));
+    }
+
+    #[test]
+    fn admin_create_takes_an_address_and_a_name() {
+        let cli = Cli::try_parse_from([
+            "neon",
+            "admin",
+            "create",
+            "--email",
+            "root@example.com",
+            "--display-name",
+            "Root",
+        ])
+        .expect("parses");
+
+        assert!(matches!(
+            cli.command,
+            Some(Command::Admin(AdminCommand::Create { email, display_name: Some(name) }))
+                if email == "root@example.com" && name == "Root"
+        ));
+        assert!(Cli::try_parse_from(["neon", "admin", "create"]).is_err());
     }
 
     #[test]
