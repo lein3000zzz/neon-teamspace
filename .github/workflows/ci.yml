@@ -73,6 +73,7 @@ jobs:
               - api/openapi.json
               - scripts/**
               - deny.toml
+              - about.toml # a scripts/ test compares it with deny.toml
               - .editorconfig # Prettier reads it
               - docs/package.json # the Bun version
             docs:

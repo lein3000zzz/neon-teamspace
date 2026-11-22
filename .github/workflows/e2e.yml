@@ -37,6 +37,9 @@ jobs:
               - web/Caddyfile
               - e2e/**
               - Makefile
+              - about.toml # the server image's notices stage
+              - about.hbs
+              - docs/scripts/** # the web image builds the docs
               - .github/workflows/e2e.yml
 
   e2e:
