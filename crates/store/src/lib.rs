@@ -6,9 +6,12 @@
 
 pub mod api_tokens;
 pub mod email_tokens;
+pub mod favorites;
 pub mod invites;
 pub mod jobs;
 pub mod join_requests;
+pub mod page_shares;
+pub mod pages;
 mod pool;
 pub mod sessions;
 pub mod settings;

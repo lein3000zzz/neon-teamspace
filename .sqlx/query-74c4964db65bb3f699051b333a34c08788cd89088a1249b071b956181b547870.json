@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE batch (id) AS (\n             SELECT id FROM pages WHERE id = $1\n           UNION ALL\n             SELECT c.id FROM batch b JOIN pages c ON c.parent_id = b.id AND c.trashed_with = $2\n         )\n         UPDATE pages p\n         SET trashed_at = NULL, trashed_by = NULL, trashed_with = NULL,\n             parent_id = CASE WHEN p.id = $1 THEN $3 ELSE p.parent_id END,\n             position = CASE WHEN p.id = $1 THEN $4 ELSE p.position END,\n             updated_at = CASE WHEN p.id = $1 THEN $5 ELSE p.updated_at END\n         WHERE p.id IN (SELECT id FROM batch)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "74c4964db65bb3f699051b333a34c08788cd89088a1249b071b956181b547870"
+}

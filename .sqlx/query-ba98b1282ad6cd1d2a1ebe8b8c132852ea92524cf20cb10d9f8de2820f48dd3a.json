@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM pages WHERE trashed_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba98b1282ad6cd1d2a1ebe8b8c132852ea92524cf20cb10d9f8de2820f48dd3a"
+}
