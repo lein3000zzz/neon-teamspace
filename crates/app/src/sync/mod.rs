@@ -66,7 +66,7 @@ use limits::Bucket;
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver};
 pub use close::CloseReason;
-pub use document::READ_ONLY;
+pub use document::{LoadError, READ_ONLY};
 pub use limits::Limits;
 
 /// RED subsystem of the sync's work: loading, logging and compacting documents.
@@ -323,6 +323,32 @@ impl SyncService {
         Ok(connection)
     }
 
+    /// A page's document as blocks: the live document's, with what was sent to it and is not
+    /// saved yet, while the page is open; otherwise the one saved, its snapshot with the
+    /// updates logged after it. It opens no live document. A page without a document has
+    /// an empty one. Whether the caller may read it is not asked here.
+    pub async fn content(&self, page_id: Uuid) -> Result<neon_blocks::Document, ContentError> {
+        let live = self
+            .inner
+            .docs()
+            .get(&page_id)
+            .map(|slot| slot.commands.clone());
+        if let Some(commands) = live {
+            let (done, answer) = oneshot::channel();
+            if commands.send(Command::Read { done }).await.is_ok()
+                && let Ok(read) = answer.await
+            {
+                return Ok(read?);
+            }
+            // It unloaded meanwhile, and saved everything first.
+        }
+        let saved = neon_store::documents::saved(&self.inner.pool, page_id)
+            .await
+            .map_err(LoadError::from)?;
+        let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
+        Ok(neon_blocks::read_doc(&doc)?)
+    }
+
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {
@@ -451,6 +477,16 @@ impl Inner {
             .await;
         Ok(())
     }
+}
+
+/// Why a page's document could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum ContentError {
+    #[error(transparent)]
+    Load(#[from] LoadError),
+    /// It holds what is not a block document: never what the editor writes.
+    #[error("the document does not read as blocks: {0}")]
+    Blocks(#[from] neon_blocks::ReadError),
 }
 
 /// How a connection ended.

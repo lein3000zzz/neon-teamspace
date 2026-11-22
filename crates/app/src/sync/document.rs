@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use neon_domain::pages::PageAccess;
-use neon_store::documents::{self, Edited, NewSnapshot, NewUpdate};
+use neon_store::documents::{self, Edited, LoggedUpdate, NewSnapshot, NewUpdate, Snapshot};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Instant, sleep_until};
 use tracing::{Instrument as _, debug, error, info, info_span, warn};
@@ -52,6 +52,10 @@ pub(crate) enum Command {
     Access {
         client: ClientId,
         access: Option<PageAccess>,
+    },
+    /// The document as blocks, as it is now.
+    Read {
+        done: oneshot::Sender<Result<neon_blocks::Document, neon_blocks::ReadError>>,
     },
 }
 
@@ -219,24 +223,17 @@ impl Document {
     async fn load(inner: Arc<Inner>, page_id: Uuid, generation: u64) -> Option<Self> {
         let guard = inner.red.start("load");
         let loaded = async {
-            let snapshot = documents::snapshot(&inner.pool, page_id).await?;
-            let after = snapshot.as_ref().map_or(0, |snapshot| snapshot.last_seq);
-            let updates = documents::updates_after(&inner.pool, page_id, after).await?;
-            Ok::<_, LoadError>((snapshot, after, updates))
+            let saved = documents::saved(&inner.pool, page_id).await?;
+            let after = saved
+                .snapshot
+                .as_ref()
+                .map_or(0, |snapshot| snapshot.last_seq);
+            Ok::<_, LoadError>((saved.snapshot, after, saved.updates))
         }
         .await
         .and_then(|(snapshot, after, updates)| {
-            let doc = Doc::new();
+            let doc = assemble(snapshot.as_ref(), &updates)?;
             let fragment = neon_blocks::fragment(&doc);
-            {
-                let mut txn = doc.transact_mut();
-                if let Some(snapshot) = &snapshot {
-                    txn.apply_update(Update::decode_v1(&snapshot.state)?)?;
-                }
-                for logged in &updates {
-                    txn.apply_update(Update::decode_v1(&logged.update)?)?;
-                }
-            }
             let storage = Storage {
                 last_seq: updates.last().map_or(after, |last| last.seq.max(after)),
                 snapshot_bytes: snapshot.as_ref().map_or(0, |snapshot| snapshot.state.len()),
@@ -325,6 +322,10 @@ impl Document {
             Command::Message { client, message } => self.receive(client, &message).await,
             Command::Leave { client } => self.leave(client),
             Command::Access { client, access } => self.set_access(client, access),
+            Command::Read { done } => {
+                let txn = self.awareness.doc().transact();
+                let _ = done.send(neon_blocks::read(&txn, &self.fragment));
+            }
         }
     }
 
@@ -780,9 +781,27 @@ impl Document {
     }
 }
 
-/// Why a document did not load.
+/// A page's document from its snapshot and the updates logged after it.
+pub(crate) fn assemble(
+    snapshot: Option<&Snapshot>,
+    updates: &[LoggedUpdate],
+) -> Result<Doc, LoadError> {
+    let doc = Doc::new();
+    {
+        let mut txn = doc.transact_mut();
+        if let Some(snapshot) = snapshot {
+            txn.apply_update(Update::decode_v1(&snapshot.state)?)?;
+        }
+        for logged in updates {
+            txn.apply_update(Update::decode_v1(&logged.update)?)?;
+        }
+    }
+    Ok(doc)
+}
+
+/// Why a page's saved document did not load.
 #[derive(Debug, thiserror::Error)]
-enum LoadError {
+pub enum LoadError {
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("a saved update does not decode: {0}")]
