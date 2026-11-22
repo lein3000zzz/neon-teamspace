@@ -39,6 +39,11 @@ impl<'a> Browser<'a> {
         .await
     }
 
+    /// The `Cookie` header value it sends.
+    pub(super) fn cookie(&self) -> &str {
+        &self.cookie
+    }
+
     pub(super) async fn get(&self, uri: &str) -> Answer {
         self.send(Method::GET, uri, None).await
     }

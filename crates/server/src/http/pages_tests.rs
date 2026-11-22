@@ -24,7 +24,7 @@ fn titles(answer: &Answer) -> Vec<&str> {
 }
 
 /// The default teamspace of a workspace, General.
-async fn general(by: &Browser<'_>, workspace: &str) -> String {
+pub(super) async fn general(by: &Browser<'_>, workspace: &str) -> String {
     let listed = by
         .get(&format!("/api/v1/workspaces/{workspace}/teamspaces"))
         .await;
@@ -36,7 +36,7 @@ async fn general(by: &Browser<'_>, workspace: &str) -> String {
 }
 
 /// Makes a page; `place` names where, as the body does.
-async fn create(by: &Browser<'_>, workspace: &str, place: Value, title: &str) -> String {
+pub(super) async fn create(by: &Browser<'_>, workspace: &str, place: Value, title: &str) -> String {
     let mut body = place;
     body["title"] = json!(title);
     let created = by
@@ -47,7 +47,12 @@ async fn create(by: &Browser<'_>, workspace: &str, place: Value, title: &str) ->
 }
 
 /// Brings `email`, an account already, into the workspace as a guest.
-async fn guest<'a>(app: &'a Router, by: &Browser<'_>, workspace: &str, email: &str) -> Browser<'a> {
+pub(super) async fn guest<'a>(
+    app: &'a Router,
+    by: &Browser<'_>,
+    workspace: &str,
+    email: &str,
+) -> Browser<'a> {
     let guest = Browser::sign_in(app, email).await;
     let sent = by
         .post(

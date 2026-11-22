@@ -19,7 +19,7 @@ neon-observability.workspace = true
 neon-store.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["ws"] }
 clap.workspace = true
 figment.workspace = true
 hyper.workspace = true
@@ -45,14 +45,19 @@ utoipa-axum.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+neon-blocks.workspace = true
 base64.workspace = true
 figment = { workspace = true, features = ["test"] }
+futures-util = { workspace = true, features = ["sink"] }
 http-body-util.workspace = true
 metrics-util.workspace = true
 # A self-signed certificate and a TLS listener, for the SMTP adapter's tests.
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+# WebSocket clients for the real-time sync's tests, the version axum's server side uses.
+tokio-tungstenite = "0.29.0"
 tower = { workspace = true, features = ["util"] }
+yrs.workspace = true
 
 [lints]
 workspace = true

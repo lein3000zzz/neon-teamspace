@@ -10,6 +10,8 @@
 //!   are exempt, as browsers never add that header on their own. When a browser sends
 //!   neither header, `SameSite=Lax` on the cookie is the remaining guard: it keeps the
 //!   cookie off cross-site posts.
+//! - A WebSocket upgrade, a `GET`, must come from the same origin as well, whenever it
+//!   sends `Origin`, as browsers do.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -164,6 +166,32 @@ impl FromRequestParts<AppState> for ClientIp {
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(addr)| addr.ip());
         Ok(Self(state.web.client_ip(peer, &parts.headers)))
+    }
+}
+
+/// Refuses a WebSocket upgrade from another origin, so a page elsewhere cannot open a
+/// connection that carries the visitor's cookie (cross-site WebSocket hijacking): the
+/// same-origin check of requests that change something does not cover upgrades, which are
+/// `GET`s. Browsers always send `Origin` with an upgrade. A client that sends none is no
+/// browser, and has no visitor's cookie to misuse.
+pub(super) struct SameOriginSocket;
+
+impl FromRequestParts<AppState> for SameOriginSocket {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Response> {
+        let Some(origin) = parts.headers.get(ORIGIN) else {
+            return Ok(Self);
+        };
+        let origin = origin.to_str().unwrap_or_default();
+        if state.web.same_origin(origin, &parts.headers) {
+            return Ok(Self);
+        }
+        warn!(origin, "cross-origin WebSocket upgrade refused");
+        Err(
+            ApiError::forbidden("WebSocket connections from another origin are refused")
+                .into_response(),
+        )
     }
 }
 
