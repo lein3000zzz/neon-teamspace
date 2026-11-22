@@ -90,6 +90,11 @@ own. A request with neither header passes. Browsers send `Origin` on every cross
 request that changes something, and `SameSite=Lax` keeps the session cookie off cross-site
 posts besides.
 
+A WebSocket upgrade is a `GET`, yet the connection it opens changes pages, and `SameSite=Lax`
+does not keep the cookie off it. So an upgrade whose `Origin` is not the server's own gets
+`403` too, as [Real-time sync](/docs/architecture/realtime/#connecting) describes. Browsers
+always send `Origin` with one.
+
 ## Forms that tell nobody anything
 
 The forms anyone can send answer the same whatever comes of them, and do the work after the

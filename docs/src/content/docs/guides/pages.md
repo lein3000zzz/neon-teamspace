@@ -9,8 +9,9 @@ and the API. Who may do what is also listed, in one table, on the
 [permissions](/docs/reference/permissions/#pages) page.
 
 :::note[What is built]
-Everything here works through the API. A page's content, its blocks, arrives with the live
-editor, **planned**, and so do the web app's pages for all of this.
+Everything here works through the API. A page's content, its blocks, is edited live over a
+WebSocket, as [Real-time sync](/docs/architecture/realtime/) describes. The web app's editor
+and its pages for all of this are **planned**.
 :::
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`
@@ -174,6 +175,7 @@ the list until it can be seen again.
 Moving, trashing, restoring and deleting a page, and adding, changing or removing a share,
 may change who reaches a page. So do joining and leaving a teamspace, a new role in one, a
 teamspace's new access or its deletion, and a member's new role, leaving or removal. Once
-such a change is saved, the server passes it to the live editor, **planned**, which checks
-again what each person with those pages open may do. It closes the page for someone who may
-no longer see it, and stops the editing of someone who may now only view it.
+such a change is saved, the server checks again, at once, what each person with those pages
+open may do. It closes the page for someone who may no longer see it, and stops the editing
+of someone who may now only view it, as [Real-time
+sync](/docs/architecture/realtime/#when-access-changes) describes.

@@ -7,9 +7,11 @@ description: The instance, workspaces, teamspaces and roles, pages, databases an
 The instance, workspaces, their members and roles, invitations, teamspaces, limits and hues
 work, in the API and the web app, as described here, in
 [Workspaces and teamspaces](/docs/guides/workspaces/) and in
-[Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API, without
-their content yet: nesting, private pages, sharing, moving, the trash and favorites, as
-[Pages](/docs/guides/pages/) has it. The rest, from the editor on, is **planned**: it
+[Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API: nesting,
+private pages, sharing, moving, the trash and favorites, as [Pages](/docs/guides/pages/) has
+it, and their documents sync live over WebSocket, as
+[Real-time sync](/docs/architecture/realtime/) has it. The rest, from the editor on, is
+**planned**: it
 describes the design the code is being built toward, so the details may still change.
 :::
 

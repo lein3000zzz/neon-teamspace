@@ -132,6 +132,7 @@ export default defineConfig({
             'architecture/overview',
             'architecture/data',
             'architecture/documents',
+            'architecture/realtime',
             'architecture/security',
             'architecture/observability',
             'architecture/web',

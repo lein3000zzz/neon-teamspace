@@ -112,6 +112,8 @@ With that access:
 | Action | Edit | View | Nothing |
 |---|---|---|---|
 | See the page, its place and the pages under it, and add it to favorites | yes | yes | hidden |
+| Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
+| Change its document | yes, with a token only by the `write` scope | no | hidden |
 | Change its title, icon, cover and style, and add pages under it | yes | no | hidden |
 | Move it, from where it is | yes | no | hidden |
 | Move a page under it | yes | no | hidden |
@@ -122,7 +124,8 @@ With that access:
 
 A page in the trash shows only to those with edit access, who may restore it or delete it for
 good and do nothing else with it until it is back: changing it, adding pages under it,
-moving it, trashing it again and sharing it answer `403 forbidden`. Restoring or deleting a
+moving it, trashing it again and sharing it answer `403 forbidden`, and its document opens
+read-only. Restoring or deleting a
 page out of the trash answers `403 forbidden` too.
 
 Moving a page needs edit access to the page and to where it goes: the page it goes under,

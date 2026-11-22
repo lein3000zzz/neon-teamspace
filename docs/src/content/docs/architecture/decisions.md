@@ -72,8 +72,9 @@ made at the same time by several people merge, in any order, to the same result,
 lock and no central sequencing of operations. A page is the unit that is loaded, shared and
 permitted, so it is the unit of the document too. Opening a page loads only that page, and a
 workspace's documents do not grow into one. The server runs yrs, so it checks each update
-against the editor's permissions, applies agents' edits to the live document, keeps the
-update log and snapshots in Postgres, and compacts them. **Planned.**
+against the editor's permissions, keeps the update log and snapshots in Postgres, and
+compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Applying agents'
+edits to the live document is **planned**.
 
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
