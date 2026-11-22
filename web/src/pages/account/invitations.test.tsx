@@ -48,6 +48,27 @@ describe("the account's invitations", () => {
     ]);
   });
 
+  it("lets an invitation that ended since the list was read go, saying so", async () => {
+    const api = fakeWorkspaces({ received: [studioInvitation] });
+    const { user } = renderApp("/account/invitations");
+    const card = await invitationCard();
+
+    // Meanwhile, Ada joined Studio by an invite link, which ended the invitation.
+    api.state.received = [];
+    server.use(
+      http.post("/api/v1/account/invitations/:id/accept", () =>
+        apiError(404, "not_found", "no such invitation"),
+      ),
+    );
+    await user.click(card.getByRole("button", { name: "Accept: Studio" }));
+
+    expect(
+      await screen.findByText(/The invitation into Studio is no longer open/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("No invitations wait for you.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("says a full workspace takes nobody yet, and keeps the invitation", async () => {
     fakeWorkspaces({ received: [studioInvitation] });
     server.use(

@@ -21,6 +21,9 @@ import { strings } from "@/lib/strings";
 
 const copy = strings.account.invitations;
 
+/** What accepting or declining answers for an invitation that is no longer open. */
+const ENDED = ["not_found", "already_member"];
+
 /**
  * The invitations into workspaces that wait for the user, each with the
  * workspace's mark, the role it offers and who sent it, to accept or decline.
@@ -29,6 +32,7 @@ export function InvitationList() {
   const invitations = useQuery(myInvitationsQuery);
   const [joined, setJoined] = useState<WorkspaceSummary>();
   const [declined, setDeclined] = useState<string>();
+  const [ended, setEnded] = useState<string>();
 
   return (
     <div className="grid gap-3">
@@ -47,6 +51,9 @@ export function InvitationList() {
         )}
         {joined === undefined && declined !== undefined && (
           <span className="text-muted-foreground">{copy.declined(declined)}</span>
+        )}
+        {joined === undefined && declined === undefined && ended !== undefined && (
+          <span className="text-muted-foreground">{copy.ended(ended)}</span>
         )}
       </output>
       {invitations.isPending && <Loading />}
@@ -68,11 +75,18 @@ export function InvitationList() {
               invitation={invitation}
               onJoined={(workspace) => {
                 setDeclined(undefined);
+                setEnded(undefined);
                 setJoined(workspace);
               }}
               onDeclined={(name) => {
                 setJoined(undefined);
+                setEnded(undefined);
                 setDeclined(name);
+              }}
+              onEnded={(name) => {
+                setJoined(undefined);
+                setDeclined(undefined);
+                setEnded(name);
               }}
             />
           ))}
@@ -86,15 +100,22 @@ type InvitationCardProps = {
   invitation: ReceivedInvitation;
   onJoined: (workspace: WorkspaceSummary) => void;
   onDeclined: (name: string) => void;
+  /** The invitation turned out to have ended, and leaves the list. */
+  onEnded: (name: string) => void;
 };
 
-function InvitationCard({ invitation, onJoined, onDeclined }: InvitationCardProps) {
+function InvitationCard({ invitation, onJoined, onDeclined, onEnded }: InvitationCardProps) {
   const accept = useAcceptInvitation();
   const decline = useDeclineInvitation();
   const [confirming, setConfirming] = useState(false);
   const { workspace } = invitation;
   const inviter = invitation.invited_by ?? undefined;
   const busy = accept.isPending || decline.isPending;
+  const ended = (error: unknown) => {
+    if (hasCode(error, ...ENDED)) {
+      onEnded(workspace.name);
+    }
+  };
 
   return (
     <ItemCard>
@@ -114,16 +135,17 @@ function InvitationCard({ invitation, onJoined, onDeclined }: InvitationCardProp
           {copy.ends(formatDateTime(invitation.expires_at))}
         </p>
         {accept.isError &&
-          (hasCode(accept.error, "member_limit", "already_member") ? (
+          !hasCode(accept.error, ...ENDED) &&
+          (hasCode(accept.error, "member_limit") ? (
             <Alert tone="error" live="assertive">
-              <p className="text-foreground">
-                {hasCode(accept.error, "member_limit") ? copy.full : copy.already}
-              </p>
+              <p className="text-foreground">{copy.full}</p>
             </Alert>
           ) : (
             <ErrorNotice error={accept.error} />
           ))}
-        {decline.isError && <ErrorNotice error={decline.error} />}
+        {decline.isError && !hasCode(decline.error, ...ENDED) && (
+          <ErrorNotice error={decline.error} />
+        )}
       </div>
       <ItemActions>
         <Button
@@ -132,7 +154,7 @@ function InvitationCard({ invitation, onJoined, onDeclined }: InvitationCardProp
           aria-label={copy.actionLabel(copy.accept, workspace.name)}
           onClick={() => {
             decline.reset();
-            accept.mutate(invitation.id, { onSuccess: onJoined });
+            accept.mutate(invitation.id, { onSuccess: onJoined, onError: ended });
           }}
         >
           {accept.isPending ? copy.accepting : copy.accept}
@@ -156,7 +178,10 @@ function InvitationCard({ invitation, onJoined, onDeclined }: InvitationCardProp
         onConfirm={() => {
           setConfirming(false);
           accept.reset();
-          decline.mutate(invitation.id, { onSuccess: () => onDeclined(workspace.name) });
+          decline.mutate(invitation.id, {
+            onSuccess: () => onDeclined(workspace.name),
+            onError: ended,
+          });
         }}
       />
     </ItemCard>

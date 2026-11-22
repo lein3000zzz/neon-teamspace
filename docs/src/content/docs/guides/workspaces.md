@@ -79,7 +79,9 @@ invitation as soon as it signs in:
 
 **Accept** joins with the invitation's role, and **Decline**, after asking, drops it. A
 workspace at its member limit takes nobody in, and accepting says so: the invitation stays,
-to accept once there is room. No mail is sent for workspace invitations yet; the list is how
+to accept once there is room. Joining the workspace another way, by an invite link, ends
+its invitation, which leaves the list and the count. One that ended since the list was
+read, answered in another tab, say, or revoked, says so when pressed, and leaves the list. No mail is sent for workspace invitations yet; the list is how
 they arrive.
 
 ## Invite links

@@ -1,6 +1,7 @@
 import { queryOptions, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { call, send } from "./call";
 import { api, type Schemas } from "./client";
+import { hasCode } from "./errors";
 import { keys } from "./keys";
 
 export type WorkspaceSummary = Schemas["WorkspaceSummary"];
@@ -293,13 +294,20 @@ export function usePreviewInviteLink() {
   });
 }
 
-/** Joins the workspace of an invite link: using it is accepting it. */
+/**
+ * Joins the workspace of an invite link: using it is accepting it. Joining
+ * ends any invitation into the same workspace that waited for the user, so
+ * their invitations are read again too, unawaited.
+ */
 export function useJoinWithLink() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (token: string) =>
       call(api.POST("/api/v1/workspace-invite-links/join", { body: { token } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.workspaces }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+      return queryClient.invalidateQueries({ queryKey: keys.workspaces });
+    },
   });
 }
 
@@ -310,6 +318,17 @@ export const myInvitationsQuery = queryOptions({
     (await call(api.GET("/api/v1/account/invitations", { signal }))).invitations,
   staleTime: 60 * 1000,
 });
+
+/**
+ * An invitation that answers not_found has ended since the list was read:
+ * answered in another tab, revoked, past its end, or settled by joining the
+ * workspace another way. The list is read again, unawaited, so it goes.
+ */
+function forgetEnded(queryClient: QueryClient, error: unknown) {
+  if (hasCode(error, "not_found", "already_member")) {
+    void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+  }
+}
 
 /**
  * Joins the workspace with the invitation's role. The invitation leaves the
@@ -323,6 +342,7 @@ export function useAcceptInvitation() {
       void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
       void queryClient.invalidateQueries({ queryKey: keys.workspaces });
     },
+    onError: (error) => forgetEnded(queryClient, error),
   });
 }
 
@@ -334,5 +354,6 @@ export function useDeclineInvitation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
     },
+    onError: (error) => forgetEnded(queryClient, error),
   });
 }

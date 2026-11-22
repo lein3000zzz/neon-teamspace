@@ -265,7 +265,8 @@ export const strings = {
       open: (workspace: string) => `Open ${workspace}`,
       declined: (workspace: string) => `Declined the invitation into ${workspace}.`,
       full: "This workspace is at its member limit, so nobody joins until there is room. The invitation stays, to accept later.",
-      already: "You are in this workspace already.",
+      ended: (workspace: string) =>
+        `The invitation into ${workspace} is no longer open: it was answered, revoked or ended, or you joined another way.`,
     },
     profile: {
       title: "Profile",
