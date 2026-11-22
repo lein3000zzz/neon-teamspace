@@ -259,17 +259,35 @@ mod tests {
 
     #[test]
     fn forwarded_addresses_count_only_from_trusted_proxies() {
-        let web = web(None);
+        let trusted = vec!["10.0.0.2/32".parse().expect("a range")];
+        let web = WebConfig::new(None, trusted);
         let forwarded = headers(&[("x-forwarded-for", "198.51.100.1, 203.0.113.9")]);
         let proxy: IpAddr = "10.0.0.2".parse().unwrap();
+        let neighbour: IpAddr = "10.0.0.3".parse().unwrap();
         let stranger: IpAddr = "192.0.2.50".parse().unwrap();
         let mapped: IpAddr = "::ffff:192.0.2.50".parse().unwrap();
 
         assert_eq!(web.client_ip(Some(proxy), &forwarded), "203.0.113.9");
+        assert_eq!(web.client_ip(Some(neighbour), &forwarded), "10.0.0.3");
         assert_eq!(web.client_ip(Some(stranger), &forwarded), "192.0.2.50");
         assert_eq!(web.client_ip(Some(mapped), &HeaderMap::new()), "192.0.2.50");
         assert_eq!(web.client_ip(Some(proxy), &HeaderMap::new()), "10.0.0.2");
         assert_eq!(web.client_ip(None, &forwarded), "unknown");
+    }
+
+    #[test]
+    fn by_default_only_a_proxy_on_this_machine_is_believed() {
+        let web = web(None);
+        let forwarded = headers(&[("x-forwarded-for", "203.0.113.9")]);
+
+        for local in ["127.0.0.1", "::1"] {
+            let peer: IpAddr = local.parse().unwrap();
+            assert_eq!(web.client_ip(Some(peer), &forwarded), "203.0.113.9");
+        }
+        for network in ["10.0.0.2", "172.17.0.5", "192.168.1.20", "fd00::2"] {
+            let peer: IpAddr = network.parse().unwrap();
+            assert_eq!(web.client_ip(Some(peer), &forwarded), network, "{network}");
+        }
     }
 
     #[test]

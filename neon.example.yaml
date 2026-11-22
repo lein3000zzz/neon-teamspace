@@ -12,17 +12,16 @@ server:
   listen: 0.0.0.0:8080
   # Where users reach the server, such as https://neon.example.com. Unset by default.
   # Requests that change something must come from this origin, and over https the session
-  # cookie is Secure and named __Host-neon_session. Unset, the request's Host stands in.
+  # cookie is Secure and named __Host-neon_session. Unset, the request's Host stands in,
+  # and no mail goes out: its links point here.
   public_url:
   # Peers whose X-Forwarded-For names the client, for rate limits: the reverse proxy in
-  # front. Ranges or single addresses. In the environment, separate them with commas.
+  # front. Ranges or single addresses. In the environment, separate them with commas. The
+  # default is loopback; name a proxy elsewhere by its address, as anyone a range covers
+  # can pick the address rate limits count.
   trusted_proxies:
     - 127.0.0.0/8
-    - 10.0.0.0/8
-    - 172.16.0.0/12
-    - 192.168.0.0/16
     - ::1/128
-    - fc00::/7
 
 database:
   # The Postgres URL. Required, and better set as NEON_DATABASE__URL, since it holds a
@@ -41,12 +40,12 @@ admin:
   password:
 
 secrets:
-  # The keys that seal secrets kept in the database: copies of invite codes and secret
-  # settings. Each is an id and 32 random bytes in base64, such as
-  # 2026:<output of openssl rand -base64 32>. The first seals new values; every one opens
-  # what it sealed, so put a new key first to rotate. Better set as NEON_SECRETS__KEYS,
-  # entries separated by commas. None by default: invite codes then show only once, and
-  # secret settings cannot be saved.
+  # The keys that seal secrets kept in the database: copies of invite codes, secret
+  # settings, and mail waiting in the queue. Each is an id and 32 random bytes in base64,
+  # such as 2026:<output of openssl rand -base64 32>. The first seals new values; every one
+  # opens what it sealed, so put a new key first to rotate. Better set as
+  # NEON_SECRETS__KEYS, entries separated by commas. None by default: invite codes then
+  # show only once, secret settings cannot be saved, and no mail goes out.
   keys:
 
 # Logs, metrics, traces, profiles and the internal admin listener. Read once, at start.
@@ -110,3 +109,22 @@ settings:
     # session_absolute_ttl: 30d
     # How long a new invite works, unless its admin sets its end.
     # invite_ttl: 7d
+  mail:
+    # Send mail through an SMTP server, once host and from are set too. Mail also needs
+    # server.public_url, which its links point to, and secrets.keys, which seals it while
+    # it waits in the queue.
+    # enabled: false
+    # The server's host, such as smtp.example.com, its port, and starttls, tls or none.
+    # host:
+    # port: 587
+    # tls: starttls
+    # The account to sign in with, if the server wants one. Keep the password in
+    # NEON_SETTINGS__MAIL__PASSWORD, or save it on the admin page.
+    # username:
+    # password:
+    # The address mail comes from, such as neon@example.com, and the name beside it;
+    # empty uses the instance's name.
+    # from:
+    # from_name:
+    # Mail admins about each confirmed request to join.
+    # notifications: true

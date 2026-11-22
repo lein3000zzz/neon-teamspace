@@ -1,11 +1,13 @@
-//! The admin's work on accounts.
+//! The admin's work on accounts, and the test mail.
 
 use neon_domain::auth::{Principal, Role, User};
 use neon_store::{sessions, users};
 use tracing::info;
 use uuid::Uuid;
 
+use super::verification::recipient;
 use super::{AuthError, AuthService, require_admin};
+use crate::mail::{Mail, Message};
 
 /// The most accounts one page lists, and how many it lists unless told.
 pub const MAX_PAGE: i64 = 200;
@@ -61,6 +63,10 @@ impl AuthService {
     /// demoted nor disabled, so the instance never locks itself out: every such change
     /// locks the active admins first, so changes run one at a time and each sees the
     /// admins as the one before left them.
+    ///
+    /// A change of role or of the disable needs a browser session. With an API token,
+    /// only verifying the address goes through, so a token that leaked can neither make
+    /// an admin of an account its holder controls nor lock admins out.
     pub async fn update_user(
         &self,
         actor: &Principal,
@@ -82,6 +88,16 @@ impl AuthService {
                 .await?
                 .ok_or(AuthError::NotFound("no such user"))?;
             let was_active_admin = user.is_active_admin();
+            let changes_access = update.role.is_some_and(|role| role != user.role)
+                || update
+                    .disabled
+                    .is_some_and(|disabled| disabled != user.is_disabled());
+            if changes_access && !actor.via_session() {
+                return Err(AuthError::Forbidden(
+                    "changing a role, or disabling or enabling an account, needs a browser \
+                     session: API tokens may only verify addresses here",
+                ));
+            }
 
             if let Some(role) = update.role {
                 user.role = role;
@@ -116,6 +132,29 @@ impl AuthService {
                 "account updated"
             );
             Ok(user)
+        })
+        .await
+    }
+
+    /// Queues a test mail to the admin asking, to see whether mail gets through, and
+    /// returns where it went. Whether it was delivered shows in the mail status, and in the
+    /// admin's inbox.
+    pub async fn send_test_mail(&self, actor: &Principal) -> Result<String, AuthError> {
+        self.observe("send_test_mail", async {
+            require_admin(actor)?;
+            if !self.mail_configured() {
+                return Err(AuthError::MailNotSetUp(self.mail_status().problem));
+            }
+            let mail = Mail {
+                to: recipient(&actor.user),
+                message: Message::Test {
+                    sent_by: actor.user.email.as_str().to_owned(),
+                },
+            };
+            let mut conn = self.pool().acquire().await?;
+            self.queue(&mut conn, &mail).await?;
+            info!(actor_id = %actor.user.id, "test mail queued");
+            Ok(mail.to.address)
         })
         .await
     }

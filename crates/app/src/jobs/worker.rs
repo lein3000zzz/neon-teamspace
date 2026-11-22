@@ -41,7 +41,8 @@ pub struct WorkerConfig {
     pub lease_timeout: Duration,
     /// How often to take back expired claims and delete old finished jobs.
     pub maintenance_interval: Duration,
-    /// How long done and dead jobs are kept for inspection.
+    /// How long done and dead jobs are kept for inspection, except those of handlers that
+    /// keep none, which are deleted as they finish.
     pub retention: Duration,
     /// The delays between attempts.
     pub backoff: Backoff,
@@ -150,6 +151,15 @@ impl Worker {
         let id = format!("{}-{}", std::process::id(), Uuid::now_v7().simple());
         let mut kinds: Vec<String> = self.handlers.keys().map(|&k| k.to_owned()).collect();
         kinds.sort();
+        let unkept: Vec<String> = kinds
+            .iter()
+            .filter(|kind| {
+                self.handlers
+                    .get(kind.as_str())
+                    .is_some_and(|handler| !handler.keeps_finished())
+            })
+            .cloned()
+            .collect();
 
         // A pool of one with the same options, as `PgListener::connect` builds, so the
         // listener reconnects on its own. Its connection is held for the worker's life and
@@ -171,6 +181,7 @@ impl Worker {
             config: self.config,
             id: id.clone(),
             kinds,
+            unkept,
             handlers: self.handlers,
             hooks: self.hooks,
             span: self.span,
@@ -257,6 +268,8 @@ struct Inner {
     config: WorkerConfig,
     id: String,
     kinds: Vec<String>,
+    /// The kinds whose finished jobs are deleted rather than kept.
+    unkept: Vec<String>,
     handlers: HashMap<&'static str, Arc<dyn Handler>>,
     hooks: Vec<Arc<dyn RunHook>>,
     span: MakeSpan,
@@ -363,14 +376,23 @@ impl Inner {
 
     async fn record(&self, job: &Job, outcome: Result<(), JobError>) {
         let lease = job.lease(&self.id);
+        let keep = !self.unkept.contains(&job.kind);
         let recorded = match outcome {
             Ok(()) => {
                 debug!("job done");
-                jobs::complete(&self.pool, lease).await
+                if keep {
+                    jobs::complete(&self.pool, lease).await
+                } else {
+                    jobs::delete(&self.pool, lease).await
+                }
             }
             Err(error) if error.is_permanent() || job.attempt >= job.max_attempts => {
                 error!(%error, attempts = job.attempt, "job failed for the last time");
-                jobs::mark_dead(&self.pool, lease, error.message()).await
+                if keep {
+                    jobs::mark_dead(&self.pool, lease, error.message()).await
+                } else {
+                    jobs::delete(&self.pool, lease).await
+                }
             }
             Err(error) => {
                 let attempt = u32::try_from(job.attempt).unwrap_or(1);
@@ -402,6 +424,15 @@ impl Inner {
             Ok(0) => {}
             Ok(count) => debug!(jobs = count, "deleted finished jobs"),
             Err(error) => warn!(%error, "could not delete finished jobs"),
+        }
+        // A job taken back from a dead worker on its last attempt is marked dead, with no
+        // run left to delete it as it ends.
+        if !self.unkept.is_empty() {
+            match jobs::delete_finished_of(&self.pool, &self.unkept).await {
+                Ok(0) => {}
+                Ok(count) => debug!(jobs = count, "deleted finished jobs that are not kept"),
+                Err(error) => warn!(%error, "could not delete finished jobs that are not kept"),
+            }
         }
     }
 

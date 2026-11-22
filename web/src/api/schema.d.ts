@@ -175,7 +175,7 @@ export interface paths {
         put?: never;
         /**
          * Create an invite
-         * @description With an address, mails the invite there, naming the admin; it is made even when the mail fails, and `sent` says whether it went.
+         * @description With an address, mails the invite there, naming the admin: the mail is queued with the invite, and `queued` is true.
          */
         post: operations["create_invite"];
         delete?: never;
@@ -272,7 +272,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a request to join
-         * @description Makes an invite bound to the request's address, for one sign-up, and mails it there. The invite is made even when the mail fails: `sent` says whether it went, and the code can be copied.
+         * @description Makes an invite bound to the request's address, for one sign-up, and mails it there, the mail queued with the invite. While mail is not set up the invite is made all the same, `queued` is false, and the code can be handed over.
          */
         post: operations["approve_join"];
         delete?: never;
@@ -301,6 +301,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/mail/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test mail
+         * @description Queues a test mail to the admin calling. Whether the mail server took it shows in the mail status of `GET /admin/settings`, with what it answered when it did not, and in the admin's inbox.
+         */
+        post: operations["send_test_mail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/settings": {
         parameters: {
             query?: never;
@@ -310,7 +330,7 @@ export interface paths {
         };
         /**
          * List runtime settings
-         * @description Every setting with its value, default and where the value comes from.
+         * @description Every setting with its value, default and where the value comes from, and whether mail can go.
          */
         get: operations["list_settings"];
         put?: never;
@@ -320,7 +340,7 @@ export interface paths {
         head?: never;
         /**
          * Change runtime settings
-         * @description Applies the changes together, at once and without a restart, or none of them: every value is checked, then the rules across settings. Settings pinned by the environment or the config file cannot change here. Secret settings need `secrets.keys`, as they are kept encrypted.
+         * @description Applies the changes together, at once and without a restart, or none of them: every value is checked, then the rules across settings. Settings pinned by the environment or the config file cannot change here. Secret settings need `secrets.keys`, as they are kept encrypted. Settings marked `browser_only` change only from a browser session.
          */
         patch: operations["update_settings"];
         trace?: never;
@@ -337,7 +357,7 @@ export interface paths {
         put?: never;
         /**
          * Create an account
-         * @description Works whatever the registration mode, closed included. The address counts as verified.
+         * @description Works whatever the registration mode, closed included. The address counts as verified. Only from a browser session: an API token invites people instead.
          */
         post: operations["create_user"];
         delete?: never;
@@ -361,7 +381,7 @@ export interface paths {
         head?: never;
         /**
          * Change an account's role, disable or enable it, or verify its address
-         * @description Changes only what the body names. The last admin who can sign in can be neither demoted nor disabled.
+         * @description Changes only what the body names. The last admin who can sign in can be neither demoted nor disabled. A change of role or of the disable needs a browser session; an API token may only verify the address.
          */
         patch: operations["update_user"];
         trace?: never;
@@ -741,10 +761,11 @@ export interface components {
             code: string;
             invite: components["schemas"]["Invite"];
             /**
-             * @description For an invite mailed: whether the mail went. When it did not, the code can still be
-             *     handed over.
+             * @description For an invite meant to be mailed: whether its mail was queued, with the invite. It
+             *     is not while mail is not set up; the code can be handed over instead. Delivery
+             *     shows in the mail status of `GET /admin/settings`.
              */
-            sent?: boolean | null;
+            queued?: boolean | null;
         };
         /**
          * @description How a request proved who it is.
@@ -881,6 +902,43 @@ export interface components {
             /** Format: password */
             password: string;
         };
+        /** @description A delivery that failed. */
+        MailFailure: {
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description What the mail server answered, or why it could not be reached.
+             * @example permanent error (535): 5.7.8 Authentication credentials invalid
+             */
+            error: string;
+            /**
+             * @description The kind of mail: `verification`, `password_reset`, `password_changed`, `invite`,
+             *     `join_confirmation`, `join_denied`, `join_requested` or `test`.
+             * @example test
+             */
+            kind: string;
+            /** @description It will not be tried again: the server refused the address, or the link expired. */
+            permanent: boolean;
+        };
+        /** @description Whether mail can go, and how it went lately. */
+        MailStatus: {
+            /**
+             * @description Mail can go now: `mail.enabled` on, `mail.host` and `mail.from` set, a secret key in
+             *     `secrets.keys` to seal it while it waits, and `server.public_url` for its links.
+             */
+            configured: boolean;
+            last_failure?: components["schemas"]["MailFailure"] | null;
+            /**
+             * Format: date-time
+             * @description When the mail server last took a mail, since the server started.
+             */
+            last_sent_at?: string | null;
+            /**
+             * @description What is missing, while it cannot go.
+             * @example mail.host is not set
+             */
+            problem?: string | null;
+        };
         /** @description The signed-in user, and what this request may do. */
         Me: components["schemas"]["User"] & {
             credential: components["schemas"]["CredentialKind"];
@@ -943,10 +1001,11 @@ export interface components {
         };
         /** @description A new account. */
         Registered: {
-            /** @description The account signs in only once it opened the link mailed to it. */
+            /**
+             * @description The account signs in only once it opened the link mailed to it, which was queued
+             *     with the account. Another can be asked for with `POST /auth/verification`.
+             */
             must_verify: boolean;
-            /** @description The link was mailed. When it was not, it can be asked for again. */
-            sent: boolean;
             user: components["schemas"]["User"];
         };
         /**
@@ -1000,6 +1059,11 @@ export interface components {
         };
         /** @description A runtime setting as admins see it, with secrets redacted. */
         Setting: {
+            /**
+             * @description Changes only from a browser session, never with an API token: a secret, or a setting
+             *     that says where one goes, such as the mail server.
+             */
+            browser_only: boolean;
             default: components["schemas"]["Value"];
             description: string;
             /** @example NEON_SETTINGS__AUTH__REGISTRATION */
@@ -1020,6 +1084,7 @@ export interface components {
             value: components["schemas"]["Value"];
         };
         SettingList: {
+            mail: components["schemas"]["MailStatus"];
             /** @description In key order. */
             settings: components["schemas"]["Setting"][];
         };
@@ -1041,6 +1106,16 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["User"];
+        };
+        /** @description Where a test mail went. */
+        TestMail: {
+            /** @description Always true in a 202: the mail is in the queue. */
+            queued: boolean;
+            /**
+             * @description The admin's own address.
+             * @example admin@example.com
+             */
+            to: string;
         };
         /** @description The body of routes that take a token from a mailed link. */
         TokenRequest: {
@@ -2181,6 +2256,62 @@ export interface operations {
             };
         };
     };
+    send_test_mail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestMail"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description mail_not_set_up, saying what is missing. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_settings: {
         parameters: {
             query?: never;
@@ -2268,7 +2399,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, with a problem for each browser-only setting an API token tried to change; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2389,7 +2520,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, as for an API token, or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2461,7 +2592,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden, as for an API token changing a role or the disable, or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2511,7 +2642,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Mailed. */
+            /** @description The link was made and its mail queued. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2554,7 +2685,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description mail_not_set_up. */
+            /** @description mail_not_set_up, saying what is missing. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2565,15 +2696,6 @@ export interface operations {
             };
             /** @description rate_limited: one a minute, five a day. */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description mail_failed. */
-            502: {
                 headers: {
                     [name: string]: unknown;
                 };

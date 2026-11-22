@@ -8,7 +8,9 @@ use http_body_util::BodyExt as _;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::auth::AuthService;
+use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
+use neon_app::mail::MailQueue;
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
@@ -18,6 +20,9 @@ use sqlx::PgPool;
 use tower::ServiceExt as _;
 
 use super::*;
+
+/// Where mail links point in the tests. Mail still needs its settings and a secret key.
+pub(super) const PUBLIC_URL: &str = "https://neon.example.com";
 
 /// Hashes cheap enough for tests.
 pub(super) const CHEAP: Argon2Params = Argon2Params {
@@ -43,9 +48,16 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
     .expect("settings load");
     assert!(warnings.is_empty(), "{warnings:?}");
     let settings = Arc::new(settings);
+    let mail = MailQueue::new(
+        Arc::clone(&settings),
+        envelope.clone(),
+        Some(PUBLIC_URL),
+        Clock::system(),
+    );
     let auth = AuthService::builder(pool, Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope)
+        .mail(mail)
         .build()
         .await
         .expect("the auth service starts");

@@ -16,6 +16,8 @@
 //!   unverified account is only revealed after the right password.
 //! - The forms anyone can send, asking for a reset link or to join, answer the same
 //!   whatever comes of them, and do the work after the answer.
+//! - Mail is queued on the transaction of the change it tells of, sealed, so a link exists
+//!   in the clear only in the mail itself.
 //! - No password, token or code reaches a log line, a span or an error message.
 
 mod accounts;
@@ -40,13 +42,13 @@ use neon_domain::auth::{
 use neon_domain::settings::{Secret, Snapshot};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use tokio_util::task::TaskTracker;
 use tracing::{Instrument as _, info_span, warn};
 
 use crate::clock::Clock;
 use crate::crypto::{Argon2Params, Envelope, PasswordHasher, Verified};
-use crate::mail::{LogMailer, Mail, Mailer};
+use crate::mail::{Mail, MailQueue, MailStatus, QueueError};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, auth as keys};
 
@@ -95,7 +97,7 @@ struct Inner {
     /// Checked against when an address is unknown, so a miss costs a full hash too.
     dummy_hash: String,
     limiter: Arc<dyn RateLimiter>,
-    mailer: Arc<dyn Mailer>,
+    mail: MailQueue,
     envelope: Envelope,
     clock: Clock,
     background: TaskTracker,
@@ -103,14 +105,14 @@ struct Inner {
 }
 
 /// Puts an [`AuthService`] together. Without being told otherwise it limits rates in
-/// memory, logs mail instead of sending it, hashes with [`Argon2Params::DEFAULT`], seals
-/// nothing and reads the system clock.
+/// memory, sends no mail, hashes with [`Argon2Params::DEFAULT`], seals nothing and reads
+/// the system clock.
 pub struct AuthServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
     params: Argon2Params,
     limiter: Option<Arc<dyn RateLimiter>>,
-    mailer: Option<Arc<dyn Mailer>>,
+    mail: Option<MailQueue>,
     envelope: Envelope,
     clock: Clock,
 }
@@ -121,8 +123,9 @@ impl AuthServiceBuilder {
         self
     }
 
-    pub fn mailer(mut self, mailer: Arc<dyn Mailer>) -> Self {
-        self.mailer = Some(mailer);
+    /// Where mail is queued. Without one, no mail can go: it has no public URL to link to.
+    pub fn mail(mut self, mail: MailQueue) -> Self {
+        self.mail = Some(mail);
         self
     }
 
@@ -154,6 +157,14 @@ impl AuthServiceBuilder {
             move || hasher.hash(DUMMY_PASSWORD)
         })
         .await?;
+        let mail = self.mail.unwrap_or_else(|| {
+            MailQueue::new(
+                Arc::clone(&self.settings),
+                self.envelope.clone(),
+                None,
+                self.clock.clone(),
+            )
+        });
         Ok(AuthService {
             inner: Arc::new(Inner {
                 pool: self.pool,
@@ -163,7 +174,7 @@ impl AuthServiceBuilder {
                 limiter: self
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
-                mailer: self.mailer.unwrap_or_else(|| Arc::new(LogMailer)),
+                mail,
                 envelope: self.envelope,
                 clock: self.clock,
                 background: TaskTracker::new(),
@@ -180,7 +191,7 @@ impl AuthService {
             settings,
             params: Argon2Params::DEFAULT,
             limiter: None,
-            mailer: None,
+            mail: None,
             envelope: Envelope::default(),
             clock: Clock::system(),
         }
@@ -241,7 +252,12 @@ impl AuthService {
     }
 
     fn mail_configured(&self) -> bool {
-        self.inner.mailer.configured()
+        self.inner.mail.configured()
+    }
+
+    /// Whether mail can go now, why not, and how the last deliveries went.
+    pub fn mail_status(&self) -> MailStatus {
+        self.inner.mail.status()
     }
 
     /// Self sign-ups verify their address now: switched on, and mail set up.
@@ -305,15 +321,12 @@ impl AuthService {
         }
     }
 
-    /// Sends a mail, logging why when it does not go. True when it went.
-    async fn send(&self, mail: Mail) -> bool {
-        let kind = mail.message.kind();
-        match self.inner.mailer.send(mail).await {
-            Ok(()) => true,
-            Err(error) => {
-                warn!(kind, %error, "mail not sent");
-                false
-            }
+    /// Queues a mail on `conn`, the transaction of the change it tells of.
+    async fn queue(&self, conn: &mut PgConnection, mail: &Mail) -> Result<(), AuthError> {
+        match self.inner.mail.queue(conn, mail).await {
+            Ok(_) => Ok(()),
+            Err(QueueError::Database(error)) => Err(AuthError::Database(error)),
+            Err(error @ QueueError::Seal(_)) => Err(AuthError::Internal(error.to_string())),
         }
     }
 

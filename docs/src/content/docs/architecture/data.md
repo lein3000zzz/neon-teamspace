@@ -70,9 +70,9 @@ token, is a separate random value of its own, kept only as its hash.
 
 ## The job queue
 
-Work that happens after a request, or on a schedule, runs as a **job**. Mail, outgoing
-webhooks and exports will be jobs, **planned** with the features that need them; the queue
-itself exists. The hourly cleanup of expired sessions, links and invites is not a job but a
+Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
+`mail.send`; outgoing webhooks and exports will be, **planned** with the features that need
+them. The hourly cleanup of expired sessions, links and invites is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
@@ -125,7 +125,9 @@ A job that fails is queued again, due later, and the delay grows with each attem
 service that is down is not called in a tight loop. A job that fails its last attempt, or
 fails in a way a retry cannot fix, such as a payload it cannot read, is marked `dead` and
 kept with its error, to be looked at. Dead jobs and done ones are deleted seven days after
-they finished.
+they finished, except the kinds whose payload must not outlive the run. Mail is one: its
+payload is sealed, as it carries one-time links, and its job is deleted as soon as it is
+done or dead.
 
 ### Woken by LISTEN and NOTIFY
 

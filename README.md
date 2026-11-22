@@ -80,7 +80,9 @@ The root `Makefile` runs every task below. `make` on its own lists its targets.
 
 Start Postgres, then point the tools at it. The compose file binds Postgres to
 `127.0.0.1:55432` with credentials meant only for development, and `.env` holds the
-matching URLs. Git ignores `.env`.
+matching URLs. Git ignores `.env`. It also starts Mailpit, which shows the server's mail at
+`http://127.0.0.1:58025/`; the commented block at the end of `.env.example` sends mail
+there, as the [mail page](docs/src/content/docs/self-hosting/mail.md#development) explains.
 
 ```sh
 make db-up                 # make db-down stops it and keeps the data

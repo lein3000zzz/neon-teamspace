@@ -25,6 +25,7 @@ pub const STATUSES: [&str; 4] = ["queued", "running", "done", "dead"];
 /// A job to queue.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewJob {
+    id: Option<Uuid>,
     kind: String,
     payload: Json,
     max_attempts: i32,
@@ -36,12 +37,20 @@ impl NewJob {
     /// A job of `kind`, due now, run up to [`DEFAULT_MAX_ATTEMPTS`] times.
     pub fn new(kind: impl Into<String>, payload: Json) -> Self {
         Self {
+            id: None,
             kind: kind.into(),
             payload,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             run_at: None,
             traceparent: None,
         }
+    }
+
+    /// The id the job gets, for a payload that must name its own row, such as one sealed
+    /// with the id as associated data. Without one, [`enqueue`] makes a UUIDv7.
+    pub fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
     }
 
     /// At least 1; the database refuses less.
@@ -70,7 +79,7 @@ impl NewJob {
 /// A job given no `traceparent` gets the current span's, so its run continues the trace
 /// of the request that queued it. Outside a span it has none and its run starts a trace.
 pub async fn enqueue(executor: impl PgExecutor<'_>, job: &NewJob) -> sqlx::Result<Uuid> {
-    let id = Uuid::now_v7();
+    let id = job.id.unwrap_or_else(Uuid::now_v7);
     let traceparent = job
         .traceparent
         .clone()
@@ -226,6 +235,21 @@ pub async fn mark_dead(
     Ok(result.rows_affected() == 1)
 }
 
+/// Deletes a job that finished, done or dead, instead of keeping it, for kinds whose
+/// payload must not outlive the run. False when the lease no longer holds.
+pub async fn delete(executor: impl PgExecutor<'_>, lease: Lease<'_>) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "DELETE FROM jobs
+         WHERE id = $1 AND status = 'running' AND locked_by = $2 AND attempts = $3",
+        lease.id,
+        lease.worker,
+        lease.attempt,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// Queues jobs a stopping worker could not finish, to run again at once. The interrupted
 /// attempt is not counted: the job did not fail, the worker went away.
 pub async fn release(
@@ -260,6 +284,21 @@ pub async fn reclaim_expired(
              run_at = now(), locked_at = NULL, locked_by = NULL, updated_at = now()
          WHERE status = 'running' AND locked_at < now() - make_interval(secs => $1)",
         lease_timeout.as_secs_f64(),
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Deletes every done and dead job of the given kinds, however recent: those a worker could
+/// not delete as they ended, such as one taken back from a dead worker on its last attempt.
+pub async fn delete_finished_of(
+    executor: impl PgExecutor<'_>,
+    kinds: &[String],
+) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "DELETE FROM jobs WHERE status IN ('done', 'dead') AND kind = ANY($1)",
+        kinds,
     )
     .execute(executor)
     .await?;

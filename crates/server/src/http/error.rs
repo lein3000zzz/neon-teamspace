@@ -83,6 +83,13 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, "forbidden", message)
     }
 
+    /// The same answer, naming each field it refuses.
+    #[must_use]
+    pub fn with_problems(mut self, problems: Vec<Problem>) -> Self {
+        self.problems = problems;
+        self
+    }
+
     /// A failure the client cannot fix. Its cause belongs in the logs, never in the
     /// answer, so the message is always the same.
     pub fn internal() -> Self {
@@ -167,10 +174,9 @@ impl From<AuthError> for ApiError {
             AuthError::InviteCodeTaken
             | AuthError::EmailTaken
             | AuthError::LastAdmin
-            | AuthError::MailNotSetUp
+            | AuthError::MailNotSetUp(_)
             | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
             AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
-            AuthError::MailFailed(_) => StatusCode::BAD_GATEWAY,
             AuthError::Database(_) | AuthError::Internal(_) => {
                 tracing::error!(error = %error, "an auth use case failed");
                 return Self::internal();

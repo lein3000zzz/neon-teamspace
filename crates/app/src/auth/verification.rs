@@ -5,6 +5,7 @@ use neon_domain::auth::email_token::{LINK_GAP, LINK_WINDOW, LINKS_PER_WINDOW, MA
 use neon_domain::auth::{EmailTokenPurpose, Principal, User};
 use neon_domain::settings::Secret;
 use neon_store::{email_tokens, users};
+use sqlx::PgConnection;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -13,18 +14,24 @@ use crate::crypto::{hash_secret, new_secret};
 use crate::mail::{Mail, Message, Recipient};
 use crate::ratelimit::Bucket;
 
+/// Who a mail to an account goes to.
+pub(super) fn recipient(user: &User) -> Recipient {
+    Recipient::new(user.email.as_str(), Some(user.display_name.clone()))
+}
+
 impl AuthService {
-    /// Makes a link of `purpose` for `user` and returns its token: at most one a minute
-    /// and five a day of each purpose per account.
+    /// Makes a link of `purpose` for `user` on `conn` and returns its token: at most one a
+    /// minute and five a day of each purpose per account.
     pub(super) async fn new_link(
         &self,
+        conn: &mut PgConnection,
         user: &User,
         purpose: EmailTokenPurpose,
     ) -> Result<Secret, AuthError> {
         let now = self.now();
         for (window, most) in [(LINK_GAP, 1), (LINK_WINDOW, LINKS_PER_WINDOW)] {
             let sent =
-                email_tokens::count_since(self.pool(), user.id, purpose, now - window).await?;
+                email_tokens::count_since(&mut *conn, user.id, purpose, now - window).await?;
             if sent >= most {
                 return Err(AuthError::RateLimited {
                     retry_after: window,
@@ -33,7 +40,7 @@ impl AuthService {
         }
         let token = new_secret("");
         email_tokens::insert(
-            self.pool(),
+            &mut *conn,
             &hash_secret(&token),
             user.id,
             purpose,
@@ -44,28 +51,21 @@ impl AuthService {
         Ok(Secret::new(token))
     }
 
-    /// Mails `user` a new link verifying its address. True when it went.
-    pub(super) async fn send_verification(&self, user: &User) -> bool {
-        let token = match self.new_link(user, EmailTokenPurpose::Verify).await {
-            Ok(token) => token,
-            Err(error) => {
-                warn!(user_id = %user.id, %error, "no verification link made");
-                return false;
-            }
+    /// Makes a link verifying `user`'s address and queues it to them, both on `conn`.
+    pub(super) async fn queue_verification(
+        &self,
+        conn: &mut PgConnection,
+        user: &User,
+    ) -> Result<(), AuthError> {
+        let token = self.new_link(conn, user, EmailTokenPurpose::Verify).await?;
+        let mail = Mail {
+            to: recipient(user),
+            message: Message::Verification {
+                token,
+                lasts: EmailTokenPurpose::Verify.lifetime(),
+            },
         };
-        let sent = self
-            .send(Mail {
-                to: Recipient::new(user.email.as_str(), Some(user.display_name.clone())),
-                message: Message::Verification {
-                    token,
-                    lasts: EmailTokenPurpose::Verify.lifetime(),
-                },
-            })
-            .await;
-        if sent {
-            info!(user_id = %user.id, "verification link mailed");
-        }
-        sent
+        self.queue(conn, &mail).await
     }
 
     /// Verifies the address of the account a mailed link is for, and returns the address
@@ -107,22 +107,35 @@ impl AuthService {
         self.observe("resend_verification", async {
             self.limit(Bucket::Verify, ip).await?;
             if !self.mail_configured() {
-                return Err(AuthError::MailNotSetUp);
+                return Err(AuthError::MailNotSetUp(None));
             }
             let service = self.clone();
             let email = normalize(email);
             self.background("resend_verification", async move {
-                match users::by_email(service.pool(), &email).await {
-                    Ok(Some((user, _))) if !user.is_verified() && !user.is_disabled() => {
-                        service.send_verification(&user).await;
-                    }
-                    Ok(_) => {}
-                    Err(error) => warn!(%error, "looking the account up failed"),
+                if let Err(error) = service.mail_verification_again(&email).await {
+                    warn!(%error, "no verification link mailed");
                 }
             });
             Ok(())
         })
         .await
+    }
+
+    async fn mail_verification_again(&self, email: &str) -> Result<(), AuthError> {
+        let mut tx = self.pool().begin().await?;
+        match users::by_email(&mut *tx, email).await? {
+            Some((user, _)) if !user.is_verified() && !user.is_disabled() => {
+                match self.queue_verification(&mut tx, &user).await {
+                    // An account past its links for now is sent nothing more.
+                    Err(AuthError::RateLimited { .. }) => return Ok(()),
+                    queued => queued?,
+                }
+                tx.commit().await?;
+                info!(user_id = %user.id, "verification link mailed again");
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Mails a user who must verify their address a new link, for an admin.
@@ -134,9 +147,10 @@ impl AuthService {
         self.observe("send_verification_link", async {
             require_admin(actor)?;
             if !self.mail_configured() {
-                return Err(AuthError::MailNotSetUp);
+                return Err(AuthError::MailNotSetUp(self.mail_status().problem));
             }
-            let user = users::by_id(self.pool(), user_id)
+            let mut tx = self.pool().begin().await?;
+            let user = users::by_id(&mut *tx, user_id)
                 .await?
                 .ok_or(AuthError::NotFound("no such user"))?;
             if user.is_verified() {
@@ -144,21 +158,8 @@ impl AuthService {
                     "the address is verified already".to_owned(),
                 ));
             }
-            let token = self.new_link(&user, EmailTokenPurpose::Verify).await?;
-            let sent = self
-                .send(Mail {
-                    to: Recipient::new(user.email.as_str(), Some(user.display_name.clone())),
-                    message: Message::Verification {
-                        token,
-                        lasts: EmailTokenPurpose::Verify.lifetime(),
-                    },
-                })
-                .await;
-            if !sent {
-                return Err(AuthError::MailFailed(
-                    "the link was made but not mailed".to_owned(),
-                ));
-            }
+            self.queue_verification(&mut tx, &user).await?;
+            tx.commit().await?;
             info!(actor_id = %actor.user.id, %user_id, "verification link mailed");
             Ok(())
         })

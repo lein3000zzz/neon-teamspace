@@ -1,6 +1,6 @@
 ---
 title: Security model
-description: How the server keeps passwords, sessions, tokens, codes and secret settings, how it tells who a request is, and what it does against guessing and forgery.
+description: How the server keeps passwords, sessions, tokens, codes, secret settings and queued mail, how it tells who a request is, and what it does against guessing and forgery.
 ---
 
 This page covers accounts and secrets: what the database holds, how a request proves who it
@@ -16,6 +16,7 @@ the same features from the side of the people using them.
 | API tokens | SHA-256 of the token, and its first 10 characters to show in lists. |
 | Invite codes | SHA-256 of the code in lowercase, and a copy sealed with the instance's key when one is configured. |
 | Mailed links | SHA-256 of the link's token. |
+| Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
 
 Session tokens, API tokens, made invite codes and mailed links are 32 random bytes from a
@@ -66,6 +67,13 @@ working there when its owner stops being an admin. Reading needs `read`, every o
 `write`, and the admin routes `admin`. Changing a password, ending sessions, and making or
 revoking tokens need a browser session, so a leaked token cannot lock its owner out or make
 more tokens.
+
+An admin's token does less than the admin at a browser. Creating an account with a password,
+changing a role, and disabling or enabling an account need a browser session; a token
+invites people and verifies addresses instead. So does a setting that is a secret or says
+where one goes, such as `mail.host`. A leaked admin token therefore cannot make an account
+its holder signs in to at a browser, nor make an admin of one it got through an invite, nor
+demote or disable any admin, its owner included.
 
 ## Cross-site requests
 
@@ -119,7 +127,8 @@ each kind per account, and five confirmation links per request to join.
 
 The limits count by the client's address. The server takes it from the connection, or from
 the last `X-Forwarded-For` entry when the connection comes from `server.trusted_proxies`,
-which are loopback and the private networks unless set. Caddy in the web image replaces
+which is loopback alone unless set. The Compose stack trusts the private networks, as only
+its own containers reach the server there. Caddy in the web image replaces
 `X-Forwarded-For` with the one address it sees, so a client cannot choose the address the
 server counts. A server process counts on its own, and a second process would need a shared
 counter behind the same port.
@@ -150,6 +159,22 @@ The auth use cases are measured in the RED metrics of the `auth` subsystem, as
 link counts as `ok`, as a `4xx` answer does for HTTP, and leaves its span's status unset with
 the reason recorded. Only a failure of the server, such as a database that does not answer,
 counts as `error`.
+
+## Mail
+
+A mail is queued in the transaction of the change it tells of. Its job's payload is sealed
+with the instance's key, its associated data the job's id, so a payload copied to another
+row does not open there, and the job is deleted as soon as it is sent or given up on. A
+link exists in the clear only in the mail. Without a key, no mail is queued: the flows that
+mail links stay off.
+
+Connections to the relay use TLS 1.2 or later and check its certificate, and `starttls`
+refuses a relay that does not offer the upgrade rather than going on in the clear. A
+password never crosses the network unencrypted: without TLS, the settings allow signing in
+only to this host. The mail password, and the settings that say where it goes, change only
+from a browser session, so an API token that leaked cannot point the password, or the reset
+links, at another server. Errors carry the relay's answer, never the password, and logs
+name a mail by its kind, never its recipient or link. See [Mail](/docs/self-hosting/mail/).
 
 ## The last admin
 

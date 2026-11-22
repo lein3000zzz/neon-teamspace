@@ -365,7 +365,8 @@ fn neon_variables_that_set_no_key_are_ignored_and_listed() {
 fn unknown_settings_variables_are_errors_that_do_not_show_their_value() {
     jailed(|jail| {
         jail.set_env("NEON_DATABASE__URL", URL);
-        jail.set_env("NEON_SETTINGS__MAIL__PASSWORD", PASSWORD);
+        // A typo of mail.password: the value is likely a secret.
+        jail.set_env("NEON_SETTINGS__MAIL__PASSWROD", PASSWORD);
 
         let result = load();
         let message = result.as_ref().expect_err("invalid").to_string();
@@ -373,7 +374,7 @@ fn unknown_settings_variables_are_errors_that_do_not_show_their_value() {
         assert_eq!(
             invalid(result),
             [Problem::new(
-                "NEON_SETTINGS__MAIL__PASSWORD",
+                "NEON_SETTINGS__MAIL__PASSWROD",
                 "no such setting"
             )]
         );

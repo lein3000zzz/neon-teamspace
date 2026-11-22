@@ -36,6 +36,8 @@ pub struct Entry {
     pub value: Json,
     pub default: Json,
     pub source: Source,
+    /// Changes only from a browser session: see [`Definition::browser_only`].
+    pub browser_only: bool,
     pub env_var: String,
 }
 
@@ -85,8 +87,10 @@ pub struct SettingsService {
 
 impl SettingsService {
     /// Reads the saved values and resolves every setting. Saved values that no longer
-    /// parse, and secrets that do not open, are skipped and returned as warnings; rules
-    /// that fail are an error, since the server would run with a combination they refuse.
+    /// parse, and secrets that do not open, are skipped and returned as warnings. A rule
+    /// the environment and the config file break by themselves is an error, as only they
+    /// can fix it; one broken only with saved values is a warning, which an admin fixes on
+    /// the admin page: see [`Registry::check_rules_on_start`].
     pub async fn load(
         pool: PgPool,
         registry: Registry,
@@ -132,10 +136,11 @@ impl SettingsService {
             .collect();
         let (stored, parse_warnings) = registry.parse_stored(rows);
         warnings.extend(parse_warnings);
-        let snapshot = registry.resolve(&pinned, &stored);
-        registry
-            .check_rules(&snapshot)
+        let broken = registry
+            .check_rules_on_start(&pinned, &stored)
             .map_err(LoadError::Invalid)?;
+        warnings.extend(broken);
+        let snapshot = registry.resolve(&pinned, &stored);
 
         let service = Self {
             registry,
@@ -171,6 +176,7 @@ impl SettingsService {
                     value: resolved.value.to_display_json(),
                     default: def.default_value().to_display_json(),
                     source: resolved.source,
+                    browser_only: def.is_browser_only(),
                     env_var: def.env_var(),
                 })
             })

@@ -6,4 +6,5 @@
 pub mod auth;
 pub mod duration;
 pub mod jobs;
+pub mod mail;
 pub mod settings;

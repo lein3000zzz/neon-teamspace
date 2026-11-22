@@ -35,7 +35,9 @@ flowchart LR
   [Docker deployment](/docs/self-hosting/install/#with-docker); in development, Vite's server
   passes the same paths on to the server's own port, 8080.
 - **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
-- **Attachments**, the mail server and the agents' endpoint are **planned**.
+- **The mail server** is an SMTP relay of the operator's choice, which the server hands its
+  mail to; see [Mail](/docs/self-hosting/mail/).
+- **Attachments** and the agents' endpoint are **planned**.
 
 ## The crates
 

@@ -1,10 +1,9 @@
 //! What the auth tests share: a service on a fresh database with fakes for its ports, a
-//! clock that moves by hand, and cheap password hashes.
+//! clock that moves by hand, cheap password hashes, and the mail it queued.
 
 #![allow(dead_code, reason = "each test binary uses a part of it")]
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,13 +13,14 @@ use base64::engine::general_purpose::STANDARD;
 use neon_app::auth::{AuthService, LoginInput};
 use neon_app::clock::ManualTime;
 use neon_app::crypto::{Argon2Params, Envelope, Keyring, PasswordHasher};
-use neon_app::mail::{Mail, MailError, Mailer, Message};
+use neon_app::jobs::Job;
+use neon_app::mail::{KIND, Mail, MailQueue, Message};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_domain::auth::{Email, Principal, Role, User};
 use neon_domain::settings::{Pinned, Secret};
-use serde_json::Value as Json;
-use sqlx::PgPool;
+use serde_json::{Value as Json, json};
+use sqlx::{PgPool, Row as _};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -47,48 +47,16 @@ pub fn start() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(1_795_348_800).expect("a valid time")
 }
 
-/// Records what it was asked to send, and sends nothing.
-#[derive(Default)]
-pub struct FakeMailer {
-    configured: AtomicBool,
-    failing: AtomicBool,
-    sent: Mutex<Vec<Mail>>,
-}
+/// Where mail links point in the tests.
+pub const PUBLIC_URL: &str = "https://neon.example.com";
 
-impl FakeMailer {
-    pub fn configured() -> Arc<Self> {
-        let mailer = Self::default();
-        mailer.configured.store(true, Ordering::SeqCst);
-        Arc::new(mailer)
-    }
-
-    pub fn set_configured(&self, configured: bool) {
-        self.configured.store(configured, Ordering::SeqCst);
-    }
-
-    pub fn set_failing(&self, failing: bool) {
-        self.failing.store(failing, Ordering::SeqCst);
-    }
-
-    /// The mails sent since the last call.
-    pub fn take(&self) -> Vec<Mail> {
-        std::mem::take(&mut *self.sent.lock().expect("mail lock"))
-    }
-}
-
-#[async_trait]
-impl Mailer for FakeMailer {
-    fn configured(&self) -> bool {
-        self.configured.load(Ordering::SeqCst)
-    }
-
-    async fn send(&self, mail: Mail) -> Result<(), MailError> {
-        if self.failing.load(Ordering::SeqCst) {
-            return Err(MailError::Failed("connection refused".into()));
-        }
-        self.sent.lock().expect("mail lock").push(mail);
-        Ok(())
-    }
+/// The settings that set mail up, which every harness starts with.
+pub fn mail_settings() -> Vec<(&'static str, Json)> {
+    vec![
+        ("mail.enabled", json!(true)),
+        ("mail.host", json!("smtp.example.com")),
+        ("mail.from", json!("neon@example.com")),
+    ]
 }
 
 /// Allows every attempt except in the buckets told to refuse, and records each key.
@@ -135,25 +103,27 @@ pub struct Harness {
     pub pool: PgPool,
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
-    pub mailer: Arc<FakeMailer>,
+    pub mail: MailQueue,
     pub limiter: Arc<ScriptedLimiter>,
     pub time: ManualTime,
 }
 
 pub struct Options {
-    pub mailer: Arc<FakeMailer>,
     pub envelope: Envelope,
     pub params: Argon2Params,
+    /// Saved after [`mail_settings`].
     pub settings: Vec<(&'static str, Json)>,
+    /// Where mail links point. Without it, mail cannot go, though the settings set it up.
+    pub public_url: Option<&'static str>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            mailer: FakeMailer::configured(),
             envelope: envelope(),
             params: CHEAP,
             settings: Vec::new(),
+            public_url: Some(PUBLIC_URL),
         }
     }
 }
@@ -174,11 +144,10 @@ impl Harness {
         .expect("settings load");
         assert!(warnings.is_empty(), "{warnings:?}");
         let settings = Arc::new(settings);
-        if !options.settings.is_empty() {
+        for batch in [mail_settings(), options.settings] {
             settings
                 .update(
-                    options
-                        .settings
+                    batch
                         .into_iter()
                         .map(|(key, value)| (key.to_owned(), Change::Set(value))),
                     None,
@@ -188,10 +157,16 @@ impl Harness {
         }
         let time = ManualTime::new(start());
         let limiter = Arc::new(ScriptedLimiter::default());
+        let mail = MailQueue::new(
+            Arc::clone(&settings),
+            options.envelope.clone(),
+            options.public_url,
+            time.clock(),
+        );
         let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
             .password_params(options.params)
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
-            .mailer(Arc::clone(&options.mailer) as Arc<dyn Mailer>)
+            .mail(mail.clone())
             .envelope(options.envelope)
             .clock(time.clock())
             .build()
@@ -201,7 +176,7 @@ impl Harness {
             pool,
             settings,
             auth,
-            mailer: options.mailer,
+            mail,
             limiter,
             time,
         }
@@ -274,10 +249,40 @@ impl Harness {
             .expect("the query runs")
     }
 
-    /// The token or code of the last mail of `kind` sent since the last call.
-    pub fn token_of(&self, kind: &str) -> Secret {
-        self.mailer
-            .take()
+    /// The mail queued since the last call, oldest first, opened from the jobs, which are
+    /// then deleted. Waits for the work done after answers first.
+    pub async fn mails(&self) -> Vec<Mail> {
+        self.auth.settle().await;
+        let rows = sqlx::query(
+            "DELETE FROM jobs WHERE kind = $1
+             RETURNING id, kind, payload, attempts, max_attempts, traceparent, created_at",
+        )
+        .bind(KIND)
+        .fetch_all(&self.pool)
+        .await
+        .expect("the queued mail");
+        let mut jobs: Vec<Job> = rows
+            .into_iter()
+            .map(|row| Job {
+                id: row.get("id"),
+                kind: row.get("kind"),
+                payload: row.get("payload"),
+                attempt: row.get("attempts"),
+                max_attempts: row.get("max_attempts"),
+                traceparent: row.get("traceparent"),
+                created_at: row.get("created_at"),
+            })
+            .collect();
+        jobs.sort_by_key(|job| job.id);
+        jobs.iter()
+            .map(|job| self.mail.open(job).expect("queued mail opens").mail)
+            .collect()
+    }
+
+    /// The token or code of the last mail of `kind` queued since the last call.
+    pub async fn token_of(&self, kind: &str) -> Secret {
+        self.mails()
+            .await
             .into_iter()
             .rev()
             .filter(|mail| mail.message.kind() == kind)

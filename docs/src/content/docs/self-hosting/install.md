@@ -199,7 +199,7 @@ Compose profiles add services that development needs, next to the stack:
 
 | Profile | What it adds |
 |---|---|
-| `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. The server sends no mail yet. |
+| `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. Point the server at it in `deployments/server.env`; see [Mail](/docs/self-hosting/mail/#development). |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
 
 A profile goes on the command that starts the stack, with the same files, for example
@@ -240,19 +240,22 @@ packages and the browser.
 The steps below run the targets of the repository's `Makefile`, from the repository's root.
 `make` on its own lists them all, each with a line on what it does.
 
-### Postgres
+### Postgres and Mailpit
 
-The repository's development Compose file runs Postgres 18 with its data in a named volume:
+The repository's development Compose file runs Postgres 18 with its data in a named volume,
+and Mailpit, which takes the server's mail and shows it in a browser:
 
 ```sh
 make db-up
 ```
 
-It listens on `127.0.0.1:55432`, reachable from this machine only, on a port that does not
-clash with a Postgres installed the usual way. The user, password and database are all
-`neon`, for development only. `make db-down` stops it and keeps the data;
-`docker compose -p neon-dev -f deployments/docker-compose.dev.yml down --volumes` deletes the
-data too.
+Postgres listens on `127.0.0.1:55432`, reachable from this machine only, on a port that does
+not clash with a Postgres installed the usual way. The user, password and database are all
+`neon`, for development only. Mailpit takes mail on `127.0.0.1:51025` and shows it at
+`http://127.0.0.1:58025/`; [Mail](/docs/self-hosting/mail/#development) has the settings that
+send the server's mail there. `make db-down` stops both and keeps the database;
+`docker compose -p neon-dev -f deployments/docker-compose.dev.yml down --volumes` deletes it
+too.
 
 ### The server
 

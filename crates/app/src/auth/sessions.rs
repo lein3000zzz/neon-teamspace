@@ -61,7 +61,7 @@ impl AuthService {
             warn!(ip = %input.ip, reason = "unknown email", "sign-in failed");
             return Err(AuthError::InvalidCredentials);
         };
-        let verified = self.verify_password(&input.password, hash).await?;
+        let verified = self.verify_password(&input.password, hash.clone()).await?;
         if !verified.matches {
             warn!(ip = %input.ip, user_id = %user.id, reason = "wrong password", "sign-in failed");
             return Err(AuthError::InvalidCredentials);
@@ -73,9 +73,14 @@ impl AuthService {
             info!(user_id = %user.id, "sign-in refused: the address is not verified");
             return Err(AuthError::EmailNotVerified);
         }
-        if verified.needs_rehash {
-            self.rehash(&user, &input.password).await;
-        }
+        // The hash the password was checked against. The writes below happen only while
+        // the account still has it, so a reset or change of the password in the meantime
+        // is neither undone by the upgrade nor outlived by the new session.
+        let hash = if verified.needs_rehash {
+            self.rehash(&user, &input.password, hash).await
+        } else {
+            hash
+        };
 
         let token = new_secret("");
         let now = self.now();
@@ -90,7 +95,15 @@ impl AuthService {
             expires_at: expiry.expires_at,
             absolute_expires_at: expiry.absolute_expires_at,
         };
-        sessions::insert(self.pool(), &session, &hash_secret(&token)).await?;
+        if !sessions::insert(self.pool(), &session, &hash_secret(&token), &hash).await? {
+            warn!(
+                ip = %session.ip,
+                user_id = %user.id,
+                reason = "the password changed or the account was disabled meanwhile",
+                "sign-in failed"
+            );
+            return Err(AuthError::InvalidCredentials);
+        }
         info!(user_id = %user.id, session_id = %session.id, ip = %session.ip, "signed in");
         Ok(LoginOutcome {
             user,
@@ -99,18 +112,31 @@ impl AuthService {
         })
     }
 
-    /// Hashes a password again with the current parameters. A failure only costs the
-    /// upgrade, so it is logged rather than failing the sign-in.
-    async fn rehash(&self, user: &User, password: &Secret) {
-        let saved = match self.hash_password(password).await {
-            Ok(hash) => users::set_password_hash(self.pool(), user.id, &hash, self.now())
-                .await
-                .map_err(AuthError::from),
-            Err(error) => Err(error),
+    /// Hashes a password again with the current parameters, in place of `old` if the
+    /// account still has it, and returns the hash the account has now as far as this
+    /// sign-in knows. A failure only costs the upgrade, so it is logged rather than failing
+    /// the sign-in.
+    async fn rehash(&self, user: &User, password: &Secret, old: String) -> String {
+        let new = match self.hash_password(password).await {
+            Ok(new) => new,
+            Err(error) => {
+                warn!(user_id = %user.id, %error, "upgrading the password hash failed");
+                return old;
+            }
         };
-        match saved {
-            Ok(()) => info!(user_id = %user.id, "password hash upgraded"),
-            Err(error) => warn!(user_id = %user.id, %error, "upgrading the password hash failed"),
+        match users::upgrade_password_hash(self.pool(), user.id, &old, &new).await {
+            Ok(true) => {
+                info!(user_id = %user.id, "password hash upgraded");
+                new
+            }
+            Ok(false) => {
+                info!(user_id = %user.id, "password hash not upgraded: the password changed");
+                old
+            }
+            Err(error) => {
+                warn!(user_id = %user.id, %error, "upgrading the password hash failed");
+                old
+            }
         }
     }
 

@@ -25,9 +25,11 @@ use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
+use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
-use neon_app::settings::{SettingsService, registry};
+use neon_app::mail::{MailJob, MailQueue};
+use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
 use neon_domain::settings::{Pinned, Secret};
@@ -44,6 +46,7 @@ use tracing::{debug, error, info, warn};
 use crate::config::{AdminConfig, Config, DatabaseConfig, Loaded};
 use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
+use crate::mail::SmtpMailer;
 use crate::telemetry;
 
 /// How long stopping waits for open requests before closing their connections.
@@ -213,8 +216,18 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     }
     let envelope = envelope(&config)?;
     let settings = load_settings(&pool, settings, envelope.clone()).await?;
+    let public_url = config.server.public_url.as_ref();
+    let origin = public_url.map(|url| url.origin().ascii_serialization());
+    let mail = MailQueue::new(
+        Arc::clone(&settings),
+        envelope.clone(),
+        origin.as_deref(),
+        Clock::system(),
+    );
+    report_mail(&mail, &settings);
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
+        .mail(mail.clone())
         .build()
         .await
         .context("starting the auth service")?;
@@ -223,7 +236,9 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
+    let mailer = SmtpMailer::new(Arc::clone(&settings), public_url);
     let worker = Worker::new(pool.clone(), WorkerConfig::default())
+        .handler(MailJob::new(mail, Arc::new(mailer)))
         .span(jobs::run_span)
         .hook(jobs::RedHook::new());
     let web = WebConfig::new(
@@ -253,6 +268,18 @@ fn envelope(config: &Config) -> anyhow::Result<Envelope> {
         );
     }
     Ok(Envelope::new(keys))
+}
+
+/// Says whether mail can go, and warns when the settings set it up but something else it
+/// needs is missing, such as a secret key.
+fn report_mail(mail: &MailQueue, settings: &SettingsService) {
+    match mail.status().problem {
+        None => info!("mail goes out through mail.host"),
+        Some(problem) if mail_set_up(&settings.current()) => {
+            warn!(%problem, "mail is set up but cannot go");
+        }
+        Some(problem) => info!(%problem, "mail is off"),
+    }
 }
 
 /// Makes the first admin from `admin.email` and `admin.password` while no admin can sign

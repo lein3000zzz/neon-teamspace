@@ -160,6 +160,81 @@ async fn hashes_made_with_old_parameters_are_upgraded_on_sign_in(pool: PgPool) {
         .expect("the new hash works");
 }
 
+/// A reset of the password that commits while a sign-in is between checking the old
+/// password and opening its session: the sign-in fails, and the new password stays.
+async fn a_reset_under_a_sign_in_wins(h: &Harness) {
+    let ada = h.account("ada@example.com", Role::User).await;
+    let mut reset = h.pool.begin().await.expect("a transaction");
+    sqlx::query("UPDATE users SET password_hash = 'the new hash' WHERE id = $1")
+        .bind(ada.id)
+        .execute(&mut *reset)
+        .await
+        .expect("the reset sets the password");
+
+    let auth = h.auth.clone();
+    let signing_in =
+        tokio::spawn(async move { auth.login(login("ada@example.com", PASSWORD)).await });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&h.pool)
+        .await
+        .expect("reads the activity");
+        if waiting > 0 {
+            break;
+        }
+        assert!(
+            !signing_in.is_finished(),
+            "the sign-in wrote without waiting for the reset"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "the sign-in never reached a write"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+        .bind(ada.id)
+        .execute(&mut *reset)
+        .await
+        .expect("the reset signs out everywhere");
+    reset.commit().await.expect("the reset commits");
+
+    let error = signing_in
+        .await
+        .expect("the sign-in ends")
+        .expect_err("the password it checked is gone");
+    assert!(matches!(error, AuthError::InvalidCredentials), "{error:?}");
+    let sessions: i64 = h.scalar("SELECT count(*) FROM sessions").await;
+    assert_eq!(sessions, 0);
+    let hash: String = h.scalar("SELECT password_hash FROM users").await;
+    assert_eq!(hash, "the new hash");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_sign_in_opens_no_session_once_the_password_changed_under_it(pool: PgPool) {
+    a_reset_under_a_sign_in_wins(&Harness::new(pool).await).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_sign_in_does_not_upgrade_a_hash_that_changed_under_it(pool: PgPool) {
+    let h = Harness::with(
+        pool,
+        Options {
+            params: Argon2Params {
+                iterations: 2,
+                ..CHEAP
+            },
+            ..Options::default()
+        },
+    )
+    .await;
+    a_reset_under_a_sign_in_wins(&h).await;
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn sign_in_limits_check_the_ip_first_then_the_address(pool: PgPool) {
     let h = Harness::new(pool).await;

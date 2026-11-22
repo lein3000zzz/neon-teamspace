@@ -6,5 +6,6 @@ pub mod config;
 mod gauges;
 pub mod health;
 pub mod http;
+pub mod mail;
 pub mod runtime;
 mod telemetry;

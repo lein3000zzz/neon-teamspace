@@ -31,6 +31,15 @@ http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
 ipnet = "2.12.2"
+# SMTP over rustls on ring with the bundled webpki roots, as sqlx: no OpenSSL, and TLS works
+# in minimal images. No connection pool, as the settings are read again for every mail.
+lettre = { version = "0.11.24", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "tokio1-rustls",
+    "ring",
+    "webpki-roots",
+] }
 metrics = "0.24.6"
 metrics-util = { version = "0.20.4", default-features = false, features = ["debugging"] }
 rand = "0.10.4"

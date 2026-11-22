@@ -92,6 +92,212 @@ async fn two_admins_demoting_each_other_at_once_leave_one(pool: PgPool) {
     assert_eq!(admins, 1);
 }
 
+/// A leaked admin token must not make an account its holder can sign in to at a browser,
+/// where the settings that say where secrets go change, nor lock admins out.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn admin_tokens_invite_and_verify_but_change_no_one_s_access(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    h.account("grace@example.com", Role::Admin).await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (token, _) = h
+        .auth
+        .create_api_token(&admin, "ops", None, &["read", "write", "admin"])
+        .await
+        .expect("a token");
+    let by_token = h
+        .auth
+        .authenticate_token(token.expose())
+        .await
+        .expect("the token works");
+
+    for role in [Role::Admin, Role::User] {
+        let error = h
+            .auth
+            .create_user(
+                &by_token,
+                NewAccount {
+                    email: "mallory@example.com".into(),
+                    password: secret(PASSWORD),
+                    display_name: None,
+                    role,
+                },
+            )
+            .await
+            .expect_err("tokens invite instead");
+        assert!(
+            matches!(error, AuthError::Forbidden(_)),
+            "{role}: {error:?}"
+        );
+    }
+    let promote = UserUpdate {
+        role: Some(Role::Admin),
+        ..UserUpdate::default()
+    };
+    let enable = UserUpdate {
+        disabled: Some(false),
+        ..UserUpdate::default()
+    };
+    for (id, update) in [
+        (bob.id, promote),
+        (bob.id, disable()),
+        (admin.user.id, demote()),
+        (admin.user.id, disable()),
+    ] {
+        let error = h
+            .auth
+            .update_user(&by_token, id, update)
+            .await
+            .expect_err("needs a browser session");
+        assert!(
+            matches!(error, AuthError::Forbidden(_)),
+            "{update:?}: {error:?}"
+        );
+    }
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("a session disables");
+    let error = h
+        .auth
+        .update_user(&by_token, bob.id, enable)
+        .await
+        .expect_err("needs a browser session");
+    assert!(matches!(error, AuthError::Forbidden(_)), "{error:?}");
+
+    // What changes nobody's access goes through: the role as it is, and verifying.
+    let same = h
+        .auth
+        .update_user(
+            &by_token,
+            bob.id,
+            UserUpdate {
+                role: Some(Role::User),
+                disabled: Some(true),
+                email_verified: Some(true),
+            },
+        )
+        .await
+        .expect("changes nothing that matters");
+    assert_eq!(same.role, Role::User);
+    h.auth
+        .create_invite(&by_token, InviteSpec::default())
+        .await
+        .expect("tokens invite");
+    let accounts: i64 = h.scalar("SELECT count(*) FROM users").await;
+    let admins: i64 = h
+        .scalar("SELECT count(*) FROM users WHERE role = 'admin' AND disabled_at IS NULL")
+        .await;
+    assert_eq!((accounts, admins), (3, 2));
+}
+
+/// Bob's principal is read as his request begins, so it may predate the admin's change.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_rename_that_began_before_a_disable_keeps_it(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (stale, _) = h.sign_in("bob@example.com").await;
+
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("disables");
+    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+
+    assert_eq!(renamed.display_name, "Bob");
+    assert!(
+        renamed.is_disabled(),
+        "the answer shows the account as it is"
+    );
+    let disabled: bool = h
+        .scalar("SELECT disabled_at IS NOT NULL FROM users WHERE email = 'bob@example.com'")
+        .await;
+    assert!(disabled);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_rename_that_began_before_a_promotion_cannot_leave_no_admin(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (stale, _) = h.sign_in("bob@example.com").await;
+
+    // The only admin makes Bob one, then steps down, which leaves Bob.
+    h.auth
+        .update_user(
+            &admin,
+            bob.id,
+            UserUpdate {
+                role: Some(Role::Admin),
+                ..UserUpdate::default()
+            },
+        )
+        .await
+        .expect("promotes");
+    h.auth
+        .update_user(&admin, admin.user.id, demote())
+        .await
+        .expect("steps down");
+    let renamed = h.auth.update_profile(&stale, "Bob").await.expect("renames");
+
+    assert_eq!(renamed.role, Role::Admin);
+    let admins: i64 = h
+        .scalar("SELECT count(*) FROM users WHERE role = 'admin' AND disabled_at IS NULL")
+        .await;
+    assert_eq!(admins, 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn renaming_in_a_loop_with_a_token_does_not_undo_a_disable(pool: PgPool) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let bob = h.account("bob@example.com", Role::User).await;
+    let (session, _) = h.sign_in("bob@example.com").await;
+    let (token, _) = h
+        .auth
+        .create_api_token(&session, "loop", None, &["read", "write"])
+        .await
+        .expect("a token");
+    let token = token.expose().to_owned();
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let loops: Vec<_> = (0..8)
+        .map(|_| {
+            let auth = h.auth.clone();
+            let token = token.clone();
+            let stop = Arc::clone(&stop);
+            tokio::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    if let Ok(principal) = auth.authenticate_token(&token).await {
+                        // Whether each rename went through does not matter, only the disable.
+                        let _ = auth.update_profile(&principal, "Bob").await;
+                    }
+                }
+            })
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    h.auth
+        .update_user(&admin, bob.id, disable())
+        .await
+        .expect("disables");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    stop.store(true, Ordering::Relaxed);
+    for task in loops {
+        task.await.expect("the loop ends");
+    }
+
+    let disabled: bool = h
+        .scalar("SELECT disabled_at IS NOT NULL FROM users WHERE email = 'bob@example.com'")
+        .await;
+    assert!(disabled);
+    assert!(h.auth.authenticate_token(&token).await.is_err());
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn disabling_signs_out_everywhere_and_verifying_is_one_way(pool: PgPool) {
     let h = Harness::new(pool).await;
@@ -330,7 +536,7 @@ async fn the_cleanup_removes_old_requests_to_join(pool: PgPool) {
         h.auth.request_to_join(email, "", IP).await.expect("taken");
     }
     h.auth.settle().await;
-    let mails = h.mailer.take();
+    let mails = h.mails().await;
     let denied_token = mails
         .iter()
         .find(|mail| mail.to.address == "denied@example.com")

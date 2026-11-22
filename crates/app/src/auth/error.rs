@@ -46,10 +46,9 @@ pub enum AuthError {
     InviteEmailOff,
     #[error("requests to join are off here")]
     RequestsOff,
-    #[error("mail is not set up")]
-    MailNotSetUp,
-    #[error("{0}")]
-    MailFailed(String),
+    /// With what is missing, for admins; the forms anyone can send say only that.
+    #[error("mail is not set up{}", .0.as_deref().map(|why| format!(": {why}")).unwrap_or_default())]
+    MailNotSetUp(Option<String>),
     #[error("{0}")]
     NotFound(&'static str),
     #[error("the last active admin cannot be demoted or disabled")]
@@ -83,8 +82,7 @@ impl AuthError {
             Self::PasswordResetOff => "password_reset_off",
             Self::InviteEmailOff => "invite_email_off",
             Self::RequestsOff => "requests_off",
-            Self::MailNotSetUp => "mail_not_set_up",
-            Self::MailFailed(_) => "mail_failed",
+            Self::MailNotSetUp(_) => "mail_not_set_up",
             Self::NotFound(_) => "not_found",
             Self::LastAdmin => "last_admin",
             Self::RateLimited { .. } => "rate_limited",
@@ -120,6 +118,18 @@ mod tests {
         assert_eq!(
             AuthError::Database(sqlx::Error::PoolTimedOut).code(),
             "internal"
+        );
+    }
+
+    #[test]
+    fn mail_not_set_up_says_why_when_told() {
+        assert_eq!(
+            AuthError::MailNotSetUp(None).to_string(),
+            "mail is not set up"
+        );
+        assert_eq!(
+            AuthError::MailNotSetUp(Some("mail.host is not set".into())).to_string(),
+            "mail is not set up: mail.host is not set"
         );
     }
 

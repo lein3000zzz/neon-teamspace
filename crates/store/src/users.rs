@@ -162,6 +162,25 @@ pub async fn password_hash(
         .await
 }
 
+/// Replaces the password hash `old` with `new`, the same password hashed again, and says
+/// whether it did: not when the password changed since `old` was read.
+pub async fn upgrade_password_hash(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    old: &str,
+    new: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "UPDATE users SET password_hash = $3 WHERE id = $1 AND password_hash = $2",
+        id,
+        old,
+        new,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn set_password_hash(
     executor: impl PgExecutor<'_>,
     id: Uuid,
@@ -196,8 +215,33 @@ pub async fn set_email_verified(
     Ok(())
 }
 
-/// Saves what an account's owner or an admin may change: the display name, the role and
-/// whether it is disabled.
+/// Renames an account, and returns it as it is now. Only the name and the time are
+/// written, so a rename that started before an admin's change to the role or the disable
+/// cannot undo it. `None` when there is no such account.
+pub async fn rename(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    display_name: &str,
+    now: OffsetDateTime,
+) -> sqlx::Result<Option<User>> {
+    sqlx::query_as!(
+        Row,
+        "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1
+         RETURNING id, email, display_name, role, email_verified_at, disabled_at, created_at,
+                   updated_at",
+        id,
+        display_name,
+        now,
+    )
+    .fetch_optional(executor)
+    .await?
+    .map(User::try_from)
+    .transpose()
+}
+
+/// Saves what an admin changes: the role and whether the account is disabled, with the
+/// name as it was read. Call it on a row read with [`by_id_for_update`] after
+/// [`lock_active_admins`], in the same transaction, so nothing changed it in between.
 pub async fn update(executor: impl PgExecutor<'_>, user: &User) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE users SET display_name = $2, role = $3, disabled_at = $4, updated_at = $5

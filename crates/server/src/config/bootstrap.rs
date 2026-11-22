@@ -94,19 +94,13 @@ fn key_list<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<SecretStri
 }
 
 /// Address ranges whose `X-Forwarded-For` the server believes unless told otherwise:
-/// loopback and the private networks a reverse proxy in front usually sits on.
+/// loopback alone, for a reverse proxy on the same machine. Trusting a network lets anyone
+/// on it pick the address rate limits count, so a proxy elsewhere is named in the config.
 pub fn default_trusted_proxies() -> Vec<IpNet> {
-    [
-        "127.0.0.0/8",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "::1/128",
-        "fc00::/7",
-    ]
-    .into_iter()
-    .filter_map(|range| range.parse().ok())
-    .collect()
+    ["127.0.0.0/8", "::1/128"]
+        .into_iter()
+        .filter_map(|range| range.parse().ok())
+        .collect()
 }
 
 /// Ranges written like `10.0.0.0/8`, or single addresses, as a list or one string
@@ -214,7 +208,13 @@ mod tests {
             ["10.0.0.0/8", "192.0.2.1/32", "::1/128"]
         );
         assert!(serde_json::from_value::<Proxies>(json!({"list": ["nope"]})).is_err());
-        assert_eq!(default_trusted_proxies().len(), 6);
+        assert_eq!(
+            default_trusted_proxies()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["127.0.0.0/8", "::1/128"]
+        );
     }
 
     #[test]

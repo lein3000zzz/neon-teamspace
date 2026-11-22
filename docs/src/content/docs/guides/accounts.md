@@ -12,9 +12,10 @@ accounts](/docs/guides/signing-in/), and the admin pages in
 [Administration](/docs/admin/users/).
 
 :::note[Mail]
-Verifying sign-ups, password resets, mailed invites and requests to join all send mail. The
-server has no mail transport yet, so these flows stay off whatever their settings say, and
-`GET /api/v1/auth/config` reports them off. The rest of this page works without mail.
+Verifying sign-ups, password resets, mailed invites and requests to join all send mail, so
+they work once [mail is set up](/docs/self-hosting/mail/). Until then they stay off, and
+`GET /api/v1/auth/config` reports them off. The rest of this page works without mail. Each
+mail is queued with the change it tells of, so a change that fails sends nothing.
 :::
 
 ## The first admin
@@ -49,7 +50,8 @@ rescues an instance whose admins all lost their passwords.
 | `invite` | People with an invite an admin made. The default. |
 | `closed` | Nobody. Admins add accounts themselves with `POST /api/v1/admin/users`. |
 
-Admins can add accounts in every mode. An account an admin makes counts as verified.
+Admins can add accounts in every mode, signed in at a browser. An account an admin makes
+counts as verified.
 
 Signing up never signs anyone in by itself. The web app's sign-up form calls
 `POST /api/v1/auth/register`, then signs in with the same password, unless the address must
@@ -91,10 +93,12 @@ for one with a note of up to 500 characters. The steps:
 2. After the answer, the server mails the address a link that confirms the request. It
    works for 24 hours. Asking again mails a new link, at most one a minute and five in all.
 3. Opening the link confirms the request, through `POST /api/v1/auth/join-requests/confirm`.
-   Only then do admins see it, and each admin gets a mail about it.
+   Only then do admins see it, and each active admin gets a mail about it while
+   `mail.notifications` is on.
 4. An admin approves it, which makes an invite bound to the address, for one sign-up, and
-   mails it there. Or the admin denies it. With `auth.request_denied_mail` on, the address
-   is told so, and it may ask again in 30 days.
+   mails it there. While mail cannot go, the invite is made all the same, the answer's
+   `queued` is false, and the admin hands the code over. Or the admin denies it. With
+   `auth.request_denied_mail` on, the address is told so, and it may ask again in 30 days.
 
 Nothing is mailed to an address with an account, one whose request waits for the admins,
 or one denied in the last 30 days. An address has one open request at most, and the
@@ -162,14 +166,20 @@ A token never does more than its owner's role allows. When an admin stops being 
 tokens lose the `admin` scope at once. Tokens cannot change passwords, end sessions, or make
 and revoke tokens. Those need a browser session.
 
+An admin's token can do less than the admin at a browser. It cannot create an account with a
+password, change a role, or disable or enable an account, and it cannot change the settings
+marked *browser session only*. It invites people, approves requests to join and verifies
+addresses instead. A token that leaked therefore cannot give its holder an account to sign
+in with at a browser, nor lock an admin out.
+
 Revoking a token with `DELETE /api/v1/account/tokens/{id}` stops it at once.
 
 ## Managing accounts
 
 Admins list accounts with `GET /api/v1/admin/users`, in pages of up to 200, in the order the
 accounts were made. `PATCH /api/v1/admin/users/{id}` changes a role, disables or enables an
-account, or marks an address verified. Disabling an account signs it out everywhere, and its
-tokens stop working.
+account, or marks an address verified; with an API token, only the last goes through.
+Disabling an account signs it out everywhere, and its tokens stop working.
 
 The last admin who can sign in can be neither demoted nor disabled, which answers
 `last_admin`. Two admins demoting each other at the same moment cannot both succeed: each

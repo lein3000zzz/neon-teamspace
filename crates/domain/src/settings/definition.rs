@@ -110,6 +110,7 @@ pub struct Definition {
     default: Value,
     description: &'static str,
     checks: Vec<Check>,
+    browser_only: bool,
 }
 
 impl Definition {
@@ -175,7 +176,17 @@ impl Definition {
             default,
             description,
             checks: Vec::new(),
+            browser_only: false,
         }
+    }
+
+    /// Marks a setting that says where a secret goes, such as the mail server the mail
+    /// password signs in to. Like a secret, it changes only from a browser session: an API
+    /// token that leaked could otherwise point the secret, and every mailed link, at a
+    /// server of its holder's choosing.
+    pub fn browser_only(mut self) -> Self {
+        self.browser_only = true;
+        self
     }
 
     /// Adds a check on the parsed value, such as a range. Its error is shown to whoever
@@ -205,6 +216,12 @@ impl Definition {
 
     pub fn description(&self) -> &'static str {
         self.description
+    }
+
+    /// Whether only a browser session may change it, never an API token: secrets, and the
+    /// settings marked [`browser_only`](Self::browser_only).
+    pub fn is_browser_only(&self) -> bool {
+        self.browser_only || self.kind == Kind::Secret
     }
 
     /// The environment variable that sets this setting.
@@ -245,6 +262,7 @@ impl fmt::Debug for Definition {
             .field("kind", &self.kind)
             .field("default", &self.default)
             .field("checks", &self.checks.len())
+            .field("browser_only", &self.browser_only)
             .finish_non_exhaustive()
     }
 }
@@ -326,5 +344,16 @@ mod tests {
 
         assert_eq!(def.default_value(), &Value::Secret(Secret::default()));
         assert_eq!(def.kind(), Kind::Secret);
+    }
+
+    #[test]
+    fn secrets_and_marked_settings_change_only_from_a_browser() {
+        let secret = Definition::secret(Key::new("mail.password"), "The password.");
+        let host = Definition::string(Key::new("mail.host"), "", "The host.").browser_only();
+        let name = Definition::string(NAME, "Neon", "The name.");
+
+        assert!(secret.is_browser_only());
+        assert!(host.is_browser_only());
+        assert!(!name.is_browser_only());
     }
 }
