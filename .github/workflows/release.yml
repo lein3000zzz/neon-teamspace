@@ -1,0 +1,132 @@
+# A release, on a version tag such as v1.2.3. The end-to-end tests first; then the server and
+# web images for linux/amd64 and linux/arm64 on GHCR, with an SBOM and build provenance; then
+# a GitHub release with notes generated from the merged pull requests.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: E2E
+    uses: ./.github/workflows/e2e.yml
+    # The called workflow's pull request filter asks for pull-requests: read, and a called
+    # workflow may only narrow what its caller grants, even for a job that is skipped.
+    permissions:
+      contents: read
+      pull-requests: read
+
+  images:
+    name: Image (${{ matrix.image }})
+    needs: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # keyless signing with the workflow's OIDC identity
+    strategy:
+      matrix:
+        include:
+          - image: neon-workspace-server
+            dockerfile: deployments/Dockerfile
+            description: The Neon Workspace server, the neon binary
+          - image: neon-workspace-web
+            dockerfile: web/Dockerfile
+            description: The Neon Workspace web app and docs, behind Caddy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No QEMU: each Dockerfile compiles on the runner's platform and cross-compiles for the
+      # other, so a step that would need emulation fails instead of running slowly. BuildKit
+      # runs from a pinned image rather than the builder's moving default tag.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # v1.2.3 gives 1.2.3, 1.2, 1 and latest; v0.4.1 gives 0.4.1, 0.4 and latest; a
+      # pre-release such as v1.3.0-rc.1 gives only itself.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          # On the index too, where GHCR reads a multi-platform image's description.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+          flavor: |
+            latest=auto
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
+          annotations: |
+            org.opencontainers.image.description=${{ matrix.description }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          # The SBOM from a pinned scanner image rather than BuildKit's moving default tag.
+          attests: type=sbom,generator=docker/buildkit-syft-scanner:1.12.1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
+          # A tag's run reads only the caches saved for that tag, so this cache serves only a
+          # re-run of the same release. The final images' layers are enough for an unchanged
+          # rebuild to skip every stage, and leave the Actions cache's room to the Rust job. A
+          # failed export does not fail the release.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.image }},ignore-error=true
+      # Keyless signing records the signer, this repository and the commit, in Sigstore's
+      # public transparency log. So it runs only once the repository is public, when anyone
+      # can pull the images and check the signature.
+      - if: ${{ !github.event.repository.private }}
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - if: ${{ !github.event.repository.private }}
+        name: Sign
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
+  release:
+    name: GitHub release
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release
+    steps:
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          IMAGES: ghcr.io/${{ github.repository_owner }}
+        run: |
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          notes="## Images
+
+          - \`$IMAGES/neon-workspace-server:${TAG#v}\`
+          - \`$IMAGES/neon-workspace-web:${TAG#v}\`"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
+            --generate-notes --notes "$notes" "${prerelease[@]}"
