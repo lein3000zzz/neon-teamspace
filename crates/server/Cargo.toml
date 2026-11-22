@@ -23,23 +23,28 @@ clap.workspace = true
 figment.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+ipnet = { workspace = true, features = ["serde"] }
 metrics.workspace = true
+rpassword.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+time = { workspace = true, features = ["serde", "formatting", "parsing"] }
 tokio.workspace = true
 tokio-util.workspace = true
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 url = { workspace = true, features = ["serde"] }
-utoipa.workspace = true
+utoipa = { workspace = true, features = ["time", "uuid"] }
 utoipa-axum.workspace = true
+uuid = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 async-trait.workspace = true
+base64.workspace = true
 figment = { workspace = true, features = ["test"] }
 http-body-util.workspace = true
 metrics-util.workspace = true

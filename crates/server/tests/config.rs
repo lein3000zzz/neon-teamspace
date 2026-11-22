@@ -14,7 +14,8 @@ use neon_app::settings::{INSTANCE_NAME, registry};
 use neon_domain::settings::{Problem, Source, Stored};
 use neon_observability::config::{LogFormat, LoggingConfig, ProfilingMode};
 use neon_server::config::{
-    self, ConfigError, DEFAULT_LOG_LEVEL, DatabaseConfig, Loaded, MIN_CONNECTIONS, ServerConfig,
+    self, AdminConfig, ConfigError, DEFAULT_LOG_LEVEL, DatabaseConfig, Loaded, MIN_CONNECTIONS,
+    SecretsConfig, ServerConfig,
 };
 
 const URL: &str = "postgres://neon:hunter2@127.0.0.1:55432/neon";
@@ -682,6 +683,8 @@ fn the_example_file_holds_the_defaults() {
         let loaded = load().expect("the example file is valid");
 
         assert_eq!(loaded.config.server, ServerConfig::default());
+        assert_eq!(loaded.config.admin, AdminConfig::default());
+        assert_eq!(loaded.config.secrets, SecretsConfig::default());
         assert_eq!(
             loaded.config.database,
             DatabaseConfig {
@@ -691,6 +694,132 @@ fn the_example_file_holds_the_defaults() {
         );
         assert_eq!(loaded.config.observability, default_observability());
         assert_eq!(instance_name(&loaded).1, Source::Default);
+        Ok(())
+    });
+}
+
+/// A 32-byte key in standard base64.
+const KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
+#[test]
+fn the_first_admin_and_the_secret_keys_come_from_the_environment() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_ADMIN__EMAIL", "root@example.com");
+        // Digits stay digits, and a leading zero stays: the password is read as typed.
+        jail.set_env("NEON_ADMIN__PASSWORD", "000123456789012");
+        jail.set_env("NEON_SECRETS__KEYS", format!("2026:{KEY}, 2025:{KEY}"));
+
+        let loaded = load().expect("valid configuration");
+
+        let admin = &loaded.config.admin;
+        assert_eq!(admin.email.as_deref(), Some("root@example.com"));
+        assert_eq!(
+            admin.password.as_ref().map(|password| password.expose()),
+            Some("000123456789012")
+        );
+        let keyring = loaded
+            .config
+            .secrets
+            .keyring()
+            .expect("valid keys")
+            .expect("two keys");
+        assert_eq!(keyring.ids().collect::<Vec<_>>(), ["2026", "2025"]);
+        Ok(())
+    });
+}
+
+#[test]
+fn the_file_lists_secret_keys_and_trusted_proxies() {
+    jailed(|jail| {
+        jail.create_file(
+            "neon.yaml",
+            &format!(
+                "server:\n  trusted_proxies: [10.1.0.0/16, 192.0.2.7]\n\
+                 database:\n  url: {URL}\nsecrets:\n  keys:\n    - k1:{KEY}\n"
+            ),
+        )?;
+
+        let loaded = load().expect("valid configuration");
+
+        let proxies: Vec<String> = loaded
+            .config
+            .server
+            .trusted_proxies
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(proxies, ["10.1.0.0/16", "192.0.2.7/32"]);
+        assert!(loaded.config.secrets.keyring().expect("valid").is_some());
+        Ok(())
+    });
+}
+
+#[test]
+fn the_admin_needs_both_keys_and_malformed_secret_keys_are_named() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_ADMIN__EMAIL", "root@example.com");
+        jail.set_env("NEON_SECRETS__KEYS", "k1:aGVsbG8=, missing-colon");
+
+        let problems = invalid(load());
+
+        assert_eq!(
+            problems,
+            [
+                Problem::new(
+                    "admin.password (NEON_ADMIN__PASSWORD)",
+                    "is required with admin.email: set both or neither"
+                ),
+                Problem::new(
+                    "secrets.keys (NEON_SECRETS__KEYS)",
+                    "key \"k1\": want 32 bytes in standard base64, such as `openssl rand -base64 32` prints"
+                ),
+            ]
+        );
+        assert!(!format!("{problems:?}").contains("aGVsbG8"));
+        Ok(())
+    });
+}
+
+#[test]
+fn the_admin_address_must_be_one() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_ADMIN__EMAIL", "root");
+        jail.set_env("NEON_ADMIN__PASSWORD", "hunter2hunter2");
+
+        let problems = invalid(load());
+
+        assert_eq!(
+            problems,
+            [Problem::new(
+                "admin.email (NEON_ADMIN__EMAIL)",
+                "is not an email address like name@example.com"
+            )]
+        );
+        Ok(())
+    });
+}
+
+#[test]
+fn config_check_hides_the_admin_password_and_the_key_material() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+        jail.set_env("NEON_ADMIN__EMAIL", "root@example.com");
+        jail.set_env("NEON_ADMIN__PASSWORD", "hunter2hunter2");
+        jail.set_env("NEON_SECRETS__KEYS", format!("2026:{KEY}"));
+        let registry = registry();
+
+        let loaded = config::load(&registry).expect("valid configuration");
+        let shown = loaded.render(&registry).expect("renders");
+
+        for secret in ["hunter2", KEY] {
+            assert!(!shown.contains(secret), "{shown}");
+            assert!(!format!("{loaded:?}").contains(secret));
+        }
+        assert!(shown.contains("root@example.com"), "{shown}");
+        assert!(shown.contains("2026:[redacted]"), "{shown}");
         Ok(())
     });
 }
