@@ -1,4 +1,5 @@
-//! `/api/v1/account`: the signed-in user's own account.
+//! `/api/v1/account`: the signed-in user's own account, and the invitations into
+//! workspaces waiting for them.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -15,10 +16,11 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::AppState;
-use super::dto::{Scope, User};
+use super::dto::{Person, Scope, User, WorkspaceRole, nullable};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
 use super::principal::Authenticated;
+use super::workspaces::WorkspaceSummary;
 
 /// How a request proved who it is.
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
@@ -68,16 +70,22 @@ pub(super) async fn get_me(Authenticated(principal): Authenticated) -> Json<Me> 
 #[serde(deny_unknown_fields)]
 pub struct UpdateMe {
     /// At most 100 characters; blank takes the address's local part.
+    #[serde(default)]
     #[schema(example = "Ada Lovelace")]
-    pub display_name: String,
+    pub display_name: Option<String>,
+    /// The hue to be drawn in, 0 to 359; null goes back to the one the id hashes to.
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<i64>, minimum = 0, maximum = 359)]
+    pub hue_override: Option<Option<i64>>,
 }
 
 #[utoipa::path(
     patch,
     path = "/account/me",
     tag = "account",
-    summary = "Rename the signed-in user",
-    description = "Needs a session or an API token with the write scope.",
+    summary = "Rename the signed-in user, or pin their hue",
+    description = "Changes what the body names. Needs a session or an API token with the write \
+                   scope.",
     request_body = UpdateMe,
     responses(
         (status = OK, description = "The user.", body = User),
@@ -93,11 +101,141 @@ pub(super) async fn update_me(
     Authenticated(principal): Authenticated,
     Json(body): Json<UpdateMe>,
 ) -> Result<Json<User>, ApiError> {
-    let user = state
-        .auth
-        .update_profile(&principal, &body.display_name)
-        .await?;
+    let mut user = principal.user.clone();
+    if let Some(name) = &body.display_name {
+        user = state.auth.update_profile(&principal, name).await?;
+    }
+    if let Some(hue) = body.hue_override {
+        user = state.auth.set_hue(&principal, hue).await?;
+    }
     Ok(Json(user.into()))
+}
+
+/// An invitation the signed-in user waits on.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ReceivedInvitation {
+    pub id: Uuid,
+    pub workspace: InvitingWorkspace,
+    /// What they would join as: admin, member or guest.
+    pub role: WorkspaceRole,
+    /// Who invited them; absent once that account is gone.
+    pub invited_by: Option<Person>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub expires_at: OffsetDateTime,
+}
+
+/// The workspace an invitation is to.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct InvitingWorkspace {
+    pub id: Uuid,
+    #[schema(example = "Design")]
+    pub name: String,
+    #[schema(example = "design")]
+    pub slug: String,
+    pub icon: Option<String>,
+    #[schema(minimum = 0, maximum = 359)]
+    pub hue: u16,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ReceivedInvitationList {
+    /// Newest first.
+    pub invitations: Vec<ReceivedInvitation>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/account/invitations",
+    tag = "account",
+    summary = "List the invitations waiting for the user",
+    description = "Invitations into workspaces that the user has not answered and that have not \
+                   expired. Needs a session or an API token with the read scope.",
+    responses(
+        (status = OK, description = "The invitations.", body = ReceivedInvitationList),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn list_my_invitations(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+) -> Result<Json<ReceivedInvitationList>, ApiError> {
+    let received = state.workspaces.my_invitations(&principal).await?;
+    Ok(Json(ReceivedInvitationList {
+        invitations: received
+            .into_iter()
+            .map(|entry| ReceivedInvitation {
+                id: entry.invitation.id,
+                workspace: InvitingWorkspace {
+                    hue: entry.workspace.hue(),
+                    id: entry.workspace.id,
+                    name: entry.workspace.name,
+                    slug: entry.workspace.slug,
+                    icon: entry.workspace.icon,
+                },
+                role: entry.invitation.role.into(),
+                invited_by: entry.invited_by.map(Person::from),
+                created_at: entry.invitation.created_at,
+                expires_at: entry.invitation.expires_at,
+            })
+            .collect(),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/account/invitations/{id}/accept",
+    tag = "account",
+    summary = "Accept an invitation",
+    description = "Joins the workspace with the invitation's role, and its default teamspace \
+                   unless as a guest. Needs a session or an API token with the write scope.",
+    params(("id" = Uuid, Path, description = "The invitation's id.")),
+    responses(
+        (status = OK, description = "The workspace joined.", body = WorkspaceSummary),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: no such invitation waiting for the user.", body = ErrorBody),
+        (status = CONFLICT, description = "already_member, or member_limit: the workspace is full; the invitation stays.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn accept_invitation(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+) -> Result<Json<WorkspaceSummary>, ApiError> {
+    let joined = state.workspaces.accept_invitation(&principal, id).await?;
+    Ok(Json(joined.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/account/invitations/{id}/decline",
+    tag = "account",
+    summary = "Decline an invitation",
+    description = "Needs a session or an API token with the write scope.",
+    params(("id" = Uuid, Path, description = "The invitation's id.")),
+    responses(
+        (status = NO_CONTENT, description = "Declined."),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: no such invitation waiting for the user.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn decline_invitation(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    state.workspaces.decline_invitation(&principal, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize, ToSchema)]

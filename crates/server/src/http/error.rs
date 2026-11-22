@@ -11,6 +11,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::settings::UpdateError;
+use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -184,6 +185,37 @@ impl From<AuthError> for ApiError {
         };
         let mut api = Self::new(status, error.code(), error.to_string());
         if let AuthError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<WorkspaceError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: WorkspaceError) -> Self {
+        let status = match &error {
+            WorkspaceError::InvalidInput(_)
+            | WorkspaceError::ConfirmationMismatch
+            | WorkspaceError::InvalidInviteLink => StatusCode::BAD_REQUEST,
+            WorkspaceError::Forbidden(_) => StatusCode::FORBIDDEN,
+            WorkspaceError::NotFound(_) | WorkspaceError::NoAccount => StatusCode::NOT_FOUND,
+            WorkspaceError::AlreadyMember
+            | WorkspaceError::AlreadyInvited
+            | WorkspaceError::MemberLimit { .. }
+            | WorkspaceError::LastOwner(_)
+            | WorkspaceError::LastTeamspaceOwner(_)
+            | WorkspaceError::SlugTaken
+            | WorkspaceError::TokenUnavailable(_) => StatusCode::CONFLICT,
+            WorkspaceError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WorkspaceError::Database(_) | WorkspaceError::Internal(_) => {
+                tracing::error!(error = %error, "a workspace use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let WorkspaceError::RateLimited { retry_after } = error {
             api.retry_after = Some(retry_after);
         }
         api

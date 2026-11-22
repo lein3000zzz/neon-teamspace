@@ -12,6 +12,7 @@ use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::mail::MailQueue;
 use neon_app::settings::{Change, SettingsService, registry};
+use neon_app::workspaces::WorkspaceService;
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
@@ -54,6 +55,9 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
         Some(PUBLIC_URL),
         Clock::system(),
     );
+    let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+        .envelope(envelope.clone())
+        .build();
     let auth = AuthService::builder(pool, Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope)
@@ -64,6 +68,7 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
     AppState {
         settings,
         auth,
+        workspaces,
         web: Arc::new(web),
     }
 }
