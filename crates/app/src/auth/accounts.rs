@@ -47,6 +47,16 @@ pub struct NewAccount {
     pub role: Role,
 }
 
+/// What the principal changes about their own account. Each part left out stays as it is;
+/// `hue_override: Some(None)` goes back to the hue the id hashes to.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileUpdate {
+    /// At most 100 characters; blank takes the address's local part.
+    pub display_name: Option<String>,
+    /// 0 to 359.
+    pub hue_override: Option<Option<i64>>,
+}
+
 impl AuthService {
     /// Makes an account as the registration mode allows: anyone while it is open, those
     /// with an invite while it is by invite, nobody while it is closed. An invite bound to
@@ -274,34 +284,32 @@ impl AuthService {
         self.queue(conn, &mail).await
     }
 
-    /// Renames the principal's account, and returns it as it is now. Only the name is
-    /// written: the principal was read as the request began, and its role and disable may
-    /// have changed since.
+    /// Renames the principal's account, pins its hue, or both, and returns it as it is
+    /// now. Every part is checked before anything is written, and all is written at once,
+    /// so a change refused is a change not made. Only the name and the hue are written: the
+    /// principal was read as the request began, and its role and disable may have changed
+    /// since.
     pub async fn update_profile(
         &self,
         principal: &Principal,
-        name: &str,
+        update: ProfileUpdate,
     ) -> Result<User, AuthError> {
         self.observe("update_profile", async {
             let user = &principal.user;
-            let name = display_name(Some(name), &user.email).map_err(AuthError::invalid)?;
-            users::rename(self.pool(), user.id, &name, self.now())
-                .await?
-                .ok_or(AuthError::Unauthenticated)
-        })
-        .await
-    }
-
-    /// Pins the hue the principal is drawn in, 0 to 359, or with `None` goes back to the one
-    /// their id hashes to, and returns their account as it is now.
-    pub async fn set_hue(
-        &self,
-        principal: &Principal,
-        hue: Option<i64>,
-    ) -> Result<User, AuthError> {
-        self.observe("set_hue", async {
-            let hue = hue.map(check_hue).transpose().map_err(AuthError::invalid)?;
-            users::set_hue(self.pool(), principal.user.id, hue, self.now())
+            let name = update
+                .display_name
+                .map(|name| display_name(Some(&name), &user.email))
+                .transpose()
+                .map_err(AuthError::invalid)?;
+            let hue = update
+                .hue_override
+                .map(|hue| hue.map(check_hue).transpose())
+                .transpose()
+                .map_err(AuthError::invalid)?;
+            if name.is_none() && hue.is_none() {
+                return Ok(user.clone());
+            }
+            users::update_profile(self.pool(), user.id, name.as_deref(), hue, self.now())
                 .await?
                 .ok_or(AuthError::Unauthenticated)
         })

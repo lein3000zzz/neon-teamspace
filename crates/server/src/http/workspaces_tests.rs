@@ -712,4 +712,21 @@ async fn accounts_show_their_hue_and_may_pin_one(pool: PgPool) {
         .await;
     assert_eq!(renamed.body["display_name"], "Ada L");
     assert_eq!(renamed.body["hue_override"], Value::Null);
+
+    let half_bad = ada
+        .send(
+            Method::PATCH,
+            "/api/v1/account/me",
+            Some(json!({"display_name": "Ada Renamed", "hue_override": 999})),
+        )
+        .await;
+    assert_eq!(
+        (half_bad.status, half_bad.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input")
+    );
+    let after = ada.get("/api/v1/account/me").await;
+    assert_eq!(
+        after.body["display_name"], "Ada L",
+        "a change refused is not made in part"
+    );
 }

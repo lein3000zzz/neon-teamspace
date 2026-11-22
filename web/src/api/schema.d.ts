@@ -83,7 +83,7 @@ export interface paths {
         head?: never;
         /**
          * Rename the signed-in user, or pin their hue
-         * @description Changes what the body names. Needs a session or an API token with the write scope.
+         * @description Changes what the body names, all of it or, when any part is invalid, none. Needs a session or an API token with the write scope.
          */
         patch: operations["update_me"];
         trace?: never;
