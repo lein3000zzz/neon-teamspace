@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { http } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { keys } from "@/api/keys";
 import type { InviteLink, SentInvitation } from "@/api/workspaces";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import { design, fakeWorkspaces, LINK_TOKEN, people } from "@/test/workspaces";
+import { design, fakeWorkspaces, LINK_TOKEN, people, summaryOf } from "@/test/workspaces";
 
 const ID = design().id;
 const base = `/api/v1/workspaces/${ID}`;
@@ -297,5 +298,67 @@ describe("the members", () => {
     fail = false;
     await user.click(region.getByRole("button", { name: "Try again" }));
     expect(await region.findByText("bob@example.com")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Ada manages Design on the Members tab when its invitations and invite links
+ * start to answer 403. A cap stops the refusals after 50, so a loop shows as a
+ * count rather than as a test that never ends.
+ */
+async function refuseManagers(options: { demoted: boolean }) {
+  const api = fakeWorkspaces({ role: "admin" });
+  const { queryClient } = renderApp("/w/design/settings/members");
+  expect(await screen.findByRole("form", { name: "Invite by email" })).toBeInTheDocument();
+  await screen.findByText("No invitations wait for an answer.");
+
+  if (options.demoted) {
+    api.state.workspaces = [summaryOf(design("member"))];
+    api.state.workspace = design("member");
+  }
+  const counts = { refused: 0, lists: 0 };
+  const refuse = (empty: object) => async () => {
+    counts.refused += 1;
+    await delay(5);
+    return counts.refused > 50
+      ? HttpResponse.json(empty)
+      : apiError(403, "forbidden", "only the workspace's owners and admins may do this");
+  };
+  server.use(
+    http.get("/api/v1/workspaces", async () => {
+      counts.lists += 1;
+      // Slower than the refusals, as a list of many workspaces can be.
+      await delay(30);
+      return HttpResponse.json({ workspaces: api.state.workspaces, can_create: true });
+    }),
+    http.get("/api/v1/workspaces/:id/invitations", refuse({ invitations: [] })),
+    http.get("/api/v1/workspaces/:id/invite-links", refuse({ links: [] })),
+  );
+  // What the window regaining focus does to the invitations, once they are stale.
+  void queryClient.invalidateQueries({ queryKey: keys.sentInvitations(ID) });
+  return counts;
+}
+
+describe("a role taken away while the page is open", () => {
+  it("reads the role again after a refusal, and shows a demoted admin the member's page", async () => {
+    const counts = await refuseManagers({ demoted: true });
+
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Invite by email" })).toBeNull());
+    await memberCard("bob@example.com");
+    await delay(300);
+    expect(counts.refused).toBeLessThanOrEqual(4);
+    expect(counts.lists).toBeLessThanOrEqual(2);
+  });
+
+  it("asks the refused routes no more while the role stays the same", async () => {
+    const counts = await refuseManagers({ demoted: false });
+
+    const pendingRegion = within(
+      await screen.findByRole("region", { name: "Pending invitations" }),
+    );
+    expect(await pendingRegion.findByRole("alert")).toBeInTheDocument();
+    await delay(300);
+    expect(counts.refused).toBeLessThanOrEqual(4);
+    expect(counts.lists).toBeLessThanOrEqual(2);
   });
 });

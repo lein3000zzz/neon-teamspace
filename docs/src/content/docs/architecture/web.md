@@ -69,9 +69,13 @@ accounts](/docs/guides/signing-in/) describes them.
   there only when `next` is a path of this origin.
 - A request that later answers 401 `unauthenticated` means the session ended, and does the
   same, whatever page sent it. A 401 for a wrong password is the form's to show.
-- A 403 `forbidden` makes the app ask again who is signed in, and read the workspaces'
-  data again, so a role taken away, on the instance or in a workspace, shows at once; the
-  admin pages then say they are not allowed.
+- A 403 `forbidden` makes the app ask again who is signed in, and read the list of
+  workspaces, with the roles in them, again, so a role taken away, on the instance or in a
+  workspace, shows at once; the admin pages then say they are not allowed. After a refused
+  change, every workspace's data is read again. After a refused read, only the data of a
+  workspace where the role did change: reading again what was just refused, with nothing
+  changed, would be refused again, and start the same again. A read already on its way is
+  waited for, not sent again.
 - A 429 is shown with the wait its `Retry-After` gives. Answers the server chose, any 4xx,
   are never retried.
 - One-time tokens in mailed links, and an invite link's code, are taken out of the address

@@ -1,5 +1,5 @@
-import type { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
 import { ada } from "@/test/fixtures";
 import { ApiError } from "./errors";
 import { keys } from "./keys";
@@ -46,11 +46,44 @@ describe("the query client", () => {
     expect(client.getQueryState(keys.me)?.isInvalidated).toBe(true);
   });
 
-  it("reads the workspaces again after a 403, as a role in one may have changed", async () => {
+  it("reads a workspace's data again after a refused read only where the role changed", async () => {
     const client = createQueryClient({ retry: false });
-    client.setQueryData(keys.workspaces, { workspaces: [], can_create: true });
-    client.setQueryData(keys.members("w1"), { members: [] });
+    const roles = { w1: "admin", w2: "member" };
+    const list = () => ({
+      workspaces: Object.entries(roles).map(([id, role]) => ({ id, role })),
+      can_create: true,
+    });
+    // The sidebar keeps the list on screen, so a refusal reads it again.
+    const unsubscribe = new QueryObserver(client, {
+      queryKey: keys.workspaces,
+      queryFn: () => Promise.resolve(list()),
+    }).subscribe(() => undefined);
+    await vi.waitFor(() => expect(client.getQueryData(keys.workspaces)).toEqual(list()));
+    client.setQueryData(keys.members("w1"), []);
+    client.setQueryData(keys.members("w2"), []);
+
+    roles.w1 = "member";
     await failQuery(client, refusal(403, "forbidden"));
+
+    await vi.waitFor(() => expect(client.getQueryData(keys.workspaces)).toEqual(list()));
+    await vi.waitFor(() =>
+      expect(client.getQueryState(keys.members("w1"))?.isInvalidated).toBe(true),
+    );
+    expect(client.getQueryState(keys.members("w2"))?.isInvalidated).toBe(false);
+    unsubscribe();
+  });
+
+  it("reads every workspace's data again after a refused change", async () => {
+    const client = createQueryClient({ retry: false });
+    client.setQueryData(keys.me, ada);
+    client.setQueryData(keys.workspaces, { workspaces: [], can_create: true });
+    client.setQueryData(keys.members("w1"), []);
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(refusal(403, "forbidden")) })
+      .execute(undefined)
+      .catch(() => undefined);
+    expect(client.getQueryState(keys.me)?.isInvalidated).toBe(true);
     expect(client.getQueryState(keys.workspaces)?.isInvalidated).toBe(true);
     expect(client.getQueryState(keys.members("w1"))?.isInvalidated).toBe(true);
   });
