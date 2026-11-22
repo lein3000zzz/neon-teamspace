@@ -7,7 +7,7 @@ use utoipa::{Modify, OpenApi as _};
 use super::error::ErrorBody;
 use super::web::SESSION_COOKIE;
 
-const DESCRIPTION: &str = "The HTTP API of Neon Workspace.\n\n\
+const DESCRIPTION: &str = "The HTTP API of Neon Teamspace.\n\n\
 Every error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. \
 `code` is stable and meant for programs, such as `not_found` or `invalid_json`; \
 `message` says what went wrong, for people. A request with several wrong fields, such as \
@@ -21,7 +21,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
 
 #[derive(utoipa::OpenApi)]
 #[openapi(
-    info(title = "Neon Workspace API", description = DESCRIPTION),
+    info(title = "Neon Teamspace API", description = DESCRIPTION),
     components(schemas(ErrorBody)),
     modifiers(&Security),
     tags(
@@ -94,7 +94,7 @@ mod tests {
     fn info_names_the_api_its_version_and_license() {
         let info = spec().info;
 
-        assert_eq!(info.title, "Neon Workspace API");
+        assert_eq!(info.title, "Neon Teamspace API");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         let license = info.license.expect("a license");
         assert_eq!(

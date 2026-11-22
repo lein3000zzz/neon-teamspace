@@ -1,9 +1,9 @@
 ---
-title: How Neon Workspace works
-description: The parts Neon Workspace is made of, the crates of its server, and the way a request takes through them.
+title: How Neon Teamspace works
+description: The parts Neon Teamspace is made of, the crates of its server, and the way a request takes through them.
 ---
 
-Neon Workspace is a Rust server, a TypeScript single-page app, and Postgres. The server is
+Neon Teamspace is a Rust server, a TypeScript single-page app, and Postgres. The server is
 one binary, `neon`: the HTTP API, and, as they arrive, real-time editing over WebSocket, the
 MCP endpoint for agents and webhooks. In a deployment, Caddy serves the app and these docs
 as files and passes everything else to the server, so the browser sees one origin.

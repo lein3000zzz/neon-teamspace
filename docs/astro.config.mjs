@@ -52,14 +52,14 @@ export default defineConfig({
     // THIRD_PARTY_NOTICES.txt beside the pages: the licenses of the packages they ship.
     thirdPartyNotices(),
     starlight({
-      title: 'Neon Workspace',
+      title: 'Neon Teamspace',
       description:
         'A self-hosted team workspace: pages, databases and boards, edited together in real time, with agents as teammates.',
       logo: {
         light: './src/assets/logo-light.svg',
         dark: './src/assets/logo-dark.svg',
       },
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/lein3000zzz/neon-workspace' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/lein3000zzz/neon-teamspace' }],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: {
         styleOverrides: {

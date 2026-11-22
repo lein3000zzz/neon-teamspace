@@ -74,7 +74,7 @@ instead, so the admin listener has to listen there too, for example with
 
 ## The dashboard
 
-The dashboard, **Neon Workspace server** in the **Neon Workspace** folder, has three rows.
+The dashboard, **Neon Teamspace server** in the **Neon Teamspace** folder, has three rows.
 Its **Instance** menu picks the server: `stack` for the one in the Docker stack, `host` for
 `make run`.
 
@@ -105,6 +105,6 @@ service `neon`.
 
 ## Licenses
 
-The stack runs as programs of their own beside Neon Workspace, which is not linked with any
+The stack runs as programs of their own beside Neon Teamspace, which is not linked with any
 of them. The `otel-lgtm` image is Apache-2.0, as are Prometheus and the OpenTelemetry
 collector in it; Grafana, Loki, Tempo and Pyroscope are AGPL-3.0.

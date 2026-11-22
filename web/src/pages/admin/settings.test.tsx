@@ -61,7 +61,7 @@ const name: Setting = {
   kind: "string",
   description: "The instance's name.",
   value: "Neon E2E",
-  default: "Neon Workspace",
+  default: "Neon Teamspace",
   source: "env",
   pinned: true,
   browser_only: false,

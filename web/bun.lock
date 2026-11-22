@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "neon-workspace-web",
+      "name": "neon-teamspace-web",
       "dependencies": {
         "@tanstack/react-query": "^5.108.2",
         "@tanstack/react-router": "^1.170.46",

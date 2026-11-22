@@ -1,5 +1,5 @@
 ---
-title: Neon Workspace
+title: Neon Teamspace
 description: A self-hosted team workspace with block-based pages, databases and boards, edited together in real time, and agents as teammates over MCP.
 template: splash
 hero:
@@ -14,14 +14,14 @@ hero:
 ---
 
 :::note[Early development]
-Neon Workspace is not usable yet. The foundation exists: the server's crates, configuration,
+Neon Teamspace is not usable yet. The foundation exists: the server's crates, configuration,
 the database layer and job queue, observability, the first API endpoint, the web app's shell,
 these docs, and the Docker images that serve them. Pages say what exists today and mark the rest of the design as **Planned**.
 :::
 
 ## Start here
 
-- **[Introduction](/docs/guides/introduction/)**: what Neon Workspace is, who it is for, and
+- **[Introduction](/docs/guides/introduction/)**: what Neon Teamspace is, who it is for, and
   what is built so far.
 - **[Concepts](/docs/guides/concepts/)**: the instance, workspaces, teamspaces, pages,
   databases and views, members, guests, agents and integrations.

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 license = "PolyForm-Noncommercial-1.0.0"
-repository = "https://github.com/lein3000zzz/neon-workspace"
+repository = "https://github.com/lein3000zzz/neon-teamspace"
 publish = false
 
 [workspace.dependencies]

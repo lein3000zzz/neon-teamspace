@@ -1,4 +1,4 @@
-# Neon Workspace
+# Neon Teamspace
 
 A self-hosted team workspace with block-based pages, databases and kanban boards, real-time
 collaborative editing, and AI agents as first-class teammates over MCP.
@@ -30,8 +30,8 @@ Dependencies only point inward: `server` → `app` → `store` → `domain`. Eac
 ## Running it with Docker
 
 Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
-`ghcr.io/lein3000zzz/neon-workspace-server`, the `neon` binary on distroless, and
-`ghcr.io/lein3000zzz/neon-workspace-web`, Caddy with the app and the docs, which passes the
+`ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
+`ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes the
 server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
 Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
 `deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
@@ -185,7 +185,7 @@ GitHub Actions runs three workflows.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag.
   - It runs the end-to-end tests, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
-  - It pushes them to `ghcr.io/lein3000zzz/neon-workspace-server` and `-web`, then creates a GitHub release with generated notes.
+  - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.

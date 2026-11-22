@@ -4,7 +4,7 @@ test("the docs load beside the app under a policy of their own", async ({ page }
   const response = await page.goto("/docs/");
 
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole("heading", { level: 1, name: "Neon Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Neon Teamspace" })).toBeVisible();
   // Their inline scripts are allowed by hash, search's WebAssembly by 'wasm-unsafe-eval', and
   // nothing else inline.
   const policy = response?.headers()["content-security-policy"] ?? "";
@@ -18,7 +18,7 @@ test("/docs without its slash leads to the docs", async ({ page }) => {
   await page.goto("/docs");
 
   await expect(page).toHaveURL(/\/docs\/$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Neon Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Neon Teamspace" })).toBeVisible();
 });
 
 test("the API reference is generated into the docs", async ({ page }) => {

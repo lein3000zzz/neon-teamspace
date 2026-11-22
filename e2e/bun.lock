@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "neon-workspace-e2e",
+      "name": "neon-teamspace-e2e",
       "devDependencies": {
         "@playwright/test": "^1.65.1",
         "@types/node": "^26.6.6",

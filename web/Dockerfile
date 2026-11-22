@@ -51,9 +51,9 @@ COPY --from=app /src/web/dist /srv/app
 COPY --from=docs /src/docs/dist /srv/docs
 
 # The base image's labels describe Caddy; these describe the image.
-LABEL org.opencontainers.image.title="neon-workspace-web" \
-      org.opencontainers.image.description="Neon Workspace's web app and docs, served by Caddy" \
-      org.opencontainers.image.source="https://github.com/lein3000zzz/neon-workspace" \
+LABEL org.opencontainers.image.title="neon-teamspace-web" \
+      org.opencontainers.image.description="Neon Teamspace's web app and docs, served by Caddy" \
+      org.opencontainers.image.source="https://github.com/lein3000zzz/neon-teamspace" \
       org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
       org.opencontainers.image.version="" \
       org.opencontainers.image.url="" \

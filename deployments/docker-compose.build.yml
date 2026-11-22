@@ -7,14 +7,14 @@
 # stack always runs what the checkout holds.
 services:
   server:
-    image: neon-workspace-server:local
+    image: neon-teamspace-server:local
     build:
       context: ..
       dockerfile: deployments/Dockerfile
     pull_policy: build
 
   web:
-    image: neon-workspace-web:local
+    image: neon-teamspace-web:local
     build:
       context: ..
       dockerfile: web/Dockerfile

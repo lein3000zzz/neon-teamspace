@@ -1,9 +1,9 @@
 ---
 title: Data and storage
-description: What Neon Workspace keeps in Postgres, how its SQL is checked, how the schema changes, and how the job queue works.
+description: What Neon Teamspace keeps in Postgres, how its SQL is checked, how the schema changes, and how the job queue works.
 ---
 
-Everything Neon Workspace keeps lasting is in one Postgres 18 database: settings, the job
+Everything Neon Teamspace keeps lasting is in one Postgres 18 database: settings, the job
 queue, accounts, sessions, invites, and, as they arrive, workspaces and their content. There is no
 cache server and no message broker beside it. Attachments are the one exception, **planned**:
 they go to local disk or an S3-compatible store, as files are better kept outside the
