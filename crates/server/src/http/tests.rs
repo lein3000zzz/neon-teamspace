@@ -7,6 +7,8 @@ use axum::routing::{get, post};
 use http_body_util::BodyExt as _;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::auth::AuthService;
+use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
@@ -17,13 +19,40 @@ use tower::ServiceExt as _;
 
 use super::*;
 
-async fn state(pool: PgPool) -> AppState {
-    let (settings, warnings) = SettingsService::load(pool, registry(), Pinned::default())
-        .await
-        .expect("settings load");
+/// Hashes cheap enough for tests.
+pub(super) const CHEAP: Argon2Params = Argon2Params {
+    memory_kib: 64,
+    iterations: 1,
+    parallelism: 1,
+    output_len: 32,
+    salt_len: 16,
+};
+
+pub(super) async fn state(pool: PgPool) -> AppState {
+    state_with(pool, Envelope::default(), WebConfig::new(None, Vec::new())).await
+}
+
+pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig) -> AppState {
+    let (settings, warnings) = SettingsService::load(
+        pool.clone(),
+        registry(),
+        Pinned::default(),
+        envelope.clone(),
+    )
+    .await
+    .expect("settings load");
     assert!(warnings.is_empty(), "{warnings:?}");
+    let settings = Arc::new(settings);
+    let auth = AuthService::builder(pool, Arc::clone(&settings))
+        .password_params(CHEAP)
+        .envelope(envelope)
+        .build()
+        .await
+        .expect("the auth service starts");
     AppState {
-        settings: Arc::new(settings),
+        settings,
+        auth,
+        web: Arc::new(web),
     }
 }
 
@@ -84,7 +113,8 @@ fn test_app(state: AppState, limits: Limits) -> Router {
                 "late"
             }),
         );
-    app(api().merge(routes), limits, HttpLayer::new()).with_state(state)
+    let web = Arc::clone(&state.web);
+    app(api().merge(routes), limits, HttpLayer::new(), web).with_state(state)
 }
 
 async fn send(app: Router, request: Request<Body>) -> (StatusCode, Value) {

@@ -1,10 +1,16 @@
 //! The HTTP API under `/api/v1`, its description, and the middleware every request
 //! passes.
 
+mod account;
+mod admin;
+mod auth;
+mod dto;
 mod error;
 mod extract;
 mod meta;
 mod openapi;
+mod principal;
+mod web;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,6 +23,7 @@ use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use neon_app::auth::AuthService;
 use neon_app::settings::SettingsService;
 use neon_domain::duration;
 use neon_observability::http::HttpLayer;
@@ -29,30 +36,65 @@ use tracing::{debug, error};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-pub use error::{ApiError, ErrorBody, ErrorDetail};
+pub use error::{ApiError, ErrorBody, ErrorDetail, ProblemDetail};
 pub use extract::{Json, Path, Query};
 pub use meta::Meta;
 pub use openapi::{spec, spec_json};
+pub use web::{SECURE_SESSION_COOKIE, SESSION_COOKIE, WebConfig};
 
 /// What the handlers share.
 #[derive(Clone)]
 pub struct AppState {
     pub settings: Arc<SettingsService>,
+    pub auth: AuthService,
+    pub web: Arc<WebConfig>,
 }
 
 /// Every API route, each registered together with its entry in the description.
 fn api() -> OpenApiRouter<AppState> {
-    OpenApiRouter::with_openapi(openapi::base()).nest(
-        "/api/v1",
-        OpenApiRouter::new().routes(routes!(meta::get_meta)),
-    )
+    let routes = OpenApiRouter::new()
+        .routes(routes!(meta::get_meta))
+        .routes(routes!(auth::get_config))
+        .routes(routes!(auth::register))
+        .routes(routes!(auth::login))
+        .routes(routes!(auth::logout))
+        .routes(routes!(auth::verify_email))
+        .routes(routes!(auth::resend_verification))
+        .routes(routes!(auth::request_password_reset))
+        .routes(routes!(auth::reset_password))
+        .routes(routes!(auth::check_invite))
+        .routes(routes!(auth::request_to_join))
+        .routes(routes!(auth::confirm_join))
+        .routes(routes!(account::get_me, account::update_me))
+        .routes(routes!(account::change_password))
+        .routes(routes!(
+            account::list_sessions,
+            account::revoke_other_sessions
+        ))
+        .routes(routes!(account::revoke_session))
+        .routes(routes!(account::list_tokens, account::create_token))
+        .routes(routes!(account::revoke_token))
+        .routes(routes!(account::get_preferences, account::put_preferences))
+        .routes(routes!(admin::list_users, admin::create_user))
+        .routes(routes!(admin::update_user))
+        .routes(routes!(admin::send_verification))
+        .routes(routes!(admin::list_invites, admin::create_invite))
+        .routes(routes!(admin::check_invite_code))
+        .routes(routes!(admin::invite_code))
+        .routes(routes!(admin::revoke_invite))
+        .routes(routes!(admin::list_join_requests))
+        .routes(routes!(admin::approve_join))
+        .routes(routes!(admin::deny_join))
+        .routes(routes!(admin::list_settings, admin::update_settings));
+    OpenApiRouter::with_openapi(openapi::base()).nest("/api/v1", routes)
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
 /// whether requests continue the trace context their callers send.
 pub fn router(state: AppState, trust_incoming: bool) -> Router {
     let telemetry = HttpLayer::new().trust_incoming(trust_incoming);
-    app(api(), Limits::default(), telemetry).with_state(state)
+    let web = Arc::clone(&state.web);
+    app(api(), Limits::default(), telemetry, web).with_state(state)
 }
 
 /// Bounds on each request.
@@ -76,12 +118,20 @@ impl Default for Limits {
 
 /// The routes plus the description route, the fallbacks and the middleware.
 ///
+/// Requests that change something from another origin are refused before any handler
+/// runs; see [`web`].
+///
 /// `Router::layer` wraps each route, after routing, so `telemetry` sees the route template.
 /// It sits outside the layers that answer for the handler, the panic catcher and the time
 /// limit, so its spans and RED metrics record the status the client gets, a 500 for a
 /// panic and a 503 for a timeout included. Everything inside it logs within the request's
 /// span, so those lines carry its trace id.
-fn app(api: OpenApiRouter<AppState>, limits: Limits, telemetry: HttpLayer) -> Router<AppState> {
+fn app(
+    api: OpenApiRouter<AppState>,
+    limits: Limits,
+    telemetry: HttpLayer,
+    web: Arc<WebConfig>,
+) -> Router<AppState> {
     let (router, spec) = api.split_for_parts();
     let spec = Bytes::from(openapi::render(&spec));
 
@@ -106,6 +156,7 @@ fn app(api: OpenApiRouter<AppState>, limits: Limits, telemetry: HttpLayer) -> Ro
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
                     time_limit(limits.timeout, request, next)
                 }))
+                .layer(middleware::from_fn_with_state(web, web::same_origin_only))
                 .layer(DefaultBodyLimit::max(limits.body)),
         )
 }
@@ -143,5 +194,7 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
     }
 }
 
+#[cfg(test)]
+mod auth_tests;
 #[cfg(test)]
 mod tests;

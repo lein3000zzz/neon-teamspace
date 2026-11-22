@@ -1,0 +1,290 @@
+//! What browsers see of authentication: the session cookie, the origin check on requests
+//! that change something, and the client address rate limits count.
+//!
+//! - The cookie is `neon_session`, or `__Host-neon_session` when `server.public_url` is
+//!   https, so that a sibling subdomain cannot plant one. It is `HttpOnly`, `SameSite=Lax`,
+//!   `Path=/`, `Secure` over https, and lasts until the session's absolute expiry.
+//! - A request with an unsafe method and no `Authorization` header must come from the
+//!   server's own origin: its `Origin`, or else its `Referer`, must match
+//!   `server.public_url`, or the `Host` it was sent to when that is unset. Bearer requests
+//!   are exempt, as browsers never add that header on their own. When a browser sends
+//!   neither header, `SameSite=Lax` on the cookie is the remaining guard: it keeps the
+//!   cookie off cross-site posts.
+
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::http::header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, REFERER};
+use axum::http::request::Parts;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use ipnet::IpNet;
+use tracing::warn;
+use url::Url;
+
+use super::AppState;
+use super::error::ApiError;
+
+/// The session cookie's name over plain http.
+pub const SESSION_COOKIE: &str = "neon_session";
+
+/// Its name over https.
+pub const SECURE_SESSION_COOKIE: &str = "__Host-neon_session";
+
+/// How the server is reached, from the bootstrap configuration.
+#[derive(Debug, Clone)]
+pub struct WebConfig {
+    /// `server.public_url` as an origin, such as `https://neon.example.com`.
+    origin: Option<String>,
+    secure: bool,
+    trusted_proxies: Vec<IpNet>,
+}
+
+impl WebConfig {
+    pub fn new(public_url: Option<&Url>, trusted_proxies: Vec<IpNet>) -> Self {
+        Self {
+            origin: public_url.map(|url| url.origin().ascii_serialization()),
+            secure: public_url.is_some_and(|url| url.scheme() == "https"),
+            trusted_proxies,
+        }
+    }
+
+    pub fn cookie_name(&self) -> &'static str {
+        if self.secure {
+            SECURE_SESSION_COOKIE
+        } else {
+            SESSION_COOKIE
+        }
+    }
+
+    /// A `Set-Cookie` value for a session token that lasts `max_age`.
+    pub fn session_cookie(&self, token: &str, max_age: Duration) -> HeaderValue {
+        self.cookie(token, max_age.as_secs())
+    }
+
+    /// A `Set-Cookie` value that removes the session cookie.
+    pub fn clear_cookie(&self) -> HeaderValue {
+        self.cookie("", 0)
+    }
+
+    fn cookie(&self, value: &str, max_age: u64) -> HeaderValue {
+        let secure = if self.secure { "; Secure" } else { "" };
+        let cookie = format!(
+            "{}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}",
+            self.cookie_name()
+        );
+        let mut header = HeaderValue::from_str(&cookie)
+            .unwrap_or_else(|_| HeaderValue::from_static("neon_session=; Max-Age=0"));
+        header.set_sensitive(true);
+        header
+    }
+
+    /// The session token from the request's cookies, if it sent one.
+    pub fn session_token<'a>(&self, headers: &'a HeaderMap) -> Option<&'a str> {
+        let name = self.cookie_name();
+        headers
+            .get_all(COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|cookies| cookies.split(';'))
+            .filter_map(|pair| pair.trim().split_once('='))
+            .find_map(|(key, value)| (key == name && !value.is_empty()).then_some(value))
+    }
+
+    /// The client's address: the last `X-Forwarded-For` entry when the peer is a trusted
+    /// proxy, else the peer itself. Without a peer, as in tests that call the router
+    /// directly, it is `unknown`.
+    pub fn client_ip(&self, peer: Option<IpAddr>, headers: &HeaderMap) -> String {
+        let Some(peer) = peer.map(canonical) else {
+            return "unknown".to_owned();
+        };
+        let trusted = self
+            .trusted_proxies
+            .iter()
+            .any(|range| range.contains(&peer));
+        let forwarded = trusted
+            .then(|| {
+                headers
+                    .get_all("x-forwarded-for")
+                    .iter()
+                    .filter_map(|value| value.to_str().ok())
+                    .flat_map(|value| value.split(','))
+                    .filter_map(|entry| entry.trim().parse::<IpAddr>().ok())
+                    .next_back()
+            })
+            .flatten();
+        forwarded.map_or(peer, canonical).to_string()
+    }
+
+    /// Whether `origin`, as an `Origin` header has it, is the server's own.
+    fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
+        if let Some(own) = &self.origin {
+            return origin.eq_ignore_ascii_case(own);
+        }
+        // Without a public URL, the host the browser sent the request to is the server's.
+        let Some(host) = headers.get(HOST).and_then(|host| host.to_str().ok()) else {
+            return false;
+        };
+        let Ok(url) = Url::parse(origin) else {
+            return false;
+        };
+        let authority = match (url.host_str(), url.port()) {
+            (Some(name), Some(port)) => format!("{name}:{port}"),
+            (Some(name), None) => name.to_owned(),
+            (None, _) => return false,
+        };
+        authority.eq_ignore_ascii_case(host)
+    }
+}
+
+/// An IPv4 address mapped into IPv6 is the IPv4 address, so it meets the same ranges and
+/// the same rate limits.
+fn canonical(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    }
+}
+
+/// The address the request came from, as [`WebConfig::client_ip`] works it out.
+pub struct ClientIp(pub String);
+
+impl FromRequestParts<AppState> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip());
+        Ok(Self(state.web.client_ip(peer, &parts.headers)))
+    }
+}
+
+/// Refuses requests that change something from another origin; see the module docs.
+pub(super) async fn same_origin_only(
+    State(web): State<Arc<WebConfig>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let method = request.method();
+    let safe = method.is_safe();
+    if safe || request.headers().contains_key(AUTHORIZATION) {
+        return next.run(request).await;
+    }
+    let headers = request.headers();
+    // A header that is there but unreadable counts as another origin.
+    let origin = match headers.get(ORIGIN) {
+        Some(value) => Some(value.to_str().unwrap_or_default().to_owned()),
+        None => headers.get(REFERER).map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|referer| Url::parse(referer).ok())
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_default()
+        }),
+    };
+    match origin {
+        Some(origin) if !web.same_origin(&origin, headers) => {
+            warn!(origin, "cross-origin request refused");
+            ApiError::forbidden("cross-origin requests that change something are refused")
+                .into_response()
+        }
+        _ => next.run(request).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn web(public_url: Option<&str>) -> WebConfig {
+        let url = public_url.map(|url| Url::parse(url).expect("a URL"));
+        WebConfig::new(url.as_ref(), crate::config::default_trusted_proxies())
+    }
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.append(*name, HeaderValue::from_str(value).expect("a header value"));
+        }
+        headers
+    }
+
+    #[test]
+    fn https_cookies_are_host_prefixed_and_secure() {
+        let secure = web(Some("https://neon.example.com"));
+        let plain = web(Some("http://neon.internal"));
+        let local = web(None);
+
+        assert_eq!(
+            secure.session_cookie("abc", Duration::from_secs(60)),
+            "__Host-neon_session=abc; Path=/; Max-Age=60; HttpOnly; SameSite=Lax; Secure"
+        );
+        assert_eq!(
+            plain.session_cookie("abc", Duration::from_secs(60)),
+            "neon_session=abc; Path=/; Max-Age=60; HttpOnly; SameSite=Lax"
+        );
+        assert_eq!(
+            local.clear_cookie(),
+            "neon_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+        );
+        assert!(secure.clear_cookie().is_sensitive());
+    }
+
+    #[test]
+    fn the_token_is_read_from_the_cookie_of_the_right_name() {
+        let plain = web(None);
+        let secure = web(Some("https://neon.example.com"));
+        let sent = headers(&[
+            ("cookie", "theme=dark; neon_session=abc"),
+            ("cookie", "__Host-neon_session=xyz"),
+        ]);
+
+        assert_eq!(plain.session_token(&sent), Some("abc"));
+        assert_eq!(secure.session_token(&sent), Some("xyz"));
+        assert_eq!(
+            plain.session_token(&headers(&[("cookie", "neon_session=")])),
+            None
+        );
+        assert_eq!(plain.session_token(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn forwarded_addresses_count_only_from_trusted_proxies() {
+        let web = web(None);
+        let forwarded = headers(&[("x-forwarded-for", "198.51.100.1, 203.0.113.9")]);
+        let proxy: IpAddr = "10.0.0.2".parse().unwrap();
+        let stranger: IpAddr = "192.0.2.50".parse().unwrap();
+        let mapped: IpAddr = "::ffff:192.0.2.50".parse().unwrap();
+
+        assert_eq!(web.client_ip(Some(proxy), &forwarded), "203.0.113.9");
+        assert_eq!(web.client_ip(Some(stranger), &forwarded), "192.0.2.50");
+        assert_eq!(web.client_ip(Some(mapped), &HeaderMap::new()), "192.0.2.50");
+        assert_eq!(web.client_ip(Some(proxy), &HeaderMap::new()), "10.0.0.2");
+        assert_eq!(web.client_ip(None, &forwarded), "unknown");
+    }
+
+    #[test]
+    fn origins_match_the_public_url_or_else_the_host() {
+        let public = web(Some("https://neon.example.com"));
+        let local = web(None);
+        let host = headers(&[("host", "localhost:5173")]);
+
+        assert!(public.same_origin("https://neon.example.com", &host));
+        assert!(public.same_origin("https://NEON.example.com", &host));
+        assert!(!public.same_origin("http://neon.example.com", &host));
+        assert!(!public.same_origin("https://evil.example", &host));
+        assert!(!public.same_origin("null", &host));
+        assert!(local.same_origin("http://localhost:5173", &host));
+        assert!(!local.same_origin("http://localhost:8080", &host));
+        assert!(!local.same_origin("http://localhost:5173", &HeaderMap::new()));
+    }
+}
