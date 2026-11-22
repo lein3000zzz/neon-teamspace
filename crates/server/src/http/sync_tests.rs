@@ -57,14 +57,14 @@ async fn state_of(pool: PgPool, limits: SyncLimits) -> AppState {
 }
 
 /// The router of a state, listening on a free port of loopback.
-struct Server {
-    addr: SocketAddr,
+pub(super) struct Server {
+    pub(super) addr: SocketAddr,
     stop: CancellationToken,
     task: JoinHandle<()>,
 }
 
 impl Server {
-    async fn start(app: Router) -> Self {
+    pub(super) async fn start(app: Router) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
         let addr = listener.local_addr().expect("bound");
         let stop = CancellationToken::new();
@@ -81,7 +81,7 @@ impl Server {
     }
 
     /// Stops listening, and waits until the server let go of its router.
-    async fn stop(mut self) {
+    pub(super) async fn stop(mut self) {
         self.stop.cancel();
         timeout(PATIENCE, &mut self.task)
             .await

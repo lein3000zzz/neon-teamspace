@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE database_rows SET cells = (cells || $2::jsonb) - $3::text[] WHERE page_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "644064ed9583daee7e17476e2b872b61458de8cb3bcb34a475602e4e23a2cb3a"
+}

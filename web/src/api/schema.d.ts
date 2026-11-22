@@ -801,6 +801,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A database
+         * @description Its page, its properties and its views, for those who see it.
+         */
+        get: operations["get_database"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a property
+         * @description For those who edit the database. A database has exactly one title, made with it, at most one unique id, and at most 100 properties.
+         */
+        post: operations["add_property"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/properties/{property_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a property
+         * @description Any but the title, with its values on every row, for those who edit the database. Views leave out what named it.
+         */
+        delete: operations["delete_property"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a property
+         * @description Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true. The title keeps its type. Views that no longer fit leave out what does not.
+         */
+        patch: operations["change_property"];
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/properties/{property_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Place a property elsewhere
+         * @description Among the database's properties, for those who edit it.
+         */
+        post: operations["move_property"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query rows
+         * @description The rows of a database the caller sees, out of the trash, as a view has them or with a filter and sorts of the caller's, a part at a time. Grouped by its view, they come group by group, a row naming two people once in each person's group, with the groups and their counts. The databases reference lists the operators each type takes. Needs only the `read` scope.
+         */
+        post: operations["query_rows"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a row
+         * @description A page of kind `row` under the database, for those who edit it, with its values, the database's next number, and an empty body. A database holds at most 10,000 rows out of the trash.
+         */
+        post: operations["create_row"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/rows/{unique_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A row by its unique id
+         * @description The row whose unique id is `NW-42`, its prefix in any case, or `42` alone: how people and agents name a task. One in the trash shows only to those who could edit it.
+         */
+        get: operations["row_by_unique_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a view
+         * @description For those who edit the database, which has at most 50.
+         */
+        post: operations["create_view"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a view
+         * @description For those who edit the database, which keeps at least one.
+         */
+        delete: operations["delete_view"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a view
+         * @description What the body names, each part checked against the schema, for those who edit the database.
+         */
+        patch: operations["change_view"];
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/views/{view_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a view
+         * @description A copy with the same layout and settings, right after it, for those who edit the database.
+         */
+        post: operations["duplicate_view"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/views/{view_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Place a view elsewhere
+         * @description Among the database's views, for those who edit it.
+         */
+        post: operations["move_view"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/meta": {
         parameters: {
             query?: never;
@@ -920,7 +1148,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a page from the trash
-         * @description With the pages trashed along with it. It goes back under its parent, unless that is in the trash too: then to the top of its space, which the caller must be allowed to add pages to.
+         * @description With the pages trashed along with it. It goes back under its parent, unless that is in the trash too: then to the top of its space, which the caller must be allowed to add pages to. A row goes back to its database only: while that is in the trash, restore the database instead.
          */
         post: operations["restore_page"];
         delete?: never;
@@ -991,6 +1219,50 @@ export interface paths {
          * @description With the pages under it, for those who edit it. It stays there for `pages.trash_retention`, 30 days unless set otherwise, then is deleted for good.
          */
         post: operations["trash_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A row
+         * @description Its values, for those who see it. One in the trash shows only to those who could edit it.
+         */
+        get: operations["get_row"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a row's values
+         * @description Sets the values the body names and leaves the others, for those who edit the row: of two changes to one property, the last wins, and changes to different properties both hold. The title property's value is the row's title.
+         */
+        patch: operations["change_row"];
+        trace?: never;
+    };
+    "/api/v1/rows/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a row
+         * @description Elsewhere among the database's rows, into another group of a view, or both at once, as a card dragged across a board. A group needs edit access to the row; a placement, to the database too.
+         */
+        post: operations["move_row"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1124,6 +1396,26 @@ export interface paths {
          * @description Changes what the body names. For owners and admins.
          */
         patch: operations["update_workspace"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/databases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a database
+         * @description A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.
+         */
+        post: operations["create_database"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/workspaces/{id}/invitations": {
@@ -1309,7 +1601,7 @@ export interface paths {
         put?: never;
         /**
          * Create a page
-         * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it.
+         * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it. Nothing goes under a database or a row: a database's subpages are its rows, added at `/databases/{id}/rows`.
          */
         post: operations["create_page"];
         delete?: never;
@@ -1567,6 +1859,22 @@ export interface components {
             page_id: string;
             placement?: components["schemas"]["Placement"] | null;
         };
+        AddProperty: {
+            /** @description For a number in the currency format. */
+            currency?: string | null;
+            /** @example Priority */
+            name: string;
+            number_format?: components["schemas"]["NumberFormat"] | null;
+            /**
+             * @description For a select, multi-select or status, at most 200; a status without them gets Not
+             *     started, In progress and Done.
+             */
+            options?: components["schemas"]["OptionChange"][] | null;
+            placement?: components["schemas"]["Placement"] | null;
+            /** @description For a unique id: 1 to 10 letters and digits, starting with a letter. */
+            prefix?: string | null;
+            type: components["schemas"]["PropertyKind"];
+        };
         AddTeamspaceMember: {
             role?: components["schemas"]["TeamspaceRole"] | null;
             /**
@@ -1649,14 +1957,40 @@ export interface components {
             /** Format: password */
             new_password: string;
         };
+        ChangeProperty: {
+            /** @description Changes the type even when some rows lose their value. */
+            confirm?: boolean;
+            currency?: string | null;
+            name?: string | null;
+            number_format?: components["schemas"]["NumberFormat"] | null;
+            /**
+             * @description Every option, in its new order: those named by id keep their values, renamed or
+             *     recoloured as asked, and the values of those left out are cleared from the rows.
+             */
+            options?: components["schemas"]["OptionChange"][] | null;
+            prefix?: string | null;
+            type?: components["schemas"]["PropertyKind"] | null;
+        };
         ChangeRole: {
             role: components["schemas"]["WorkspaceRole"];
+        };
+        ChangeRow: {
+            /** @description The values to set, by property id or name; null clears one. The others stay. */
+            values: Record<string, never>;
         };
         ChangeShare: {
             access: components["schemas"]["ShareAccess"];
         };
         ChangeTeamspaceRole: {
             role: components["schemas"]["TeamspaceRole"];
+        };
+        ChangeView: {
+            filter?: components["schemas"]["Filter"] | null;
+            group?: components["schemas"]["Grouping"] | null;
+            layout?: components["schemas"]["Layout"] | null;
+            name?: string | null;
+            properties?: components["schemas"]["ViewProperty"][] | null;
+            sorts?: components["schemas"]["Sort"][] | null;
         };
         /**
          * @description The body of routes that take an invite code. It goes in the body, out of URLs and
@@ -1665,6 +1999,16 @@ export interface components {
         CodeRequest: {
             /** @example inv_4yVd0q3oJ2... */
             code: string;
+        };
+        /** @description A condition on one property. */
+        Condition: {
+            operator: components["schemas"]["Operator"];
+            /**
+             * @description The property, by id or name.
+             * @example Status
+             */
+            property: string;
+            value?: components["schemas"]["Value"] | null;
         };
         /**
          * @description A cover drawn from the theme's tokens: a hue, or a gradient between two, at the
@@ -1685,6 +2029,22 @@ export interface components {
             name: string;
             /** @description At least one; admin only for an admin. */
             scopes: components["schemas"]["Scope"][];
+        };
+        CreateDatabase: {
+            icon?: string | null;
+            /** @description Embedded in the page it goes under, which `parent_id` names. */
+            inline?: boolean;
+            /**
+             * Format: uuid
+             * @description The page to put it under. Name this, `teamspace_id` or `private`.
+             */
+            parent_id?: string | null;
+            placement?: components["schemas"]["Placement"] | null;
+            private?: boolean;
+            /** Format: uuid */
+            teamspace_id?: string | null;
+            /** @example Tasks */
+            title?: string;
         };
         CreateInvitation: {
             /**
@@ -1755,6 +2115,15 @@ export interface components {
              */
             title?: string;
         };
+        CreateRow: {
+            group?: components["schemas"]["InGroup"] | null;
+            placement?: components["schemas"]["Placement"] | null;
+            /**
+             * @description Values by property id or name, as rows give them; the title property's is the
+             *     row's title. Options may be named by name too.
+             */
+            values?: Record<string, never>;
+        };
         CreateShare: {
             access: components["schemas"]["ShareAccess"];
             /**
@@ -1785,6 +2154,21 @@ export interface components {
             /** Format: password */
             password: string;
             role?: components["schemas"]["Role"] | null;
+        };
+        CreateView: {
+            filter?: components["schemas"]["Filter"] | null;
+            group?: components["schemas"]["Grouping"] | null;
+            layout: components["schemas"]["Layout"];
+            /** @example Sprint board */
+            name: string;
+            placement?: components["schemas"]["Placement"] | null;
+            /**
+             * @description Those listed first, in this order; the others follow, shown in a table and hidden
+             *     elsewhere, but the title.
+             */
+            properties?: components["schemas"]["ViewProperty"][];
+            /** @description At most 10. */
+            sorts?: components["schemas"]["Sort"][];
         };
         CreateWorkspace: {
             /**
@@ -1853,12 +2237,28 @@ export interface components {
             id: string;
             title: string;
         };
+        /** @description A database: its page, its properties and its views. */
+        Database: {
+            /** @description Embedded in the page it is under, rather than a page of its own there. */
+            inline: boolean;
+            page: components["schemas"]["Page"];
+            /** @description In their order. */
+            properties: components["schemas"]["Property"][];
+            /** @description In their order. */
+            views: components["schemas"]["View"][];
+        };
         DeleteWorkspace: {
             /**
              * @description The workspace's name, typed to confirm.
              * @example Design
              */
             confirm_name: string;
+        };
+        /** @enum {string} */
+        Direction: "ascending" | "descending";
+        DuplicateView: {
+            /** @description The copy's name; the view's with ` (copy)` when absent. */
+            name?: string | null;
         };
         /** @description The limits that hold for a workspace; absent is no limit. */
         EffectiveLimits: {
@@ -1901,10 +2301,32 @@ export interface components {
             pages: components["schemas"]["Page"][];
         };
         /**
+         * @description A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
+         *     `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
+         *     conditions in all.
+         */
+        Filter: {
+            and: components["schemas"]["Filter"][];
+        } | {
+            or: components["schemas"]["Filter"][];
+        } | components["schemas"]["Condition"];
+        /**
          * @description The font a page is set in.
          * @enum {string}
          */
         Font: "default" | "serif" | "mono";
+        /** @description How a view groups its rows: by a select, status or person property. */
+        Grouping: {
+            /** @description Groups whose rows the view leaves out, likewise. */
+            hidden?: (string | null)[];
+            /**
+             * @description Groups placed by hand, first; the others follow in their natural order. A group is
+             *     an option's id or name, a person's id, or `null` for the rows without a value.
+             */
+            order?: (string | null)[];
+            /** @description The property, by id or name. */
+            property: string;
+        };
         /** @description What an import made. */
         ImportResult: {
             /**
@@ -1919,6 +2341,16 @@ export interface components {
             pages: components["schemas"]["Page"][];
             /** @description The files of a zip left out, in the zip's order. */
             skipped: components["schemas"]["SkippedFile"][];
+        };
+        /** @description A group of a view. */
+        InGroup: {
+            /**
+             * Format: uuid
+             * @description An option's id, a person's id, or null for the group of rows without a value.
+             */
+            key?: string | null;
+            /** Format: uuid */
+            view_id: string;
         };
         /** @description An invite, without its code. */
         Invite: {
@@ -2074,6 +2506,11 @@ export interface components {
          * @enum {string}
          */
         JoinStatus: "pending" | "approved" | "denied";
+        /**
+         * @description How a view lays its rows out.
+         * @enum {string}
+         */
+        Layout: "table" | "board" | "list";
         /** @description One limit of a workspace. */
         Limit: {
             /**
@@ -2185,6 +2622,35 @@ export interface components {
              */
             teamspace_id?: string | null;
         };
+        MoveRow: {
+            group?: components["schemas"]["ToGroup"] | null;
+            placement?: components["schemas"]["Placement"] | null;
+        };
+        /** @description Where something goes among its siblings. */
+        MoveTo: {
+            placement: components["schemas"]["Placement"];
+        };
+        /**
+         * @description How a number shows; values are any finite number whatever the format.
+         * @enum {string}
+         */
+        NumberFormat: "plain" | "integer" | "percent" | "currency";
+        /**
+         * @description How a condition compares a row's value with its own; which a property takes depends on
+         *     its type, as the databases reference lists.
+         * @enum {string}
+         */
+        Operator: "is" | "is_not" | "contains" | "does_not_contain" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty" | "equals" | "not_equals" | "greater_than" | "greater_than_or_equal" | "less_than" | "less_than_or_equal" | "before" | "after" | "on_or_before" | "on_or_after" | "within" | "in_group";
+        /** @description An option as a change lists it: an existing one by its id, a new one without. */
+        OptionChange: {
+            group?: components["schemas"]["StatusGroup"] | null;
+            /** Format: int32 */
+            hue?: number | null;
+            /** Format: uuid */
+            id?: string | null;
+            /** @description 1 to 100 characters, unique in the property, ignoring case. */
+            name: string;
+        };
         /** @description A page, without its content, and what the caller may do with it. */
         Page: {
             access: components["schemas"]["PageAccess"];
@@ -2204,6 +2670,7 @@ export interface components {
             icon?: string | null;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["PageKind"];
             /**
              * Format: uuid
              * @description Who changed it last, its content included.
@@ -2263,6 +2730,11 @@ export interface components {
          * @enum {string}
          */
         PageAccess: "view" | "edit";
+        /**
+         * @description What a page is.
+         * @enum {string}
+         */
+        PageKind: "page" | "database" | "row";
         /** @description How a page is set. */
         PageStyle: {
             font: components["schemas"]["Font"];
@@ -2333,6 +2805,95 @@ export interface components {
             /** @example must be between 8 and 128 */
             message: string;
         };
+        /** @description A property of a database. */
+        Property: {
+            /**
+             * @description The ISO 4217 code of the currency format.
+             * @example EUR
+             */
+            currency?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description 1 to 100 characters, unique in the database, ignoring case.
+             * @example Status
+             */
+            name: string;
+            number_format?: components["schemas"]["NumberFormat"] | null;
+            /** @description A select's, multi-select's or status's options, in order. */
+            options?: components["schemas"]["PropertyOption"][] | null;
+            /**
+             * @description A unique id's prefix, before the row's number.
+             * @example NW
+             */
+            prefix?: string | null;
+            type: components["schemas"]["PropertyKind"];
+        };
+        /**
+         * @description What a property holds.
+         * @enum {string}
+         */
+        PropertyKind: "title" | "text" | "number" | "select" | "multi_select" | "status" | "date" | "person" | "checkbox" | "url" | "unique_id" | "created_time" | "created_by" | "last_edited_time" | "last_edited_by";
+        /** @description An option of a select, multi-select or status property. */
+        PropertyOption: {
+            group?: components["schemas"]["StatusGroup"] | null;
+            /**
+             * Format: int32
+             * @description 0 to 359; absent for grey.
+             */
+            hue?: number | null;
+            /**
+             * Format: uuid
+             * @description Values hold it by its id, so renaming it keeps them.
+             */
+            id: string;
+            /** @example In progress */
+            name: string;
+        };
+        /** @description A part of a query's answer. */
+        QueryAnswer: {
+            /** @description For a view that groups: every group, in its order, hidden ones too. */
+            groups?: components["schemas"]["QueryGroup"][] | null;
+            /** @description Pass it as `after` for the next part; absent on the last one. */
+            next?: string | null;
+            /** @description In order; grouped, in the order of the groups, a row once in each group it is in. */
+            rows: components["schemas"]["Row"][];
+            /** @description How many entries the whole answer holds. */
+            total: number;
+        };
+        /** @description A group of a grouped query. */
+        QueryGroup: {
+            /** @description How many rows that passed the filter it holds. */
+            count: number;
+            /** @description The view hides its rows, which the answer leaves out. */
+            hidden: boolean;
+            /**
+             * Format: uuid
+             * @description An option's id, a person's id, or null for the rows without a value.
+             */
+            key?: string | null;
+        };
+        QueryRows: {
+            /** @description The `next` of the part before. */
+            after?: string | null;
+            filter?: components["schemas"]["Filter"] | null;
+            /** @description Rows in the part, 1 to 1000; 100 when absent. */
+            limit?: number | null;
+            /** @description In place of the view's sorts. */
+            sorts?: components["schemas"]["Sort"][] | null;
+            /**
+             * Format: int32
+             * @description The caller's UTC offset in minutes, -840 to 840, which days are told at: `today`,
+             *     and the day a moment falls on. 0 when absent.
+             */
+            utc_offset_minutes?: number | null;
+            /**
+             * Format: uuid
+             * @description The view whose filter, sorts and grouping to use; every row, in manual order, when
+             *     absent.
+             */
+            view_id?: string | null;
+        };
         /** @description An invitation the signed-in user waits on. */
         ReceivedInvitation: {
             /** Format: date-time */
@@ -2392,6 +2953,66 @@ export interface components {
          * @enum {string}
          */
         Role: "admin" | "user";
+        /** @description A row of a database, with its values. */
+        Row: {
+            access: components["schemas"]["PageAccess"];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description Absent for guests, as is `last_edited_by`.
+             */
+            created_by?: string | null;
+            /** Format: uuid */
+            database_id: string;
+            /**
+             * Format: uuid
+             * @description In a grouped query, the group it is listed in: an option's id, a person's id, or
+             *     null for the rows without a value. Absent otherwise.
+             */
+            group?: string | null;
+            icon?: string | null;
+            /**
+             * Format: uuid
+             * @description Its page's id.
+             */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When its title, values, place or content last changed.
+             */
+            last_edited_at: string;
+            /** Format: uuid */
+            last_edited_by?: string | null;
+            /**
+             * Format: int64
+             * @description Its number in the database, which no other row of it has had or will have.
+             */
+            number: number;
+            /**
+             * @description Its key among the rows: their manual order.
+             * @example a0
+             */
+            position: string;
+            title: string;
+            /** Format: date-time */
+            trashed_at?: string | null;
+            /**
+             * @description Its number after the unique id property's prefix, `NW-42`, or alone without one.
+             * @example NW-42
+             */
+            unique_id: string;
+            /**
+             * @description Each property's value, by property id, for those it has one of. A title, text or
+             *     URL is a string; a number a number; a select or status an option's id; a
+             *     multi-select a list of option ids; a date `{"start": ..., "end": ...}`, each a day
+             *     `2026-11-22` or an RFC 3339 moment, the end optional; a person a list of members'
+             *     ids; a checkbox `true`; a unique id its text, `NW-42`; a created or last edited time
+             *     an RFC 3339 moment; created or last edited by a member's id. Guests, who know no
+             *     other member, get no person values, nor who made or changed a row.
+             */
+            values: Record<string, never>;
+        };
         /**
          * @description What an API token may do: `read`, `write`, or the admin pages' work, `admin`.
          * @enum {string}
@@ -2550,6 +3171,20 @@ export interface components {
             path: string;
             reason: components["schemas"]["SkipReason"];
         };
+        /** @description A sort by one property. Rows without a value come last either way. */
+        Sort: {
+            direction: components["schemas"]["Direction"];
+            /**
+             * @description The property, by id or name.
+             * @example Due
+             */
+            property: string;
+        };
+        /**
+         * @description The group of a status option.
+         * @enum {string}
+         */
+        StatusGroup: "to_do" | "in_progress" | "done";
         /**
          * @description The parts of a page's style to set; each left out stays as it is, or takes its default
          *     on a new page.
@@ -2634,6 +3269,22 @@ export interface components {
              */
             to: string;
         };
+        /** @description A row moving between groups of a view. */
+        ToGroup: {
+            /**
+             * Format: uuid
+             * @description The group it leaves: for a person property, whose person makes room for the one of
+             *     `to`, the others staying. Null or absent for the group without a value.
+             */
+            from?: string | null;
+            /**
+             * Format: uuid
+             * @description The group it goes to: an option's id, a person's id, or null for no value.
+             */
+            to?: string | null;
+            /** Format: uuid */
+            view_id: string;
+        };
         /** @description The body of routes that take a token from a mailed link. */
         TokenRequest: {
             /** @description The token in the link. */
@@ -2653,17 +3304,18 @@ export interface components {
             /** @description Latest first. A page trashed with the pages under it stands for them. */
             pages: components["schemas"]["Page"][];
         };
-        /** @description A page in a tree, as a sidebar shows it. */
+        /** @description A page in a tree, as a sidebar shows it. Rows are not in trees: their database is. */
         TreePage: {
             access: components["schemas"]["PageAccess"];
             /**
              * Format: int64
-             * @description How many pages are under it, out of the trash.
+             * @description How many pages are under it, out of the trash; a database's rows are not counted.
              */
             child_count: number;
             icon?: string | null;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["PageKind"];
             /**
              * Format: uuid
              * @description The member a private page belongs to; absent for a teamspace's page, and for
@@ -2791,6 +3443,34 @@ export interface components {
         Verified: {
             /** @example ada@example.com */
             email: string;
+        };
+        /** @description A view of a database, its settings naming properties by id. */
+        View: {
+            /** Format: uuid */
+            database_id: string;
+            filter?: components["schemas"]["Filter"] | null;
+            group?: components["schemas"]["Grouping"] | null;
+            /** Format: uuid */
+            id: string;
+            layout: components["schemas"]["Layout"];
+            /** @example Board */
+            name: string;
+            /** @description Its key among the database's views. */
+            position: string;
+            /** @description Every property, in the view's order. */
+            properties: components["schemas"]["ViewProperty"][];
+            sorts: components["schemas"]["Sort"][];
+        };
+        /** @description A property as a view shows it, in the view's order. */
+        ViewProperty: {
+            /** @description The property, by id or name; answers name it by id. */
+            property: string;
+            visible: boolean;
+            /**
+             * Format: int32
+             * @description Its column's width in pixels, 40 to 2000, once resized.
+             */
+            width?: number | null;
         };
         /** @description A workspace the caller is in. */
         Workspace: components["schemas"]["WorkspaceSummary"] & {
@@ -5579,6 +6259,974 @@ export interface operations {
             };
         };
     };
+    get_database: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id: its page's. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The database. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Database"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such database, or none the caller may see. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_property: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddProperty"];
+            };
+        };
+        responses: {
+            /** @description The property. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Property"];
+                };
+            };
+            /** @description invalid_input: a name, setting or option out of bounds, settings of another type, a second title or unique id, or a placement beside a property the database lacks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the database and does not edit it, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description name_taken: another property or option has the name; or limit_reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_property: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The property's id. */
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_input: the title. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_property: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The property's id. */
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProperty"];
+            };
+        };
+        responses: {
+            /** @description The property. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Property"];
+                };
+            };
+            /** @description invalid_input: as for adding one, settings without a type, or options with another type. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database or the property. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description name_taken; or lossy_change: the type would lose values, and confirm is not set. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    move_property: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The property's id. */
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveTo"];
+            };
+        };
+        responses: {
+            /** @description The property. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Property"];
+                };
+            };
+            /** @description invalid_input: a placement beside a property the database lacks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    query_rows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryRows"];
+            };
+        };
+        responses: {
+            /** @description The rows, or a part of them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryAnswer"];
+                };
+            };
+            /** @description invalid_input: a filter or sort naming what the database lacks or a type does not take, past its bounds, or a limit, cursor or offset out of bounds. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database or the view. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_row: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRow"];
+            };
+        };
+        responses: {
+            /** @description The row. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: a value its property does not take, a property the database lacks or computes, a person who is not a member, a view that does not group, or a placement beside a page that is not a row of it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the database and does not edit it, it is in the trash, or a guest names people; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database or the view. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_rows. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    row_by_unique_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The row's unique id, such as NW-42. */
+                unique_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: not a unique id of this database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database, or no row of it has the id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateView"];
+            };
+        };
+        responses: {
+            /** @description The view. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            /** @description invalid_input: a name out of bounds, a board without grouping, or settings that name what the database lacks or a property's type does not take. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description limit_reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The view's id. */
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_input: the database's last view. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The view's id. */
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeView"];
+            };
+        };
+        responses: {
+            /** @description The view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database or the view. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    duplicate_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The view's id. */
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateView"];
+            };
+        };
+        responses: {
+            /** @description The copy. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description limit_reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    move_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The view's id. */
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveTo"];
+            };
+        };
+        responses: {
+            /** @description The view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_meta: {
         parameters: {
             query?: never;
@@ -5973,7 +7621,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
-            /** @description invalid_input: no place or several, a place in another workspace, or a placement beside a page that is not a sibling. */
+            /** @description invalid_input: no place or several, a place in another workspace, a row, a place under a database or a row, or a placement beside a page that is not a sibling. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6059,7 +7707,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space; or insufficient_scope. */
+            /** @description forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6070,6 +7718,15 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_rows: a row whose database holds as many rows as it may. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6392,6 +8049,209 @@ export interface operations {
                 };
             };
             /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_row: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The row's id: its page's. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_row: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The row's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeRow"];
+            };
+        };
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: no values, a value its property does not take, a property the database lacks or computes, or a person who is not a member. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views it and does not edit it, it is in the trash, or a guest names people; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    move_row: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The row's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveRow"];
+            };
+        };
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: neither a placement nor a group, a view that does not group, a group that is no option or member, or a placement beside a page that is not a row of the database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the row, its database or the view. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7024,6 +8884,87 @@ export interface operations {
                 };
             };
             /** @description slug_taken. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_database: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDatabase"];
+            };
+        };
+        responses: {
+            /** @description The database. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Database"];
+                };
+            };
+            /** @description invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller may not add pages there; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_deep. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7812,7 +9753,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
-            /** @description invalid_input: no place or several, a title or icon out of bounds, or a placement beside a page that is not a sibling. */
+            /** @description invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, or a placement beside a page that is not a sibling. */
             400: {
                 headers: {
                     [name: string]: unknown;

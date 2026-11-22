@@ -5,6 +5,9 @@ mod account;
 mod admin;
 mod admin_workspaces;
 mod auth;
+mod database_live;
+mod database_rows;
+mod databases;
 mod dto;
 mod error;
 mod extract;
@@ -32,6 +35,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use neon_app::auth::AuthService;
+use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
@@ -62,6 +66,8 @@ pub struct AppState {
     pub workspaces: WorkspaceService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub databases: DatabaseService,
+    pub live: LiveDatabases,
     pub transfer: TransferService,
     pub web: Arc<WebConfig>,
 }
@@ -182,6 +188,23 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(favorites::list_favorites, favorites::add_favorite))
         .routes(routes!(favorites::move_favorite))
         .routes(routes!(favorites::remove_favorite))
+        .routes(routes!(databases::create_database))
+        .routes(routes!(databases::get_database))
+        .routes(routes!(databases::add_property))
+        .routes(routes!(
+            databases::change_property,
+            databases::delete_property
+        ))
+        .routes(routes!(databases::move_property))
+        .routes(routes!(databases::create_view))
+        .routes(routes!(databases::change_view, databases::delete_view))
+        .routes(routes!(databases::move_view))
+        .routes(routes!(databases::duplicate_view))
+        .routes(routes!(database_rows::query_rows))
+        .routes(routes!(database_rows::create_row))
+        .routes(routes!(database_rows::row_by_unique_id))
+        .routes(routes!(database_rows::get_row, database_rows::change_row))
+        .routes(routes!(database_rows::move_row))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
         // Uploads are larger than the bodies of other routes.
@@ -195,6 +218,10 @@ fn api() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(openapi::base())
         .nest("/api/v1", routes)
         .route("/ws/pages/{page_id}", get(sync::open_page))
+        .route(
+            "/ws/databases/{database_id}",
+            get(database_live::follow_database),
+        )
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -304,6 +331,8 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod databases_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]

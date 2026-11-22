@@ -13,7 +13,9 @@
 //! - **Exporting** writes a page's markdown file, its title as its first heading; a zip of a
 //!   page's file and those of the pages under it, each page's in the folder of the page it
 //!   is under; or a zip of a teamspace's pages. Content comes from the live document when
-//!   the page is open, else from what is saved.
+//!   the page is open, else from what is saved. A database's file ends with a table of its
+//!   rows, their titles and the properties its first view shows; in a zip, each row is a
+//!   file of its own in the database's folder, its properties listed under its title.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
 //!   deep they go, the pages one import makes and one export holds, the time each takes,
 //!   and how many run at once, on the server and for each person; see [`Limits`]. The rules
@@ -39,6 +41,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use neon_domain::auth::Principal;
+use neon_domain::pages::PageKind;
 use neon_domain::pages::files::{EXTENSION, file_name};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
@@ -46,6 +49,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 
+use crate::databases::DatabaseService;
 use crate::pages::{Location, OutlinePage, PageService, PageView};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::sync::SyncService;
@@ -189,6 +193,7 @@ pub struct TransferService {
 struct Inner {
     pages: PageService,
     sync: SyncService,
+    databases: DatabaseService,
     limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     places: Arc<Semaphore>,
@@ -202,6 +207,7 @@ struct Inner {
 pub struct TransferServiceBuilder {
     pages: PageService,
     sync: SyncService,
+    databases: DatabaseService,
     limiter: Option<Arc<dyn RateLimiter>>,
     limits: Limits,
 }
@@ -223,6 +229,7 @@ impl TransferServiceBuilder {
             inner: Arc::new(Inner {
                 pages: self.pages,
                 sync: self.sync,
+                databases: self.databases,
                 limiter: self
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
@@ -236,11 +243,17 @@ impl TransferServiceBuilder {
 }
 
 impl TransferService {
-    /// Imports and exports of `pages`, reading the content of pages through `sync`.
-    pub fn builder(pages: PageService, sync: SyncService) -> TransferServiceBuilder {
+    /// Imports and exports of `pages`, reading the content of pages through `sync` and the
+    /// rows of databases through `databases`.
+    pub fn builder(
+        pages: PageService,
+        sync: SyncService,
+        databases: DatabaseService,
+    ) -> TransferServiceBuilder {
         TransferServiceBuilder {
             pages,
             sync,
+            databases,
             limiter: None,
             limits: Limits::default(),
         }
@@ -354,13 +367,15 @@ impl TransferService {
                         TransferError::Internal(format!("page {page_id} has no outline"))
                     })?;
                     if children {
-                        self.zipped(&first.title, pages, deadline).await
+                        self.zipped(principal, &first.title, pages, deadline).await
                     } else {
                         let document = self.content(first.id).await?;
+                        let extra = self.extra(principal, &first).await?;
                         let name = named(&first.title, Format::Markdown);
-                        let bytes = blocking(move || Ok(convert::markdown(&first.title, document)))
-                            .await?
-                            .into_bytes();
+                        let bytes =
+                            blocking(move || Ok(convert::markdown(&first.title, document, &extra)))
+                                .await?
+                                .into_bytes();
                         Ok(Export {
                             name,
                             format: Format::Markdown,
@@ -408,7 +423,8 @@ impl TransferService {
                         )
                         .await?;
                     self.check_count(outline.pages.len())?;
-                    self.zipped(&outline.name, outline.pages, deadline).await
+                    self.zipped(principal, &outline.name, outline.pages, deadline)
+                        .await
                 })
                 .await?;
             info!(
@@ -425,6 +441,7 @@ impl TransferService {
     /// A zip named after `name` of the pages' files, parents first.
     async fn zipped(
         &self,
+        principal: &Principal,
         name: &str,
         pages: Vec<OutlinePage>,
         deadline: Deadline,
@@ -434,8 +451,9 @@ impl TransferService {
         for page in pages {
             deadline.check()?;
             let document = self.content(page.id).await?;
+            let extra = self.extra(principal, &page).await?;
             zip = blocking(move || {
-                let markdown = convert::markdown(&page.title, document);
+                let markdown = convert::markdown(&page.title, document, &extra);
                 zip.add(&page, &markdown)?;
                 Ok(zip)
             })
@@ -445,6 +463,25 @@ impl TransferService {
             name: named(name, Format::Zip),
             format: Format::Zip,
             bytes: blocking(move || zip.finish()).await?,
+        })
+    }
+
+    /// What a page's file holds besides its title and blocks: a database's table of rows,
+    /// or a row's properties.
+    async fn extra(
+        &self,
+        principal: &Principal,
+        page: &OutlinePage,
+    ) -> Result<convert::Extra, TransferError> {
+        let databases = &self.inner.databases;
+        Ok(match page.kind {
+            PageKind::Page => convert::Extra::None,
+            PageKind::Database => {
+                convert::Extra::Table(databases.export_table(principal, page.id).await?)
+            }
+            PageKind::Row => {
+                convert::Extra::Properties(databases.export_row(principal, page.id).await?)
+            }
         })
     }
 

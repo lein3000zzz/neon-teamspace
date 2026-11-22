@@ -6,7 +6,7 @@
 //! take [`lock_tree`] first, so they run one at a time: positions are worked out from
 //! siblings no other change is moving, and two moves cannot make a cycle between them.
 
-use neon_domain::pages::{Cover, Font, MAX_DEPTH, Page, PageAccess, PageStyle, Space};
+use neon_domain::pages::{Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Space};
 use neon_domain::workspaces::{TeamspaceAccess, TeamspaceRole, WorkspaceRole};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
@@ -22,33 +22,34 @@ const TREE_LOCK: i32 = 0x7061_6765;
 pub(crate) const WALK_LIMIT: i32 = MAX_DEPTH as i32 + 1;
 
 /// A `pages` row.
-struct Row {
-    id: Uuid,
-    workspace_id: Uuid,
-    teamspace_id: Option<Uuid>,
-    owner_id: Option<Uuid>,
-    parent_id: Option<Uuid>,
-    position: String,
-    title: String,
-    icon: Option<String>,
-    cover: Option<String>,
-    font: String,
-    small_text: bool,
-    full_width: bool,
-    created_by: Option<Uuid>,
-    last_edited_by: Option<Uuid>,
-    created_at: OffsetDateTime,
-    updated_at: OffsetDateTime,
-    content_updated_at: OffsetDateTime,
-    trashed_at: Option<OffsetDateTime>,
-    trashed_by: Option<Uuid>,
-    trashed_with: Option<Uuid>,
+pub(crate) struct PageColumns {
+    pub(crate) id: Uuid,
+    pub(crate) workspace_id: Uuid,
+    pub(crate) kind: String,
+    pub(crate) teamspace_id: Option<Uuid>,
+    pub(crate) owner_id: Option<Uuid>,
+    pub(crate) parent_id: Option<Uuid>,
+    pub(crate) position: String,
+    pub(crate) title: String,
+    pub(crate) icon: Option<String>,
+    pub(crate) cover: Option<String>,
+    pub(crate) font: String,
+    pub(crate) small_text: bool,
+    pub(crate) full_width: bool,
+    pub(crate) created_by: Option<Uuid>,
+    pub(crate) last_edited_by: Option<Uuid>,
+    pub(crate) created_at: OffsetDateTime,
+    pub(crate) updated_at: OffsetDateTime,
+    pub(crate) content_updated_at: OffsetDateTime,
+    pub(crate) trashed_at: Option<OffsetDateTime>,
+    pub(crate) trashed_by: Option<Uuid>,
+    pub(crate) trashed_with: Option<Uuid>,
 }
 
-impl TryFrom<Row> for Page {
+impl TryFrom<PageColumns> for Page {
     type Error = sqlx::Error;
 
-    fn try_from(row: Row) -> sqlx::Result<Self> {
+    fn try_from(row: PageColumns) -> sqlx::Result<Self> {
         let space = match (row.teamspace_id, row.owner_id) {
             (Some(teamspace), None) => Space::Teamspace(teamspace),
             (None, Some(owner)) => Space::Private { owner },
@@ -62,6 +63,7 @@ impl TryFrom<Row> for Page {
         Ok(Self {
             id: row.id,
             workspace_id: row.workspace_id,
+            kind: parse_kind(&row.kind)?,
             space,
             parent_id: row.parent_id,
             position: row.position,
@@ -92,6 +94,11 @@ impl TryFrom<Row> for Page {
     }
 }
 
+/// The page of a `pages` row read by a query of another module.
+pub(crate) fn page_of(columns: PageColumns) -> sqlx::Result<Page> {
+    Page::try_from(columns)
+}
+
 /// What a share's access ranks as in the queries that take the most of several: 1 to
 /// view, 2 to edit, 0 or nothing for none.
 fn from_rank(rank: Option<i32>) -> Option<PageAccess> {
@@ -100,6 +107,10 @@ fn from_rank(rank: Option<i32>) -> Option<PageAccess> {
         Some(1) => Some(PageAccess::View),
         _ => None,
     }
+}
+
+pub(crate) fn parse_kind(text: &str) -> sqlx::Result<PageKind> {
+    PageKind::parse(text).ok_or_else(|| decode_error(format!("unknown page kind {text:?}")))
 }
 
 pub(crate) fn parse_access(text: &str) -> sqlx::Result<PageAccess> {
@@ -120,12 +131,14 @@ pub async fn lock_tree(executor: impl PgExecutor<'_>, workspace_id: Uuid) -> sql
 
 pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<()> {
     sqlx::query!(
-        "INSERT INTO pages (id, workspace_id, teamspace_id, owner_id, parent_id, position, title,
-                            icon, cover, font, small_text, full_width, created_by,
+        "INSERT INTO pages (id, workspace_id, kind, teamspace_id, owner_id, parent_id, position,
+                            title, icon, cover, font, small_text, full_width, created_by,
                             last_edited_by, created_at, updated_at, content_updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18)",
         page.id,
         page.workspace_id,
+        page.kind.as_str(),
         page.space.teamspace_id(),
         page.space.owner_id(),
         page.parent_id,
@@ -149,8 +162,8 @@ pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<
 
 pub async fn get(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Page>> {
     sqlx::query_as!(
-        Row,
-        "SELECT id, workspace_id, teamspace_id, owner_id, parent_id, position, title, icon,
+        PageColumns,
+        "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
                 cover, font, small_text, full_width, created_by, last_edited_by, created_at,
                 updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages WHERE id = $1",
@@ -177,8 +190,9 @@ pub async fn chain(
                FROM chain c JOIN pages p ON p.id = c.parent_id
                WHERE c.depth < $3
            )
-           SELECT p.id, p.workspace_id, p.teamspace_id, p.owner_id, p.parent_id, p.position,
-                  p.title, p.icon, p.cover, p.font, p.small_text, p.full_width, p.created_by,
+           SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
+                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,
+                  p.created_by,
                   p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,
                   p.trashed_at, p.trashed_by, p.trashed_with, s.access AS "shared?"
            FROM chain c
@@ -194,9 +208,10 @@ pub async fn chain(
     .into_iter()
     .map(|row| {
         let shared = row.shared.as_deref().map(parse_access).transpose()?;
-        let page = Page::try_from(Row {
+        let page = Page::try_from(PageColumns {
             id: row.id,
             workspace_id: row.workspace_id,
+            kind: row.kind,
             teamspace_id: row.teamspace_id,
             owner_id: row.owner_id,
             parent_id: row.parent_id,
@@ -252,7 +267,8 @@ pub async fn facts(
                FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2
                GROUP BY u.start
            )
-           SELECT p.id AS "id!", p.workspace_id AS "workspace_id!", p.teamspace_id,
+           SELECT p.id AS "id!", p.workspace_id AS "workspace_id!", p.kind AS "kind!",
+                  p.teamspace_id,
                   p.owner_id, p.parent_id, p.position AS "position!", p.title AS "title!",
                   p.icon, p.cover, p.font AS "font!", p.small_text AS "small_text!",
                   p.full_width AS "full_width!", p.created_by, p.last_edited_by,
@@ -274,9 +290,10 @@ pub async fn facts(
     .await?
     .into_iter()
     .map(|row| {
-        let page = Page::try_from(Row {
+        let page = Page::try_from(PageColumns {
             id: row.id,
             workspace_id: row.workspace_id,
+            kind: row.kind,
             teamspace_id: row.teamspace_id,
             owner_id: row.owner_id,
             parent_id: row.parent_id,
@@ -599,8 +616,8 @@ pub async fn trashed(
 ) -> sqlx::Result<Vec<Page>> {
     let (at, id) = after.unzip();
     sqlx::query_as!(
-        Row,
-        "SELECT id, workspace_id, teamspace_id, owner_id, parent_id, position, title, icon,
+        PageColumns,
+        "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
                 cover, font, small_text, full_width, created_by, last_edited_by, created_at,
                 updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages
@@ -620,15 +637,17 @@ pub async fn trashed(
     .collect()
 }
 
-/// A page in a tree as listed: what a sidebar shows of it.
+/// A page in a tree as listed: what a sidebar shows of it. Rows are left out of trees: their
+/// database stands for them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeNode {
     pub id: Uuid,
+    pub kind: PageKind,
     pub parent_id: Option<Uuid>,
     pub space: Space,
     pub title: String,
     pub icon: Option<String>,
-    /// How many of its subpages are out of the trash.
+    /// How many of its subpages are out of the trash, rows left out.
     pub child_count: i64,
     /// The most that it, or a page above it in the tree listed, is shared with the person
     /// listing for.
@@ -673,13 +692,14 @@ pub async fn space_tree(
                                CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
-               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'
                LEFT JOIN page_shares s ON s.page_id = c.id AND s.user_id = $3
                WHERE t.depth < $6
            )
-           SELECT p.id, p.parent_id, p.teamspace_id, p.owner_id, p.title, p.icon,
+           SELECT p.id, p.kind, p.parent_id, p.teamspace_id, p.owner_id, p.title, p.icon,
                   t.path AS "path!", t.shared AS "shared!",
-                  (SELECT count(*) FROM pages k WHERE k.parent_id = p.id AND k.trashed_at IS NULL)
+                  (SELECT count(*) FROM pages k
+                   WHERE k.parent_id = p.id AND k.trashed_at IS NULL AND k.kind <> 'row')
                       AS "child_count!"
            FROM tree t JOIN pages p ON p.id = t.id
            WHERE $4::text IS NULL OR t.path > ($4::text COLLATE "C")
@@ -698,6 +718,7 @@ pub async fn space_tree(
     .map(|row| {
         Ok(TreeNode {
             space: space_of(row.id, row.teamspace_id, row.owner_id)?,
+            kind: parse_kind(&row.kind)?,
             id: row.id,
             parent_id: row.parent_id,
             title: row.title,
@@ -728,6 +749,7 @@ pub async fn shared_tree(
                SELECT s.page_id
                FROM page_shares s JOIN pages p ON p.id = s.page_id
                WHERE s.workspace_id = $1 AND s.user_id = $2 AND p.trashed_at IS NULL
+                 AND p.kind <> 'row'
                  AND NOT EXISTS (
                      SELECT 1 FROM teamspace_members m
                      WHERE m.teamspace_id = p.teamspace_id AND m.user_id = $2
@@ -755,14 +777,15 @@ pub async fn shared_tree(
                                CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
-               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'
                LEFT JOIN page_shares s ON s.page_id = c.id AND s.user_id = $2
                WHERE t.depth < $5
            )
-           SELECT p.id, CASE WHEN t.depth > 1 THEN p.parent_id END AS parent_id,
+           SELECT p.id, p.kind, CASE WHEN t.depth > 1 THEN p.parent_id END AS parent_id,
                   p.teamspace_id, p.owner_id, p.title, p.icon,
                   t.path AS "path!", t.shared AS "shared!",
-                  (SELECT count(*) FROM pages k WHERE k.parent_id = p.id AND k.trashed_at IS NULL)
+                  (SELECT count(*) FROM pages k
+                   WHERE k.parent_id = p.id AND k.trashed_at IS NULL AND k.kind <> 'row')
                       AS "child_count!"
            FROM tree t JOIN pages p ON p.id = t.id
            WHERE $3::text IS NULL OR t.path > ($3::text COLLATE "C")
@@ -780,6 +803,7 @@ pub async fn shared_tree(
     .map(|row| {
         Ok(TreeNode {
             space: space_of(row.id, row.teamspace_id, row.owner_id)?,
+            kind: parse_kind(&row.kind)?,
             id: row.id,
             parent_id: row.parent_id,
             title: row.title,
@@ -793,10 +817,11 @@ pub async fn shared_tree(
 }
 
 /// A page as an export lists it: its place in the tree, its title, and when its content
-/// last changed.
+/// last changed. A database's rows are under it, as its subpages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlineNode {
     pub id: Uuid,
+    pub kind: PageKind,
     pub parent_id: Option<Uuid>,
     pub title: String,
     pub content_updated_at: OffsetDateTime,
@@ -810,8 +835,7 @@ pub async fn outline(
     id: Uuid,
     limit: i64,
 ) -> sqlx::Result<Vec<OutlineNode>> {
-    sqlx::query_as!(
-        OutlineNode,
+    sqlx::query!(
         r#"WITH RECURSIVE tree (id, batch, path, depth) AS (
                SELECT id, trashed_with, position COLLATE "C", 1 FROM pages WHERE id = $1
              UNION ALL
@@ -820,7 +844,7 @@ pub async fn outline(
                JOIN pages c ON c.parent_id = t.id AND c.trashed_with IS NOT DISTINCT FROM t.batch
                WHERE t.depth < $3
            )
-           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           SELECT p.id, p.kind, p.parent_id, p.title, p.content_updated_at
            FROM tree t JOIN pages p ON p.id = t.id
            ORDER BY t.path COLLATE "C", p.id
            LIMIT $2"#,
@@ -829,7 +853,18 @@ pub async fn outline(
         WALK_LIMIT,
     )
     .fetch_all(executor)
-    .await
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(OutlineNode {
+            id: row.id,
+            kind: parse_kind(&row.kind)?,
+            parent_id: row.parent_id,
+            title: row.title,
+            content_updated_at: row.content_updated_at,
+        })
+    })
+    .collect()
 }
 
 /// Every page out of the trash in a space of a workspace, `space` being the teamspace's or
@@ -840,8 +875,7 @@ pub async fn space_outline(
     space: Uuid,
     limit: i64,
 ) -> sqlx::Result<Vec<OutlineNode>> {
-    sqlx::query_as!(
-        OutlineNode,
+    sqlx::query!(
         r#"WITH RECURSIVE tree (id, path, depth) AS (
                SELECT id, position COLLATE "C", 1 FROM pages
                WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2
@@ -852,7 +886,7 @@ pub async fn space_outline(
                JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL
                WHERE t.depth < $4
            )
-           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           SELECT p.id, p.kind, p.parent_id, p.title, p.content_updated_at
            FROM tree t JOIN pages p ON p.id = t.id
            ORDER BY t.path COLLATE "C", p.id
            LIMIT $3"#,
@@ -862,5 +896,16 @@ pub async fn space_outline(
         WALK_LIMIT,
     )
     .fetch_all(executor)
-    .await
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(OutlineNode {
+            id: row.id,
+            kind: parse_kind(&row.kind)?,
+            parent_id: row.parent_id,
+            title: row.title,
+            content_updated_at: row.content_updated_at,
+        })
+    })
+    .collect()
 }

@@ -41,6 +41,29 @@ impl From<domain::PageAccess> for PageAccess {
     }
 }
 
+/// What a page is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PageKind {
+    /// A document of blocks, which may have subpages.
+    Page,
+    /// A database: its subpages are its rows; see `/databases/{id}`.
+    Database,
+    /// A row of the database it is under: a document of blocks with the database's
+    /// properties; see `/rows/{id}`.
+    Row,
+}
+
+impl From<domain::PageKind> for PageKind {
+    fn from(kind: domain::PageKind) -> Self {
+        match kind {
+            domain::PageKind::Page => Self::Page,
+            domain::PageKind::Database => Self::Database,
+            domain::PageKind::Row => Self::Row,
+        }
+    }
+}
+
 /// The font a page is set in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -198,6 +221,7 @@ pub struct StyleChange {
 pub struct Page {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub kind: PageKind,
     /// The teamspace it is in; absent for a private page.
     pub teamspace_id: Option<Uuid>,
     /// The member a private page belongs to; absent for a teamspace's page, and for
@@ -244,6 +268,7 @@ impl From<PageView> for Page {
         Self {
             id: page.id,
             workspace_id: page.workspace_id,
+            kind: page.kind.into(),
             teamspace_id: page.space.teamspace_id(),
             owner_id: member(page.space.owner_id()),
             parent_id: page.parent_id,
@@ -321,12 +346,14 @@ pub struct CreatePage {
     tag = "pages",
     summary = "Create a page",
     description = "Under a page the caller edits, at the top of a teamspace they are in, or as \
-                   one of their private pages, which guests have none of. The caller edits it.",
+                   one of their private pages, which guests have none of. The caller edits it. \
+                   Nothing goes under a database or a row: a database's subpages are its rows, \
+                   added at `/databases/{id}/rows`.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     request_body = CreatePage,
     responses(
         (status = CREATED, description = "The page.", body = Page),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, a title or icon out of bounds, or a placement beside a page that is not a sibling.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, or a placement beside a page that is not a sibling.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace, teamspace or parent, or none the caller may see.", body = ErrorBody),
@@ -478,7 +505,7 @@ pub struct MovePage {
     request_body = MovePage,
     responses(
         (status = OK, description = "The page.", body = Page),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, a place in another workspace, or a placement beside a page that is not a sibling.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, a place in another workspace, a row, a place under a database or a row, or a placement beside a page that is not a sibling.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the page or its new place.", body = ErrorBody),
@@ -536,13 +563,15 @@ pub(super) async fn trash_page(
     summary = "Restore a page from the trash",
     description = "With the pages trashed along with it. It goes back under its parent, unless \
                    that is in the trash too: then to the top of its space, which the caller must \
-                   be allowed to add pages to.",
+                   be allowed to add pages to. A row goes back to its database only: while that \
+                   is in the trash, restore the database instead.",
     params(("id" = Uuid, Path, description = "The page's id.")),
     responses(
         (status = OK, description = "The page.", body = Page),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space; or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "too_many_rows: a row whose database holds as many rows as it may.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -630,10 +659,11 @@ pub(super) async fn page_breadcrumbs(
     }))
 }
 
-/// A page in a tree, as a sidebar shows it.
+/// A page in a tree, as a sidebar shows it. Rows are not in trees: their database is.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TreePage {
     pub id: Uuid,
+    pub kind: PageKind,
     /// The page it is under; absent at the top of its space, or of the pages shared with
     /// the caller.
     pub parent_id: Option<Uuid>,
@@ -643,7 +673,7 @@ pub struct TreePage {
     pub owner_id: Option<Uuid>,
     pub title: String,
     pub icon: Option<String>,
-    /// How many pages are under it, out of the trash.
+    /// How many pages are under it, out of the trash; a database's rows are not counted.
     pub child_count: i64,
     pub access: PageAccess,
 }
@@ -652,6 +682,7 @@ impl From<AppTreePage> for TreePage {
     fn from(page: AppTreePage) -> Self {
         Self {
             id: page.id,
+            kind: page.kind.into(),
             parent_id: page.parent_id,
             teamspace_id: page.space.teamspace_id(),
             owner_id: page.space.owner_id().filter(|_| !page.members_hidden),

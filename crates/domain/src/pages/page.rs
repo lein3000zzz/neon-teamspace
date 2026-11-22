@@ -59,6 +59,19 @@ text_enum! {
 }
 
 text_enum! {
+    /// What a page is. Kept from its making on: a page never becomes another kind.
+    PageKind {
+        /// A document of blocks, which may have subpages.
+        Page => "page",
+        /// A database: its subpages are its rows, and it holds their properties and views.
+        Database => "database",
+        /// A row of a database, under it: a document of blocks with the database's
+        /// properties.
+        Row => "row",
+    }
+}
+
+text_enum! {
     /// What someone may do with a page: what a share gives, and what the rules work out
     /// for a person. Edit includes view.
     PageAccess {
@@ -135,6 +148,7 @@ pub enum Placement {
 pub struct Page {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub kind: PageKind,
     /// The teamspace it is in, or the member it is private to.
     pub space: Space,
     /// The page it is under, in the same space; unset at the top of its space.
@@ -166,6 +180,12 @@ pub struct Page {
 impl Page {
     pub fn is_trashed(&self) -> bool {
         self.trashed_at.is_some()
+    }
+
+    /// When it last changed: its title, icon, cover, style, place or properties, or its
+    /// content.
+    pub fn last_edited_at(&self) -> OffsetDateTime {
+        self.updated_at.max(self.content_updated_at)
     }
 }
 
@@ -228,6 +248,10 @@ mod tests {
         for access in PageAccess::ALL {
             assert_eq!(PageAccess::parse(access.as_str()), Some(*access));
         }
+        for kind in PageKind::ALL {
+            assert_eq!(PageKind::parse(kind.as_str()), Some(*kind));
+        }
+        assert_eq!(PageKind::ALL.len(), 3);
         assert_eq!(Cover::ALL.len(), 14);
         assert_eq!(Font::parse("Serif"), None);
         assert_eq!(Cover::parse("https://example.com/cover.png"), None);
@@ -260,6 +284,7 @@ mod tests {
         let mut page = Page {
             id: Uuid::from_u128(3),
             workspace_id: Uuid::from_u128(4),
+            kind: PageKind::Page,
             space: Space::Teamspace(teamspace),
             parent_id: None,
             position: "a0".to_owned(),
@@ -281,6 +306,9 @@ mod tests {
         assert_eq!(page.space.teamspace_id(), Some(teamspace));
         assert_eq!(page.space.owner_id(), None);
         assert!(!page.is_trashed());
+        assert_eq!(page.last_edited_at(), now);
+        page.content_updated_at = now + time::Duration::minutes(5);
+        assert_eq!(page.last_edited_at(), now + time::Duration::minutes(5));
         page.space = Space::Private { owner };
         page.trashed_at = Some(now);
         assert_eq!(page.space.id(), owner);

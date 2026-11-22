@@ -4,7 +4,7 @@
 
 use neon_domain::auth::Principal;
 use neon_domain::pages::{
-    MAX_DEPTH, Page, PageAccess, PageStyle, Placement, check_title, position,
+    MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, check_title, position,
 };
 use neon_store::documents::{self, NewSnapshot};
 use neon_store::pages::{self as repo, Siblings};
@@ -136,6 +136,7 @@ impl PageService {
                 let page = Page {
                     id: Uuid::now_v7(),
                     workspace_id,
+                    kind: PageKind::Page,
                     space,
                     parent_id,
                     position,

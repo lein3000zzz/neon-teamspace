@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod clock;
 pub mod crypto;
+pub mod databases;
 pub mod jobs;
 pub mod mail;
 pub mod pages;

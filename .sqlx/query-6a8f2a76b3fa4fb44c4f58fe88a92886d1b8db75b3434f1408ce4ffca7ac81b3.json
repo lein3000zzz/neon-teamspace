@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE tree (id, batch, path, depth) AS (\n               SELECT id, trashed_with, position COLLATE \"C\", 1 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT c.id, t.batch, (t.path || '!' || c.position) COLLATE \"C\", t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_with IS NOT DISTINCT FROM t.batch\n               WHERE t.depth < $3\n           )\n           SELECT p.id, p.parent_id, p.title, p.content_updated_at\n           FROM tree t JOIN pages p ON p.id = t.id\n           ORDER BY t.path COLLATE \"C\", p.id\n           LIMIT $2",
+  "query": "WITH RECURSIVE tree (id, batch, path, depth) AS (\n               SELECT id, trashed_with, position COLLATE \"C\", 1 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT c.id, t.batch, (t.path || '!' || c.position) COLLATE \"C\", t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_with IS NOT DISTINCT FROM t.batch\n               WHERE t.depth < $3\n           )\n           SELECT p.id, p.kind, p.parent_id, p.title, p.content_updated_at\n           FROM tree t JOIN pages p ON p.id = t.id\n           ORDER BY t.path COLLATE \"C\", p.id\n           LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "parent_id",
         "type_info": "Uuid",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "title",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -57,10 +68,11 @@
     },
     "nullable": [
       false,
+      false,
       true,
       false,
       false
     ]
   },
-  "hash": "eb70b2cba5fec71fe01b53df841e5be0198c5a5265f48caeda1b4a6169be358e"
+  "hash": "6a8f2a76b3fa4fb44c4f58fe88a92886d1b8db75b3434f1408ce4ffca7ac81b3"
 }

@@ -2,8 +2,9 @@
 //! restoring it, deleting it for good, and the way down to it.
 
 use neon_domain::auth::{Principal, Scope};
+use neon_domain::databases::MAX_ROWS;
 use neon_domain::pages::{
-    Cover, Font, MAX_DEPTH, Page, PageAccess, PageStyle, Placement, Space, check_title,
+    Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, Space, check_title,
 };
 use neon_domain::workspaces::{Action, PageSpace, Resource, WorkspaceRole, authorize, check_icon};
 use neon_store::pages::{self as repo, Move, Restore, Siblings};
@@ -14,8 +15,9 @@ use uuid::Uuid;
 
 use super::{
     AccessChange, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, actor,
-    check_space, is_guest,
+    check_parent, check_space, is_guest,
 };
+use crate::databases::events::{self, RowChange};
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
 /// caller's own private pages.
@@ -85,6 +87,7 @@ impl PageService {
             let page = Page {
                 id: Uuid::now_v7(),
                 workspace_id,
+                kind: PageKind::Page,
                 space,
                 parent_id,
                 position,
@@ -171,6 +174,7 @@ impl PageService {
             let mut context = self.context(&mut tx, principal, id).await?;
             context.check(Action::EditPage)?;
             let page = &mut context.chain[0].page;
+            let renamed = update.title.is_some();
             if let Some(title) = update.title {
                 page.title = check_title(&title).map_err(PageError::invalid)?;
             }
@@ -195,8 +199,12 @@ impl PageService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::update(&mut *tx, page).await?;
+            let kind = page.kind;
             tx.commit().await?;
             info!(user_id = %principal.user.id, page_id = %id, "page updated");
+            if kind == PageKind::Row && renamed {
+                events::row_changed(self, id, RowChange::Renamed).await;
+            }
             context.view()
         })
         .await
@@ -219,12 +227,18 @@ impl PageService {
             let mut tx = self.pool().begin().await?;
             let source = self.locked_context(&mut tx, principal, id).await?;
             source.check(Action::EditPage)?;
+            if source.page().kind == PageKind::Row {
+                return Err(PageError::InvalidInput(
+                    "a row moves among its database's rows: move it as a row".to_owned(),
+                ));
+            }
             let workspace_id = source.page().workspace_id;
             let height = usize::try_from(repo::height(&mut *tx, id).await?).unwrap_or(MAX_DEPTH);
             let (space, parent_id) = match to {
                 Location::Under(parent) => {
                     let target = self.context(&mut tx, principal, parent).await?;
                     target.check(Action::EditPage)?;
+                    check_parent(target.page())?;
                     if target.page().workspace_id != workspace_id {
                         return Err(PageError::InvalidInput(
                             "a page moves within its workspace".to_owned(),
@@ -271,6 +285,11 @@ impl PageService {
                 },
             )
             .await?;
+            let elsewhere = parent_id != source.page().parent_id;
+            if elsewhere && source.page().kind == PageKind::Database {
+                // Away from the page that embedded it, it is a page of its own.
+                neon_store::databases::set_inline(&mut *tx, id, false).await?;
+            }
             let moved = self.context(&mut tx, principal, id).await?;
             tx.commit().await?;
             info!(
@@ -281,7 +300,7 @@ impl PageService {
                 "page moved"
             );
             // Placed elsewhere among the same siblings, it gives nobody else access.
-            if parent_id != source.page().parent_id || space != source.page().space {
+            if elsewhere || space != source.page().space {
                 self.changed(AccessChange::Pages {
                     workspace_id,
                     page_id: id,
@@ -310,6 +329,9 @@ impl PageService {
                 page_id: id,
                 user_id: None,
             });
+            if context.page().kind == PageKind::Row {
+                events::row_changed(self, id, RowChange::Trashed).await;
+            }
             context.view()
         })
         .await
@@ -339,6 +361,9 @@ impl PageService {
                     .get(1)
                     .is_some_and(|link| !link.page.is_trashed())
             });
+            if page.kind == PageKind::Row {
+                restorable_row(&mut tx, parent_id).await?;
+            }
             if parent_id.is_none() && page.parent_id.is_some() {
                 authorize(
                     context.actor,
@@ -384,6 +409,9 @@ impl PageService {
                 page_id: id,
                 user_id: None,
             });
+            if page.kind == PageKind::Row {
+                events::row_changed(self, id, RowChange::Restored).await;
+            }
             context.view()
         })
         .await
@@ -429,7 +457,7 @@ impl PageService {
     /// Where pages added at `location` go, once the rules let the principal add them there:
     /// under a page they edit, at the top of a teamspace they are in, or among their own
     /// private pages.
-    pub(super) async fn target(
+    pub(crate) async fn target(
         &self,
         conn: &mut PgConnection,
         principal: &Principal,
@@ -445,6 +473,7 @@ impl PageService {
                 if context.page().workspace_id != workspace_id {
                     return Err(PageError::NotFound(NO_PAGE));
                 }
+                check_parent(context.page())?;
                 Ok(Target {
                     space: context.page().space,
                     parent_id: Some(parent),
@@ -499,14 +528,29 @@ impl PageService {
 
 /// Where pages are added: their space, the page they go under, if any, and how deep that
 /// page is, 0 at the top of the space.
-pub(super) struct Target {
-    pub(super) space: Space,
-    pub(super) parent_id: Option<Uuid>,
-    pub(super) depth: usize,
+pub(crate) struct Target {
+    pub(crate) space: Space,
+    pub(crate) parent_id: Option<Uuid>,
+    pub(crate) depth: usize,
+}
+
+/// Whether a row in the trash may come back: under its database, out of the trash, which
+/// has room for it.
+async fn restorable_row(conn: &mut PgConnection, parent_id: Option<Uuid>) -> Result<(), PageError> {
+    let Some(database_id) = parent_id else {
+        return Err(PageError::Forbidden(
+            "the row's database is in the trash: restore the database first",
+        ));
+    };
+    let rows = neon_store::databases::count_rows(&mut *conn, database_id).await?;
+    if usize::try_from(rows).unwrap_or(usize::MAX) >= MAX_ROWS {
+        return Err(PageError::TooManyRows);
+    }
+    Ok(())
 }
 
 /// The principal's role in a workspace, once the rules let them know of it.
-pub(super) async fn in_workspace(
+pub(crate) async fn in_workspace(
     conn: &mut PgConnection,
     principal: &Principal,
     workspace_id: Uuid,

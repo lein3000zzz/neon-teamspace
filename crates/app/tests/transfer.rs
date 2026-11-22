@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::pages::{Location, NewPage, PageError, Tree};
 use neon_app::ratelimit::{Bucket, RateLimiter};
 use neon_app::sync::{Connection, Limits as SyncLimits, Next, SyncService, access_feed};
@@ -20,6 +21,7 @@ use neon_app::transfer::{
 use neon_app::workspaces::NewTeamspace;
 use neon_blocks::{Block, SequentialIds};
 use neon_domain::auth::Principal;
+use neon_domain::databases::PropertyKind;
 use neon_domain::pages::{MAX_DEPTH, PageAccess, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, WorkspaceRole};
 use sqlx::PgPool;
@@ -85,7 +87,7 @@ async fn team_with(pool: PgPool, limits: Limits) -> Team {
             ..SyncLimits::default()
         })
         .build();
-    let transfer = TransferService::builder(h.pages.clone(), sync.clone())
+    let transfer = TransferService::builder(h.pages.clone(), sync.clone(), h.databases.clone())
         .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
         .limits(limits)
         .build();
@@ -491,7 +493,7 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
         .expect("a turn came free");
 
     // The server's places are taken once the upload is in, not while it comes.
-    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             parallel: 0,
             ..Limits::default()
@@ -535,7 +537,7 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
     assert!(t.h.limiter.seen().contains(&key));
 
     // Past its time, an import stops and makes nothing.
-    let slow = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let slow = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             time_limit: Duration::ZERO,
             ..Limits::default()
@@ -658,6 +660,109 @@ async fn exports_hold_a_page_and_the_pages_under_it(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_database_exports_as_a_table_of_its_rows_and_a_file_per_row(pool: PgPool) {
+    let t = team(pool).await;
+    let tasks =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewDatabase {
+                    title: "Tasks".to_owned(),
+                    ..NewDatabase::default()
+                },
+            )
+            .await
+            .expect("made");
+    let db = tasks.page.page.id;
+    for (name, kind) in [
+        ("Owner", PropertyKind::Person),
+        ("Notes", PropertyKind::Text),
+    ] {
+        t.h.databases
+            .add_property(
+                &t.ada,
+                db,
+                NewProperty {
+                    name: name.to_owned(),
+                    spec: PropertySpec {
+                        kind,
+                        number_format: None,
+                        currency: None,
+                        prefix: None,
+                    },
+                    options: None,
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("added");
+    }
+    for values in [
+        serde_json::json!({"Name": "Fix | login", "Status": "Done", "Owner": [t.dee.user.id.to_string()]}),
+        serde_json::json!({"Name": "Write docs", "Notes": "For agents"}),
+    ] {
+        t.h.databases
+            .create_row(
+                &t.ada,
+                db,
+                NewRow {
+                    values: values.as_object().cloned().expect("an object"),
+                    ..NewRow::default()
+                },
+            )
+            .await
+            .expect("a row");
+    }
+    // The table holds the title and what the first view shows.
+    let alone = t.export(db, false).await;
+    assert_eq!(alone.name, "Tasks.md");
+    assert_eq!(
+        String::from_utf8(alone.bytes).expect("text"),
+        "# Tasks\n\n| Name | Status | Owner | Notes |\n| --- | --- | --- | --- |\n\
+         | Fix \\| login | Done | dee |  |\n| Write docs |  |  | For agents |\n"
+    );
+    let zipped = t.export(db, true).await;
+    let files = unzipped(&zipped.bytes);
+    assert_eq!(
+        names(&files),
+        ["Tasks.md", "Tasks/Fix login.md", "Tasks/Write docs.md"]
+    );
+    assert_eq!(
+        files["Tasks/Fix login.md"],
+        "# Fix | login\n\n- Status: Done\n- Owner: dee\n"
+    );
+    assert_eq!(
+        files["Tasks/Write docs.md"],
+        "# Write docs\n\n- Notes: For agents\n"
+    );
+    // A teamspace's export holds them too; a guest it is shared with sees no people.
+    let general = t
+        .transfer
+        .export_teamspace(&t.dee, t.general)
+        .await
+        .expect("exported");
+    assert!(names(&unzipped(&general.bytes)).contains(&"Tasks/Fix login.md"));
+    t.h.pages
+        .share_page(&t.ada, db, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    let guest = t
+        .transfer
+        .export_page(&t.gus, db, true)
+        .await
+        .expect("exported");
+    let files = unzipped(&guest.bytes);
+    assert_eq!(
+        files["Tasks/Fix login.md"],
+        "# Fix | login\n\n- Status: Done\n"
+    );
+    assert!(files["Tasks.md"].contains("| Fix \\| login | Done |  |  |"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn teamspaces_export_for_those_who_list_them(pool: PgPool) {
     let t = team(pool).await;
     t.roadmap().await;
@@ -731,7 +836,7 @@ async fn exports_keep_to_their_limits(pool: PgPool) {
         .await
         .expect("three pages fit");
 
-    let small = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let small = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             max_export_bytes: 40,
             ..Limits::default()

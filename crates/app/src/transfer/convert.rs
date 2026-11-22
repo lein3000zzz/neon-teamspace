@@ -8,7 +8,10 @@
 //! left out.
 
 use neon_blocks::markdown::{from_markdown, to_markdown};
-use neon_blocks::{Block, BlockKind, Document, HeadingProps, Inline};
+use neon_blocks::{
+    Block, BlockKind, Document, HeadingProps, Inline, TableCell, TableContent, TableProps,
+    TableRow, TextProps,
+};
 use neon_domain::pages::files::clean_title;
 use uuid::Uuid;
 use yrs::updates::encoder::Encode as _;
@@ -16,6 +19,7 @@ use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
 use super::archive::Entry;
 use super::{Deadline, TransferError, size};
+use crate::databases::{ExportRow, ExportTable};
 use crate::pages::{ImportedContent, ImportedPage};
 
 /// The pages to import from an upload's entries, in order, each with the pages under it.
@@ -142,15 +146,39 @@ fn encode(
     }))
 }
 
-/// A page's markdown file: its title as a heading, when it has one, then its blocks.
-pub(super) fn markdown(title: &str, mut document: Document) -> String {
+/// What a page's file holds besides its title and blocks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Extra {
+    None,
+    /// A database's rows, after its blocks, as a table whose first row names the columns.
+    Table(ExportTable),
+    /// A row's properties, under its title, as a list of `name: value`.
+    Properties(ExportRow),
+}
+
+/// A page's markdown file: its title as a heading, when it has one, a row's properties,
+/// its blocks, then a database's table.
+pub(super) fn markdown(title: &str, mut document: Document, extra: &Extra) -> String {
+    let mut head = Vec::new();
     if !title.is_empty() {
-        let heading = Block::new(BlockKind::Heading {
+        head.push(Block::new(BlockKind::Heading {
             props: HeadingProps::default(),
             content: Inline::plain(title),
-        });
-        document.blocks.insert(0, heading);
+        }));
     }
+    match extra {
+        Extra::None => {}
+        Extra::Properties(row) => {
+            head.extend(row.properties.iter().map(|(name, value)| {
+                Block::new(BlockKind::BulletListItem {
+                    props: TextProps::default(),
+                    content: Inline::plain(format!("{name}: {value}")),
+                })
+            }));
+        }
+        Extra::Table(table) => document.blocks.push(table_block(table)),
+    }
+    document.blocks.splice(0..0, head);
     let mut markdown = to_markdown(&document);
     if !markdown.is_empty() && !markdown.ends_with('\n') {
         markdown.push('\n');
@@ -158,11 +186,35 @@ pub(super) fn markdown(title: &str, mut document: Document) -> String {
     markdown
 }
 
+/// A table block of a database's rows, its first row the columns' names.
+fn table_block(table: &ExportTable) -> Block {
+    let row = |cells: &[String]| TableRow {
+        cells: cells
+            .iter()
+            .map(|text| TableCell {
+                content: Inline::plain(text.as_str()),
+                ..TableCell::default()
+            })
+            .collect(),
+    };
+    let mut rows = vec![row(&table.columns)];
+    rows.extend(table.rows.iter().map(|cells| row(cells)));
+    Block::new(BlockKind::Table {
+        props: TableProps::default(),
+        content: TableContent {
+            column_widths: vec![None; table.columns.len()],
+            header_rows: Some(1),
+            header_cols: None,
+            rows,
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use neon_blocks::{HeadingProps, TextProps};
+    use neon_blocks::HeadingProps;
     use yrs::Update;
     use yrs::updates::decoder::Decode as _;
 
@@ -306,11 +358,11 @@ mod tests {
     fn exports_write_the_title_as_a_heading() {
         let document = Document::new(vec![Block::paragraph("Body *text*")]);
         assert_eq!(
-            markdown("Plan: *v2*", document.clone()),
+            markdown("Plan: *v2*", document.clone(), &Extra::None),
             "# Plan: \\*v2\\*\n\nBody \\*text\\*\n"
         );
-        assert_eq!(markdown("", document), "Body \\*text\\*\n");
-        assert_eq!(markdown("", Document::default()), "");
+        assert_eq!(markdown("", document, &Extra::None), "Body \\*text\\*\n");
+        assert_eq!(markdown("", Document::default(), &Extra::None), "");
         let heading = Block::new(BlockKind::Heading {
             props: HeadingProps {
                 level: 2,
@@ -322,9 +374,40 @@ mod tests {
             props: TextProps::default(),
             content: Inline::plain("x"),
         });
-        let again = markdown("Title", Document::new(vec![heading, paragraph]));
+        let again = markdown(
+            "Title",
+            Document::new(vec![heading, paragraph]),
+            &Extra::None,
+        );
         let mut read = from_markdown(&again);
         assert_eq!(take_title(&mut read).as_deref(), Some("Title"));
         assert_eq!(to_markdown(&read), "## Part\n\nx\n");
+    }
+
+    #[test]
+    fn a_database_ends_with_its_table_and_a_row_lists_its_properties() {
+        let table = ExportTable {
+            columns: vec!["Name".into(), "Status".into()],
+            rows: vec![
+                vec!["Fix | login".into(), "Done".into()],
+                vec!["".into(), "".into()],
+            ],
+        };
+        let document = Document::new(vec![Block::paragraph("About the tasks")]);
+        assert_eq!(
+            markdown("Tasks", document, &Extra::Table(table)),
+            "# Tasks\n\nAbout the tasks\n\n| Name | Status |\n| --- | --- |\n| Fix \\| login | Done |\n|  |  |\n"
+        );
+        let row = ExportRow {
+            properties: vec![
+                ("Status".into(), "Done".into()),
+                ("Owner".into(), "Ada".into()),
+            ],
+        };
+        let document = Document::new(vec![Block::paragraph("Steps")]);
+        assert_eq!(
+            markdown("Fix login", document, &Extra::Properties(row)),
+            "# Fix login\n\n- Status: Done\n- Owner: Ada\n\nSteps\n"
+        );
     }
 }

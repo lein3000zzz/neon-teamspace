@@ -3,6 +3,8 @@
 //! page and workspace services tell it of changes to the rules' facts, and the auth service
 //! of sessions and tokens that end.
 
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 /// Whose access to which pages may have changed. Each names where to look again: whoever
@@ -48,4 +50,22 @@ pub struct NoListener;
 
 impl AccessChanges for NoListener {
     fn access_changed(&self, _: AccessChange) {}
+}
+
+/// Tells each of several listeners of every change, in turn: the live documents and the
+/// database feeds both hear them.
+pub struct Fanout(Vec<Arc<dyn AccessChanges>>);
+
+impl Fanout {
+    pub fn new(listeners: Vec<Arc<dyn AccessChanges>>) -> Self {
+        Self(listeners)
+    }
+}
+
+impl AccessChanges for Fanout {
+    fn access_changed(&self, change: AccessChange) {
+        for listener in &self.0 {
+            listener.access_changed(change);
+        }
+    }
 }

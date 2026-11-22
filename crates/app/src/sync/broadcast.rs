@@ -1,5 +1,6 @@
-//! Getting a live document's messages to its clients: each connection's outbox, and the
-//! [`Broadcaster`] port that hands a message to every client of a page.
+//! Getting messages to clients: each connection's outbox, and the [`Broadcaster`] port that
+//! hands a message to every client in a room, those of a page's live document or of a
+//! database's feed.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -18,7 +19,8 @@ use super::CloseReason;
 pub struct ClientId(u64);
 
 impl ClientId {
-    pub(crate) fn next() -> Self {
+    /// A new id, unlike any other of the process.
+    pub fn next() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
@@ -186,25 +188,34 @@ impl OutboxReceiver {
     }
 }
 
-/// Hands a live document's messages to the clients that have its page open. It never
-/// waits: a client that cannot take a message falls behind and is disconnected, so it
-/// cannot hold up the others.
-///
-/// One process has every client of its documents, which [`LocalBroadcaster`] serves. Running
-/// a second server process would need an adapter that carries messages between them.
-pub trait Broadcaster: Send + Sync {
-    /// Adds a client to the page's audience.
-    fn join(&self, page_id: Uuid, client: ClientId, outbox: Outbox);
-    /// Takes a client out of the page's audience.
-    fn leave(&self, page_id: Uuid, client: ClientId);
-    /// Sends a message to every client of the page but `except`.
-    fn broadcast(&self, page_id: Uuid, message: Bytes, except: Option<ClientId>);
+/// Who hears the same messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Room {
+    /// The clients that have a page's live document open.
+    Page(Uuid),
+    /// The clients that follow a database's changes. Guests, who know no other member,
+    /// hear the changes without the people they name, in a room of their own.
+    Database { id: Uuid, members_hidden: bool },
 }
 
-/// The broadcaster of a single process: each page's audience, in memory.
+/// Hands messages to the clients in a room. It never waits: a client that cannot take a
+/// message falls behind and is disconnected, so it cannot hold up the others.
+///
+/// One process has every client of its rooms, which [`LocalBroadcaster`] serves. Running a
+/// second server process would need an adapter that carries messages between them.
+pub trait Broadcaster: Send + Sync {
+    /// Adds a client to the room.
+    fn join(&self, room: Room, client: ClientId, outbox: Outbox);
+    /// Takes a client out of the room.
+    fn leave(&self, room: Room, client: ClientId);
+    /// Sends a message to every client in the room but `except`.
+    fn broadcast(&self, room: Room, message: Bytes, except: Option<ClientId>);
+}
+
+/// The broadcaster of a single process: each room's audience, in memory.
 #[derive(Default)]
 pub struct LocalBroadcaster {
-    audiences: Mutex<HashMap<Uuid, HashMap<ClientId, Outbox>>>,
+    audiences: Mutex<HashMap<Room, HashMap<ClientId, Outbox>>>,
 }
 
 impl LocalBroadcaster {
@@ -212,7 +223,7 @@ impl LocalBroadcaster {
         Self::default()
     }
 
-    fn audiences(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, HashMap<ClientId, Outbox>>> {
+    fn audiences(&self) -> std::sync::MutexGuard<'_, HashMap<Room, HashMap<ClientId, Outbox>>> {
         self.audiences
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -220,26 +231,26 @@ impl LocalBroadcaster {
 }
 
 impl Broadcaster for LocalBroadcaster {
-    fn join(&self, page_id: Uuid, client: ClientId, outbox: Outbox) {
+    fn join(&self, room: Room, client: ClientId, outbox: Outbox) {
         self.audiences()
-            .entry(page_id)
+            .entry(room)
             .or_default()
             .insert(client, outbox);
     }
 
-    fn leave(&self, page_id: Uuid, client: ClientId) {
+    fn leave(&self, room: Room, client: ClientId) {
         let mut audiences = self.audiences();
-        if let Some(audience) = audiences.get_mut(&page_id) {
+        if let Some(audience) = audiences.get_mut(&room) {
             audience.remove(&client);
             if audience.is_empty() {
-                audiences.remove(&page_id);
+                audiences.remove(&room);
             }
         }
     }
 
-    fn broadcast(&self, page_id: Uuid, message: Bytes, except: Option<ClientId>) {
+    fn broadcast(&self, room: Room, message: Bytes, except: Option<ClientId>) {
         let audiences = self.audiences();
-        let Some(audience) = audiences.get(&page_id) else {
+        let Some(audience) = audiences.get(&room) else {
             return;
         };
         for (client, outbox) in audience {
@@ -318,10 +329,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn broadcasts_reach_the_page_s_audience_but_the_sender() {
+    async fn broadcasts_reach_the_room_s_audience_but_the_sender() {
         let broadcaster = LocalBroadcaster::new();
-        let page = Uuid::from_u128(1);
-        let other_page = Uuid::from_u128(2);
+        let page = Room::Page(Uuid::from_u128(1));
+        let other_page = Room::Page(Uuid::from_u128(2));
         let (a, b, c) = (ClientId::next(), ClientId::next(), ClientId::next());
         let (outbox_a, mut to_a) = Outbox::new(4, 1024);
         let (outbox_b, mut to_b) = Outbox::new(4, 1024);
@@ -338,5 +349,31 @@ mod tests {
         assert_eq!(to_a.next().await, Next::Send(Bytes::from_static(b"again")));
         outbox_c.close(CloseReason::Restarting);
         assert_eq!(to_c.next().await, Next::Close(CloseReason::Restarting));
+    }
+
+    #[tokio::test]
+    async fn a_database_s_guests_are_in_a_room_of_their_own() {
+        let broadcaster = LocalBroadcaster::new();
+        let id = Uuid::from_u128(1);
+        let members = Room::Database {
+            id,
+            members_hidden: false,
+        };
+        let guests = Room::Database {
+            id,
+            members_hidden: true,
+        };
+        let (member, guest) = (ClientId::next(), ClientId::next());
+        let (outbox_m, mut to_m) = Outbox::new(4, 1024);
+        let (outbox_g, mut to_g) = Outbox::new(4, 1024);
+        broadcaster.join(members, member, outbox_m);
+        broadcaster.join(guests, guest, outbox_g);
+        // The page of the same id is another room.
+        broadcaster.broadcast(Room::Page(id), Bytes::from_static(b"page"), None);
+        broadcaster.broadcast(members, Bytes::from_static(b"full"), None);
+        broadcaster.broadcast(guests, Bytes::from_static(b"hidden"), None);
+
+        assert_eq!(to_m.next().await, Next::Send(Bytes::from_static(b"full")));
+        assert_eq!(to_g.next().await, Next::Send(Bytes::from_static(b"hidden")));
     }
 }

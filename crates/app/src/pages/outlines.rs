@@ -2,6 +2,7 @@
 //! each besides its content.
 
 use neon_domain::auth::Principal;
+use neon_domain::pages::PageKind;
 use neon_domain::workspaces::{Action, Teamspace};
 use neon_store::pages::{self as repo, OutlineNode};
 use neon_store::{teamspaces, workspaces};
@@ -16,6 +17,7 @@ use super::{NO_TEAMSPACE, PageError, PageService, actor, check_space};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlinePage {
     pub id: Uuid,
+    pub kind: PageKind,
     /// The page it is under, among those listed with it; `None` for the first.
     pub parent_id: Option<Uuid>,
     pub title: String,
@@ -27,6 +29,7 @@ impl From<OutlineNode> for OutlinePage {
     fn from(node: OutlineNode) -> Self {
         Self {
             id: node.id,
+            kind: node.kind,
             parent_id: node.parent_id,
             title: node.title,
             content_updated_at: node.content_updated_at,
@@ -68,6 +71,7 @@ impl PageService {
                 let page = context.page();
                 vec![OutlinePage {
                     id: page.id,
+                    kind: page.kind,
                     parent_id: None,
                     title: page.title.clone(),
                     content_updated_at: page.content_updated_at,

@@ -15,7 +15,7 @@ mod page;
 pub mod position;
 
 pub use page::{
-    Cover, Font, InvalidTitle, MAX_DEPTH, MAX_TITLE, Page, PageAccess, PageStyle, Placement, Share,
-    Space, check_title,
+    Cover, Font, InvalidTitle, MAX_DEPTH, MAX_TITLE, Page, PageAccess, PageKind, PageStyle,
+    Placement, Share, Space, check_title,
 };
 pub use position::InvalidPosition;
