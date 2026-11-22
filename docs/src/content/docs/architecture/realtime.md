@@ -81,7 +81,19 @@ each awareness change to every client, the sender too, as y-websocket's own serv
 browser renews its awareness state every 15 seconds and counts the echo as a sign of life.
 A client holds the awareness ids it introduced, at most 8, and the server drops entries it
 sends for anyone else's, so nobody can move another person's cursor. An awareness state is
-at most 8 KiB of JSON, a cursor and a name; a larger one closes the connection with `1009`.
+at most 8 KiB of JSON, a cursor and a name; a larger one closes the connection with `1009`,
+and one that is not JSON with `1007`.
+
+The server writes who the connection is into the `user` field of each state it passes on,
+whatever the client put there: the account's `id`, its display name as `name`, and its
+`hue`, as the API gives them. Nobody shows under another person's name, and no colour or
+other field a client makes up reaches the others' editors, which draw each cursor from its
+hue. A state that is not an object, such as `null` for a cursor that left, passes as it is.
+
+```json
+{ "user": { "id": "0193a5b2-0000-7000-8000-0000000000a1", "name": "Ada", "hue": 212 }, "cursor": null }
+```
+
 A connection may send 20 awareness messages a second, with bursts of 100; past that, the
 server drops them rather than pass them on, and the next one tells the same. When a
 connection closes, its client's cursors go, and the others are told.
@@ -201,7 +213,7 @@ awareness echo keeps that from happening while the page is open.
 | Code | Why |
 |---|---|
 | `1003` | A text message. The protocol is binary. |
-| `1007` | A message that is not a y-sync or awareness message, or an update that does not decode. |
+| `1007` | A message that is not a y-sync or awareness message, an update that does not decode, or an awareness state that is not JSON. |
 | `1009` | A message over the size limit. |
 | `1011` | The server could not load or save the document. |
 | `1012` | The server is restarting. Reconnect. |

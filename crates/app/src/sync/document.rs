@@ -69,13 +69,44 @@ pub(crate) enum Command {
 pub(crate) struct Joining {
     pub(crate) id: ClientId,
     pub(crate) user_id: Uuid,
+    /// Who the connection is, as its awareness states show it: see [`Presence`].
+    pub(crate) presence: Presence,
     pub(crate) access: PageAccess,
     pub(crate) outbox: Outbox,
+}
+
+/// Who a connection is, as the server writes it into the `user` field of every awareness
+/// state it sends: the account's id, display name and hue. Whatever the client put there
+/// is replaced, so nobody shows under another person's name, and nothing but these three
+/// reaches the others' editors, which draw cursors from them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Presence {
+    pub(crate) id: Uuid,
+    pub(crate) name: String,
+    pub(crate) hue: u16,
+}
+
+impl Presence {
+    /// An awareness state with its `user` field set to this. A state that is not a JSON
+    /// object stays as it is: `null` is how a client says its cursor left.
+    fn stamp(&self, json: &str) -> Result<Arc<str>, CloseReason> {
+        let mut state: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| CloseReason::InvalidMessage)?;
+        let Some(fields) = state.as_object_mut() else {
+            return Ok(json.into());
+        };
+        fields.insert(
+            "user".to_owned(),
+            serde_json::json!({"id": self.id.to_string(), "name": self.name, "hue": self.hue}),
+        );
+        Ok(state.to_string().into())
+    }
 }
 
 /// A connection that has the document open.
 struct Client {
     user_id: Uuid,
+    presence: Presence,
     access: PageAccess,
     outbox: Outbox,
     /// The awareness client ids its client holds: the cursors and presence it shows.
@@ -368,6 +399,7 @@ impl Document {
             joining.id,
             Client {
                 user_id: joining.user_id,
+                presence: joining.presence,
                 access: joining.access,
                 outbox: joining.outbox,
                 awareness_ids: HashSet::new(),
@@ -574,6 +606,9 @@ impl Document {
             });
         if update.clients.is_empty() {
             return Ok(());
+        }
+        for entry in update.clients.values_mut() {
+            entry.json = client.presence.stamp(&entry.json)?;
         }
         let Some(summary) = self
             .awareness

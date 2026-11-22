@@ -21,6 +21,7 @@ use sqlx::PgPool;
 use support::Harness;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
+use yrs::block::ClientID;
 use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::Encode as _;
@@ -292,7 +293,7 @@ async fn awareness_reaches_everyone_and_leaves_with_its_client(pool: PgPool) {
     let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
     let mut ada_awareness = Awareness::new(Doc::with_client_id(11));
     ada_awareness
-        .set_local_state(serde_json::json!({"user": {"name": "Ada"}}))
+        .set_local_state(serde_json::json!({"user": {"name": "Ada"}, "cursor": null}))
         .expect("set");
     let presence = Message::Awareness(ada_awareness.update().expect("an update"));
     ada.send(&presence).await.expect("taken");
@@ -308,12 +309,7 @@ async fn awareness_reaches_everyone_and_leaves_with_its_client(pool: PgPool) {
             unreachable!()
         };
         assert_eq!(update.clients.len(), 1);
-        assert!(
-            update
-                .clients
-                .values()
-                .any(|entry| entry.json.contains("Ada"))
-        );
+        assert_eq!(states_of(&update), [presence_of(&t.ada)]);
     }
     // A newcomer gets everyone's state with its sync.
     let admission = sync.admit(t.dee.clone(), t.page).await.expect("admitted");
@@ -344,10 +340,10 @@ async fn awareness_reaches_everyone_and_leaves_with_its_client(pool: PgPool) {
             matches!(message, Message::Awareness(_))
         })
         .await;
-    let Message::Awareness(AwarenessUpdate { clients }) = answer else {
+    let Message::Awareness(answer) = answer else {
         unreachable!()
     };
-    assert!(clients.values().all(|entry| entry.json.contains("\"Ada\"")));
+    assert_eq!(states_of(&answer), [presence_of(&t.ada)]);
 
     // Ada leaving takes her presence with her.
     ada.connection.leave(Ending::ByClient).await;
@@ -361,6 +357,76 @@ async fn awareness_reaches_everyone_and_leaves_with_its_client(pool: PgPool) {
     };
     assert!(update.clients.values().all(|entry| &*entry.json == "null"));
     sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn awareness_says_who_each_connection_is(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    // Dee claims to be Ada, in a colour that would style others' editors.
+    let mut claimed = Awareness::new(Doc::with_client_id(21));
+    claimed
+        .set_local_state(serde_json::json!({
+            "user": {
+                "id": t.ada.user.id.to_string(),
+                "name": "Ada",
+                "color": "#000000; position: fixed; inset: 0",
+            },
+            "cursor": null,
+        }))
+        .expect("set");
+    dee.send(&Message::Awareness(claimed.update().expect("an update")))
+        .await
+        .expect("taken");
+
+    let heard = ada
+        .until("Dee's presence", |message| {
+            matches!(message, Message::Awareness(_))
+        })
+        .await;
+    let Message::Awareness(update) = heard else {
+        unreachable!()
+    };
+    assert_eq!(states_of(&update), [presence_of(&t.dee)]);
+    // A cursor leaving, a state of null, stays null.
+    claimed.clean_local_state();
+    let leaving = claimed
+        .update_with_clients([ClientID::new(21)])
+        .expect("an update");
+    dee.send(&Message::Awareness(leaving)).await.expect("taken");
+    let left = ada
+        .until("Dee's cursor to go", |message| {
+            matches!(message, Message::Awareness(_))
+        })
+        .await;
+    let Message::Awareness(update) = left else {
+        unreachable!()
+    };
+    assert!(update.clients.values().all(|entry| &*entry.json == "null"));
+    sync.shutdown().await;
+}
+
+/// The states an awareness update holds, read as JSON.
+fn states_of(update: &AwarenessUpdate) -> Vec<serde_json::Value> {
+    update
+        .clients
+        .values()
+        .map(|entry| serde_json::from_str(&entry.json).expect("JSON"))
+        .collect()
+}
+
+/// An awareness state as the server passes one on for `who`, with no cursor.
+fn presence_of(who: &Principal) -> serde_json::Value {
+    serde_json::json!({
+        "user": {
+            "id": who.user.id.to_string(),
+            "name": who.user.display_name,
+            "hue": who.user.hue(),
+        },
+        "cursor": null,
+    })
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

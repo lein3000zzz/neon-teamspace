@@ -67,7 +67,7 @@ use yrs::Transact as _;
 use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
-use document::{Command, Joining};
+use document::{Command, Joining, Presence};
 use limits::Bucket;
 
 pub use access::{AccessFeed, AccessListener, access_feed};
@@ -352,9 +352,15 @@ impl SyncService {
             attempt += 1;
             let (commands, generation) = self.slot(&admission, id)?;
             let (done, answer) = oneshot::channel();
+            let user = &admission.principal.user;
             let joining = Joining {
                 id,
-                user_id: admission.principal.user.id,
+                user_id: user.id,
+                presence: Presence {
+                    id: user.id,
+                    name: user.display_name.clone(),
+                    hue: user.hue(),
+                },
                 access: admission.access,
                 outbox: outbox.clone(),
             };
