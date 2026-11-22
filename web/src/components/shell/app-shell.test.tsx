@@ -12,7 +12,7 @@ describe("app shell", () => {
 
   it("opens the drawer and closes it after navigating", async () => {
     const { user, router } = renderApp("/");
-    await screen.findByRole("heading", { level: 1, name: "Nothing here yet" });
+    await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" });
 
     await user.click(screen.getByRole("button", { name: "Open navigation" }));
     const dialog = await screen.findByRole("dialog", { name: "Main" });

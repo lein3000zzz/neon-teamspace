@@ -157,7 +157,7 @@ describe("the session", () => {
     server.use(signedInAs(ada));
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
+      await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
   });
 

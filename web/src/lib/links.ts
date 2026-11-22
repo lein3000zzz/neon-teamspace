@@ -63,3 +63,52 @@ export function searchText(value: unknown): string | undefined {
 export function inviteLink(code: string): string {
   return `${window.location.origin}/register?invite=${encodeURIComponent(code)}`;
 }
+
+/** The address a workspace invite link's token opens. */
+export function workspaceInviteLink(token: string): string {
+  return `${window.location.origin}/workspace-invite/${encodeURIComponent(token)}`;
+}
+
+const HELD_INVITE_KEY = "neon.workspace-invite";
+
+/** This tab's session storage, or undefined where the browser refuses it. */
+function tabStorage(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Keeps a workspace invite link's token for this tab alone, while its visitor
+ * signs in, so the page can take it out of the address. Answers whether it is
+ * kept: where the browser refuses session storage, the token has to stay in
+ * the address for the way back from signing in.
+ */
+export function holdInviteToken(token: string): boolean {
+  try {
+    const storage = tabStorage();
+    storage?.setItem(HELD_INVITE_KEY, token);
+    return storage?.getItem(HELD_INVITE_KEY) === token;
+  } catch {
+    return false;
+  }
+}
+
+export function heldInviteToken(): string | undefined {
+  try {
+    return searchText(tabStorage()?.getItem(HELD_INVITE_KEY));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Forgets the token once the link is used, or turned out not to work. */
+export function releaseInviteToken() {
+  try {
+    tabStorage()?.removeItem(HELD_INVITE_KEY);
+  } catch {
+    // Nothing kept that could be read back.
+  }
+}

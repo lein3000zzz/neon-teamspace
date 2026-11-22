@@ -23,14 +23,27 @@ import { Route as AuthResetRouteImport } from './routes/_auth/reset'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AppAccountIndexRouteImport } from './routes/_app/account/index'
 import { Route as AppAccountAppearanceRouteImport } from './routes/_app/account/appearance'
+import { Route as AppAccountInvitationsRouteImport } from './routes/_app/account/invitations'
 import { Route as AppAccountSessionsRouteImport } from './routes/_app/account/sessions'
 import { Route as AppAccountTokensRouteImport } from './routes/_app/account/tokens'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as AppAdminInvitesRouteImport } from './routes/_app/admin/invites'
 import { Route as AppAdminJoinRequestsRouteImport } from './routes/_app/admin/join-requests'
 import { Route as AppAdminSettingsRouteImport } from './routes/_app/admin/settings'
+import { Route as AppAdminWorkspacesRouteImport } from './routes/_app/admin/workspaces'
+import { Route as AppWSlugRouteImport } from './routes/_app/w/$slug'
+import { Route as AppWorkspacesNewRouteImport } from './routes/_app/workspaces/new'
 import { Route as AuthJoinIndexRouteImport } from './routes/_auth/join/index'
 import { Route as AuthJoinConfirmRouteImport } from './routes/_auth/join/confirm'
+import { Route as AuthWorkspaceInviteIndexRouteImport } from './routes/_auth/workspace-invite/index'
+import { Route as AuthWorkspaceInviteTokenRouteImport } from './routes/_auth/workspace-invite/$token'
+import { Route as AppWSlugIndexRouteImport } from './routes/_app/w/$slug/index'
+import { Route as AppWSlugSettingsRouteImport } from './routes/_app/w/$slug/settings'
+import { Route as AppWSlugSettingsIndexRouteImport } from './routes/_app/w/$slug/settings/index'
+import { Route as AppWSlugSettingsMembersRouteImport } from './routes/_app/w/$slug/settings/members'
+import { Route as AppWSlugSettingsTeamspacesRouteImport } from './routes/_app/w/$slug/settings/teamspaces'
+import { Route as AppWSlugTeamspacesIndexRouteImport } from './routes/_app/w/$slug/teamspaces/index'
+import { Route as AppWSlugTeamspacesTeamspaceIdRouteImport } from './routes/_app/w/$slug/teamspaces/$teamspaceId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -100,6 +113,11 @@ const AppAccountAppearanceRoute = AppAccountAppearanceRouteImport.update({
   path: '/appearance',
   getParentRoute: () => AppAccountRoute,
 } as any)
+const AppAccountInvitationsRoute = AppAccountInvitationsRouteImport.update({
+  id: '/invitations',
+  path: '/invitations',
+  getParentRoute: () => AppAccountRoute,
+} as any)
 const AppAccountSessionsRoute = AppAccountSessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
@@ -130,6 +148,21 @@ const AppAdminSettingsRoute = AppAdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppAdminWorkspacesRoute = AppAdminWorkspacesRouteImport.update({
+  id: '/workspaces',
+  path: '/workspaces',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppWSlugRoute = AppWSlugRouteImport.update({
+  id: '/w/$slug',
+  path: '/w/$slug',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWorkspacesNewRoute = AppWorkspacesNewRouteImport.update({
+  id: '/workspaces/new',
+  path: '/workspaces/new',
+  getParentRoute: () => AppRoute,
+} as any)
 const AuthJoinIndexRoute = AuthJoinIndexRouteImport.update({
   id: '/join/',
   path: '/join/',
@@ -140,6 +173,55 @@ const AuthJoinConfirmRoute = AuthJoinConfirmRouteImport.update({
   path: '/join/confirm',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthWorkspaceInviteIndexRoute =
+  AuthWorkspaceInviteIndexRouteImport.update({
+    id: '/workspace-invite/',
+    path: '/workspace-invite/',
+    getParentRoute: () => AuthRoute,
+  } as any)
+const AuthWorkspaceInviteTokenRoute =
+  AuthWorkspaceInviteTokenRouteImport.update({
+    id: '/workspace-invite/$token',
+    path: '/workspace-invite/$token',
+    getParentRoute: () => AuthRoute,
+  } as any)
+const AppWSlugIndexRoute = AppWSlugIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
+const AppWSlugSettingsRoute = AppWSlugSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
+const AppWSlugSettingsIndexRoute = AppWSlugSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppWSlugSettingsRoute,
+} as any)
+const AppWSlugSettingsMembersRoute = AppWSlugSettingsMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => AppWSlugSettingsRoute,
+} as any)
+const AppWSlugSettingsTeamspacesRoute =
+  AppWSlugSettingsTeamspacesRouteImport.update({
+    id: '/teamspaces',
+    path: '/teamspaces',
+    getParentRoute: () => AppWSlugSettingsRoute,
+  } as any)
+const AppWSlugTeamspacesIndexRoute = AppWSlugTeamspacesIndexRouteImport.update({
+  id: '/teamspaces/',
+  path: '/teamspaces/',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
+const AppWSlugTeamspacesTeamspaceIdRoute =
+  AppWSlugTeamspacesTeamspaceIdRouteImport.update({
+    id: '/teamspaces/$teamspaceId',
+    path: '/teamspaces/$teamspaceId',
+    getParentRoute: () => AppWSlugRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -153,15 +235,28 @@ export interface FileRoutesByFullPath {
   '/reset': typeof AuthResetRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/invitations': typeof AppAccountInvitationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
   '/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/admin/settings': typeof AppAdminSettingsRoute
+  '/admin/workspaces': typeof AppAdminWorkspacesRoute
+  '/w/$slug': typeof AppWSlugRouteWithChildren
+  '/workspaces/new': typeof AppWorkspacesNewRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
+  '/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/account/': typeof AppAccountIndexRoute
   '/admin/': typeof AppAdminIndexRoute
   '/join/': typeof AuthJoinIndexRoute
+  '/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
+  '/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
+  '/w/$slug/': typeof AppWSlugIndexRoute
+  '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
+  '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
+  '/w/$slug/settings/': typeof AppWSlugSettingsIndexRoute
+  '/w/$slug/teamspaces/': typeof AppWSlugTeamspacesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
@@ -173,15 +268,26 @@ export interface FileRoutesByTo {
   '/reset': typeof AuthResetRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/invitations': typeof AppAccountInvitationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
   '/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/admin/settings': typeof AppAdminSettingsRoute
+  '/admin/workspaces': typeof AppAdminWorkspacesRoute
+  '/workspaces/new': typeof AppWorkspacesNewRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
+  '/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/account': typeof AppAccountIndexRoute
   '/admin': typeof AppAdminIndexRoute
   '/join': typeof AuthJoinIndexRoute
+  '/workspace-invite': typeof AuthWorkspaceInviteIndexRoute
+  '/w/$slug': typeof AppWSlugIndexRoute
+  '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
+  '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
+  '/w/$slug/settings': typeof AppWSlugSettingsIndexRoute
+  '/w/$slug/teamspaces': typeof AppWSlugTeamspacesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -198,15 +304,28 @@ export interface FileRoutesById {
   '/_auth/verify': typeof AuthVerifyRoute
   '/_app/': typeof AppIndexRoute
   '/_app/account/appearance': typeof AppAccountAppearanceRoute
+  '/_app/account/invitations': typeof AppAccountInvitationsRoute
   '/_app/account/sessions': typeof AppAccountSessionsRoute
   '/_app/account/tokens': typeof AppAccountTokensRoute
   '/_app/admin/invites': typeof AppAdminInvitesRoute
   '/_app/admin/join-requests': typeof AppAdminJoinRequestsRoute
   '/_app/admin/settings': typeof AppAdminSettingsRoute
+  '/_app/admin/workspaces': typeof AppAdminWorkspacesRoute
+  '/_app/w/$slug': typeof AppWSlugRouteWithChildren
+  '/_app/workspaces/new': typeof AppWorkspacesNewRoute
   '/_auth/join/confirm': typeof AuthJoinConfirmRoute
+  '/_auth/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/_app/account/': typeof AppAccountIndexRoute
   '/_app/admin/': typeof AppAdminIndexRoute
   '/_auth/join/': typeof AuthJoinIndexRoute
+  '/_auth/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
+  '/_app/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
+  '/_app/w/$slug/': typeof AppWSlugIndexRoute
+  '/_app/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
+  '/_app/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/_app/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
+  '/_app/w/$slug/settings/': typeof AppWSlugSettingsIndexRoute
+  '/_app/w/$slug/teamspaces/': typeof AppWSlugTeamspacesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -222,15 +341,28 @@ export interface FileRouteTypes {
     | '/reset'
     | '/verify'
     | '/account/appearance'
+    | '/account/invitations'
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
     | '/admin/join-requests'
     | '/admin/settings'
+    | '/admin/workspaces'
+    | '/w/$slug'
+    | '/workspaces/new'
     | '/join/confirm'
+    | '/workspace-invite/$token'
     | '/account/'
     | '/admin/'
     | '/join/'
+    | '/workspace-invite/'
+    | '/w/$slug/settings'
+    | '/w/$slug/'
+    | '/w/$slug/settings/members'
+    | '/w/$slug/settings/teamspaces'
+    | '/w/$slug/teamspaces/$teamspaceId'
+    | '/w/$slug/settings/'
+    | '/w/$slug/teamspaces/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -242,15 +374,26 @@ export interface FileRouteTypes {
     | '/reset'
     | '/verify'
     | '/account/appearance'
+    | '/account/invitations'
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
     | '/admin/join-requests'
     | '/admin/settings'
+    | '/admin/workspaces'
+    | '/workspaces/new'
     | '/join/confirm'
+    | '/workspace-invite/$token'
     | '/account'
     | '/admin'
     | '/join'
+    | '/workspace-invite'
+    | '/w/$slug'
+    | '/w/$slug/settings/members'
+    | '/w/$slug/settings/teamspaces'
+    | '/w/$slug/teamspaces/$teamspaceId'
+    | '/w/$slug/settings'
+    | '/w/$slug/teamspaces'
   id:
     | '__root__'
     | '/_app'
@@ -266,15 +409,28 @@ export interface FileRouteTypes {
     | '/_auth/verify'
     | '/_app/'
     | '/_app/account/appearance'
+    | '/_app/account/invitations'
     | '/_app/account/sessions'
     | '/_app/account/tokens'
     | '/_app/admin/invites'
     | '/_app/admin/join-requests'
     | '/_app/admin/settings'
+    | '/_app/admin/workspaces'
+    | '/_app/w/$slug'
+    | '/_app/workspaces/new'
     | '/_auth/join/confirm'
+    | '/_auth/workspace-invite/$token'
     | '/_app/account/'
     | '/_app/admin/'
     | '/_auth/join/'
+    | '/_auth/workspace-invite/'
+    | '/_app/w/$slug/settings'
+    | '/_app/w/$slug/'
+    | '/_app/w/$slug/settings/members'
+    | '/_app/w/$slug/settings/teamspaces'
+    | '/_app/w/$slug/teamspaces/$teamspaceId'
+    | '/_app/w/$slug/settings/'
+    | '/_app/w/$slug/teamspaces/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -382,6 +538,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountAppearanceRouteImport
       parentRoute: typeof AppAccountRoute
     }
+    '/_app/account/invitations': {
+      id: '/_app/account/invitations'
+      path: '/invitations'
+      fullPath: '/account/invitations'
+      preLoaderRoute: typeof AppAccountInvitationsRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
     '/_app/account/sessions': {
       id: '/_app/account/sessions'
       path: '/sessions'
@@ -424,6 +587,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminSettingsRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/workspaces': {
+      id: '/_app/admin/workspaces'
+      path: '/workspaces'
+      fullPath: '/admin/workspaces'
+      preLoaderRoute: typeof AppAdminWorkspacesRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/w/$slug': {
+      id: '/_app/w/$slug'
+      path: '/w/$slug'
+      fullPath: '/w/$slug'
+      preLoaderRoute: typeof AppWSlugRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/workspaces/new': {
+      id: '/_app/workspaces/new'
+      path: '/workspaces/new'
+      fullPath: '/workspaces/new'
+      preLoaderRoute: typeof AppWorkspacesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_auth/join/': {
       id: '/_auth/join/'
       path: '/join'
@@ -438,11 +622,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthJoinConfirmRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_auth/workspace-invite/': {
+      id: '/_auth/workspace-invite/'
+      path: '/workspace-invite'
+      fullPath: '/workspace-invite/'
+      preLoaderRoute: typeof AuthWorkspaceInviteIndexRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/workspace-invite/$token': {
+      id: '/_auth/workspace-invite/$token'
+      path: '/workspace-invite/$token'
+      fullPath: '/workspace-invite/$token'
+      preLoaderRoute: typeof AuthWorkspaceInviteTokenRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_app/w/$slug/': {
+      id: '/_app/w/$slug/'
+      path: '/'
+      fullPath: '/w/$slug/'
+      preLoaderRoute: typeof AppWSlugIndexRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
+    '/_app/w/$slug/settings': {
+      id: '/_app/w/$slug/settings'
+      path: '/settings'
+      fullPath: '/w/$slug/settings'
+      preLoaderRoute: typeof AppWSlugSettingsRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
+    '/_app/w/$slug/settings/': {
+      id: '/_app/w/$slug/settings/'
+      path: '/'
+      fullPath: '/w/$slug/settings/'
+      preLoaderRoute: typeof AppWSlugSettingsIndexRouteImport
+      parentRoute: typeof AppWSlugSettingsRoute
+    }
+    '/_app/w/$slug/settings/members': {
+      id: '/_app/w/$slug/settings/members'
+      path: '/members'
+      fullPath: '/w/$slug/settings/members'
+      preLoaderRoute: typeof AppWSlugSettingsMembersRouteImport
+      parentRoute: typeof AppWSlugSettingsRoute
+    }
+    '/_app/w/$slug/settings/teamspaces': {
+      id: '/_app/w/$slug/settings/teamspaces'
+      path: '/teamspaces'
+      fullPath: '/w/$slug/settings/teamspaces'
+      preLoaderRoute: typeof AppWSlugSettingsTeamspacesRouteImport
+      parentRoute: typeof AppWSlugSettingsRoute
+    }
+    '/_app/w/$slug/teamspaces/': {
+      id: '/_app/w/$slug/teamspaces/'
+      path: '/teamspaces'
+      fullPath: '/w/$slug/teamspaces/'
+      preLoaderRoute: typeof AppWSlugTeamspacesIndexRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
+    '/_app/w/$slug/teamspaces/$teamspaceId': {
+      id: '/_app/w/$slug/teamspaces/$teamspaceId'
+      path: '/teamspaces/$teamspaceId'
+      fullPath: '/w/$slug/teamspaces/$teamspaceId'
+      preLoaderRoute: typeof AppWSlugTeamspacesTeamspaceIdRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
   }
 }
 
 interface AppAccountRouteChildren {
   AppAccountAppearanceRoute: typeof AppAccountAppearanceRoute
+  AppAccountInvitationsRoute: typeof AppAccountInvitationsRoute
   AppAccountSessionsRoute: typeof AppAccountSessionsRoute
   AppAccountTokensRoute: typeof AppAccountTokensRoute
   AppAccountIndexRoute: typeof AppAccountIndexRoute
@@ -450,6 +698,7 @@ interface AppAccountRouteChildren {
 
 const AppAccountRouteChildren: AppAccountRouteChildren = {
   AppAccountAppearanceRoute: AppAccountAppearanceRoute,
+  AppAccountInvitationsRoute: AppAccountInvitationsRoute,
   AppAccountSessionsRoute: AppAccountSessionsRoute,
   AppAccountTokensRoute: AppAccountTokensRoute,
   AppAccountIndexRoute: AppAccountIndexRoute,
@@ -463,6 +712,7 @@ interface AppAdminRouteChildren {
   AppAdminInvitesRoute: typeof AppAdminInvitesRoute
   AppAdminJoinRequestsRoute: typeof AppAdminJoinRequestsRoute
   AppAdminSettingsRoute: typeof AppAdminSettingsRoute
+  AppAdminWorkspacesRoute: typeof AppAdminWorkspacesRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
 }
 
@@ -470,11 +720,45 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminInvitesRoute: AppAdminInvitesRoute,
   AppAdminJoinRequestsRoute: AppAdminJoinRequestsRoute,
   AppAdminSettingsRoute: AppAdminSettingsRoute,
+  AppAdminWorkspacesRoute: AppAdminWorkspacesRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
 }
 
 const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
   AppAdminRouteChildren,
+)
+
+interface AppWSlugSettingsRouteChildren {
+  AppWSlugSettingsMembersRoute: typeof AppWSlugSettingsMembersRoute
+  AppWSlugSettingsTeamspacesRoute: typeof AppWSlugSettingsTeamspacesRoute
+  AppWSlugSettingsIndexRoute: typeof AppWSlugSettingsIndexRoute
+}
+
+const AppWSlugSettingsRouteChildren: AppWSlugSettingsRouteChildren = {
+  AppWSlugSettingsMembersRoute: AppWSlugSettingsMembersRoute,
+  AppWSlugSettingsTeamspacesRoute: AppWSlugSettingsTeamspacesRoute,
+  AppWSlugSettingsIndexRoute: AppWSlugSettingsIndexRoute,
+}
+
+const AppWSlugSettingsRouteWithChildren =
+  AppWSlugSettingsRoute._addFileChildren(AppWSlugSettingsRouteChildren)
+
+interface AppWSlugRouteChildren {
+  AppWSlugSettingsRoute: typeof AppWSlugSettingsRouteWithChildren
+  AppWSlugIndexRoute: typeof AppWSlugIndexRoute
+  AppWSlugTeamspacesTeamspaceIdRoute: typeof AppWSlugTeamspacesTeamspaceIdRoute
+  AppWSlugTeamspacesIndexRoute: typeof AppWSlugTeamspacesIndexRoute
+}
+
+const AppWSlugRouteChildren: AppWSlugRouteChildren = {
+  AppWSlugSettingsRoute: AppWSlugSettingsRouteWithChildren,
+  AppWSlugIndexRoute: AppWSlugIndexRoute,
+  AppWSlugTeamspacesTeamspaceIdRoute: AppWSlugTeamspacesTeamspaceIdRoute,
+  AppWSlugTeamspacesIndexRoute: AppWSlugTeamspacesIndexRoute,
+}
+
+const AppWSlugRouteWithChildren = AppWSlugRoute._addFileChildren(
+  AppWSlugRouteChildren,
 )
 
 interface AppRouteChildren {
@@ -483,6 +767,8 @@ interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRouteWithChildren
   AppStyleguideRoute: typeof AppStyleguideRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppWSlugRoute: typeof AppWSlugRouteWithChildren
+  AppWorkspacesNewRoute: typeof AppWorkspacesNewRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -491,6 +777,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRouteWithChildren,
   AppStyleguideRoute: AppStyleguideRoute,
   AppIndexRoute: AppIndexRoute,
+  AppWSlugRoute: AppWSlugRouteWithChildren,
+  AppWorkspacesNewRoute: AppWorkspacesNewRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -502,7 +790,9 @@ interface AuthRouteChildren {
   AuthResetRoute: typeof AuthResetRoute
   AuthVerifyRoute: typeof AuthVerifyRoute
   AuthJoinConfirmRoute: typeof AuthJoinConfirmRoute
+  AuthWorkspaceInviteTokenRoute: typeof AuthWorkspaceInviteTokenRoute
   AuthJoinIndexRoute: typeof AuthJoinIndexRoute
+  AuthWorkspaceInviteIndexRoute: typeof AuthWorkspaceInviteIndexRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
@@ -512,7 +802,9 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthResetRoute: AuthResetRoute,
   AuthVerifyRoute: AuthVerifyRoute,
   AuthJoinConfirmRoute: AuthJoinConfirmRoute,
+  AuthWorkspaceInviteTokenRoute: AuthWorkspaceInviteTokenRoute,
   AuthJoinIndexRoute: AuthJoinIndexRoute,
+  AuthWorkspaceInviteIndexRoute: AuthWorkspaceInviteIndexRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
