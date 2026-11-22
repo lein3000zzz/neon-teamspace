@@ -43,6 +43,10 @@ the features build on:
   an internal admin listener; see [Observability](/docs/architecture/observability/).
 - The HTTP API's skeleton with its first endpoint, `GET /api/v1/meta`, and its OpenAPI
   description; see the [API reference](/docs/reference/api/).
+- Accounts: registration modes, invites, requests to join, sessions, API tokens and the
+  admin's work on accounts, through the API and the web app's pages; see
+  [Signing in and accounts](/docs/guides/signing-in/), [Accounts and
+  registration](/docs/guides/accounts/) and [Administration](/docs/admin/users/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -54,9 +58,8 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Accounts in the web app: sign-in and sign-up pages, account settings and the admin
-   pages, over the server's [account API](/docs/guides/accounts/), and the mail that
-   verification, resets and requests to join send.
+1. The mail that verification, password resets, mailed invites and requests to join
+   send.
 2. Workspaces, teamspaces, roles, per-page sharing and per-workspace limits.
 3. Pages and the real-time editor, markdown import and export, the trash.
 4. Databases with table, board and list views.

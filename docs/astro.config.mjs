@@ -91,7 +91,11 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts', 'guides/accounts'],
+          items: ['guides/introduction', 'guides/concepts', 'guides/signing-in', 'guides/accounts'],
+        },
+        {
+          label: 'Administration',
+          items: ['admin/users', 'admin/invites', 'admin/settings'],
         },
         {
           label: 'Self-hosting',

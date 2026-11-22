@@ -213,7 +213,9 @@ Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Workspace's
 `make e2e` builds both images from the checkout, starts a throwaway stack of them under its
 own Compose project, on a free port of `127.0.0.1`, and runs the tests in `e2e/` against it
 in a headless Chromium with Playwright: the app and its API, the docs, the security headers,
-and that the admin listener is not reachable. It removes the stack, its data included,
+and that the admin listener is not reachable. The stack gets a first admin with a password
+made for the run, and a secret key; the tests sign in as that admin, make an invite, sign up
+with it in a second browser and sign out, and read the settings. It removes the stack, its data included,
 however the run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs
 Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the tests'
 packages and the browser.
