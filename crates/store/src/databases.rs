@@ -288,23 +288,25 @@ pub async fn set_view_positions(
     Ok(result.rows_affected())
 }
 
+/// Adds a row's data, and answers how many bytes its cells take as JSON text, which is how
+/// a row's size is told.
 pub async fn insert_row(
     executor: impl PgExecutor<'_>,
     page_id: Uuid,
     database_id: Uuid,
     number: i64,
     cells: &Json,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        "INSERT INTO database_rows (page_id, database_id, number, cells) VALUES ($1, $2, $3, $4)",
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"INSERT INTO database_rows (page_id, database_id, number, cells) VALUES ($1, $2, $3, $4)
+           RETURNING octet_length(cells::text)::bigint AS "bytes!""#,
         page_id,
         database_id,
         number,
         cells,
     )
-    .execute(executor)
-    .await?;
-    Ok(())
+    .fetch_one(executor)
+    .await
 }
 
 /// A row's own data.
@@ -324,6 +326,22 @@ pub async fn row(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<O
     )
     .fetch_optional(executor)
     .await
+}
+
+/// The cells of each of `ids`, rows, that is there.
+pub async fn cells_of_rows(
+    executor: impl PgExecutor<'_>,
+    ids: &[Uuid],
+) -> sqlx::Result<Vec<(Uuid, Json)>> {
+    Ok(sqlx::query!(
+        "SELECT page_id, cells FROM database_rows WHERE page_id = ANY($1)",
+        ids,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|row| (row.page_id, row.cells))
+    .collect())
 }
 
 /// The row of a database with a number, if it is still there.
@@ -347,25 +365,34 @@ pub async fn row_by_number(
 pub struct ListedRow {
     pub page: Page,
     pub number: i64,
+    /// Its cells, or those of the properties asked for.
     pub cells: Json,
     pub shared: Option<PageAccess>,
 }
 
 /// The rows of a database that are where it is: out of the trash for a database out of
 /// it, or for one in it, those that went to the trash with it, `batch` being its
-/// `trashed_with`. Each with what its page is shared with `user_id` for.
+/// `trashed_with`. Each with what its page is shared with `user_id` for, and its cells: of
+/// the properties `keys` names, by id, or every one without `keys`.
 pub async fn rows(
     executor: impl PgExecutor<'_>,
     database_id: Uuid,
     batch: Option<Uuid>,
     user_id: Uuid,
+    keys: Option<&[String]>,
 ) -> sqlx::Result<Vec<ListedRow>> {
     sqlx::query!(
         r#"SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
                   p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,
                   p.created_by, p.last_edited_by, p.created_at, p.updated_at,
                   p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,
-                  r.number, r.cells, s.access AS "shared?"
+                  r.number,
+                  CASE WHEN $4::text[] IS NULL THEN r.cells
+                       ELSE COALESCE((SELECT jsonb_object_agg(k.key, r.cells -> k.key)
+                                      FROM unnest($4::text[]) AS k (key)
+                                      WHERE r.cells ? k.key), '{}'::jsonb)
+                  END AS "cells!",
+                  s.access AS "shared?"
            FROM database_rows r
            JOIN pages p ON p.id = r.page_id
            LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3
@@ -374,6 +401,7 @@ pub async fn rows(
         database_id,
         batch,
         user_id,
+        keys,
     )
     .fetch_all(executor)
     .await?
@@ -423,23 +451,31 @@ pub async fn count_rows(executor: impl PgExecutor<'_>, database_id: Uuid) -> sql
     .await
 }
 
+/// A row's cells once changed, and how many bytes they take as JSON text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Patched {
+    pub cells: Json,
+    pub bytes: i64,
+}
+
 /// Sets the cells of `set`, a JSON object of values by property id, and removes those of
-/// `remove`, leaving the row's other cells as they are.
+/// `remove`, leaving the row's other cells as they are. `None` when there is no such row.
 pub async fn patch_cells(
     executor: impl PgExecutor<'_>,
     page_id: Uuid,
     set: &Json,
     remove: &[String],
-) -> sqlx::Result<bool> {
-    let result = sqlx::query!(
-        "UPDATE database_rows SET cells = (cells || $2::jsonb) - $3::text[] WHERE page_id = $1",
+) -> sqlx::Result<Option<Patched>> {
+    sqlx::query_as!(
+        Patched,
+        r#"UPDATE database_rows SET cells = (cells || $2::jsonb) - $3::text[] WHERE page_id = $1
+           RETURNING cells, octet_length(cells::text)::bigint AS "bytes!""#,
         page_id,
         set,
         remove,
     )
-    .execute(executor)
-    .await?;
-    Ok(result.rows_affected() == 1)
+    .fetch_optional(executor)
+    .await
 }
 
 /// Every row of a database with a cell of the property, in the trash or not, and the cell.
@@ -463,27 +499,31 @@ pub async fn cells_of(
 }
 
 /// Sets the cell of the property on each of `rows` to the value at the same index of
-/// `values`, or removes it where that is JSON `null`.
+/// `values`, or removes it where that is JSON `null`. Answers how many bytes the largest
+/// of the rows changed takes then, as JSON text, `0` when none was.
 pub async fn set_cells_of(
     executor: impl PgExecutor<'_>,
     property_id: Uuid,
     rows: &[Uuid],
     values: &[Json],
-) -> sqlx::Result<u64> {
+) -> sqlx::Result<i64> {
     let key = property_id.to_string();
-    let result = sqlx::query!(
-        "UPDATE database_rows r
-         SET cells = CASE WHEN u.value = 'null'::jsonb THEN r.cells - $1
-                          ELSE r.cells || jsonb_build_object($1::text, u.value) END
-         FROM UNNEST($2::uuid[], $3::jsonb[]) AS u (id, value)
-         WHERE r.page_id = u.id",
+    sqlx::query_scalar!(
+        r#"WITH changed AS (
+               UPDATE database_rows r
+               SET cells = CASE WHEN u.value = 'null'::jsonb THEN r.cells - $1
+                                ELSE r.cells || jsonb_build_object($1::text, u.value) END
+               FROM UNNEST($2::uuid[], $3::jsonb[]) AS u (id, value)
+               WHERE r.page_id = u.id
+               RETURNING octet_length(r.cells::text)::bigint AS bytes
+           )
+           SELECT COALESCE(max(bytes), 0) AS "largest!" FROM changed"#,
         key,
         rows,
         values,
     )
-    .execute(executor)
-    .await?;
-    Ok(result.rows_affected())
+    .fetch_one(executor)
+    .await
 }
 
 /// Removes the cells of a property from every row of a database.

@@ -241,7 +241,7 @@ pub struct CreateRow {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the database and does not edit it, it is in the trash, or a guest names people; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the database or the view.", body = ErrorBody),
-        (status = CONFLICT, description = "too_many_rows.", body = ErrorBody),
+        (status = CONFLICT, description = "too_many_rows; or limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -344,6 +344,7 @@ pub struct ChangeRow {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views it and does not edit it, it is in the trash, or a guest names people; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -404,6 +405,7 @@ pub struct MoveRow {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the row, its database or the view.", body = ErrorBody),
+        (status = CONFLICT, description = "limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

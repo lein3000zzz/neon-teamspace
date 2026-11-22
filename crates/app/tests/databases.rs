@@ -18,7 +18,8 @@ use neon_domain::databases::filter::{FilterSpec, Operator};
 use neon_domain::databases::sort::{Direction, SortSpec};
 use neon_domain::databases::view::GroupingSpec;
 use neon_domain::databases::{
-    ChoiceSpec, Layout, MAX_ROWS, NumberFormat, PropertyKind, StatusGroup, ViewSpec,
+    ChoiceSpec, Layout, MAX_NAME, MAX_ROW_BYTES, MAX_ROWS, MAX_TEXT, NumberFormat, PropertyKind,
+    StatusGroup, ViewSpec,
 };
 use neon_domain::pages::{PageAccess, PageKind, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, WorkspaceRole};
@@ -1915,4 +1916,164 @@ async fn refusals_count_as_ok_and_failures_as_errors(pool: PgPool) {
         "{failed:?}"
     );
     assert_eq!(count(&snapshotter, "get_database", "error"), 1);
+}
+
+async fn retype(
+    t: &Team,
+    by: &Principal,
+    property: Uuid,
+    kind: PropertyKind,
+) -> Result<neon_domain::databases::Property, DatabaseError> {
+    t.h.databases
+        .update_property(
+            by,
+            t.db(),
+            property,
+            PropertyChange {
+                spec: Some(spec(kind)),
+                confirm: true,
+                ..PropertyChange::default()
+            },
+        )
+        .await
+}
+
+/// How many bytes a row's cells take, as JSON text: how the bound on them counts.
+async fn size_of(t: &Team, row: Uuid) -> usize {
+    let bytes: i64 = sqlx::query_scalar(
+        "SELECT octet_length(cells::text)::bigint FROM database_rows WHERE page_id = $1",
+    )
+    .bind(row)
+    .fetch_one(&t.h.pool)
+    .await
+    .expect("sized");
+    usize::try_from(bytes).expect("a size")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_row_s_values_take_at_most_their_bound(pool: PgPool) {
+    let mut t = team(pool).await;
+    let names = ["A", "B", "C", "D", "E", "F", "G"];
+    for name in names {
+        t.add(name, spec(PropertyKind::Text), None).await;
+    }
+    let long = "x".repeat(MAX_TEXT);
+    let mut six = Map::new();
+    six.insert("Name".to_owned(), json!("Long"));
+    for name in &names[..6] {
+        six.insert((*name).to_owned(), json!(long));
+    }
+    let row = t
+        .row(&t.ada, Value::Object(six.clone()))
+        .await
+        .expect("six of the longest texts fit");
+    let before = size_of(&t, row.id).await;
+    assert!(before <= MAX_ROW_BYTES, "{before}");
+    assert_code(
+        t.update(&t.ada, row.id, json!({"G": long})).await,
+        "limit_reached",
+    );
+    assert_eq!(size_of(&t, row.id).await, before, "nothing of it is kept");
+    let mut seven = six;
+    seven.insert("G".to_owned(), json!(long));
+    assert_code(t.row(&t.ada, Value::Object(seven)).await, "limit_reached");
+    assert_eq!(t.titles().await, ["Long"]);
+
+    // Changing a type that would make a row larger than the bound is refused too: a
+    // select's option, kept by id, becomes its long name as text.
+    let kind = t
+        .add(
+            "Kind",
+            spec(PropertyKind::Select),
+            Some(vec![option(&"k".repeat(MAX_NAME))]),
+        )
+        .await;
+    t.update(&t.ada, row.id, json!({"Kind": "k".repeat(MAX_NAME)}))
+        .await
+        .expect("chosen");
+    // Filled to a little under the bound: the seventh cell costs its key, its quotes and
+    // separators, 44 bytes, besides its text.
+    let room = MAX_ROW_BYTES - size_of(&t, row.id).await;
+    t.update(&t.ada, row.id, json!({"G": "x".repeat(room - 44 - 32)}))
+        .await
+        .expect("filled");
+    let filled = size_of(&t, row.id).await;
+    assert!(
+        (MAX_ROW_BYTES - 64..=MAX_ROW_BYTES).contains(&filled),
+        "{filled}"
+    );
+    assert_code(
+        retype(&t, &t.ada, kind, PropertyKind::Text).await,
+        "limit_reached",
+    );
+    assert_eq!(size_of(&t, row.id).await, filled);
+    t.reload().await;
+    let still = t
+        .tasks
+        .properties
+        .iter()
+        .find(|property| property.id == kind)
+        .map(|property| property.kind());
+    assert_eq!(still, Some(PropertyKind::Select));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn queries_read_whole_rows_only_for_the_part_they_answer_with(pool: PgPool) {
+    let mut t = team(pool).await;
+    let points = t.add("Points", spec(PropertyKind::Number), None).await;
+    let notes = t.add("Notes", spec(PropertyKind::Text), None).await;
+    for (title, n) in [("A", 3), ("B", 1), ("C", 2)] {
+        t.row(
+            &t.ada,
+            json!({"Name": title, "Points": n, "Notes": format!("About {title}")}),
+        )
+        .await
+        .expect("a row");
+    }
+    // Listed for a filter, sorts and grouping, rows hold only the cells they read.
+    let keys = [points.to_string()];
+    let listed = neon_store::databases::rows(&t.h.pool, t.db(), None, t.ada.user.id, Some(&keys))
+        .await
+        .expect("listed");
+    assert_eq!(listed.len(), 3);
+    for row in &listed {
+        let cells: Vec<&String> = row.cells.as_object().expect("cells").keys().collect();
+        assert_eq!(cells, [&keys[0]]);
+    }
+    // The part a query answers with has every value of its rows.
+    let answer =
+        t.h.databases
+            .query(
+                &t.ada,
+                t.db(),
+                QueryInput {
+                    sorts: Some(vec![SortSpec {
+                        property: "Points".into(),
+                        direction: Direction::Ascending,
+                    }]),
+                    limit: Some(2),
+                    ..QueryInput::default()
+                },
+            )
+            .await
+            .expect("queried");
+    let seen: Vec<(&str, Option<&Value>, Option<&Value>)> = answer
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.title.as_str(),
+                row.values.get(&points.to_string()),
+                row.values.get(&notes.to_string()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("B", Some(&json!(1.0)), Some(&json!("About B"))),
+            ("C", Some(&json!(2.0)), Some(&json!("About C"))),
+        ]
+    );
+    assert_eq!((answer.total, answer.next.as_deref()), (3, Some("2")));
 }

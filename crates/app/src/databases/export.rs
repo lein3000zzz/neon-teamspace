@@ -68,7 +68,8 @@ impl DatabaseService {
                 member_names(&mut conn, opened.database.workspace_id).await?
             };
             let batch = opened.context.page().trashed_with;
-            let listed = repo::rows(&mut *conn, database_id, batch, principal.user.id).await?;
+            let listed =
+                repo::rows(&mut *conn, database_id, batch, principal.user.id, None).await?;
             let rows: Vec<_> = listed
                 .iter()
                 .map(|listed| {

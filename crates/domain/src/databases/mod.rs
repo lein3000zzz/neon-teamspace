@@ -12,7 +12,9 @@
 //! Its views lay the rows out as a table, a board or a list, each with a filter, sorts, a
 //! grouping and the properties it shows. Filtering, sorting and grouping are done here,
 //! over the rows the caller may see: [`query::run`]. A database holds at most
-//! [`MAX_ROWS`] rows out of the trash, so that a query reads them all at once.
+//! [`MAX_ROWS`] rows out of the trash, and a row's values at most [`MAX_ROW_BYTES`], so
+//! that a query reads every row at once, with the values its filter, sorts and grouping
+//! need, in bounded memory.
 //!
 //! Who may see and change a database is the pages' rules': its rows take their access from
 //! it, as any subpage does.
@@ -36,6 +38,10 @@ pub use view::{GroupKey, Grouping, Layout, View, ViewProperty, ViewSettings, Vie
 
 /// The most rows a database holds out of the trash.
 pub const MAX_ROWS: usize = 10_000;
+
+/// The most bytes a row's stored values take together, as JSON text: 64 KiB, room for a
+/// text of the longest, [`MAX_TEXT`] characters of four bytes each, and more.
+pub const MAX_ROW_BYTES: usize = 64 * 1024;
 
 /// The most properties a database has.
 pub const MAX_PROPERTIES: usize = 100;

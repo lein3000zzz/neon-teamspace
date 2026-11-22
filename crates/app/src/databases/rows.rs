@@ -8,7 +8,7 @@ use neon_domain::databases::filter::{Context as Today, FilterSpec, Fit};
 use neon_domain::databases::query::{self, Group, Query};
 use neon_domain::databases::sort::{SortSpec, resolve_sorts};
 use neon_domain::databases::{
-    GroupKey, MAX_ROWS, Property, PropertyKind, Schema, Value, View, parse_unique_id,
+    GroupKey, MAX_ROW_BYTES, MAX_ROWS, Property, PropertyKind, Schema, Value, View, parse_unique_id,
 };
 use neon_domain::pages::{Page, PageAccess, PageKind, PageStyle, Placement};
 use neon_domain::workspaces::Action;
@@ -23,8 +23,8 @@ use uuid::Uuid;
 use super::events::{Event, Snapshot};
 use super::schema::member_names;
 use super::{
-    DatabaseError, DatabaseService, NO_DATABASE, NO_ROW, NO_VIEW, RowView, StoredRow, domain_row,
-    fitted_views, not_found, row_view,
+    DatabaseError, DatabaseService, NO_DATABASE, NO_ROW, NO_VIEW, RowView, StoredRow, cell_keys,
+    domain_row, fitted_views, names_people, not_found, row_view,
 };
 use crate::pages::{Context, PageError, access_of};
 
@@ -200,10 +200,32 @@ impl DatabaseService {
             };
             let grouping = settings.and_then(|settings| settings.grouping.clone());
 
+            // Every row is read with the values the filter, sorts and grouping need; those
+            // of the part answered with, in full, once it is known.
+            let needed: Vec<Uuid> = filter
+                .iter()
+                .flat_map(|filter| filter.conditions())
+                .map(|condition| condition.property)
+                .chain(sorts.iter().map(|sort| sort.property))
+                .chain(grouping.iter().map(|grouping| grouping.property))
+                .collect();
             let batch = opened.context.page().trashed_with;
-            let listed = repo::rows(&mut *conn, database_id, batch, principal.user.id).await?;
+            let keys = cell_keys(&opened.schema, &needed);
+            let listed = repo::rows(
+                &mut *conn,
+                database_id,
+                batch,
+                principal.user.id,
+                Some(&keys),
+            )
+            .await?;
             let members_hidden = opened.context.members_hidden();
-            let names = if members_hidden {
+            let by_name = sorts
+                .iter()
+                .map(|sort| sort.property)
+                .chain(grouping.iter().map(|grouping| grouping.property))
+                .any(|id| names_people(&opened.schema, id));
+            let names = if members_hidden || !by_name {
                 HashMap::new()
             } else {
                 member_names(&mut conn, opened.database.workspace_id).await?
@@ -226,24 +248,36 @@ impl DatabaseService {
                 offset: utc,
                 today: now.date(),
             };
-            let outcome = query::run(
-                &opened.schema,
-                Query {
-                    filter: filter.as_ref(),
-                    sorts: &sorts,
-                    grouping: grouping.as_ref(),
-                },
-                &rows,
-                &today,
-                &names,
-            );
+            let schema = opened.schema.clone();
+            // Up to every row of the database, filtered and sorted: off the async workers.
+            let outcome = tokio::task::spawn_blocking(move || {
+                query::run(
+                    &schema,
+                    Query {
+                        filter: filter.as_ref(),
+                        sorts: &sorts,
+                        grouping: grouping.as_ref(),
+                    },
+                    &rows,
+                    &today,
+                    &names,
+                )
+            })
+            .await
+            .map_err(|error| DatabaseError::Internal(format!("a query's work ended: {error}")))?;
             let total = outcome.entries.len();
             let end = offset.saturating_add(limit).min(total);
-            let shared = opened.context.chain[0].shared;
-            let rows = outcome
+            let part = outcome
                 .entries
                 .get(offset.min(total)..end)
-                .unwrap_or_default()
+                .unwrap_or_default();
+            let ids: Vec<Uuid> = part.iter().map(|entry| listed[entry.row].page.id).collect();
+            let cells: HashMap<Uuid, Json> = repo::cells_of_rows(&mut *conn, &ids)
+                .await?
+                .into_iter()
+                .collect();
+            let shared = opened.context.chain[0].shared;
+            let rows = part
                 .iter()
                 .map(|entry| {
                     let listed = &listed[entry.row];
@@ -256,7 +290,8 @@ impl DatabaseService {
                     let stored = StoredRow {
                         page: &listed.page,
                         number: listed.number,
-                        cells: &listed.cells,
+                        // A row deleted since shows the values it was listed with.
+                        cells: cells.get(&listed.page.id).unwrap_or(&listed.cells),
                     };
                     let mut view =
                         row_view(&opened.schema, database_id, stored, access, members_hidden);
@@ -333,7 +368,8 @@ impl DatabaseService {
             };
             pages_repo::insert(&mut *tx, &page).await?;
             let cells = Json::Object(changes.set);
-            repo::insert_row(&mut *tx, page.id, database_id, number, &cells).await?;
+            let bytes = repo::insert_row(&mut *tx, page.id, database_id, number, &cells).await?;
+            check_size(bytes)?;
             tx.commit().await?;
             info!(
                 user_id = %user,
@@ -433,16 +469,7 @@ impl DatabaseService {
                     repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
                 }
             }
-            repo::patch_cells(
-                &mut *tx,
-                row_id,
-                &Json::Object(changes.set),
-                &changes.remove,
-            )
-            .await?;
-            let data = repo::row(&mut *tx, row_id)
-                .await?
-                .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+            let cells = patch(&mut tx, row_id, &changes).await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -455,7 +482,7 @@ impl DatabaseService {
                 schema,
                 page,
                 number: data.number,
-                cells: data.cells,
+                cells,
             };
             self.publish(
                 data.database_id,
@@ -525,16 +552,7 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            repo::patch_cells(
-                &mut *tx,
-                row_id,
-                &Json::Object(changes.set),
-                &changes.remove,
-            )
-            .await?;
-            let data = repo::row(&mut *tx, row_id)
-                .await?
-                .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+            let cells = patch(&mut tx, row_id, &changes).await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -548,7 +566,7 @@ impl DatabaseService {
                 schema,
                 page,
                 number: data.number,
-                cells: data.cells,
+                cells,
             };
             self.publish(
                 database_id,
@@ -694,6 +712,36 @@ fn group_value(
             None => Ok(None),
         },
     }
+}
+
+/// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], and answers them as they are
+/// then.
+async fn patch(
+    conn: &mut PgConnection,
+    row_id: Uuid,
+    changes: &Changes,
+) -> Result<Json, DatabaseError> {
+    let patched = repo::patch_cells(
+        &mut *conn,
+        row_id,
+        &Json::Object(changes.set.clone()),
+        &changes.remove,
+    )
+    .await?
+    .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+    check_size(patched.bytes)?;
+    Ok(patched.cells)
+}
+
+/// Refuses a row whose values would take more than [`MAX_ROW_BYTES`].
+pub(crate) fn check_size(bytes: i64) -> Result<(), DatabaseError> {
+    if usize::try_from(bytes).unwrap_or(usize::MAX) > MAX_ROW_BYTES {
+        return Err(DatabaseError::TooMany(format!(
+            "a row's values take at most {} KiB together, as JSON: this would make them larger",
+            MAX_ROW_BYTES / 1024
+        )));
+    }
+    Ok(())
 }
 
 /// Refuses people who are not members of the workspace, and any to a guest, who knows no

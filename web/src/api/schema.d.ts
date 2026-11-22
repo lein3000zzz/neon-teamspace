@@ -860,7 +860,7 @@ export interface paths {
         head?: never;
         /**
          * Change a property
-         * @description Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true. The title keeps its type. Views that no longer fit leave out what does not.
+         * @description Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true, and one that would make a row's values larger than 64 KiB answers `limit_reached`. The title keeps its type. Views that no longer fit leave out what does not.
          */
         patch: operations["change_property"];
         trace?: never;
@@ -6530,7 +6530,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description name_taken; or lossy_change: the type would lose values, and confirm is not set. */
+            /** @description name_taken; lossy_change: the type would lose values, and confirm is not set; or limit_reached: a row's values would take more than 64 KiB. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6757,7 +6757,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description too_many_rows. */
+            /** @description too_many_rows; or limit_reached: the row's values would take more than 64 KiB. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8188,6 +8188,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description limit_reached: the row's values would take more than 64 KiB. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8253,6 +8262,15 @@ export interface operations {
             };
             /** @description not_found: the row, its database or the view. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description limit_reached: the row's values would take more than 64 KiB. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

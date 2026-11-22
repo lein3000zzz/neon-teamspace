@@ -3769,7 +3769,7 @@
           "databases"
         ],
         "summary": "Change a property",
-        "description": "Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true. The title keeps its type. Views that no longer fit leave out what does not.",
+        "description": "Its name, type with settings, or options, for those who edit the database. A type that loses values, such as text becoming numbers where some do not read as one, answers `lossy_change` with how many rows would lose theirs, unless `confirm` is true, and one that would make a row's values larger than 64 KiB answers `limit_reached`. The title keeps its type. Views that no longer fit leave out what does not.",
         "operationId": "change_property",
         "parameters": [
           {
@@ -3855,7 +3855,7 @@
             }
           },
           "409": {
-            "description": "name_taken; or lossy_change: the type would lose values, and confirm is not set.",
+            "description": "name_taken; lossy_change: the type would lose values, and confirm is not set; or limit_reached: a row's values would take more than 64 KiB.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4181,7 +4181,7 @@
             }
           },
           "409": {
-            "description": "too_many_rows.",
+            "description": "too_many_rows; or limit_reached: the row's values would take more than 64 KiB.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6174,6 +6174,16 @@
               }
             }
           },
+          "409": {
+            "description": "limit_reached: the row's values would take more than 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "An error.",
             "content": {
@@ -6268,6 +6278,16 @@
           },
           "404": {
             "description": "not_found: the row, its database or the view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "limit_reached: the row's values would take more than 64 KiB.",
             "content": {
               "application/json": {
                 "schema": {

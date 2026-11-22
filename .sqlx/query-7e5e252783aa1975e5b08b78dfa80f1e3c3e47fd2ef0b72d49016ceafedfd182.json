@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,\n                  p.created_by, p.last_edited_by, p.created_at, p.updated_at,\n                  p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,\n                  r.number, r.cells, s.access AS \"shared?\"\n           FROM database_rows r\n           JOIN pages p ON p.id = r.page_id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3\n           WHERE r.database_id = $1 AND p.trashed_with IS NOT DISTINCT FROM $2\n           ORDER BY p.position, p.id",
+  "query": "SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,\n                  p.created_by, p.last_edited_by, p.created_at, p.updated_at,\n                  p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,\n                  r.number,\n                  CASE WHEN $4::text[] IS NULL THEN r.cells\n                       ELSE COALESCE((SELECT jsonb_object_agg(k.key, r.cells -> k.key)\n                                      FROM unnest($4::text[]) AS k (key)\n                                      WHERE r.cells ? k.key), '{}'::jsonb)\n                  END AS \"cells!\",\n                  s.access AS \"shared?\"\n           FROM database_rows r\n           JOIN pages p ON p.id = r.page_id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3\n           WHERE r.database_id = $1 AND p.trashed_with IS NOT DISTINCT FROM $2\n           ORDER BY p.position, p.id",
   "describe": {
     "columns": [
       {
@@ -247,14 +247,9 @@
       },
       {
         "ordinal": 22,
-        "name": "cells",
+        "name": "cells!",
         "type_info": "Jsonb",
-        "origin": {
-          "Table": {
-            "table": "database_rows",
-            "name": "cells"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 23,
@@ -272,7 +267,8 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -298,9 +294,9 @@
       true,
       true,
       false,
-      false,
+      null,
       false
     ]
   },
-  "hash": "71d28215e7b57f317cf6a7c58dbb3999e787ef6770ae543517c896ef497ceeea"
+  "hash": "7e5e252783aa1975e5b08b78dfa80f1e3c3e47fd2ef0b72d49016ceafedfd182"
 }

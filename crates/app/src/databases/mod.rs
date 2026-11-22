@@ -12,10 +12,12 @@
 //!
 //! Filters, sorts and groups are worked out by the domain rules over every row of the
 //! database the caller may see, at most [`MAX_ROWS`](neon_domain::databases::MAX_ROWS), read
-//! at once. Values are plain data: each change sets the properties it names, and of two
-//! changes to one property, the last wins. Once a change commits it goes to everyone
-//! following the database, through the [`Broadcaster`](crate::sync::Broadcaster): see
-//! [`LiveDatabases`].
+//! at once with the values they name, off the async workers; the rows of the part answered
+//! with are then read whole, each at most
+//! [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES). Values are plain data: each
+//! change sets the properties it names, and of two changes to one property, the last wins.
+//! Once a change commits it goes to everyone following the database, through the
+//! [`Broadcaster`](crate::sync::Broadcaster): see [`LiveDatabases`].
 //!
 //! Every public use case runs in a span named `databases <operation>` and is measured as
 //! RED metrics of [`SUBSYSTEM`], counted as the page use cases are: a refusal is `ok`. No
@@ -340,6 +342,30 @@ pub(crate) fn values_json(schema: &Schema, row: &Row, prefix: Option<&str>) -> M
             ))
         })
         .collect()
+}
+
+/// The keys of the cells that hold the values of `properties`, those of them the schema
+/// keeps in cells, each once.
+pub(crate) fn cell_keys(schema: &Schema, properties: &[Uuid]) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    for id in properties {
+        let stored = schema
+            .get(*id)
+            .is_some_and(|property| property.kind().is_stored());
+        let key = id.to_string();
+        if stored && !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+/// Whether a property of the schema names people: whose names a sort or grouping by it
+/// reads.
+pub(crate) fn names_people(schema: &Schema, id: Uuid) -> bool {
+    schema
+        .get(id)
+        .is_some_and(|property| property.kind().names_people())
 }
 
 /// What a row is made of: its page, its number and its cells.

@@ -710,8 +710,9 @@ pub struct ChangeProperty {
     description = "Its name, type with settings, or options, for those who edit the database. A \
                    type that loses values, such as text becoming numbers where some do not read \
                    as one, answers `lossy_change` with how many rows would lose theirs, unless \
-                   `confirm` is true. The title keeps its type. Views that no longer fit leave \
-                   out what does not.",
+                   `confirm` is true, and one that would make a row's values larger than 64 KiB \
+                   answers `limit_reached`. The title keeps its type. Views that no longer fit \
+                   leave out what does not.",
     params(
         ("id" = Uuid, Path, description = "The database's id."),
         ("property_id" = Uuid, Path, description = "The property's id."),
@@ -723,7 +724,7 @@ pub struct ChangeProperty {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the database or the property.", body = ErrorBody),
-        (status = CONFLICT, description = "name_taken; or lossy_change: the type would lose values, and confirm is not set.", body = ErrorBody),
+        (status = CONFLICT, description = "name_taken; lossy_change: the type would lose values, and confirm is not set; or limit_reached: a row's values would take more than 64 KiB.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

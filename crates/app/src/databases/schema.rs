@@ -21,6 +21,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::events::{self, Event};
+use super::rows::check_size;
 use super::{
     DatabaseError, DatabaseService, DatabaseView, NO_PROPERTY, Opened, fitted_views, key_for,
     new_type, settings_type,
@@ -250,8 +251,10 @@ impl DatabaseService {
 
     /// Changes a property's name, kind, settings or options, for those who edit the
     /// database. Another kind converts each row's value, as the domain's conversions say;
-    /// a change that loses values needs `confirm`. Options left out are cleared from the
-    /// rows. Views that no longer fit the schema leave out what does not.
+    /// a change that loses values needs `confirm`, and one that would make a row's values
+    /// larger than [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES) is refused.
+    /// Options left out are cleared from the rows. Views that no longer fit the schema leave
+    /// out what does not.
     pub async fn update_property(
         &self,
         principal: &Principal,
@@ -460,7 +463,9 @@ pub(crate) async fn stored_values(
         .collect())
 }
 
-/// Writes the new value of a property on each row; `None` removes it.
+/// Writes the new value of a property on each row; `None` removes it. Refuses values that
+/// would make a row larger than [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES),
+/// which the transaction then undoes.
 pub(crate) async fn write_values(
     conn: &mut PgConnection,
     property_id: Uuid,
@@ -473,8 +478,8 @@ pub(crate) async fn write_values(
         .into_iter()
         .map(|(row, value)| (row, value.map_or(Json::Null, |value| value.to_json())))
         .unzip();
-    repo::set_cells_of(&mut *conn, property_id, &rows, &values).await?;
-    Ok(())
+    let largest = repo::set_cells_of(&mut *conn, property_id, &rows, &values).await?;
+    check_size(largest)
 }
 
 /// The display names of a workspace's members, by id.
