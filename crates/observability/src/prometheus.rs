@@ -14,9 +14,27 @@ pub(crate) const UPKEEP_INTERVAL: Duration = Duration::from_secs(5);
 /// them as summaries, which cannot be aggregated across instances.
 const FALLBACK_BUCKETS: Buckets = Buckets::Medium;
 
-/// A recorder whose duration histograms use each subsystem's bucket preset.
+/// Buckets of histograms of sizes, whose names end in `_bytes` as Prometheus names units:
+/// 64 bytes to 16 MiB, by fours.
+const SIZE_BUCKETS: [f64; 10] = [
+    64.0,
+    256.0,
+    1024.0,
+    4096.0,
+    16_384.0,
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+];
+
+/// A recorder whose duration histograms use each subsystem's bucket preset, and whose size
+/// histograms use [`SIZE_BUCKETS`].
 pub(crate) fn recorder(subsystems: &[(&str, Buckets)]) -> Result<PrometheusRecorder, BuildError> {
-    let mut builder = PrometheusBuilder::new().set_buckets(FALLBACK_BUCKETS.values())?;
+    let mut builder = PrometheusBuilder::new()
+        .set_buckets(FALLBACK_BUCKETS.values())?
+        .set_buckets_for_metric(Matcher::Suffix("_bytes".to_owned()), &SIZE_BUCKETS)?;
     for (subsystem, buckets) in subsystems {
         builder = builder.set_buckets_for_metric(
             Matcher::Full(red::duration_metric(subsystem)),
@@ -56,6 +74,22 @@ mod tests {
         assert!(output.contains(r#"neon_jobs_operations_in_flight{operation="send_email"} 0"#));
         assert!(output.contains("# HELP neon_jobs_operations_total"));
         assert!(output.contains("# TYPE neon_jobs_operation_duration_seconds histogram"));
+    }
+
+    #[test]
+    fn size_histograms_get_byte_buckets() {
+        let output = render(&[], || {
+            metrics::histogram!("neon_sync_message_size_bytes").record(300.0);
+        });
+
+        assert!(
+            output.contains(r#"neon_sync_message_size_bytes_bucket{le="256"} 0"#),
+            "{output}"
+        );
+        assert!(
+            output.contains(r#"neon_sync_message_size_bytes_bucket{le="1024"} 1"#),
+            "{output}"
+        );
     }
 
     #[test]
