@@ -10,6 +10,7 @@ use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
+use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
@@ -219,6 +220,27 @@ impl From<WorkspaceError> for ApiError {
             api.retry_after = Some(retry_after);
         }
         api
+    }
+}
+
+impl From<PageError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: PageError) -> Self {
+        let status = match &error {
+            PageError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            PageError::Forbidden(_) => StatusCode::FORBIDDEN,
+            PageError::NotFound(_) => StatusCode::NOT_FOUND,
+            PageError::Cycle
+            | PageError::TooDeep
+            | PageError::AlreadyShared
+            | PageError::AlreadyFavorite => StatusCode::CONFLICT,
+            PageError::Database(_) | PageError::Internal(_) => {
+                tracing::error!(error = %error, "a page use case failed");
+                return Self::internal();
+            }
+        };
+        Self::new(status, error.code(), error.to_string())
     }
 }
 

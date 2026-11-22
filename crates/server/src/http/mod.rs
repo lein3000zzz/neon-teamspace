@@ -8,8 +8,11 @@ mod auth;
 mod dto;
 mod error;
 mod extract;
+mod favorites;
 mod meta;
 mod openapi;
+mod page_shares;
+mod pages;
 mod principal;
 mod teamspaces;
 mod web;
@@ -27,6 +30,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use neon_app::auth::AuthService;
+use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::duration;
@@ -52,6 +56,7 @@ pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
+    pub pages: PageService,
     pub web: Arc<WebConfig>,
 }
 
@@ -145,7 +150,32 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(
             teamspaces::change_teamspace_role,
             teamspaces::remove_teamspace_member
-        ));
+        ))
+        .routes(routes!(pages::create_page))
+        .routes(routes!(
+            pages::get_page,
+            pages::update_page,
+            pages::delete_page
+        ))
+        .routes(routes!(pages::move_page))
+        .routes(routes!(pages::trash_page))
+        .routes(routes!(pages::restore_page))
+        .routes(routes!(pages::page_breadcrumbs))
+        .routes(routes!(pages::teamspace_pages))
+        .routes(routes!(pages::private_pages))
+        .routes(routes!(pages::shared_pages))
+        .routes(routes!(pages::workspace_trash))
+        .routes(routes!(
+            page_shares::list_page_shares,
+            page_shares::share_page
+        ))
+        .routes(routes!(
+            page_shares::change_page_share,
+            page_shares::remove_page_share
+        ))
+        .routes(routes!(favorites::list_favorites, favorites::add_favorite))
+        .routes(routes!(favorites::move_favorite))
+        .routes(routes!(favorites::remove_favorite));
     OpenApiRouter::with_openapi(openapi::base()).nest("/api/v1", routes)
 }
 
@@ -256,6 +286,8 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod pages_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -11,6 +11,7 @@ use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::mail::MailQueue;
+use neon_app::pages::PageService;
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::settings::Pinned;
@@ -58,6 +59,7 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope.clone())
         .build();
+    let pages = PageService::builder(pool.clone(), Arc::clone(&settings)).build();
     let auth = AuthService::builder(pool, Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope)
@@ -69,6 +71,7 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
         settings,
         auth,
         workspaces,
+        pages,
         web: Arc::new(web),
     }
 }

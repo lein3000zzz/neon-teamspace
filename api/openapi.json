@@ -10,6 +10,344 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/account/favorites": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List the caller's favorite pages",
+        "description": "Those they may see and that are out of the trash, in their order.",
+        "operationId": "list_favorites",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Only the favorites of this workspace; those of every workspace when absent.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Add a favorite page",
+        "description": "A page the caller sees, out of the trash, placed among their favorites.",
+        "operationId": "add_favorite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFavorite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a placement beside a page that is not a favorite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_favorite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/favorites/{page_id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Remove a favorite",
+        "operationId": "remove_favorite",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "description": "The favorite page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: not among the caller's favorites.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/favorites/{page_id}/move": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Reorder a favorite",
+        "operationId": "move_favorite",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "description": "The favorite page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveFavorite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Moved."
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: not among the caller's favorites.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/account/invitations": {
       "get": {
         "tags": [
@@ -3170,6 +3508,1107 @@
         }
       }
     },
+    "/api/v1/pages/{id}": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "A page",
+        "description": "Its title, icon, cover, style and place, and what the caller may do with it. A page in the trash shows only to those who could edit it.",
+        "operationId": "get_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Delete a page for good",
+        "description": "Only a page in the trash, with everything under it, for those who could edit it. It cannot be undone.",
+        "operationId": "delete_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: it is not in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Change a page",
+        "description": "Changes what the body names, for those who edit the page, out of the trash.",
+        "operationId": "update_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views it and does not edit it, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/breadcrumbs": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "The way down to a page",
+        "description": "The pages above it that the caller sees, from the highest, then the page. A page shared with a guest starts their way down.",
+        "operationId": "page_breadcrumbs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Breadcrumbs"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/move": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Move a page",
+        "description": "Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. The pages moved take their access from their new place.",
+        "operationId": "move_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MovePage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: no place or several, a place in another workspace, or a placement beside a page that is not a sibling.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: the page or its new place.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "cycle: under itself or one of its subpages; or too_deep.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/restore": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Restore a page from the trash",
+        "description": "With the pages trashed along with it. It goes back under its parent, unless that is in the trash too: then to the top of its space, which the caller must be allowed to add pages to.",
+        "operationId": "restore_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/shares": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List who a page is shared with",
+        "description": "The shares on the page and on every page above it, which hold for it too. For everyone who sees the page but guests.",
+        "operationId": "list_page_shares",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The shares.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: a guest; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Share a page",
+        "description": "With a member or guest of its workspace, for the page and every page under it, by those who edit it, guests aside. It adds to what the person may do there already, never takes away.",
+        "operationId": "share_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The share.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Share"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: shared with the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller does not edit it, is a guest, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such page, or the person is not in its workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_shared: change that share instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/shares/{user_id}": {
+      "delete": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Remove a share",
+        "description": "A share set on this page; an inherited one goes from its own page. The person keeps what else lets them see the page.",
+        "operationId": "remove_page_share",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The account it is shared with.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Change what a share gives",
+        "description": "A share set on this page; an inherited one changes on its own page.",
+        "operationId": "change_page_share",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The account it is shared with.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeShare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The share.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Share"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such page, or no share of it with that account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/trash": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Move a page to the trash",
+        "description": "With the pages under it, for those who edit it. It stays there for `pages.trash_retention`, 30 days unless set otherwise, then is deleted for good.",
+        "operationId": "trash_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page, in the trash.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller does not edit it, or it is in the trash already; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/teamspaces/{id}/pages": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List a teamspace's pages",
+        "description": "Its pages out of the trash, as a tree, for everyone who may see the teamspace in full: a private one's for its members only. Guests get `not_found`; their pages are under `shared-pages`.",
+        "operationId": "teamspace_pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Pages in the part, 1 to 1000; 1000 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tree, or a part of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageTree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a limit or cursor out of bounds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspace-invite-links/join": {
       "post": {
         "tags": [
@@ -4827,6 +6266,340 @@
         ]
       }
     },
+    "/api/v1/workspaces/{id}/pages": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Create a page",
+        "description": "Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it.",
+        "operationId": "create_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: no place or several, a title or icon out of bounds, or a placement beside a page that is not a sibling.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, teamspace or parent, or none the caller may see.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too_deep: pages nest at most 100 levels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/private-pages": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List the caller's private pages",
+        "description": "Their private pages in the workspace, out of the trash, as a tree. Guests have none, and get `forbidden`.",
+        "operationId": "private_pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Pages in the part, 1 to 1000; 1000 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tree, or a part of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageTree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: a guest; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/shared-pages": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List the pages shared with the caller",
+        "description": "The pages of the workspace shared with the caller, out of the trash, each with the pages under it, as a tree: how guests find their pages. A shared page under another one shared with them shows under that one only. The pages shared are in the order they were made.",
+        "operationId": "shared_pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Pages in the part, 1 to 1000; 1000 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tree, or a part of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageTree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspaces/{id}/teamspaces": {
       "get": {
         "tags": [
@@ -5989,10 +7762,145 @@
           }
         ]
       }
+    },
+    "/api/v1/workspaces/{id}/trash": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List the workspace's trash",
+        "description": "The pages in the trash that the caller could edit, latest first: those trashed on their own, each standing for the pages that went with it.",
+        "operationId": "workspace_trash",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Pages in the part, 1 to 1000; 1000 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The trash, or a part of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrashList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AddFavorite": {
+        "type": "object",
+        "required": [
+          "page_id"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Placement",
+                "description": "Among the caller's favorites, `after` and `before` naming another favorite page;\n`\"last\"` when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "AddTeamspaceMember": {
         "type": "object",
         "required": [
@@ -6189,6 +8097,21 @@
           }
         }
       },
+      "Breadcrumbs": {
+        "type": "object",
+        "required": [
+          "pages"
+        ],
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Crumb"
+            },
+            "description": "The highest page above it the caller sees first, the page itself last."
+          }
+        }
+      },
       "ChangePassword": {
         "type": "object",
         "required": [
@@ -6219,6 +8142,18 @@
         },
         "additionalProperties": false
       },
+      "ChangeShare": {
+        "type": "object",
+        "required": [
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ShareAccess"
+          }
+        },
+        "additionalProperties": false
+      },
       "ChangeTeamspaceRole": {
         "type": "object",
         "required": [
@@ -6244,6 +8179,26 @@
           }
         },
         "additionalProperties": false
+      },
+      "Cover": {
+        "type": "string",
+        "description": "A cover drawn from the theme's tokens: a hue, or a gradient between two, at the\nlightness and chroma of the reader's palette and mode.",
+        "enum": [
+          "accent",
+          "accent-gradient",
+          "red",
+          "orange",
+          "yellow",
+          "green",
+          "teal",
+          "blue",
+          "violet",
+          "pink",
+          "sunrise",
+          "lagoon",
+          "aurora",
+          "dusk"
+        ]
       },
       "CreateApiToken": {
         "type": "object",
@@ -6355,6 +8310,86 @@
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "Member or guest."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatePage": {
+        "type": "object",
+        "properties": {
+          "cover": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cover"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An emoji or up to 16 characters of text."
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The page to put it under, in this workspace. Name this, `teamspace_id` or `private`."
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Placement",
+                "description": "`\"last\"` when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "private": {
+            "type": "boolean",
+            "description": "True to make it one of the caller's private pages."
+          },
+          "style": {
+            "$ref": "#/components/schemas/StyleChange"
+          },
+          "teamspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The teamspace to put it at the top of."
+          },
+          "title": {
+            "type": "string",
+            "description": "Up to 500 characters; empty when absent.",
+            "example": "Roadmap"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateShare": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ShareAccess"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A member or guest of the page's workspace, other than the caller."
           }
         },
         "additionalProperties": false
@@ -6536,6 +8571,29 @@
           "token"
         ]
       },
+      "Crumb": {
+        "type": "object",
+        "description": "A page on the way down to another.",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "DeleteWorkspace": {
         "type": "object",
         "required": [
@@ -6633,6 +8691,30 @@
             "description": "Each field that is wrong and why, when a request had several, such as settings."
           }
         }
+      },
+      "FavoriteList": {
+        "type": "object",
+        "required": [
+          "pages"
+        ],
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "description": "In the caller's order."
+          }
+        }
+      },
+      "Font": {
+        "type": "string",
+        "description": "The font a page is set in.",
+        "enum": [
+          "default",
+          "serif",
+          "mono"
+        ]
       },
       "Invite": {
         "type": "object",
@@ -7262,6 +9344,240 @@
           "dark"
         ]
       },
+      "MoveFavorite": {
+        "type": "object",
+        "required": [
+          "placement"
+        ],
+        "properties": {
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "description": "Among the caller's other favorites, `after` and `before` naming one of them."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MovePage": {
+        "type": "object",
+        "properties": {
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The page to move it under, in the same workspace. Name this, `teamspace_id` or\n`private`."
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Placement",
+                "description": "`\"last\"` when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "private": {
+            "type": "boolean",
+            "description": "True to move it to the top of the caller's private pages."
+          },
+          "teamspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The teamspace of the workspace to move it to the top of."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Page": {
+        "type": "object",
+        "description": "A page, without its content, and what the caller may do with it.",
+        "required": [
+          "id",
+          "workspace_id",
+          "position",
+          "title",
+          "style",
+          "access",
+          "created_at",
+          "updated_at",
+          "content_updated_at"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PageAccess"
+          },
+          "content_updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its content last changed."
+          },
+          "cover": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cover"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_edited_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who changed it last, its content included."
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The member a private page belongs to; absent for a teamspace's page."
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The page it is under; absent at the top of its space."
+          },
+          "position": {
+            "type": "string",
+            "description": "Its key among its siblings, which sort by it, byte by byte.",
+            "example": "a0"
+          },
+          "style": {
+            "$ref": "#/components/schemas/PageStyle"
+          },
+          "teamspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The teamspace it is in; absent for a private page."
+          },
+          "title": {
+            "type": "string",
+            "description": "Up to 500 characters; empty shows as Untitled.",
+            "example": "Roadmap"
+          },
+          "trashed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Set while it is in the trash."
+          },
+          "trashed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "trashed_with": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "While it is in the trash: the page trashed with it, itself when it was trashed on\nits own. Restoring that page brings this one back too."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its title, icon, cover, style or place last changed."
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PageAccess": {
+        "type": "string",
+        "description": "What the caller may do with a page.",
+        "enum": [
+          "view",
+          "edit"
+        ]
+      },
+      "PageStyle": {
+        "type": "object",
+        "description": "How a page is set.",
+        "required": [
+          "font",
+          "small_text",
+          "full_width"
+        ],
+        "properties": {
+          "font": {
+            "$ref": "#/components/schemas/Font"
+          },
+          "full_width": {
+            "type": "boolean"
+          },
+          "small_text": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PageTree": {
+        "type": "object",
+        "description": "A part of a tree.",
+        "required": [
+          "pages"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass it as `after` for the next part; absent on the last one."
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreePage"
+            },
+            "description": "Each page, then the pages under it, siblings in order: a page's parent comes before\nit, in this part or an earlier one."
+          }
+        }
+      },
       "Palette": {
         "type": "string",
         "description": "The colour set.",
@@ -7302,6 +9618,47 @@
             "format": "uuid"
           }
         }
+      },
+      "Placement": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "first"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "last"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "after"
+            ],
+            "properties": {
+              "after": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "before"
+            ],
+            "properties": {
+              "before": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ],
+        "description": "Where a page goes among its siblings: `\"first\"`, `\"last\"`, `{\"after\": id}` or\n`{\"before\": id}`, the id being a sibling's."
       },
       "Preferences": {
         "type": "object",
@@ -7759,6 +10116,73 @@
           "default"
         ]
       },
+      "Share": {
+        "type": "object",
+        "description": "A page shared with a member or guest.",
+        "required": [
+          "user",
+          "access",
+          "page_id",
+          "inherited",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ShareAccess"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "inherited": {
+            "type": "boolean",
+            "description": "Set on a page above the one listed, and holding here too; it changes there."
+          },
+          "page_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The page it is set on: the one listed, or a page above it."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user": {
+            "$ref": "#/components/schemas/Person"
+          }
+        }
+      },
+      "ShareAccess": {
+        "type": "string",
+        "description": "What a share gives.",
+        "enum": [
+          "can_view",
+          "can_edit"
+        ]
+      },
+      "ShareList": {
+        "type": "object",
+        "required": [
+          "shares"
+        ],
+        "properties": {
+          "shares": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Share"
+            },
+            "description": "The page's own first, then those of each page above it, each page's by name."
+          }
+        }
+      },
       "SignedIn": {
         "type": "object",
         "description": "A new session. Its token is only in the cookie.",
@@ -7782,6 +10206,35 @@
             "$ref": "#/components/schemas/User"
           }
         }
+      },
+      "StyleChange": {
+        "type": "object",
+        "description": "The parts of a page's style to set; each left out stays as it is, or takes its default\non a new page.",
+        "properties": {
+          "font": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Font"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "full_width": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "small_text": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "Teamspace": {
         "type": "object",
@@ -8001,6 +10454,84 @@
         },
         "additionalProperties": false
       },
+      "TrashList": {
+        "type": "object",
+        "description": "A part of a workspace's trash.",
+        "required": [
+          "pages"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass it as `after` for the next part; absent on the last one."
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "description": "Latest first. A page trashed with the pages under it stands for them."
+          }
+        }
+      },
+      "TreePage": {
+        "type": "object",
+        "description": "A page in a tree, as a sidebar shows it.",
+        "required": [
+          "id",
+          "title",
+          "child_count",
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PageAccess"
+          },
+          "child_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many pages are under it, out of the trash."
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The page it is under; absent at the top of its space, or of the pages shared with\nthe caller."
+          },
+          "teamspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "UiFont": {
         "type": "string",
         "description": "The interface's typeface.",
@@ -8029,6 +10560,39 @@
             "description": "The hue to be drawn in, 0 to 359; null goes back to the one the id hashes to.",
             "maximum": 359,
             "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdatePage": {
+        "type": "object",
+        "properties": {
+          "cover": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cover",
+                "description": "Null removes it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null removes it."
+          },
+          "style": {
+            "$ref": "#/components/schemas/StyleChange"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
@@ -8466,7 +11030,7 @@
     },
     {
       "name": "account",
-      "description": "The signed-in user's own account, and the invitations into workspaces waiting for them."
+      "description": "The signed-in user's own account, their favorite pages, and the invitations into workspaces waiting for them."
     },
     {
       "name": "workspaces",
@@ -8475,6 +11039,10 @@
     {
       "name": "teamspaces",
       "description": "A workspace's teamspaces and their members."
+    },
+    {
+      "name": "pages",
+      "description": "Pages and their trees, sharing, and the trash."
     },
     {
       "name": "admin",

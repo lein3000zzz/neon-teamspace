@@ -29,6 +29,7 @@ use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
+use neon_app::pages::{AccessChanges, NoListener, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
@@ -236,13 +237,20 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .build()
         .await
         .context("starting the auth service")?;
+    // Both services tell one listener whose access to pages may have changed. Nothing holds
+    // pages open yet, so nothing listens.
+    let access: Arc<dyn AccessChanges> = Arc::new(NoListener);
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
         .limiter(limiter)
+        .access_changes(Arc::clone(&access))
+        .build();
+    let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
+        .access_changes(access)
         .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
-    start_workspace_upkeep(shutdown, &workspaces);
+    start_workspace_upkeep(shutdown, &workspaces, &pages);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
@@ -260,6 +268,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             settings,
             auth,
             workspaces,
+            pages,
             web: Arc::new(web),
         },
         config.observability.tracing.trust_incoming,
@@ -336,10 +345,10 @@ fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
     );
 }
 
-/// Starts the hourly cleanup of ended invitations and invite links, which stops before the
-/// pool closes.
-fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService) {
-    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), CLEANUP_INTERVAL);
+/// Starts the hourly cleanup of ended invitations and invite links and of the pages' trash,
+/// which stops before the pool closes.
+fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pages: &PageService) {
+    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), pages.clone(), CLEANUP_INTERVAL);
     on_stop(
         shutdown,
         "workspace cleanup",
