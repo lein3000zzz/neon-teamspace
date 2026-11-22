@@ -695,6 +695,83 @@ async fn moving_within_a_place_reorders(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_share_moves_a_page_only_within_its_space(pool: PgPool) {
+    let t = team(pool).await;
+    let move_to = |who, page, to| t.h.pages.move_page(who, page, to, Placement::Last);
+    const SHARED_STAYS: &str = "a page shared with you moves only within its space: those in \
+                                its teamspace, or its owner, may move it elsewhere";
+
+    // Cy's private Diary, with Entry under it, shared with Dee to edit.
+    let diary = t.page(&t.cy, Location::Private, "Diary").await;
+    let entry = t.page(&t.cy, Location::Under(diary), "Entry").await;
+    t.share(&t.cy, diary, &t.dee, PageAccess::Edit).await;
+    for page in [diary, entry] {
+        for to in [Location::Private, Location::Teamspace(t.general)] {
+            assert_eq!(
+                assert_forbidden(move_to(&t.dee, page, to).await),
+                SHARED_STAYS
+            );
+        }
+    }
+    let dee_s = t
+        .page(&t.dee, Location::Teamspace(t.general), "Dee's")
+        .await;
+    assert_eq!(
+        assert_forbidden(move_to(&t.dee, entry, Location::Under(dee_s)).await),
+        SHARED_STAYS
+    );
+    assert_eq!(t.access(&t.cy, diary).await.ok(), Some(PageAccess::Edit));
+    assert_eq!(t.access(&t.cy, entry).await.ok(), Some(PageAccess::Edit));
+    // Within Cy's pages, under a page Dee edits, it moves.
+    let note = t.page(&t.dee, Location::Under(diary), "Note").await;
+    let moved = move_to(&t.dee, entry, Location::Under(note))
+        .await
+        .expect("moved");
+    assert_eq!(
+        moved.page.space,
+        Space::Private {
+            owner: t.cy.user.id
+        }
+    );
+
+    // A private teamspace's page shared with someone outside it stays in it.
+    let plan = t.page(&t.cy, Location::Teamspace(t.secret), "Plan").await;
+    t.share(&t.cy, plan, &t.dee, PageAccess::Edit).await;
+    t.share(&t.cy, plan, &t.gus, PageAccess::Edit).await;
+    for to in [Location::Teamspace(t.general), Location::Under(dee_s)] {
+        assert_eq!(
+            assert_forbidden(move_to(&t.dee, plan, to).await),
+            SHARED_STAYS
+        );
+    }
+    assert_not_found(t.access(&t.ada, plan).await);
+    // Nor does a guest with shares in both move one page under the other.
+    t.share(&t.dee, dee_s, &t.gus, PageAccess::Edit).await;
+    assert_eq!(
+        assert_forbidden(move_to(&t.gus, plan, Location::Under(dee_s)).await),
+        SHARED_STAYS
+    );
+    assert_not_found(t.access(&t.bob, plan).await);
+
+    // Those its space lets edit it move it elsewhere, and a share's holder may add their
+    // own pages under it.
+    let moved = move_to(&t.cy, plan, Location::Teamspace(t.open))
+        .await
+        .expect("moved");
+    assert_eq!(moved.page.space, Space::Teamspace(t.open));
+    let mine = t.page(&t.dee, Location::Private, "Mine").await;
+    let moved = move_to(&t.dee, mine, Location::Under(diary))
+        .await
+        .expect("moved");
+    assert_eq!(
+        moved.page.space,
+        Space::Private {
+            owner: t.cy.user.id
+        }
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn trashing_takes_the_subpages_and_restoring_brings_back_what_went_with_it(pool: PgPool) {
     let t = team(pool).await;
     let a = t.page(&t.dee, Location::Teamspace(t.general), "A").await;
@@ -886,8 +963,18 @@ async fn the_trash_is_purged_after_its_retention(pool: PgPool) {
     t.h.time.advance(Duration::from_secs(24 * 3600));
     t.h.pages.trash_page(&t.ada, recent).await.expect("trashed");
     t.h.time.advance(Duration::from_secs(25 * 3600));
+    t.h.changes.take();
 
     assert_eq!(t.h.pages.purge_trash().await.expect("purged"), 2);
+    assert_eq!(
+        t.h.changes.take(),
+        vec![AccessChange::Pages {
+            workspace_id: t.id,
+            page_id: old,
+            user_id: None,
+        }],
+        "what was trashed on its own is told, as its subtree is gone"
+    );
     assert_not_found(t.access(&t.ada, old).await);
     assert!(t.access(&t.ada, recent).await.is_ok());
     assert_eq!(t.teamspace_titles(&t.ada, t.general).await, ["Kept"]);
@@ -1333,6 +1420,12 @@ async fn every_change_that_may_alter_access_is_told(pool: PgPool) {
         .move_page(&t.ada, page, Location::Private, Placement::Last)
         .await
         .expect("moved");
+    // Placed elsewhere among the same siblings, it changes nobody's access.
+    t.page(&t.ada, Location::Private, "Sibling").await;
+    t.h.pages
+        .move_page(&t.ada, page, Location::Private, Placement::Last)
+        .await
+        .expect("reordered");
     t.h.pages.trash_page(&t.ada, page).await.expect("trashed");
     t.h.pages
         .restore_page(&t.ada, page)

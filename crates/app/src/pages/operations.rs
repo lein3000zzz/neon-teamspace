@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::{
     AccessChange, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, actor,
-    check_space,
+    check_space, is_guest,
 };
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
@@ -109,10 +109,11 @@ impl PageService {
                 page_id = %page.id,
                 "page created"
             );
-            // Whoever may add a page somewhere edits what is there.
+            // Whoever may add a page somewhere edits what is there, and sees it.
             Ok(PageView {
                 page,
                 access: PageAccess::Edit,
+                members_hidden: is_guest(actor(principal, role)),
             })
         })
         .await
@@ -147,8 +148,13 @@ impl PageService {
             } else {
                 PageAccess::View
             };
+            let members_hidden = is_guest(context.actor);
             let page = context.page().clone();
-            Ok(PageView { page, access })
+            Ok(PageView {
+                page,
+                access,
+                members_hidden,
+            })
         })
         .await
     }
@@ -198,7 +204,9 @@ impl PageService {
 
     /// Moves a page, with the pages under it, under another page, to the top of a
     /// teamspace or to the caller's private pages, placed among its new siblings. It needs
-    /// edit access to the page and to where it goes, and never goes under itself.
+    /// edit access to the page and to where it goes, and never goes under itself. Out of
+    /// its space, it needs edit access from the space itself: a share to edit moves a page
+    /// only within its space.
     pub async fn move_page(
         &self,
         principal: &Principal,
@@ -241,6 +249,9 @@ impl PageService {
                     (Space::Private { owner: user }, None)
                 }
             };
+            if space != source.page().space {
+                source.check(Action::ChangePageSpace)?;
+            }
             if parent_id.is_none() && 1 + height > MAX_DEPTH {
                 return Err(PageError::TooDeep);
             }
@@ -269,11 +280,14 @@ impl PageService {
                 space_id = %space.id(),
                 "page moved"
             );
-            self.changed(AccessChange::Pages {
-                workspace_id,
-                page_id: id,
-                user_id: None,
-            });
+            // Placed elsewhere among the same siblings, it gives nobody else access.
+            if parent_id != source.page().parent_id || space != source.page().space {
+                self.changed(AccessChange::Pages {
+                    workspace_id,
+                    page_id: id,
+                    user_id: None,
+                });
+            }
             moved.view()
         })
         .await

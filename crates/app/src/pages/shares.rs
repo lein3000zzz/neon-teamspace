@@ -21,11 +21,15 @@ pub struct ListedShare {
     pub person: Person,
     /// Set on a page above the one listed, so it holds here too; changed or removed there.
     pub inherited: bool,
+    /// The page it is set on, unless that is a page above that the caller may not see:
+    /// then only that it is inherited shows.
+    pub set_on: Option<Uuid>,
 }
 
 impl PageService {
     /// Who a page is shared with: on the page itself first, then on each page above it.
-    /// For everyone who sees the page but guests, who know no other member.
+    /// For everyone who sees the page but guests, who know no other member. A share set on
+    /// a page above that the caller may not see does not say which page.
     pub async fn shares(
         &self,
         principal: &Principal,
@@ -38,10 +42,17 @@ impl PageService {
             Ok(repo::on_chain(&mut *conn, page_id)
                 .await?
                 .into_iter()
-                .map(|listed| ListedShare {
-                    inherited: listed.depth > 0,
-                    share: listed.share,
-                    person: listed.person,
+                .map(|listed| {
+                    let seen = usize::try_from(listed.depth)
+                        .ok()
+                        .and_then(|depth| context.chain.get(depth))
+                        .is_some_and(|link| context.sees(link));
+                    ListedShare {
+                        inherited: listed.depth > 0,
+                        set_on: seen.then_some(listed.share.page_id),
+                        share: listed.share,
+                        person: listed.person,
+                    }
                 })
                 .collect())
         })
@@ -101,6 +112,7 @@ impl PageService {
                 user_id: Some(user_id),
             });
             Ok(ListedShare {
+                set_on: Some(share.page_id),
                 share,
                 person: member.person,
                 inherited: false,
@@ -145,6 +157,7 @@ impl PageService {
                 user_id: Some(user_id),
             });
             Ok(ListedShare {
+                set_on: Some(share.page_id),
                 share,
                 person: member.person,
                 inherited: false,

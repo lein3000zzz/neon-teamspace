@@ -12,7 +12,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::operations::{Target, in_workspace};
-use super::{Location, PageError, PageService, PageView};
+use super::{Location, PageError, PageService, PageView, actor, is_guest};
 
 /// A page to import, with the pages to import under it.
 #[derive(Debug, Clone, Default)]
@@ -98,6 +98,7 @@ impl PageService {
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
             let role = in_workspace(&mut tx, principal, workspace_id).await?;
+            let members_hidden = is_guest(actor(principal, role));
             repo::lock_tree(&mut *tx, workspace_id).await?;
             let Target {
                 space,
@@ -180,6 +181,7 @@ impl PageService {
                     made.push(PageView {
                         page,
                         access: PageAccess::Edit,
+                        members_hidden,
                     });
                 }
             }
