@@ -41,7 +41,8 @@ time it shows, and the page says so.
 
 Every link stays listed, newest first, with its state, **Open**, **Used up**, **Expired** or
 **Revoked**, its role, how many joined of how many, and when it was made and ends.
-**Revoke** stops an open one at once, after asking; those who joined with it stay. What
+**Revoke** stops an open one at once, after asking; those who joined with it stay. Its
+address leaves the page then, as it admits nobody any more. What
 opening a link looks like is in [Workspaces and teamspaces](/docs/guides/workspaces/#invite-links).
 
 ## Pending invitations

@@ -164,6 +164,25 @@ describe("invite links", () => {
     expect(api.changes).toEqual([]);
   });
 
+  it("takes a new link's address off the page once the link is revoked", async () => {
+    fakeWorkspaces();
+    const { user } = renderApp("/w/design/settings/members");
+
+    const form = within(await screen.findByRole("form", { name: "Invite links" }));
+    await user.click(form.getByRole("button", { name: "Make link" }));
+    expect(await screen.findByText("Invite link made: share it")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /^Revoke the invite link made/ }));
+    const dialog = within(
+      await screen.findByRole("alertdialog", { name: "Revoke this invite link?" }),
+    );
+    await user.click(dialog.getByRole("button", { name: "Revoke" }));
+
+    expect(await screen.findByText("Revoked")).toBeInTheDocument();
+    expect(screen.queryByText("Invite link made: share it")).toBeNull();
+    expect(screen.queryByLabelText("Invite link")).toBeNull();
+    expect(screen.getByRole("form", { name: "Invite links" })).toBeInTheDocument();
+  });
+
   it("lists links with their uses, copies a kept one again and revokes it", async () => {
     const api = fakeWorkspaces({ links: [keptLink] });
     const { user } = renderApp("/w/design/settings/members");
@@ -181,6 +200,8 @@ describe("invite links", () => {
     await user.click(dialog.getByRole("button", { name: "Revoke" }));
 
     expect(await screen.findByText("Revoked")).toBeInTheDocument();
+    // A revoked link's address admits nobody, so it is no longer there to copy.
+    expect(screen.queryByLabelText("Invite link")).toBeNull();
     expect(api.changes.map((change) => change.path)).toEqual([
       `${base}/invite-links/${keptLink.id}/revoke`,
     ]);

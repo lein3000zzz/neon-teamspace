@@ -54,7 +54,15 @@ export function InviteLinks() {
       {links.data !== undefined && links.data.length > 0 && (
         <ul className="grid gap-3">
           {links.data.map((link) => (
-            <LinkCard key={link.id} link={link} />
+            <LinkCard
+              key={link.id}
+              link={link}
+              onRevoked={() => {
+                if (created?.link.id === link.id) {
+                  setCreated(undefined);
+                }
+              }}
+            />
           ))}
         </ul>
       )}
@@ -205,7 +213,12 @@ function CreatedLinkNotice({
   );
 }
 
-function LinkCard({ link }: { link: InviteLink }) {
+/**
+ * A link with its uses. Its address, once shown, stays only while the link is
+ * open: a revoked, used up or expired link admits nobody, so there is nothing
+ * left to share.
+ */
+function LinkCard({ link, onRevoked }: { link: InviteLink; onRevoked: () => void }) {
   const workspace = useWorkspace();
   const revoke = useRevokeInviteLink(workspace.id);
   const reveal = useInviteLinkToken(workspace.id);
@@ -227,7 +240,7 @@ function LinkCard({ link }: { link: InviteLink }) {
         {open && !link.token_kept && (
           <p className="text-xs text-muted-foreground">{copy.notKept}</p>
         )}
-        {reveal.data !== undefined && (
+        {open && reveal.data !== undefined && (
           <CopyField label={copy.link} value={workspaceInviteLink(reveal.data)} />
         )}
         {reveal.isError && <ErrorNotice error={reveal.error} />}
@@ -265,7 +278,12 @@ function LinkCard({ link }: { link: InviteLink }) {
         onCancel={() => setConfirming(false)}
         onConfirm={() => {
           setConfirming(false);
-          revoke.mutate(link.id);
+          revoke.mutate(link.id, {
+            onSuccess: () => {
+              reveal.reset();
+              onRevoked();
+            },
+          });
         }}
       />
     </ItemCard>
