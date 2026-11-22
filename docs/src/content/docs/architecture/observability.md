@@ -68,14 +68,16 @@ Each subsystem times its operations the same way, with three metrics for **r**at
 | `neon_<subsystem>_operations_in_flight` | gauge | `operation` | Operations started and not yet finished. |
 
 `status` is `ok` or `error`. `operation` is a short, fixed name, never a value from a
-request, so the number of label sets stays small. Two subsystems record them:
+request, so the number of label sets stays small. These subsystems record them:
 
 | Subsystem | `operation` | Counted as `error` | Histogram buckets |
 |---|---|---|---|
 | `http`, the API | The method and the route template, such as `GET /api/v1/meta`. A request no route matches is `unmatched`, and an unknown method is `_OTHER`. | A 5xx answer, a timeout and a caught panic included, or a request dropped before its answer. A 4xx answer is `ok`. | 5 ms to 5 s |
 | `jobs`, the job queue | The job's kind, such as `mail.send`. | A run that leaves the job dead, because it failed permanently or on its last attempt, a run that panicked, and a run cancelled before it ended. A failed run that will be retried is `ok`. | 100 ms to 2 min |
+| `auth`, the account use cases | The use case, such as `login` or `create_invite`. | A failure of the server, such as a database that does not answer. A refusal, such as a wrong password, is `ok`. | 5 ms to 5 s |
+| `workspaces`, the workspace use cases | The use case, such as `create_workspace` or `accept_invitation`. | A failure of the server. A refusal of the rules, such as `last_owner` or `member_limit`, is `ok`. | 5 ms to 5 s |
 
-**Planned:** the same metrics for use cases, MCP tools and real-time sync.
+**Planned:** the same metrics for MCP tools and real-time sync.
 
 Timing an operation starts a guard. Finishing the guard records the outcome; a guard dropped
 without being finished, because the code returned early or the work was cancelled, counts as

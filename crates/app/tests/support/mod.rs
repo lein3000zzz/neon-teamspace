@@ -1,5 +1,5 @@
-//! What the auth tests share: a service on a fresh database with fakes for its ports, a
-//! clock that moves by hand, cheap password hashes, and the mail it queued.
+//! What the auth and workspace tests share: the services on a fresh database with fakes
+//! for their ports, a clock that moves by hand, cheap password hashes, and the mail queued.
 
 #![allow(dead_code, reason = "each test binary uses a part of it")]
 
@@ -10,15 +10,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use neon_app::auth::{AuthService, LoginInput};
+use neon_app::auth::{AuthService, LoginInput, ProfileUpdate};
 use neon_app::clock::ManualTime;
 use neon_app::crypto::{Argon2Params, Envelope, Keyring, PasswordHasher};
 use neon_app::jobs::Job;
 use neon_app::mail::{KIND, Mail, MailQueue, Message};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
+use neon_app::workspaces::{NewWorkspace, WorkspaceDetails, WorkspaceService};
 use neon_domain::auth::{Email, Principal, Role, User};
 use neon_domain::settings::{Pinned, Secret};
+use neon_domain::workspaces::WorkspaceRole;
 use serde_json::{Value as Json, json};
 use sqlx::{PgPool, Row as _};
 use time::OffsetDateTime;
@@ -40,6 +42,14 @@ pub const IP: &str = "203.0.113.7";
 
 pub fn secret(text: &str) -> Secret {
     Secret::new(text)
+}
+
+/// A change to one's own account that renames it alone.
+pub fn renaming(name: &str) -> ProfileUpdate {
+    ProfileUpdate {
+        display_name: Some(name.to_owned()),
+        ..ProfileUpdate::default()
+    }
 }
 
 /// 2026-11-22 12:00 UTC.
@@ -103,6 +113,7 @@ pub struct Harness {
     pub pool: PgPool,
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
+    pub workspaces: WorkspaceService,
     pub mail: MailQueue,
     pub limiter: Arc<ScriptedLimiter>,
     pub time: ManualTime,
@@ -163,6 +174,11 @@ impl Harness {
             options.public_url,
             time.clock(),
         );
+        let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+            .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
+            .envelope(options.envelope.clone())
+            .clock(time.clock())
+            .build();
         let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
             .password_params(options.params)
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
@@ -176,6 +192,7 @@ impl Harness {
             pool,
             settings,
             auth,
+            workspaces,
             mail,
             limiter,
             time,
@@ -201,6 +218,7 @@ impl Harness {
             display_name: email.local_part().to_owned(),
             email,
             role,
+            hue_override: None,
             email_verified_at: Some(now),
             disabled_at: None,
             created_at: now,
@@ -237,6 +255,45 @@ impl Harness {
     pub async fn admin(&self) -> Principal {
         self.account("admin@example.com", Role::Admin).await;
         self.sign_in("admin@example.com").await.0
+    }
+
+    /// A verified user's session.
+    pub async fn person(&self, email: &str) -> Principal {
+        self.account(email, Role::User).await;
+        self.sign_in(email).await.0
+    }
+
+    /// A workspace `owner` creates, named `name`.
+    pub async fn workspace(&self, owner: &Principal, name: &str) -> WorkspaceDetails {
+        self.workspaces
+            .create_workspace(
+                owner,
+                NewWorkspace {
+                    name: name.to_owned(),
+                    ..NewWorkspace::default()
+                },
+            )
+            .await
+            .expect("the workspace is created")
+    }
+
+    /// Brings `who` into a workspace with `role`: `by` invites them, and they accept.
+    pub async fn bring_in(
+        &self,
+        by: &Principal,
+        workspace_id: Uuid,
+        who: &Principal,
+        role: WorkspaceRole,
+    ) {
+        let sent = self
+            .workspaces
+            .invite(by, workspace_id, who.user.email.as_str(), role)
+            .await
+            .expect("invited");
+        self.workspaces
+            .accept_invitation(who, sent.invitation.id)
+            .await
+            .expect("accepted");
     }
 
     pub async fn scalar<T>(&self, query: &'static str) -> T

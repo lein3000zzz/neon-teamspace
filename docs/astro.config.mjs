@@ -91,11 +91,26 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts', 'guides/signing-in', 'guides/accounts'],
+          items: [
+            'guides/introduction',
+            'guides/concepts',
+            'guides/signing-in',
+            'guides/accounts',
+            'guides/workspaces',
+            'guides/workspace-rules',
+          ],
+        },
+        {
+          label: 'Workspace settings',
+          items: [
+            'workspace-settings/general',
+            'workspace-settings/members',
+            'workspace-settings/teamspaces',
+          ],
         },
         {
           label: 'Administration',
-          items: ['admin/users', 'admin/invites', 'admin/settings'],
+          items: ['admin/users', 'admin/invites', 'admin/workspaces', 'admin/settings'],
         },
         {
           label: 'Self-hosting',
@@ -108,7 +123,7 @@ export default defineConfig({
         },
         {
           label: 'Reference',
-          items: ['reference/settings', apiReference],
+          items: ['reference/settings', 'reference/permissions', apiReference],
         },
         {
           label: 'Architecture',

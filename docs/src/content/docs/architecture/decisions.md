@@ -168,7 +168,14 @@ anyone or close it. **Planned.**
 
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
 A workspace at a limit takes no more uploads or invitations, and its members go on editing.
-**Planned.**
+The member limit holds now; storage and agents follow with the features they count.
+
+**Instance admins do not enter workspaces.** Being an instance admin counts only for the
+instance's own work: accounts, settings, and the list of workspaces with their limits. Inside
+a workspace, an admin is whatever their membership makes them, so running the server never
+means reading the teams on it. The permission rules live in one pure function that every use
+case calls, with tests over every role, action and resource.
+[More](/docs/reference/permissions/).
 
 **English, on the web.** The interface is in English, with its strings in one place for
 translations to follow. It is a responsive web app. The desktop and mobile apps, **planned**,

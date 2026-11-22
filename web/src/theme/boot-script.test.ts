@@ -6,6 +6,9 @@ import {
   applyTheme,
   browserStorage,
   DEFAULT_PREFERENCES,
+  FALLBACK_ACCENT_HUE,
+  FOLLOWED_HUE_KEY,
+  loadFollowedHue,
   loadPreferences,
   resolveMode,
   STORAGE_KEY,
@@ -25,26 +28,40 @@ function snapshot(element: HTMLElement) {
   };
 }
 
-const cases: [string, string | null][] = [
-  ["nothing stored", null],
+/** What is stored: the theme, and the hue of the workspace last in view. */
+const cases: [string, string | null, string | null][] = [
+  ["nothing stored", null, null],
   [
     "a full record",
     JSON.stringify({ palette: "warm", mode: "dark", accentHue: 0, uiFont: "mono" }),
+    null,
   ],
-  ["system mode", JSON.stringify({ palette: "soft", mode: "system", accentHue: 359 })],
-  ["invalid values", JSON.stringify({ palette: "neon", mode: "sepia", accentHue: 360, uiFont: 1 })],
-  ["a fractional hue", JSON.stringify({ accentHue: 12.5 })],
-  ["a hue as a string", JSON.stringify({ accentHue: "120" })],
-  ["an array", JSON.stringify(["warm"])],
-  ["broken JSON", "{palette:"],
+  ["system mode", JSON.stringify({ palette: "soft", mode: "system", accentHue: 359 }), null],
+  [
+    "invalid values",
+    JSON.stringify({ palette: "neon", mode: "sepia", accentHue: 360, uiFont: 1 }),
+    null,
+  ],
+  ["a fractional hue", JSON.stringify({ accentHue: 12.5 }), null],
+  ["a hue as a string", JSON.stringify({ accentHue: "120" }), null],
+  ["an array", JSON.stringify(["warm"]), null],
+  ["broken JSON", "{palette:", null],
+  ["a workspace's hue and no accent", JSON.stringify({ palette: "soft" }), "120"],
+  ["a workspace's hue and an own accent", JSON.stringify({ accentHue: 40 }), "120"],
+  ["a workspace's hue alone", null, "359"],
+  ["a workspace's hue past the wheel", null, "360"],
+  ["a workspace's hue as a word", null, "blue"],
 ];
 
 describe("public/theme.js", () => {
   describe.each(["light", "dark"] as const)("with a %s system scheme", (scheme) => {
-    it.each(cases)("agrees with preferences.ts for %s", (_, raw) => {
+    it.each(cases)("agrees with preferences.ts for %s", (_, raw, followed) => {
       mockColorScheme(scheme);
       if (raw !== null) {
         window.localStorage.setItem(STORAGE_KEY, raw);
+      }
+      if (followed !== null) {
+        window.localStorage.setItem(FOLLOWED_HUE_KEY, followed);
       }
 
       runBootScript();
@@ -52,9 +69,21 @@ describe("public/theme.js", () => {
 
       const expected = document.createElement("div");
       const preferences = loadPreferences(browserStorage());
-      applyTheme(expected, preferences, resolveMode(preferences.mode, scheme === "dark"));
+      applyTheme(
+        expected,
+        preferences,
+        resolveMode(preferences.mode, scheme === "dark"),
+        loadFollowedHue(browserStorage()),
+      );
       expect(fromScript).toEqual(snapshot(expected));
     });
+  });
+
+  it("draws someone without an accent of their own in the workspace's hue", () => {
+    mockColorScheme("light");
+    window.localStorage.setItem(FOLLOWED_HUE_KEY, "120");
+    runBootScript();
+    expect(snapshot(document.documentElement).hue).toBe("120");
   });
 
   it("applies the defaults when the browser refuses storage", () => {
@@ -66,7 +95,7 @@ describe("public/theme.js", () => {
       palette: DEFAULT_PREFERENCES.palette,
       mode: "dark",
       uiFont: DEFAULT_PREFERENCES.uiFont,
-      hue: String(DEFAULT_PREFERENCES.accentHue),
+      hue: String(FALLBACK_ACCENT_HUE),
     });
   });
 

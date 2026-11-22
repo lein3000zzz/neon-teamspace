@@ -23,6 +23,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   const root = document.documentElement;
   for (const name of root.getAttributeNames()) {
     root.removeAttribute(name);

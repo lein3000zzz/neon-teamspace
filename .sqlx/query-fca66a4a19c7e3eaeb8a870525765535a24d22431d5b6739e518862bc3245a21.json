@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_invite_links\n         SET revoked_at = COALESCE(revoked_at, $4), revoked_by = COALESCE(revoked_by, $3)\n         WHERE workspace_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fca66a4a19c7e3eaeb8a870525765535a24d22431d5b6739e518862bc3245a21"
+}

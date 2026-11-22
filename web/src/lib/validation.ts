@@ -14,6 +14,11 @@ export const MAX_NOTE = 500;
 export const MAX_TOKEN_NAME = 64;
 export const INVITE_CODE_LENGTH = { min: 8, max: 64 } as const;
 export const MAX_INVITE_USES = 1000;
+/** The longest name of a workspace or teamspace, in characters. */
+export const MAX_NAME = 100;
+/** The longest icon: an emoji, which may take several characters, or a short text. */
+export const MAX_ICON = 16;
+export const MAX_SLUG = 60;
 /** The furthest ahead an invite may end, as the server counts it: 365 days of 24 hours. */
 export const MAX_INVITE_LIFETIME_MS = 365 * 24 * 3600 * 1000;
 /** Room for a browser clock a little ahead of the server's. */
@@ -139,4 +144,40 @@ export function dayProblem(day: string, latest?: string): string | undefined {
     return copy.withinYear;
   }
   return undefined;
+}
+
+/** A workspace's or teamspace's name: 1 to 100 characters, on one line. */
+export function nameProblem(value: string): string | undefined {
+  const name = value.trim();
+  if (name === "") {
+    return copy.required;
+  }
+  return characters(name) > MAX_NAME || hasControl(name) ? copy.name : undefined;
+}
+
+/** Optional: blank is no icon. */
+export function iconProblem(value: string): string | undefined {
+  const icon = value.trim();
+  return characters(icon) > MAX_ICON || hasControl(icon) ? copy.icon : undefined;
+}
+
+/**
+ * A slug typed by hand, read in lowercase as the server does. The server also
+ * refuses the app's own paths and slugs shaped like ids, in words of its own.
+ */
+export function slugProblem(value: string): string | undefined {
+  const slug = value.trim().toLowerCase();
+  if (slug === "") {
+    return undefined;
+  }
+  return slug.length <= MAX_SLUG && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ? undefined : copy.slug;
+}
+
+/** A whole number from 0 up, or blank. */
+export function countProblem(value: string): string | undefined {
+  if (value.trim() === "") {
+    return undefined;
+  }
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? undefined : copy.integer;
 }

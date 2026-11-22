@@ -25,6 +25,9 @@ these docs, and the Docker images that serve them. Pages say what exists today a
   what is built so far.
 - **[Concepts](/docs/guides/concepts/)**: the instance, workspaces, teamspaces, pages,
   databases and views, members, guests, agents and integrations.
+- **[Workspaces and teamspaces](/docs/guides/workspaces/)**: the switcher, getting into a
+  workspace by invitation or invite link, and teamspaces; their rules and API are in
+  [Workspace rules and API](/docs/guides/workspace-rules/).
 
 ## Running an instance
 
@@ -36,6 +39,8 @@ these docs, and the Docker images that serve them. Pages say what exists today a
 
 - **[Settings](/docs/reference/settings/)**: every runtime setting, with its default and
   variable.
+- **[Permissions](/docs/reference/permissions/)**: who may do what in a workspace and its
+  teamspaces.
 - **[API](/docs/reference/api/)**: the HTTP API, from `api/openapi.json`.
 
 The API reference is generated from the server's description of its API as the docs build,

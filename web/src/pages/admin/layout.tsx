@@ -25,6 +25,7 @@ export function AdminLayout() {
           { to: "/admin", label: copy.tabs.users },
           { to: "/admin/invites", label: copy.tabs.invites },
           { to: "/admin/join-requests", label: copy.tabs.requests },
+          { to: "/admin/workspaces", label: copy.tabs.workspaces },
           { to: "/admin/settings", label: copy.tabs.settings },
         ]}
       />

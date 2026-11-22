@@ -1,6 +1,6 @@
 ---
 title: Security model
-description: How the server keeps passwords, sessions, tokens, codes, secret settings and queued mail, how it tells who a request is, and what it does against guessing and forgery.
+description: How the server keeps passwords, sessions, tokens, codes, secret settings and queued mail, how it tells who a request is and what it may do in a workspace, and what it does against guessing and forgery.
 ---
 
 This page covers accounts and secrets: what the database holds, how a request proves who it
@@ -15,11 +15,13 @@ the same features from the side of the people using them.
 | Session tokens | SHA-256 of the token. |
 | API tokens | SHA-256 of the token, and its first 10 characters to show in lists. |
 | Invite codes | SHA-256 of the code in lowercase, and a copy sealed with the instance's key when one is configured. |
+| Workspace invite links | SHA-256 of the link's token, and a copy sealed with the instance's key when one is configured. |
 | Mailed links | SHA-256 of the link's token. |
 | Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
 
-Session tokens, API tokens, made invite codes and mailed links are 32 random bytes from a
+Session tokens, API tokens, made invite codes, invite links and mailed links are 32 random
+bytes from a
 CSPRNG, written in base64url. A fast hash is enough for values that random, so they need no
 salt and no stretching. Someone who reads the database learns no token that works.
 
@@ -66,7 +68,8 @@ with, and its owner's role caps them: only an admin's token may have `admin`, an
 working there when its owner stops being an admin. Reading needs `read`, every other method
 `write`, and the admin routes `admin`. Changing a password, ending sessions, and making or
 revoking tokens need a browser session, so a leaked token cannot lock its owner out or make
-more tokens.
+more tokens. So do deleting a workspace and transferring its ownership, so a leaked token
+cannot take a team's work away.
 
 An admin's token does less than the admin at a browser. Creating an account with a password,
 changing a role, and disabling or enabling an account need a browser session; a token
@@ -96,9 +99,11 @@ answer, so their timing reveals nothing either:
 - asking for the verification link again,
 - asking to join.
 
-Two answers do say whether an address has an account. Signing up with a taken address
+Three answers do say whether an address has an account. Signing up with a taken address
 answers `email_taken`, which needs an invite while registration is by invite. Mailing an
-invite to such an address answers the same, for admins only.
+invite to such an address answers the same, for admins only. Inviting an address into a
+workspace answers `no_account` when it has none, for the workspace's owners and admins only,
+and each inviter's invitations are rate-limited.
 
 ## Rate limits
 
@@ -116,6 +121,8 @@ attempts, then one more every 30 seconds:
 | `join-confirm:ip:` | Confirming requests to join. |
 | `invite:ip:` | Looking invite codes up. |
 | `password:user:` | Password changes, by user. |
+| `workspace-invite:user:` | Invitations into workspaces by address, by inviter. |
+| `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -140,8 +147,8 @@ keys from `secrets.keys`. Each value gets its own random AES-256-GCM key, which 
 master key wraps. The sealed value names its master key, so keys rotate: put a new key first
 and keep the old ones listed until nothing sealed with them is left.
 
-Each sealed value is bound to where it belongs by its associated data, `invite:<id>` or
-`setting:<key>`. A sealed value copied to another row does not open there. A value that does
+Each sealed value is bound to where it belongs by its associated data, `invite:<id>`,
+`workspace-invite-link:<id>` or `setting:<key>`. A sealed value copied to another row does not open there. A value that does
 not open is skipped with a warning naming its row, never its contents.
 
 [Configuration](/docs/self-hosting/configuration/#secret-keys) shows how to make keys.
@@ -155,7 +162,8 @@ their query strings. Logs name accounts by id. A test runs every flow with loggi
 most verbose and checks that none of the secrets it used appears.
 
 The auth use cases are measured in the RED metrics of the `auth` subsystem, as
-`neon_auth_operations_total` and its siblings, by operation. A wrong password or an expired
+`neon_auth_operations_total` and its siblings, by operation, and the workspace use cases in
+those of `workspaces`. A wrong password or an expired
 link counts as `ok`, as a `4xx` answer does for HTTP, and leaves its span's status unset with
 the reason recorded. Only a failure of the server, such as a database that does not answer,
 counts as `error`.
@@ -182,9 +190,26 @@ The last admin who can sign in can be neither demoted nor disabled. Every change
 leave the instance without one locks the active admins' rows first, so concurrent changes
 run one at a time, and each sees the admins as the one before left them.
 
+## Workspaces
+
+Who may do what in a workspace is decided in one function of `neon-domain`, which every
+workspace use case calls before it acts; the [permissions](/docs/reference/permissions/)
+page lists its rules. What a caller may not know of, a workspace they are not in, a
+private teamspace they are not in, or to a guest another member, answers `404 not_found`,
+the same as for something that does not exist. The same function refuses API tokens what
+cannot be undone, deleting a workspace and transferring its ownership. Being an instance admin counts only for the instance admins' own routes,
+which show a workspace's name, owners, counts, limits and usage: inside a workspace, an
+instance admin is whatever their membership makes them, which may be nothing.
+
+Every change to a workspace's members locks the workspace's row first, and every change to
+a teamspace's members its row too, so concurrent changes run one at a time: a workspace
+keeps its last owner, and stays within its member limit, however many changes arrive at
+once.
+
 ## Cleanup
 
 Once an hour, the server removes expired sessions, mailed links used or expired a day
 before, accounts left unverified for 7 days, invites that expired or were revoked 30 days
 before, requests to join decided 30 days before, and unconfirmed requests a day after their
-link stopped working.
+link stopped working. It also removes workspace invitations answered, revoked or expired 30
+days before, and invite links that expired or were revoked 30 days before.

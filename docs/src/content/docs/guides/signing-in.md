@@ -73,19 +73,23 @@ address filled in.
 
 ## The account pages
 
-**Account**, in the sidebar, opens `/account`, in four parts:
+**Account**, in the sidebar, opens `/account`, in five parts:
 
 - **Profile**: the address, the role, and the display name, which can change. A blank name
   goes back to the part of the address before the `@`. Under it, the password: the current
   one and a new one, twice. Changing it signs out every other session.
+- **Invitations**: the invitations into workspaces waiting for an answer, to accept or
+  decline; see [Workspaces and teamspaces](/docs/guides/workspaces/#invitations).
 - **Sessions**: each browser signed in, with its address and when it was last active. Any
   of them can be signed out from here, this one included, or every other one at once.
 - **API tokens**: tokens for scripts and tools, each with a name, its scopes and an optional
   end date. A new token's secret shows once, with a button to copy it; after that only its
   first characters identify it. Revoking a token stops it at once.
-- **Appearance**: the palette, the mode, the accent hue and the interface font. A change
-  shows at once, is kept in this browser for the next first paint, and is saved to the
-  account, so signing in on another browser brings the same look.
+- **Appearance**: the palette, the mode, the accent hue and the interface font. The accent
+  comes **From the workspace** in view unless **My own** is chosen, which opens the slider
+  and presets, starting from the hue shown. A change shows at once, is kept in this browser
+  for the next first paint, and is saved to the account, so signing in on another browser
+  brings the same look.
 
 Admins also see **Admin** in the sidebar, which [Administration](/docs/admin/users/)
 describes.

@@ -69,8 +69,13 @@ accounts](/docs/guides/signing-in/) describes them.
   there only when `next` is a path of this origin.
 - A request that later answers 401 `unauthenticated` means the session ended, and does the
   same, whatever page sent it. A 401 for a wrong password is the form's to show.
-- A 403 `forbidden` makes the app ask again who is signed in, so a role taken away shows at
-  once; the admin pages then say they are not allowed.
+- A 403 `forbidden` makes the app ask again who is signed in, and read the list of
+  workspaces, with the roles in them, again, so a role taken away, on the instance or in a
+  workspace, shows at once; the admin pages then say they are not allowed. After a refused
+  change, every workspace's data is read again. After a refused read, only the data of a
+  workspace where the role did change: reading again what was just refused, with nothing
+  changed, would be refused again, and start the same again. A read already on its way is
+  waited for, not sent again.
 - A 429 is shown with the wait its `Retry-After` gives. Answers the server chose, any 4xx,
   are never retried.
 - One-time tokens in mailed links, and an invite link's code, are taken out of the address
@@ -84,7 +89,27 @@ accounts](/docs/guides/signing-in/) describes them.
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message
 beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
-module each for auth, the account and the admin pages.
+module each for auth, the account, the admin pages, workspaces and teamspaces.
+
+## Workspaces
+
+A workspace's pages hang under `/w/{slug}`. The app finds the slug in the user's own list of
+workspaces, `GET /api/v1/workspaces`, and asks for the rest by the workspace's id, as the
+API takes ids only. A slug not in the list is **Workspace not found**, whether no workspace
+has it or the user is not in it. [Workspaces and teamspaces](/docs/guides/workspaces/)
+describes the pages.
+
+- The workspace used last is kept in `localStorage`, by account and by the workspace's id,
+  which outlives a new slug; `/` opens it while the user is still in it.
+- Each workspace's data is cached under its own key, so a change to who is in it refreshes
+  all of it at once. A `404 not_found` from a workspace's data reads the list again, as the
+  user may have been removed from it.
+- `web/src/lib/workspace-rules.ts` repeats the server's [permissions](/docs/reference/permissions/)
+  only to decide which controls to show; the server decides.
+- An invite link's token is moved out of the address into the tab's `sessionStorage`, which
+  outlives signing in on the way, and is dropped once the link is used or turns out not to
+  work. A preview asks what the link admits to without using it, through
+  `POST /api/v1/workspace-invite-links/preview`.
 
 ## The theme model
 
@@ -93,13 +118,20 @@ Each person chooses three things, and the app's colours follow from them:
 - A **palette**: Nothing, Soft or Warm.
 - A **mode**: system, light or dark. System follows the operating system's setting, and
   changes with it.
-- An **accent hue**, from 0 to 359 degrees: on a free slider, or one of the presets around
-  the wheel. Blue, 250, is the default.
+- An **accent hue**: by default the hue of the workspace in view, so each workspace looks
+  like itself to everyone in it; or one of the person's own, from 0 to 359 degrees, on a
+  free slider or one of the presets around the wheel.
 
-The defaults are Nothing in system mode. The choice is kept with the account, at
-`/api/v1/account/preferences`, so it follows the person to every browser: signing in loads
-it, and each change saves it, once a slider drag stops. The browser keeps a copy too, which
-the next visit applies before the first paint, so a dark page never flashes white.
+The defaults are Nothing in system mode, with the workspace's accent. The choice is kept with
+the account, at `/api/v1/account/preferences`, so it follows the person to every browser:
+signing in loads it, and each change saves it, once a slider drag stops. An `accent_hue` of
+`null` there is the workspace's. The browser keeps a copy too, which the next visit applies
+before the first paint, so a dark page never flashes white.
+
+Without an accent of their own, a person sees the app in the hue of the workspace the sidebar
+shows: the one in view, or, on pages outside any such as their account's, the one they used
+last. In no workspace, it is a blue, hue 250. The browser keeps that hue for the next first
+paint too.
 
 ### Palettes
 
@@ -138,18 +170,23 @@ card's border. Everything else stays flat.
 
 ### Hues of things
 
-**Planned**, as the things they colour arrive. Users, agents, integrations, teamspaces,
-workspaces and databases each have a hue of their own, worked out from their ID:
+Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
+agents, integrations and databases will too, **planned**, as they arrive:
 
-1. Take the UUID's 16 bytes.
-2. Hash them with 32-bit FNV-1a.
+1. Take the UUID's 16 bytes, in order. Only the canonical form, 8-4-4-4-12 hex digits in
+   any case, counts as a UUID; any other ID is hashed as its UTF-8 text.
+2. Hash them with 32-bit FNV-1a, offset basis `0x811c9dc5`, prime `0x01000193`.
 3. The hue is the hash modulo 360.
 
 Every browser and the server get the same hue for the same ID, with nothing to choose, store
-or sync, and a person's cursor, avatar and mentions share one colour everywhere. Only the hue
-comes from the ID: lightness and chroma come from the palette and mode, as for the accent, so
-the contrast holds whatever hue an ID lands on. A teamspace can pin a hue of its own
-instead.
+or sync, and a person's cursor, avatar and mentions share one colour everywhere. The web
+app's `hueFor` and the server's `hue_for` share the test vectors in
+`web/src/lib/hue-vectors.json`, and both test suites check every one. Only the hue comes from
+the ID: lightness and chroma come from the palette and mode, as for the accent, so the
+contrast holds whatever hue an ID lands on.
+
+A user, workspace or teamspace can pin a hue of its own instead. The API sends both: `hue`,
+the one to draw, and `hue_override`, the pinned one when there is one.
 
 ## Fonts
 

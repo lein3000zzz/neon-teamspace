@@ -63,3 +63,81 @@ export function searchText(value: unknown): string | undefined {
 export function inviteLink(code: string): string {
   return `${window.location.origin}/register?invite=${encodeURIComponent(code)}`;
 }
+
+/** The address a workspace invite link's token opens. */
+export function workspaceInviteLink(token: string): string {
+  return `${window.location.origin}/workspace-invite/${encodeURIComponent(token)}`;
+}
+
+const HELD_INVITE_KEY = "neon.workspace-invite";
+const INVITE_RETURN_KEY = "neon.workspace-invite.return";
+
+/** This tab's session storage, or undefined where the browser refuses it. */
+function tabStorage(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Keeps a workspace invite link's token for this tab alone, while its visitor
+ * signs in, so the page can take it out of the address. Answers whether it is
+ * kept: where the browser refuses session storage, the token has to stay in
+ * the address for the way back from signing in.
+ */
+export function holdInviteToken(token: string): boolean {
+  try {
+    const storage = tabStorage();
+    storage?.setItem(HELD_INVITE_KEY, token);
+    return storage?.getItem(HELD_INVITE_KEY) === token;
+  } catch {
+    return false;
+  }
+}
+
+export function heldInviteToken(): string | undefined {
+  try {
+    return searchText(tabStorage()?.getItem(HELD_INVITE_KEY));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Forgets the token once the link is used, or turned out not to work. */
+export function releaseInviteToken() {
+  try {
+    tabStorage()?.removeItem(HELD_INVITE_KEY);
+    tabStorage()?.removeItem(INVITE_RETURN_KEY);
+  } catch {
+    // Nothing kept that could be read back.
+  }
+}
+
+/**
+ * Notes whether the held link's visitor still has to sign in, or up. Signing
+ * up ends on the app's start rather than on the link, so the start goes back
+ * to the link while this is noted, and only then: once the link has shown
+ * what it admits to, the visitor goes wherever they choose.
+ */
+export function noteInviteSignIn(pending: boolean) {
+  try {
+    if (pending) {
+      tabStorage()?.setItem(INVITE_RETURN_KEY, "1");
+    } else {
+      tabStorage()?.removeItem(INVITE_RETURN_KEY);
+    }
+  } catch {
+    // Without storage the token stays in the address, and the way back with it.
+  }
+}
+
+/** Whether the app's start should go back to the held link, as noteInviteSignIn says. */
+export function returnsToInvite(): boolean {
+  try {
+    return heldInviteToken() !== undefined && tabStorage()?.getItem(INVITE_RETURN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}

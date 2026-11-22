@@ -6,6 +6,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::email::Email;
+use crate::hue::hue_or_hashed;
 
 /// The longest display name, in characters.
 pub const MAX_DISPLAY_NAME: usize = 100;
@@ -48,6 +49,8 @@ pub struct User {
     pub email: Email,
     pub display_name: String,
     pub role: Role,
+    /// The hue they pinned for themselves, if any; see [`hue`](Self::hue).
+    pub hue_override: Option<u16>,
     /// Unset until the address is verified. Accounts admins make, and those that signed
     /// up with an invite mailed to them, are verified from the start.
     pub email_verified_at: Option<OffsetDateTime>,
@@ -74,6 +77,11 @@ impl User {
     /// An admin who can sign in. The instance always keeps at least one.
     pub fn is_active_admin(&self) -> bool {
         self.is_admin() && !self.is_disabled()
+    }
+
+    /// The hue they are drawn in: the one they pinned, or else their id's.
+    pub fn hue(&self) -> u16 {
+        hue_or_hashed(self.hue_override, self.id)
     }
 }
 
@@ -115,6 +123,7 @@ mod tests {
             email: email(),
             display_name: "Ada".into(),
             role,
+            hue_override: None,
             email_verified_at: None,
             disabled_at: disabled.then_some(now),
             created_at: now,
@@ -137,6 +146,16 @@ mod tests {
         assert!(!user(Role::Admin, true).is_active_admin());
         assert!(!user(Role::User, false).is_active_admin());
         assert!(!user(Role::User, false).is_verified());
+    }
+
+    #[test]
+    fn a_pinned_hue_wins_over_the_hashed_one() {
+        let mut ada = user(Role::User, false);
+        let hashed = crate::hue::hue_for_uuid(ada.id);
+
+        assert_eq!(ada.hue(), hashed);
+        ada.hue_override = Some(7);
+        assert_eq!(ada.hue(), 7);
     }
 
     #[test]

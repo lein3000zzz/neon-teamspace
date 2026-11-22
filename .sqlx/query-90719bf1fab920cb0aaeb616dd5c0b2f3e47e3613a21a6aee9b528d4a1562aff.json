@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_invite_links SET uses = uses + 1\n         WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2 AND uses < max_uses",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90719bf1fab920cb0aaeb616dd5c0b2f3e47e3613a21a6aee9b528d4a1562aff"
+}

@@ -101,8 +101,8 @@ still loads. Either way, new choices apply for the rest of the visit without bei
 ## Signing in and the API
 
 Every call to the server goes through `src/api`: `client.ts` is the typed `openapi-fetch` client,
-and `auth.ts`, `account.ts` and `admin.ts` hold the TanStack Query queries and mutations of each
-part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
+and `auth.ts`, `account.ts`, `admin.ts`, `workspaces.ts` and `teamspaces.ts` hold the TanStack
+Query queries and mutations of each part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
 cookie, sent because the app and the API share an origin; the same origin satisfies the server's
 check of `Origin` on requests that change something.
 
@@ -120,6 +120,27 @@ clears every one along with the previous user's queries (`forgetPrivateData` in
 Search values stay strings (`src/router.tsx`), and the one-time token of a mailed link, or an
 invite link's code, is taken out of the address as its page opens (`useLinkSecret` in
 `src/lib/links.ts`).
+
+## Workspaces
+
+A workspace's pages are under `/w/$slug` (`src/routes/_app/w`). Its layout finds the slug in the
+user's list of workspaces and hands the workspace down with `useWorkspace()`; the sidebar's
+switcher and teamspace list read the same list through `useCurrentWorkspace()`
+(`src/components/workspaces/workspace-context.tsx`). `/` opens the workspace used last in this
+browser, kept per account in `localStorage` (`src/lib/last-workspace.ts`).
+
+Each workspace's queries sit under one key, `keys.workspace(id)`, so a change to its members
+refreshes all of them. `createQueryClient` also reads the workspaces again after a 403, as a
+role may have changed, and the list after a workspace's data answers 404, as the user may have
+been removed. `src/lib/workspace-rules.ts` repeats the server's permission rules only to decide
+which controls a role sees; the server's answer still decides, and a refusal shows like any
+other error.
+
+A workspace invite link, `/workspace-invite/$token`, moves its token into the tab's
+`sessionStorage` and out of the address, so it survives the way through signing in or up; the
+start page sends the tab back to it while it is held. Leaving or deleting a workspace, or
+changing its slug, moves the page on from the mutation's own `onSuccess`, before the workspace
+leaves the cache: a page whose workspace is gone unmounts, and with it its `mutate()` callbacks.
 
 ## Content-Security-Policy
 

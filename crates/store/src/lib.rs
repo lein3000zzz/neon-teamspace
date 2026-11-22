@@ -12,7 +12,10 @@ pub mod join_requests;
 mod pool;
 pub mod sessions;
 pub mod settings;
+pub mod teamspaces;
 pub mod users;
+pub mod workspace_invites;
+pub mod workspaces;
 
 use sqlx::PgPool;
 use sqlx::migrate::{MigrateError, Migrator};

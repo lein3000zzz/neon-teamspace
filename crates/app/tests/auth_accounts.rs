@@ -10,7 +10,7 @@ use neon_app::ratelimit::Bucket;
 use neon_domain::auth::{Role, WeakPassword};
 use serde_json::json;
 use sqlx::PgPool;
-use support::{Harness, IP, Options, PASSWORD, secret};
+use support::{Harness, IP, Options, PASSWORD, renaming, secret};
 
 fn register(email: &str, code: Option<&str>) -> RegisterInput {
     RegisterInput {
@@ -665,13 +665,13 @@ async fn owners_rename_their_accounts_and_keep_their_preferences(pool: PgPool) {
 
     let renamed = h
         .auth
-        .update_profile(&ada, " Ada Lovelace ")
+        .update_profile(&ada, renaming(" Ada Lovelace "))
         .await
         .expect("renames");
     assert_eq!(renamed.display_name, "Ada Lovelace");
     let error = h
         .auth
-        .update_profile(&ada, &"x".repeat(101))
+        .update_profile(&ada, renaming(&"x".repeat(101)))
         .await
         .expect_err("too long");
     assert!(matches!(error, AuthError::InvalidInput(_)), "{error:?}");
@@ -680,7 +680,8 @@ async fn owners_rename_their_accounts_and_keep_their_preferences(pool: PgPool) {
         h.auth.preferences(&ada).await.expect("reads"),
         Preferences::default()
     );
-    let chosen = Preferences::new(Palette::Warm, Mode::Dark, 25, UiFont::Mono).expect("valid");
+    let chosen =
+        Preferences::new(Palette::Warm, Mode::Dark, Some(25), UiFont::Mono).expect("valid");
     h.auth.set_preferences(&ada, chosen).await.expect("saves");
     assert_eq!(h.auth.preferences(&ada).await.expect("reads"), chosen);
 }

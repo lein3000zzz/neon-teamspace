@@ -10,6 +10,8 @@ export const afterSectionNav =
 
 export type SectionLink = {
   to: NonNullable<LinkProps["to"]>;
+  /** The address's parameters, for a part under /w/{slug}. */
+  params?: LinkProps["params"];
   label: ReactNode;
 };
 
@@ -31,6 +33,7 @@ export function SectionNav({ label, links }: SectionNavProps) {
           <li key={String(link.to)}>
             <Link
               to={link.to}
+              {...(link.params === undefined ? {} : { params: link.params })}
               activeOptions={{ exact: true }}
               className="relative flex min-h-(--tap) items-center px-3 text-sm whitespace-nowrap text-muted-foreground transition-colors after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary after:opacity-0 after:shadow-glow hover:text-foreground aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100"
             >
