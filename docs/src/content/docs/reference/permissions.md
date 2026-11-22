@@ -116,7 +116,8 @@ With that access:
 | Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
 | Change its document | yes, with a token only by the `write` scope | no | hidden |
 | Change its title, icon, cover and style, and add or import pages under it | yes | no | hidden |
-| Move it, from where it is | yes | no | hidden |
+| Move it, from where it is, within its space | yes | no | hidden |
+| Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | hidden |
 | Move a page under it | yes | no | hidden |
 | Trash it, with the pages under it | yes | no | hidden |
 | See it in the trash, restore it, delete it for good | yes | hidden | hidden |
@@ -130,8 +131,18 @@ read-only. Restoring or deleting a
 page out of the trash answers `403 forbidden` too.
 
 Moving a page needs edit access to the page and to where it goes: the page it goes under,
-or the right to add pages at the top of a space, below. Restoring a page whose parent is in
-the trash needs that right too, at the top of its space.
+or the right to add pages at the top of a space, below. Out of its space, to another
+teamspace or to someone's private pages, it needs edit access from the space itself: being
+in the page's teamspace, or owning the private page. A share to edit lets its holder move
+the page only within its space, under pages they edit there, so a share never hands a
+member's private page, or a private teamspace's page, to anyone else. Restoring a page whose
+parent is in the trash needs the right to add pages at the top of its space.
+
+What shows of a page leaves out what the caller may not know. The page it is under is left
+out when they may not see that page, as for the top of the pages shared with them. A guest,
+who knows no other member, is not told who made, changed, trashed or owns a page. A list of
+who a page is shared with marks each share set on a page above it as inherited, and leaves
+out which page that is when the caller may not see it.
 
 ### The top of a space
 

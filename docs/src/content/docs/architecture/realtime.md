@@ -32,6 +32,7 @@ The server checks the request before it upgrades, in this order:
 | The request names an `Origin`, as browsers always do, and it is not the server's own: `server.public_url`, or the `Host` it was sent to when that is unset. | `403 forbidden` |
 | It authenticates as any API request does: the session cookie, or `Authorization: Bearer nw_…` with an API token that has the `read` scope, which every scope brings. | `401 unauthenticated`, or `403 insufficient_scope` |
 | The page exists, and the rules let the caller see it. | `404 not_found`, the same for a page that does not exist |
+| The caller has fewer than 20 connections open on this server, and the page fewer than 200. | `429 too_many_connections` |
 | It is a WebSocket upgrade. | `426 upgrade_required` |
 
 The origin check stops cross-site WebSocket hijacking. The check that guards requests that
@@ -64,12 +65,26 @@ sequenceDiagram
   S->>B: awareness
 ```
 
-Once the server applies an update, it sends what changed to every other client. It sends
+The server answers a sync step 1 with everything the client's state vector lacks, which may
+be the whole document, so it answers one at a time: one that comes while the answer to the
+last still waits to be sent is not answered again, as the client gets that answer and every
+update after it. A connection may send one a second, with bursts of 10; y-websocket sends
+one as it connects.
+
+Once the server applies an update, it sends what changed to every other client. An update
+that needs changes the server does not have, such as one whose author's earlier update never
+came, is not kept waiting for them: the server keeps what of it applies, drops the rest, and
+closes the connection with `4422`. y-websocket sends a client's updates in order, and one
+that reconnects syncs whatever is missing; a document never holds changes that do not
+show, which would grow it past its limit unseen. It sends
 each awareness change to every client, the sender too, as y-websocket's own server does: the
 browser renews its awareness state every 15 seconds and counts the echo as a sign of life.
 A client holds the awareness ids it introduced, at most 8, and the server drops entries it
-sends for anyone else's, so nobody can move another person's cursor. When a connection
-closes, its client's cursors go, and the others are told.
+sends for anyone else's, so nobody can move another person's cursor. An awareness state is
+at most 8 KiB of JSON, a cursor and a name; a larger one closes the connection with `1009`.
+A connection may send 20 awareness messages a second, with bursts of 100; past that, the
+server drops them rather than pass them on, and the next one tells the same. When a
+connection closes, its client's cursors go, and the others are told.
 
 ## Viewing and editing
 
@@ -86,15 +101,24 @@ closes the connection with `4403`.
 
 ## When access changes
 
-The page and workspace services tell the sync service whose access may have changed, once
-each change commits: a page moved, trashed, restored or deleted, a share added, changed or
-removed, someone joining or leaving a teamspace or getting another role there, a
-teamspace's new access or its deletion, a member's new role, leaving or removal, and a
-workspace's deletion. The sync service then asks the rules again for every open connection
-the change may concern, at once:
+The page, workspace and auth services tell the sync service whose access may have changed,
+once each change commits: a page moved to another place, trashed, restored, deleted or
+purged from the trash, a share added, changed or removed, someone joining or leaving a
+teamspace or getting another role there, a teamspace's new access or its deletion, a
+member's new role, leaving or removal, a workspace's deletion, and a person signing out,
+having a session or API token revoked, changing or resetting their password, or having
+their account disabled or given another role. A page placed elsewhere among the same
+siblings changes nobody's access, and tells nothing.
+
+The sync service then looks again, at once, at every open connection the change may
+concern: the person's, or everyone's, in the change's workspace, and for a change to a page,
+those on that page, a page under it, or a page that is gone. It looks at 8 at a time. For
+each, it reads the session or API token the connection opened with again, then asks the
+rules what its person may do now:
 
 | The person may now | The connection |
 |---|---|
+| Not use the session or token any more: it ended or expired, or the account was disabled | Closes with `4401`. |
 | Not see the page | Closes with `4404`. |
 | Only view it, having edited it | Stays open, read-only. The server sends an auth message, permission denied with the reason `read-only`. |
 | Edit it, having only viewed it | Stays open and may edit. The server sends an auth message, permission granted. |
@@ -103,6 +127,9 @@ y-websocket logs a denied auth message and leaves granted ones alone. The web ap
 **planned**, is to read them to switch between editing and viewing. A connection the rules let in just before a change
 committed, and that joined just after, looks again at its access as it joins, so no change
 slips between the two.
+
+Every five minutes the server looks so at every open connection, for what no change tells
+of: a session that expired, or a token past its expiry.
 
 ## Live documents
 
@@ -156,7 +183,11 @@ counts.
 | A message from a client | 4 MiB | The connection closes with `1009`. |
 | A document | 16 MiB, its snapshot and the updates logged after it | An update that adds anything closes the connection with `4413`. The server first saves a snapshot, which may show the document smaller than the estimate; updates that only delete are taken. |
 | Messages from one connection | 100 a second, with bursts of up to 1000 | The connection closes with `4429`. |
-| Messages waiting to be sent to a client | 512 | The client fell behind, and the connection closes with `4408`, so it holds up nobody else. |
+| Messages waiting to be sent to a client | 512, and 24 MiB of them; a message alone in the queue is taken whatever its size | The client fell behind, and the connection closes with `4408`, so it holds up nobody else. |
+| Sync step 1 messages from one connection | 1 a second, with bursts of 10; one at a time is answered | The connection closes with `4429`. |
+| An awareness state | 8 KiB | The connection closes with `1009`. |
+| Awareness messages from one connection | 20 a second, with bursts of 100 | They are dropped. |
+| Connections | 20 for one person on this server, 200 for one page | The upgrade is refused with `429`; one of several that came at once closes with `1013`. |
 | Sending one message | 30 seconds | The connection closes with `4408`. |
 | Silence | Nothing from the client, not even a pong, between two pings; the server pings every 30 seconds | The server drops the connection without a close. |
 | Awareness ids per connection | 8 | Entries for more are dropped. |
@@ -174,14 +205,18 @@ awareness echo keeps that from happening while the page is open.
 | `1009` | A message over the size limit. |
 | `1011` | The server could not load or save the document. |
 | `1012` | The server is restarting. Reconnect. |
+| `1013` | The person or the page has as many connections open as the server takes. |
+| `4401` | The session or API token the connection opened with ended, or its account was disabled. |
 | `4403` | A change from a connection that may only view the page. |
 | `4404` | The person may no longer see the page. |
 | `4408` | The client fell behind on what the server sent. |
 | `4413` | The change would make the document larger than the server keeps. |
+| `4422` | An update that needs changes the server does not have. Reconnect, to sync them. |
 | `4429` | Too many messages. |
 
-y-websocket reconnects after any close. A client should stop after `4403`, `4404` and
-`4413`, which reconnecting does not cure, and reconnect after the rest.
+y-websocket reconnects after any close. A client should stop after `4401`, which needs a new
+sign-in, and `4403`, `4404` and `4413`, which reconnecting does not cure, and reconnect after
+the rest.
 
 ## Stopping
 

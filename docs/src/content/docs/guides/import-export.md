@@ -103,7 +103,9 @@ out guests and those outside a private teamspace. Pages in the trash stay out. A
 trash exports for those who could edit it, with the pages that went to the trash with it.
 
 The content is what the page holds at that moment. For a page open in someone's editor it
-comes from the live document, edits not yet saved included.
+comes from the live document, edits not yet saved included. A block the server cannot read,
+such as one of a type the editor does not know, is left out with the blocks under it, as the
+editor leaves it out; the rest of the page, and every other page, exports.
 
 File names are the titles, with the characters Windows, macOS or Linux refuse as spaces,
 without dots or spaces at the ends, and cut to 100 bytes. A page without a title is
@@ -137,7 +139,8 @@ into markdown, and what markdown loses of the content is listed on
 | Pages one export holds | 5000 |
 | Markdown one export holds, before it is zipped | 128 MiB |
 | How long an import or export takes, after the upload | 20 seconds |
-| Imports and exports running at once on the server | 4 |
+| Imports and exports running at once on the server, once their file is uploaded | 4 |
+| Imports and exports one person runs at once, an import's upload included | 2 |
 
 The server reads a zip in its memory and never writes its files to disk. It refuses a zip
 whose entry would land outside the zip, with `..` or a path from the root of a disk, and it
@@ -147,7 +150,9 @@ stops reading the file at its limit. A page also holds at most 16 MiB of documen
 [live documents](/docs/architecture/realtime/#limits) do.
 
 Each person may import 10 times, then once more every 30 seconds, and export the same, counted
-apart. Past that the answer is `429 rate_limited` with `Retry-After`.
+apart. Past that the answer is `429 rate_limited` with `Retry-After`. The rules answer
+before any limit: a place or page the caller may not see is `404 not_found`, whatever the
+limits say.
 
 ## Errors
 
@@ -163,5 +168,5 @@ the file or limit at fault.
 | `409` | `too_deep` | The pages would nest deeper than 100 levels. |
 | `413` | `too_large` | Past one of the limits above. A body larger than the largest upload gets `payload_too_large`. |
 | `429` | `rate_limited` | Too many imports or exports. |
-| `503` | `busy` | Four imports and exports are running already. Try again after `Retry-After`. |
+| `503` | `busy` | Four imports and exports are running already, or the caller runs two. Try again after `Retry-After`. |
 | `503` | `timeout` | It took longer than 20 seconds. Import or export less at once. |
