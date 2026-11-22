@@ -106,6 +106,21 @@ describe("a workspace invite link", () => {
     expect(screen.queryByRole("button", { name: "Join Studio" })).toBeNull();
   });
 
+  it("names no role for someone who joined in between", async () => {
+    linkRoutes();
+    server.use(
+      http.post("/api/v1/workspace-invite-links/join", () =>
+        apiError(409, "already_member", "you are in this workspace already"),
+      ),
+    );
+    window.sessionStorage.setItem("neon.workspace-invite", LINK_TOKEN);
+    const { user } = renderApp("/workspace-invite");
+
+    await user.click(await screen.findByRole("button", { name: "Join Studio" }));
+    expect(await screen.findByText("You are in Studio already.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Studio" })).toBeInTheDocument();
+  });
+
   it("says when the link no longer works, and forgets it", async () => {
     linkRoutes(apiError(400, "invalid_invite_link", "this invite link does not work"));
     window.sessionStorage.setItem("neon.workspace-invite", LINK_TOKEN);

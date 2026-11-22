@@ -174,7 +174,12 @@ function JoinCard({
     return (
       <AuthCard
         title={title}
-        lede={copy.already(workspace.name, strings.roleNames[already ?? preview.role])}
+        lede={
+          // Joined in between: the link's role need not be the one they have.
+          already === undefined
+            ? copy.alreadyIn(workspace.name)
+            : copy.already(workspace.name, strings.roleNames[already])
+        }
         footer={<p>{copy.signedInAs(email)}</p>}
       >
         <Button size="lg" onClick={open}>

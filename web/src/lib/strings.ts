@@ -897,6 +897,7 @@ export const strings = {
     join: (name: string) => `Join ${name}`,
     joining: "Joining…",
     already: (name: string, role: string) => `You are in ${name} already, as ${role}.`,
+    alreadyIn: (name: string) => `You are in ${name} already.`,
     open: (name: string) => `Open ${name}`,
     brokenTitle: "This invite link does not work",
     brokenLede: "It may be used up, past its end or revoked. Ask whoever shared it for a new one.",
