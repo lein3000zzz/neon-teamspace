@@ -8,5 +8,6 @@ pub mod clock;
 pub mod crypto;
 pub mod jobs;
 pub mod mail;
+pub mod periodic;
 pub mod ratelimit;
 pub mod settings;

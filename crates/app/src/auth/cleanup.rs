@@ -1,19 +1,16 @@
 //! The hourly cleanup of what expired: sessions, mailed links, accounts that never
 //! verified, invites and requests to join past their retention.
 //!
-//! It is a periodic task of its own rather than a job: it needs no retries, since the next
-//! run catches up, and every server process may run it, as its deletes do not conflict.
+//! It is a [`Periodic`] task rather than a job.
 
 use std::time::Duration;
 
 use neon_domain::auth::{email_token, invite, join_request};
 use neon_store::{email_tokens, invites, join_requests, sessions, users};
-use tokio::task::JoinHandle;
-use tokio::time::MissedTickBehavior;
-use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use super::{AuthError, AuthService};
+use crate::periodic::Periodic;
 
 /// How often the cleanup runs.
 pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(3600);
@@ -70,38 +67,18 @@ impl AuthService {
 }
 
 /// The running cleanup: once at start, then every interval until stopped.
-pub struct Cleanup {
-    stop: CancellationToken,
-    task: JoinHandle<()>,
-}
+pub struct Cleanup(Periodic);
 
 impl Cleanup {
     pub fn spawn(auth: AuthService, interval: Duration) -> Self {
-        let stop = CancellationToken::new();
-        let task = tokio::spawn(run(auth, interval, stop.clone()));
-        Self { stop, task }
+        Self(Periodic::spawn("auth cleanup", interval, move || {
+            let auth = auth.clone();
+            async move { auth.cleanup().await.map(drop) }
+        }))
     }
 
     /// Stops, waiting for a run in progress, so the pool can close after it.
     pub async fn stop(self) {
-        self.stop.cancel();
-        if let Err(error) = self.task.await {
-            error!(%error, "the auth cleanup task failed");
-        }
-    }
-}
-
-async fn run(auth: AuthService, interval: Duration, stop: CancellationToken) {
-    let mut ticks = tokio::time::interval(interval);
-    ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    loop {
-        tokio::select! {
-            () = stop.cancelled() => return,
-            _ = ticks.tick() => {
-                if let Err(error) = auth.cleanup().await {
-                    warn!(%error, "the auth cleanup failed; the next run tries again");
-                }
-            }
-        }
+        self.0.stop().await;
     }
 }
