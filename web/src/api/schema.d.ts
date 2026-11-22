@@ -7562,7 +7562,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            /** @description too_large: more than 5000 pages, more than 10000 rows of databases besides them, or more than 128 MiB of markdown. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8341,7 +8341,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            /** @description too_large: more than 5000 pages, more than 10000 rows of databases besides them, or more than 128 MiB of markdown. */
             413: {
                 headers: {
                     [name: string]: unknown;

@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use metrics_util::MetricKind;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::pages::{Location, NewPage, PageError, Tree};
 use neon_app::ratelimit::{Bucket, RateLimiter};
@@ -1000,4 +1002,105 @@ async fn exports_read_what_is_live_and_round_trip(pool: PgPool) {
         .await
         .expect("exported");
     assert_eq!(unzipped(&second.bytes), unzipped(&first.bytes));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn rows_count_apart_from_the_pages_an_export_holds(pool: PgPool) {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _metrics = metrics::set_default_local_recorder(&recorder);
+    let t = team_with(
+        pool,
+        Limits {
+            max_export_pages: 2,
+            max_export_rows: 3,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let tasks =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewDatabase {
+                    title: "Tasks".to_owned(),
+                    ..NewDatabase::default()
+                },
+            )
+            .await
+            .expect("made");
+    let db = tasks.page.page.id;
+    let mut rows = Vec::new();
+    for title in ["One", "Two", "Three", "Four"] {
+        let values = serde_json::json!({"Name": title, "Status": "Done"});
+        let row =
+            t.h.databases
+                .create_row(
+                    &t.ada,
+                    db,
+                    NewRow {
+                        values: values.as_object().cloned().expect("an object"),
+                        ..NewRow::default()
+                    },
+                )
+                .await
+                .expect("a row");
+        rows.push(row.id);
+    }
+    // Four rows are more than an export holds besides its one page.
+    let many = t.transfer.export_page(&t.ada, db, true).await;
+    assert!(
+        matches!(&many, Err(TransferError::TooLarge(message)) if message.contains("3 rows")),
+        "{:?}",
+        many.err()
+    );
+    t.h.pages
+        .trash_page(&t.ada, rows[3])
+        .await
+        .expect("trashed");
+    // Three are not, however few pages it holds; each has its properties, read with the
+    // database's table at once.
+    snapshotter.snapshot();
+    let files = unzipped(&t.export(db, true).await.bytes);
+    let ran = operations(&snapshotter);
+    assert_eq!(
+        (ran.get("export_database"), ran.get("export_row")),
+        (Some(&1), None)
+    );
+    assert_eq!(
+        names(&files),
+        ["Tasks.md", "Tasks/One.md", "Tasks/Three.md", "Tasks/Two.md"]
+    );
+    assert_eq!(files["Tasks/Two.md"], "# Two\n\n- Status: Done\n");
+    // A row exported as a zip of its own has its properties too.
+    let alone = unzipped(&t.export(rows[0], true).await.bytes);
+    assert_eq!(
+        alone.into_iter().collect::<Vec<_>>(),
+        [("One.md".to_owned(), "# One\n\n- Status: Done\n".to_owned())]
+    );
+    assert_eq!(operations(&snapshotter).get("export_row"), Some(&1));
+}
+
+/// How many times each database use case ran since the last snapshot, which takes the
+/// counts it reads.
+fn operations(snapshotter: &Snapshotter) -> BTreeMap<String, u64> {
+    let mut ran = BTreeMap::new();
+    for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+        let (kind, key) = key.into_parts();
+        let operation = key
+            .labels()
+            .find(|label| label.key() == "operation")
+            .map(|label| label.value().to_owned());
+        if let (MetricKind::Counter, DebugValue::Counter(n), Some(operation)) =
+            (kind, value, operation)
+            && key.name() == "neon_databases_operations_total"
+            && n > 0
+        {
+            *ran.entry(operation).or_default() += n;
+        }
+    }
+    ran
 }
