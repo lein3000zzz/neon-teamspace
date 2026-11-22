@@ -22,4 +22,14 @@ shows it but cannot change it.
 
 | Key | Type | Default | Environment variable | Description |
 |---|---|---|---|---|
+| `auth.invite_email` | bool | `true` | `NEON_SETTINGS__AUTH__INVITE_EMAIL` | Admins can mail an invite to an address, naming themselves; only that address signs up with it, once, and counts as verified. Works while mail is set up. |
+| `auth.invite_ttl` | duration | `7d` | `NEON_SETTINGS__AUTH__INVITE_TTL` | How long a new invite works, unless the admin making it sets its end. Applies to invites made from now. |
+| `auth.min_password_length` | integer | `12` | `NEON_SETTINGS__AUTH__MIN_PASSWORD_LENGTH` | The fewest characters a new password has. Passwords set before keep working. |
+| `auth.password_reset` | bool | `true` | `NEON_SETTINGS__AUTH__PASSWORD_RESET` | Forgotten passwords can be reset with a link mailed to the account, working once for an hour. Setting the new password signs the account out everywhere. Works while mail is set up. |
+| `auth.registration` | enum: open, invite, closed | `invite` | `NEON_SETTINGS__AUTH__REGISTRATION` | Who may create an account: anyone (open), people with an invite an admin made (invite), or nobody but admins, who add accounts themselves (closed). |
+| `auth.request_denied_mail` | bool | `true` | `NEON_SETTINGS__AUTH__REQUEST_DENIED_MAIL` | Mail people whose request to join an admin denied, saying they may ask again in 30 days. Off, a denied request just closes. |
+| `auth.requests` | bool | `false` | `NEON_SETTINGS__AUTH__REQUESTS` | While registration is by invite, people without one can ask for it with a note. They confirm their address by a mailed link first; admins then approve, which mails them an invite, or deny. Works while mail is set up. |
+| `auth.session_absolute_ttl` | duration | `30d` | `NEON_SETTINGS__AUTH__SESSION_ABSOLUTE_TTL` | A browser session signs out this long after it started, however active it is. Applies to sessions started from now. |
+| `auth.session_idle_ttl` | duration | `7d` | `NEON_SETTINGS__AUTH__SESSION_IDLE_TTL` | A browser session unused this long signs out. Applies to sessions in use from now. |
+| `auth.verify_email` | bool | `false` | `NEON_SETTINGS__AUTH__VERIFY_EMAIL` | People who sign up themselves get a link by mail and can sign in once they open it; an account still unverified after 7 days is removed. Those who sign up with an invite mailed to them, and accounts admins make, count as verified. Works while mail is set up. |
 | `instance.name` | string | `Neon Workspace` | `NEON_SETTINGS__INSTANCE__NAME` | The instance's name, shown in the interface and in mail. |

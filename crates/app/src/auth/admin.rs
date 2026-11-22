@@ -1,0 +1,122 @@
+//! The admin's work on accounts.
+
+use neon_domain::auth::{Principal, Role, User};
+use neon_store::{sessions, users};
+use tracing::info;
+use uuid::Uuid;
+
+use super::{AuthError, AuthService, require_admin};
+
+/// The most accounts one page lists, and how many it lists unless told.
+pub const MAX_PAGE: i64 = 200;
+pub const DEFAULT_PAGE: i64 = 50;
+
+/// A page of accounts in the order they were made.
+#[derive(Debug, Clone)]
+pub struct UserPage {
+    pub users: Vec<User>,
+    /// Pass it as `after` for the next page; unset on the last one.
+    pub next: Option<Uuid>,
+}
+
+/// What an admin changes about an account. Each part left out stays as it is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UserUpdate {
+    pub role: Option<Role>,
+    pub disabled: Option<bool>,
+    /// True marks the address verified, the admin's word for it. An address cannot be
+    /// unverified.
+    pub email_verified: Option<bool>,
+}
+
+impl AuthService {
+    pub async fn list_users(
+        &self,
+        actor: &Principal,
+        after: Option<Uuid>,
+        limit: Option<i64>,
+    ) -> Result<UserPage, AuthError> {
+        self.observe("list_users", async {
+            require_admin(actor)?;
+            let limit = limit.unwrap_or(DEFAULT_PAGE);
+            if !(1..=MAX_PAGE).contains(&limit) {
+                return Err(AuthError::InvalidInput(format!(
+                    "a page lists 1 to {MAX_PAGE} accounts"
+                )));
+            }
+            let mut listed = users::list(self.pool(), after, limit + 1).await?;
+            let more = listed.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+            listed.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+            let next = more.then(|| listed.last().map(|user| user.id)).flatten();
+            Ok(UserPage {
+                users: listed,
+                next,
+            })
+        })
+        .await
+    }
+
+    /// Changes an account's role, whether it is disabled, or marks its address verified.
+    /// Disabling it signs it out everywhere. The last admin who can sign in can be neither
+    /// demoted nor disabled, so the instance never locks itself out: every such change
+    /// locks the active admins first, so changes run one at a time and each sees the
+    /// admins as the one before left them.
+    pub async fn update_user(
+        &self,
+        actor: &Principal,
+        id: Uuid,
+        update: UserUpdate,
+    ) -> Result<User, AuthError> {
+        self.observe("update_user", async {
+            require_admin(actor)?;
+            if update.email_verified == Some(false) {
+                return Err(AuthError::InvalidInput(
+                    "an address cannot be unverified".to_owned(),
+                ));
+            }
+
+            let now = self.now();
+            let mut tx = self.pool().begin().await?;
+            let admins = users::lock_active_admins(&mut *tx).await?;
+            let mut user = users::by_id_for_update(&mut *tx, id)
+                .await?
+                .ok_or(AuthError::NotFound("no such user"))?;
+            let was_active_admin = user.is_active_admin();
+
+            if let Some(role) = update.role {
+                user.role = role;
+            }
+            match update.disabled {
+                Some(true) if !user.is_disabled() => user.disabled_at = Some(now),
+                Some(false) => user.disabled_at = None,
+                _ => {}
+            }
+            if was_active_admin && !user.is_active_admin() && admins.len() <= 1 {
+                return Err(AuthError::LastAdmin);
+            }
+            user.updated_at = now;
+            users::update(&mut *tx, &user).await?;
+            if update.email_verified == Some(true) && !user.is_verified() {
+                users::set_email_verified(&mut *tx, user.id, now).await?;
+                user.email_verified_at = Some(now);
+            }
+            let ended = if user.is_disabled() {
+                sessions::delete_for_user(&mut *tx, user.id, None).await?
+            } else {
+                0
+            };
+            tx.commit().await?;
+            info!(
+                actor_id = %actor.user.id,
+                user_id = %user.id,
+                role = %user.role,
+                disabled = user.is_disabled(),
+                verified = user.is_verified(),
+                sessions_ended = ended,
+                "account updated"
+            );
+            Ok(user)
+        })
+        .await
+    }
+}
