@@ -572,9 +572,14 @@ async fn a_page_deleted_under_its_document_closes_it(pool: PgPool) {
         .await
         .expect("deleted");
 
-    // Nobody told the service; logging the next change finds the page gone.
-    ada.write("Too late").await.expect("taken");
-    assert_eq!(ada.closed().await, CloseReason::AccessLost);
+    // The delete's access change may close the document before the next change arrives;
+    // if it has not yet, logging that change finds the page gone. Either way the socket
+    // ends with AccessLost.
+    let reason = match ada.write("Too late").await {
+        Ok(()) => ada.closed().await,
+        Err(reason) => reason,
+    };
+    assert_eq!(reason, CloseReason::AccessLost);
     let admission = sync.admit(t.ada.clone(), t.page).await;
     assert!(admission.is_err());
     assert!(rows(&pool, t.page).await.is_empty());
