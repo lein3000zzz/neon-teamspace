@@ -532,15 +532,61 @@ pub async fn delete(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<boo
     Ok(result.rows_affected() == 1)
 }
 
-/// Deletes what went to the trash before `before`, with everything under it.
+/// A page the trash's purge deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Purged {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    /// Trashed on its own, rather than along with a page above it.
+    pub on_its_own: bool,
+}
+
+/// Deletes what went to the trash before `before`, with everything under it, and says
+/// what it deleted.
 pub async fn purge_trash(
     executor: impl PgExecutor<'_>,
     before: OffsetDateTime,
-) -> sqlx::Result<u64> {
-    let result = sqlx::query!("DELETE FROM pages WHERE trashed_at < $1", before)
-        .execute(executor)
-        .await?;
-    Ok(result.rows_affected())
+) -> sqlx::Result<Vec<Purged>> {
+    Ok(sqlx::query!(
+        "DELETE FROM pages WHERE trashed_at < $1 RETURNING id, workspace_id, trashed_with",
+        before
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|row| Purged {
+        id: row.id,
+        workspace_id: row.workspace_id,
+        on_its_own: row.trashed_with == Some(row.id),
+    })
+    .collect())
+}
+
+/// Which of `ids` are `root` or under it, or no longer exist: the pages a change to
+/// `root` and the pages under it may concern, of those open.
+pub async fn within(
+    executor: impl PgExecutor<'_>,
+    root: Uuid,
+    ids: &[Uuid],
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        r#"WITH RECURSIVE up (start, id, depth) AS (
+               SELECT id, id, 0 FROM pages WHERE id = ANY($2)
+             UNION ALL
+               SELECT u.start, p.parent_id, u.depth + 1
+               FROM up u JOIN pages p ON p.id = u.id
+               WHERE p.parent_id IS NOT NULL AND u.depth < $3
+           )
+           SELECT start AS "id!" FROM up WHERE id = $1
+           UNION
+           SELECT gone.id AS "id!" FROM unnest($2::uuid[]) AS gone (id)
+           WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = gone.id)"#,
+        root,
+        ids,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
 }
 
 /// The pages of a workspace trashed on their own, rather than along with a page above

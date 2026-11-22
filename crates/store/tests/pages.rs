@@ -316,3 +316,51 @@ async fn outlines_follow_the_tree_and_the_trash(pool: PgPool) {
         ["first"]
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_change_to_a_page_reaches_it_the_pages_under_it_and_those_gone(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let in_one = |parent: Option<&Page>, position: &str| {
+        page(
+            f.workspace,
+            Space::Teamspace(f.one),
+            parent.map(|p| p.id),
+            position,
+        )
+    };
+    let top = in_one(None, "a0");
+    let under = in_one(Some(&top), "a0");
+    let deeper = in_one(Some(&under), "a0");
+    let beside = in_one(None, "a1");
+    for made in [&top, &under, &deeper, &beside] {
+        pages::insert(&pool, made).await.expect("saved");
+    }
+    let gone = Uuid::from_u128(0x0193_a5b2_0000_7000_8000_0000_0000_00a1);
+    let open = [top.id, under.id, deeper.id, beside.id, gone];
+    let within = |root| {
+        let pool = pool.clone();
+        async move {
+            let mut found = pages::within(&pool, root, &open).await.expect("read");
+            found.sort();
+            found
+        }
+    };
+    let sorted = |mut ids: Vec<Uuid>| {
+        ids.sort();
+        ids
+    };
+
+    assert_eq!(
+        within(under.id).await,
+        sorted(vec![under.id, deeper.id, gone])
+    );
+    assert_eq!(
+        within(top.id).await,
+        sorted(vec![top.id, under.id, deeper.id, gone])
+    );
+    assert_eq!(within(beside.id).await, sorted(vec![beside.id, gone]));
+    assert_eq!(
+        pages::within(&pool, top.id, &[]).await.expect("read"),
+        Vec::<Uuid>::new()
+    );
+}
