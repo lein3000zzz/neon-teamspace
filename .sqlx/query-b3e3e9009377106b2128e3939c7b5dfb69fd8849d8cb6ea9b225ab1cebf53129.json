@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM page_updates WHERE page_id = $1 AND seq <= $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b3e3e9009377106b2128e3939c7b5dfb69fd8849d8cb6ea9b225ab1cebf53129"
+}
