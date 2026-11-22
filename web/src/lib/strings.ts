@@ -664,7 +664,7 @@ export const strings = {
       favorites: "Favorites",
       favoritesHint: "The pages you marked, in your order.",
       shared: "Shared with you",
-      sharedHint: "Pages someone shared with you, with the pages under them.",
+      sharedHint: "Pages shared with you from outside your teamspaces, with the pages under them.",
       noneShared: "None are yet.",
       teamspaces: "Your teamspaces",
       teamspacesHint: "The teamspaces you are in. Browse the others to join one.",
