@@ -42,6 +42,9 @@ lettre = { version = "0.11.24", default-features = false, features = [
 ] }
 metrics = "0.24.6"
 metrics-util = { version = "0.20.4", default-features = false, features = ["debugging"] }
+# The CommonMark and GFM parser of the block converter, without its command line and HTML
+# renderer.
+pulldown-cmark = { version = "0.13.6", default-features = false }
 rand = "0.10.4"
 rpassword = "7.5.5"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -72,6 +75,8 @@ url = "2.5.9"
 utoipa = "6.0.0"
 utoipa-axum = "0.3.0"
 uuid = { version = "1.29.3", features = ["v7"] }
+# Yjs in Rust: the pages' documents, which the editor in the browser edits with Yjs.
+yrs = "0.28.2"
 zeroize = "1.9.2"
 
 [workspace.lints.rust]
