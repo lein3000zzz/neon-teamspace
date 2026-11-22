@@ -196,8 +196,9 @@ packages and the browser.
 - [cargo-deny](https://crates.io/crates/cargo-deny), for the license and advisory checks:
   `cargo install cargo-deny --locked`, then `cargo deny fetch` once, which downloads the
   RustSec advisory database that `make check` reads offline.
-- [Bun](https://bun.sh), for the web app and these docs.
-- Docker, for Postgres.
+- [Bun](https://bun.sh), for the web app, these docs and the end-to-end tests.
+- Docker, for Postgres, and for the stack the end-to-end tests run against.
+- [Node.js](https://nodejs.org), which Playwright's test runner runs on, for `make e2e`.
 - GNU make. The 3.81 that macOS ships is enough.
 
 The steps below run the targets of the repository's `Makefile`, from the repository's root.
@@ -308,6 +309,18 @@ make docs-dev
 They are then at `http://localhost:4321/docs/`. `make docs-build` builds them into
 `docs/dist/`, and `docs/README.md` covers the rest.
 
+### The end-to-end tests' packages
+
+The tests in `e2e/` have packages of their own, which `make check` checks too, and drive a
+headless Chromium of their own. Install both once:
+
+```sh
+make e2e-install
+```
+
+`make e2e` then runs them against a throwaway stack of images built from the checkout; see
+[above](#the-end-to-end-tests).
+
 ### Checks
 
 ```sh
@@ -317,8 +330,9 @@ make check
 `make check` runs everything that needs neither Docker nor, once the crates, the packages and
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
 as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
-settings reference are current, the web app's and the docs' own checks, and the license and
-advisory checks. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+settings reference are current, the web app's, the docs' and the end-to-end tests' own
+checks, and the license and advisory checks, which read the packages installed in `web/`,
+`docs/` and `e2e/`. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
 `target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
 in `target/`, it could reuse queries last checked against the database instead of the cache.

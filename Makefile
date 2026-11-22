@@ -42,7 +42,7 @@ check-generated = set -e; tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; $(2) > "$
 
 .PHONY: help
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>"} /^## / {printf "\n%s\n", substr($$0, 4)} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>"} /^## / {printf "\n%s\n", substr($$0, 4)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 ## Build and run
 
