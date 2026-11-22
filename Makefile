@@ -11,6 +11,13 @@ API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
 # A fixed project name, so db-down stops what db-up started whatever COMPOSE_PROJECT_NAME says.
 DEV_COMPOSE   := docker compose -p neon-dev -f deployments/docker-compose.dev.yml
+# The whole stack: Postgres, the server and Caddy, with the settings in deployments/.env.
+STACK_COMPOSE := docker compose -f deployments/docker-compose.yml
+# The images built from this checkout, whatever deployments/.env names instead.
+LOCAL_IMAGES  := NEON_SERVER_IMAGE=neon-workspace-server:local NEON_WEB_IMAGE=neon-workspace-web:local
+# Compose reads the whole file, so starting or stopping services that do not use
+# POSTGRES_PASSWORD still needs one.
+NO_DATABASE   := POSTGRES_PASSWORD=unused
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
 # Where check builds, so that its offline build never reuses one checked against a database.
@@ -41,6 +48,26 @@ build: ## Compile the workspace, checking SQL against DATABASE_URL or, unset, th
 run: ## Run the server on :8080 with the variables from .env (after make db-up and make migrate)
 	@test -f .env || { echo "no .env: copy .env.example to .env"; exit 1; }
 	@set -a; . ./.env; set +a; $(CARGO) run -p neon-server -- serve
+
+## Docker stack (deployments/)
+
+.PHONY: up
+up: ## Build both images from this checkout and run the stack on http://127.0.0.1:3000 (Ctrl+C stops it)
+	@test -f deployments/.env || { echo "no deployments/.env: copy deployments/.env.example to deployments/.env and set POSTGRES_PASSWORD"; exit 1; }
+	$(LOCAL_IMAGES) NEON_DOMAIN= NEON_HTTP_PORT=127.0.0.1:3000 $(STACK_COMPOSE) up --build
+
+.PHONY: down
+down: ## Stop what make up and make obs-up started; the data stays in volumes
+	$(NO_DATABASE) $(STACK_COMPOSE) --profile mail --profile observability down
+
+.PHONY: obs-up
+obs-up: ## Start Grafana, Prometheus, Tempo, Loki and Pyroscope on http://127.0.0.1:3001, for make run
+	$(NO_DATABASE) $(STACK_COMPOSE) --profile observability up --detach --wait otel-lgtm
+	@echo "Grafana is on http://127.0.0.1:3001 and scrapes the admin listener of make run."
+	@echo "For traces and profiles too, add these to .env and restart make run:"
+	@echo "  NEON_OBSERVABILITY__TRACING__ENABLED=true"
+	@echo "  NEON_OBSERVABILITY__PROFILING__MODE=push"
+	@echo "  NEON_OBSERVABILITY__PROFILING__PUSH__SERVER_ADDRESS=http://127.0.0.1:4040"
 
 ## Database
 
