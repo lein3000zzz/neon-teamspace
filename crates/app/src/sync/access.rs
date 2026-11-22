@@ -1,21 +1,37 @@
 //! Hearing of access changes, and looking again at the connections they may concern.
 //!
-//! The page and workspace services tell an [`AccessListener`] whose access may have
+//! The page, workspace and auth services tell an [`AccessListener`] whose access may have
 //! changed, once each change commits. It hands the change to the sync service's watcher
-//! and returns at once. The watcher asks the rules again, for every open connection the
-//! change may concern, what its person may do with the page now, and the connection's
-//! document closes it, makes it read-only, or lets it edit again.
+//! and returns at once. The watcher finds the open connections the change may concern: of
+//! the person it names, or everyone's, in its workspace, and for a change to a page, on
+//! that page, a page under it, or a page that is gone. For each, at most
+//! [`RECHECKS_AT_ONCE`] at a time, it checks again that the session or token holds and
+//! asks the rules what its person may do with the page now, and the connection's document
+//! closes it, makes it read-only, or lets it edit again. Every
+//! [`Limits::revalidate_interval`](super::Limits::revalidate_interval) it looks so at every
+//! connection.
 
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
+use futures_util::StreamExt as _;
 use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior, interval_at};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
-use super::Inner;
+use super::broadcast::ClientId;
+use super::{Inner, Recheck};
 use crate::pages::{AccessChange, AccessChanges};
 
-/// Tells the sync service of access changes. Give it to the page and workspace services.
+/// How many connections the watcher looks at again at once.
+pub(crate) const RECHECKS_AT_ONCE: usize = 8;
+
+/// Tells the sync service of access changes. Give it to the page, workspace and auth
+/// services.
 pub struct AccessListener {
     changes: mpsc::UnboundedSender<AccessChange>,
     epoch: Arc<AtomicU64>,
@@ -55,9 +71,9 @@ impl AccessChanges for AccessListener {
 
 impl AccessChange {
     /// Whether the change may concern `user_id`'s access in `workspace_id`. Which pages a
-    /// change to a teamspace or a page's subtree reaches is the rules' to say again, so
-    /// every page of the workspace counts.
-    pub(crate) fn concerns(&self, workspace_id: uuid::Uuid, user_id: uuid::Uuid) -> bool {
+    /// change to a teamspace reaches is the rules' to say again, so every page of the
+    /// workspace counts; a change to a page is narrowed further by [`subtree`](Self::subtree).
+    pub(crate) fn concerns(&self, workspace_id: Uuid, user_id: Uuid) -> bool {
         let (workspace, user) = match *self {
             Self::Pages {
                 workspace_id,
@@ -72,36 +88,113 @@ impl AccessChange {
             | Self::Workspace {
                 workspace_id,
                 user_id,
-            } => (workspace_id, user_id),
+            } => (Some(workspace_id), user_id),
+            Self::Account { user_id } => (None, Some(user_id)),
         };
-        workspace == workspace_id && user.is_none_or(|user| user == user_id)
+        workspace.is_none_or(|workspace| workspace == workspace_id)
+            && user.is_none_or(|user| user == user_id)
+    }
+
+    /// The page whose subtree the change is to, if it is to one.
+    pub(crate) fn subtree(&self) -> Option<Uuid> {
+        match *self {
+            Self::Pages { page_id, .. } => Some(page_id),
+            Self::Teamspace { .. } | Self::Workspace { .. } | Self::Account { .. } => None,
+        }
     }
 }
 
-/// Looks again at the connections each change concerns, until the service stops. Changes
-/// that came together are looked at together, each connection once.
-pub(crate) async fn watch(inner: Arc<Inner>, mut changes: mpsc::UnboundedReceiver<AccessChange>) {
+/// Looks again at the connections each change concerns, and at every connection every
+/// `every`, until the service stops or is gone. Changes that came together are looked at
+/// together, each connection once. It holds the service only while it looks.
+pub(crate) async fn watch(
+    inner: Weak<Inner>,
+    stop: CancellationToken,
+    every: Duration,
+    mut changes: mpsc::UnboundedReceiver<AccessChange>,
+) {
+    let mut revalidate = interval_at(Instant::now() + every, every);
+    revalidate.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
-        let first = tokio::select! {
-            () = inner.stop.cancelled() => return,
+        let batch = tokio::select! {
+            () = stop.cancelled() => return,
             change = changes.recv() => match change {
-                Some(change) => change,
+                Some(change) => {
+                    let mut batch = vec![change];
+                    while let Ok(change) = changes.try_recv() {
+                        batch.push(change);
+                    }
+                    Some(batch)
+                }
                 None => return,
             },
+            _ = revalidate.tick() => None,
         };
-        let mut batch = vec![first];
-        while let Ok(change) = changes.try_recv() {
-            batch.push(change);
-        }
-        let concerned = inner.concerned(&batch);
+        let Some(inner) = inner.upgrade() else {
+            return;
+        };
+        let connections = match &batch {
+            Some(batch) => inner.concerned(batch).await,
+            None => inner.connections(|_, _| true),
+        };
         debug!(
-            changes = batch.len(),
-            connections = concerned.len(),
-            "access changed; looking again"
+            changes = batch.as_ref().map_or(0, Vec::len),
+            connections = connections.len(),
+            "looking again at connections' access"
         );
-        for connection in concerned {
+        recheck_all(&inner, connections).await;
+    }
+}
+
+/// Looks again at each connection, a few at a time.
+async fn recheck_all(inner: &Inner, connections: Vec<Recheck>) {
+    futures_util::stream::iter(connections)
+        .for_each_concurrent(RECHECKS_AT_ONCE, |connection| async move {
             if let Err(error) = inner.recheck(connection).await {
                 warn!(%error, "cannot look again at a connection's access; it keeps it for now");
+            }
+        })
+        .await;
+}
+
+impl Inner {
+    /// The open connections any of `changes` may concern, each once.
+    async fn concerned(&self, changes: &[AccessChange]) -> Vec<Recheck> {
+        let mut found: HashMap<ClientId, Recheck> = HashMap::new();
+        for change in changes {
+            let candidates = self
+                .connections(|workspace, principal| change.concerns(workspace, principal.user.id));
+            let candidates = match change.subtree() {
+                Some(root) if !candidates.is_empty() => self.within(root, candidates).await,
+                _ => candidates,
+            };
+            for connection in candidates {
+                found.entry(connection.client).or_insert(connection);
+            }
+        }
+        found.into_values().collect()
+    }
+
+    /// The connections on `root`, a page under it, or a page that is gone. When the pages
+    /// cannot be read, all of them, to be safe.
+    async fn within(&self, root: Uuid, connections: Vec<Recheck>) -> Vec<Recheck> {
+        let pages: Vec<Uuid> = connections
+            .iter()
+            .map(|connection| connection.page_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        match neon_store::pages::within(&self.pool, root, &pages).await {
+            Ok(under) => {
+                let under: HashSet<Uuid> = under.into_iter().collect();
+                connections
+                    .into_iter()
+                    .filter(|connection| under.contains(&connection.page_id))
+                    .collect()
+            }
+            Err(error) => {
+                warn!(%error, "cannot tell which open pages a change reaches; looking at all");
+                connections
             }
         }
     }

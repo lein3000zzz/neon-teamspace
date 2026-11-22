@@ -103,6 +103,9 @@ impl AuthService {
             self.tell_password_changed(&mut tx, &user, now).await?;
             tx.commit().await?;
             info!(%user_id, ip, sessions_ended = ended, "password reset");
+            if ended > 0 {
+                self.ended(user_id);
+            }
             Ok(user.email.as_str().to_owned())
         })
         .await

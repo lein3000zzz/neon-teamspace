@@ -1,5 +1,7 @@
 //! The port that hears when someone's access to pages may have changed, so that what
-//! holds pages open, such as live editors, can look again at what each person may do.
+//! holds pages open, such as live editors, can look again at what each person may do. The
+//! page and workspace services tell it of changes to the rules' facts, and the auth service
+//! of sessions and tokens that end.
 
 use uuid::Uuid;
 
@@ -29,6 +31,10 @@ pub enum AccessChange {
         workspace_id: Uuid,
         user_id: Option<Uuid>,
     },
+    /// Every page, for `user_id`, whose way in changed: a session or API token of theirs
+    /// ended, or their account was disabled or changed role. Whoever holds pages open for
+    /// them checks that the session or token they opened them with still holds.
+    Account { user_id: Uuid },
 }
 
 /// Hears of access changes, once each has committed. It runs on the use case's task, so it

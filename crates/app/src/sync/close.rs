@@ -28,11 +28,19 @@ pub enum CloseReason {
     DocumentTooLarge,
     /// More messages than the server takes in a while.
     TooManyMessages,
+    /// The person, or the page, has as many connections open as the server takes.
+    TooManyConnections,
+    /// The session or API token the connection opened with ended, or its account was
+    /// disabled.
+    SignedOut,
+    /// An update that needs changes the server does not have: y-websocket clients send
+    /// theirs in order, and one that reconnects syncs what is missing.
+    OutOfOrder,
 }
 
 impl CloseReason {
     /// Every reason, for docs and tests.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 13] = [
         Self::Restarting,
         Self::UnsupportedData,
         Self::InvalidMessage,
@@ -43,6 +51,9 @@ impl CloseReason {
         Self::TooSlow,
         Self::DocumentTooLarge,
         Self::TooManyMessages,
+        Self::TooManyConnections,
+        Self::SignedOut,
+        Self::OutOfOrder,
     ];
 
     /// The WebSocket close code.
@@ -53,10 +64,13 @@ impl CloseReason {
             Self::MessageTooBig => 1009,
             Self::ServerError => 1011,
             Self::Restarting => 1012,
+            Self::TooManyConnections => 1013,
+            Self::SignedOut => 4401,
             Self::ReadOnly => 4403,
             Self::AccessLost => 4404,
             Self::TooSlow => 4408,
             Self::DocumentTooLarge => 4413,
+            Self::OutOfOrder => 4422,
             Self::TooManyMessages => 4429,
         }
     }
@@ -74,6 +88,11 @@ impl CloseReason {
             Self::TooSlow => "the connection fell too far behind",
             Self::DocumentTooLarge => "the page would grow larger than the server keeps",
             Self::TooManyMessages => "too many messages: slow down",
+            Self::TooManyConnections => {
+                "too many connections open: close some pages, then reconnect"
+            }
+            Self::SignedOut => "your session or token ended: sign in again",
+            Self::OutOfOrder => "the update needs changes the server does not have: reconnect",
         }
     }
 
@@ -90,6 +109,9 @@ impl CloseReason {
             Self::TooSlow => "too_slow",
             Self::DocumentTooLarge => "document_too_large",
             Self::TooManyMessages => "too_many_messages",
+            Self::TooManyConnections => "too_many_connections",
+            Self::SignedOut => "signed_out",
+            Self::OutOfOrder => "out_of_order",
         }
     }
 }
@@ -117,7 +139,7 @@ mod tests {
             assert!(reason.message().len() <= 123, "{reason:?}");
             let code = reason.code();
             assert!(
-                matches!(code, 1003 | 1007 | 1009 | 1011 | 1012 | 4000..=4999),
+                matches!(code, 1003 | 1007 | 1009 | 1011..=1013 | 4000..=4999),
                 "{code}"
             );
         }

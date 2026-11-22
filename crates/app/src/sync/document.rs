@@ -23,9 +23,10 @@ use yrs::block::ClientID;
 use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update, XmlFragmentRef};
+use yrs::{Doc, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
 
-use super::broadcast::{ClientId, Outbox};
+use super::broadcast::{ClientId, Outbox, Queued};
+use super::limits::Bucket;
 use super::protocol::{self, encode};
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
 
@@ -53,9 +54,14 @@ pub(crate) enum Command {
         client: ClientId,
         access: Option<PageAccess>,
     },
-    /// The document as blocks, as it is now.
+    /// A connection must close, for this reason.
+    Close {
+        client: ClientId,
+        reason: CloseReason,
+    },
+    /// What of the document reads as blocks, as it is now.
     Read {
-        done: oneshot::Sender<Result<neon_blocks::Document, neon_blocks::ReadError>>,
+        done: oneshot::Sender<neon_blocks::Lenient>,
     },
 }
 
@@ -74,6 +80,11 @@ struct Client {
     outbox: Outbox,
     /// The awareness client ids its client holds: the cursors and presence it shows.
     awareness_ids: HashSet<ClientID>,
+    /// The rates of its sync step 1 messages and of its awareness messages.
+    sync_requests: Bucket,
+    awareness: Bucket,
+    /// The last answer to its sync step 1, until it is sent.
+    answer: Option<Queued>,
 }
 
 /// Runs a page's document until it unloads or the server stops: loads it, then serves it.
@@ -322,9 +333,10 @@ impl Document {
             Command::Message { client, message } => self.receive(client, &message).await,
             Command::Leave { client } => self.leave(client),
             Command::Access { client, access } => self.set_access(client, access),
+            Command::Close { client, reason } => self.close(client, reason),
             Command::Read { done } => {
                 let txn = self.awareness.doc().transact();
-                let _ = done.send(neon_blocks::read(&txn, &self.fragment));
+                let _ = done.send(neon_blocks::read_lenient(&txn, &self.fragment));
             }
         }
     }
@@ -351,6 +363,7 @@ impl Document {
             access = %joining.access,
             "client joined"
         );
+        let limits = &self.inner.limits;
         self.clients.insert(
             joining.id,
             Client {
@@ -358,6 +371,12 @@ impl Document {
                 access: joining.access,
                 outbox: joining.outbox,
                 awareness_ids: HashSet::new(),
+                sync_requests: Bucket::new(
+                    limits.sync_requests_per_second,
+                    limits.sync_request_burst,
+                ),
+                awareness: Bucket::new(limits.awareness_per_second, limits.awareness_burst),
+                answer: None,
             },
         );
         self.idle_since = None;
@@ -383,8 +402,7 @@ impl Document {
             metrics::counter!(MESSAGES, "kind" => protocol::kind(&message)).increment(1);
             let handled = match message {
                 Message::Sync(SyncMessage::SyncStep1(state_vector)) => {
-                    self.send_missing(id, &state_vector);
-                    Ok(())
+                    self.send_missing(id, &state_vector)
                 }
                 Message::Sync(SyncMessage::SyncStep2(update) | SyncMessage::Update(update)) => {
                     self.apply(id, &update).await
@@ -412,23 +430,43 @@ impl Document {
         }
     }
 
-    /// Answers a client's sync step 1 with what its state vector lacks.
-    fn send_missing(&self, id: ClientId, state_vector: &StateVector) {
-        let Some(client) = self.clients.get(&id) else {
-            return;
+    /// Answers a client's sync step 1 with what its state vector lacks, unless the answer
+    /// to its last one still waits to be sent: what that answer lacks, the client gets as
+    /// the updates sent after it. Each answer may be the whole document, so they are few.
+    fn send_missing(
+        &mut self,
+        id: ClientId,
+        state_vector: &StateVector,
+    ) -> Result<(), CloseReason> {
+        let Some(client) = self.clients.get_mut(&id) else {
+            return Ok(());
         };
+        if !client.sync_requests.take() {
+            return Err(CloseReason::TooManyMessages);
+        }
+        if client
+            .answer
+            .is_some_and(|answer| !client.outbox.was_taken(answer))
+        {
+            return Ok(());
+        }
         let update = self
             .awareness
             .doc()
             .transact()
             .encode_state_as_update_v1(state_vector);
-        client
+        client.answer = client
             .outbox
-            .send(encode(&Message::Sync(SyncMessage::SyncStep2(update))));
+            .send_tracked(encode(&Message::Sync(SyncMessage::SyncStep2(update))));
+        Ok(())
     }
 
     /// Applies a client's update, then tells the others what changed and logs it. From a
     /// client that only views the page, only an update that changes nothing is taken.
+    ///
+    /// What of an update needs changes the document does not have is dropped rather than
+    /// kept waiting for them, and closes the connection as out of order: kept, it would grow
+    /// the document unseen, past its size limit, as it changes nothing yet.
     async fn apply(&mut self, id: ClientId, data: &[u8]) -> Result<(), CloseReason> {
         let update = Update::decode_v1(data).map_err(|_| CloseReason::InvalidMessage)?;
         let Some(client) = self.clients.get(&id) else {
@@ -454,10 +492,11 @@ impl Document {
                 return Err(CloseReason::DocumentTooLarge);
             }
         }
-        let (applied, changed) = {
+        let (applied, changed, stranded) = {
             let mut txn = self.awareness.doc().transact_mut();
             let applied = txn.apply_update(update);
-            (applied, txn.encode_update_v1())
+            let stranded = txn.prune_pending().is_some();
+            (applied, txn.encode_update_v1(), stranded)
         };
         // Even an update that failed may have changed some of the document, which the
         // others and the log must have too.
@@ -471,7 +510,12 @@ impl Document {
         applied.map_err(|error| {
             warn!(client = %id, %error, "a client's update did not apply");
             CloseReason::InvalidMessage
-        })
+        })?;
+        if stranded {
+            warn!(client = %id, "a client's update needs changes the document lacks");
+            return Err(CloseReason::OutOfOrder);
+        }
+        Ok(())
     }
 
     /// Queues an update to be logged soon, or at once when enough wait.
@@ -495,15 +539,27 @@ impl Document {
     /// Applies a client's awareness update, for the awareness ids it holds and new ones up
     /// to its limit, then tells everyone, the client too, as y-websocket's server does:
     /// browsers renew their state every 15 seconds and take the echo as a sign of life.
+    /// Past its rate, an update is dropped; a state past its size closes the connection.
     fn update_awareness(
         &mut self,
         id: ClientId,
         mut update: AwarenessUpdate,
     ) -> Result<(), CloseReason> {
-        let limit = self.inner.limits.awareness_clients;
-        let Some(client) = self.clients.get(&id) else {
+        let limits = &self.inner.limits;
+        let limit = limits.awareness_clients;
+        if update
+            .clients
+            .values()
+            .any(|entry| entry.json.len() > limits.max_awareness_state)
+        {
+            return Err(CloseReason::MessageTooBig);
+        }
+        let Some(client) = self.clients.get_mut(&id) else {
             return Ok(());
         };
+        if !client.awareness.take() {
+            return Ok(());
+        }
         let mut held = client.awareness_ids.len();
         let holders = &self.holders;
         update
@@ -748,11 +804,11 @@ impl Document {
             return false;
         }
         if !self.gone {
-            let mut docs = self.inner.docs();
+            let mut registry = self.inner.registry();
             if !commands.is_empty() {
                 return false;
             }
-            Inner::remove(&mut docs, self.page_id, self.generation);
+            registry.remove(self.page_id, self.generation);
         }
         debug!("document unloaded");
         true
@@ -781,7 +837,9 @@ impl Document {
     }
 }
 
-/// A page's document from its snapshot and the updates logged after it.
+/// A page's document from its snapshot and the updates logged after it. What of them needs
+/// changes they do not hold is left out, as a live document leaves it out, so a document
+/// never holds what does not show.
 pub(crate) fn assemble(
     snapshot: Option<&Snapshot>,
     updates: &[LoggedUpdate],
@@ -794,6 +852,9 @@ pub(crate) fn assemble(
         }
         for logged in updates {
             txn.apply_update(Update::decode_v1(&logged.update)?)?;
+        }
+        if txn.prune_pending().is_some() {
+            warn!("a saved document holds changes that need others it lacks; left out");
         }
     }
     Ok(doc)

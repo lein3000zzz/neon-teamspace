@@ -3,7 +3,7 @@ use std::time::Duration;
 use neon_domain::duration;
 
 use crate::pages::PageError;
-use crate::sync::ContentError;
+use crate::sync::LoadError;
 
 /// Why an import or export refused, or failed.
 ///
@@ -26,11 +26,11 @@ pub enum TransferError {
     RateLimited { retry_after: Duration },
     #[error(transparent)]
     Page(#[from] PageError),
-    /// A page's document could not be read.
+    /// A page's saved document could not be read.
     #[error("page {page_id}: {error}")]
     Content {
         page_id: uuid::Uuid,
-        error: ContentError,
+        error: LoadError,
     },
     #[error("{0}")]
     Internal(String),

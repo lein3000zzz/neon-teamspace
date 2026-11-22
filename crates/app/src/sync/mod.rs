@@ -17,15 +17,20 @@
 //!   only view gets every update but may send none that changes the document; one that
 //!   does is closed with [`CloseReason::ReadOnly`]. When access changes, the
 //!   [`AccessListener`] tells the service, which looks again at each connection the change
-//!   may concern, at once: it closes those that lost the page, makes read-only those that
-//!   lost edit access, and lets edit again those that got it back.
+//!   may concern, at once: it checks that the session or token the connection opened with
+//!   still holds, closing it with [`CloseReason::SignedOut`] when not, then closes those
+//!   that lost the page, makes read-only those that lost edit access, and lets edit again
+//!   those that got it back. Every connection is looked at so again every
+//!   [`Limits::revalidate_interval`], for what no change tells of, such as a session
+//!   expiring.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
 //!   transaction that deletes the updates it takes in and records the page's search text,
 //!   from the document's blocks, and its latest change.
-//! - **Limits** bound messages, documents, each connection's rate and its queue: a client
-//!   that falls behind is disconnected rather than holding up the others. See [`Limits`].
+//! - **Limits** bound messages, documents, awareness states, each connection's rates and its
+//!   queue, and how many connections a person and a page may have: a client that falls
+//!   behind is disconnected rather than holding up the others. See [`Limits`].
 //!
 //! The connection's transport, the WebSocket with its pings, is the server's: it hands each
 //! message to its [`Connection`] and sends what the connection gives back.
@@ -55,9 +60,11 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
+use yrs::Transact as _;
 
+use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
 use document::{Command, Joining};
@@ -95,6 +102,7 @@ pub struct SyncService {
 pub(crate) struct Inner {
     pool: PgPool,
     pages: PageService,
+    auth: AuthService,
     broadcaster: Arc<dyn Broadcaster>,
     limits: Limits,
     clock: Clock,
@@ -102,8 +110,15 @@ pub(crate) struct Inner {
     /// Cancelled as the server stops.
     stop: CancellationToken,
     tasks: TaskTracker,
-    docs: Mutex<HashMap<Uuid, Slot>>,
+    registry: Mutex<Registry>,
     epoch: Arc<AtomicU64>,
+}
+
+/// The live documents, and how many connections each person has open.
+#[derive(Default)]
+struct Registry {
+    docs: HashMap<Uuid, Slot>,
+    users: HashMap<Uuid, usize>,
 }
 
 /// A live document in the registry.
@@ -116,11 +131,60 @@ struct Slot {
     connections: HashMap<ClientId, Principal>,
 }
 
+impl Registry {
+    /// Whether `user_id` may open one more connection, to `page_id`.
+    fn has_room(&self, limits: &Limits, user_id: Uuid, page_id: Uuid) -> bool {
+        let theirs = self.users.get(&user_id).copied().unwrap_or(0);
+        let page = self
+            .docs
+            .get(&page_id)
+            .map_or(0, |slot| slot.connections.len());
+        theirs < limits.connections_per_user && page < limits.connections_per_page
+    }
+
+    /// Takes a connection out of its document's slot, if it is in it.
+    fn unregister(&mut self, page_id: Uuid, generation: u64, client: ClientId) {
+        let taken = self
+            .docs
+            .get_mut(&page_id)
+            .filter(|slot| slot.generation == generation)
+            .and_then(|slot| slot.connections.remove(&client));
+        if let Some(principal) = taken {
+            self.forget_one(principal.user.id);
+        }
+    }
+
+    /// Takes a page's document out, if it is still the one of `generation`, with any
+    /// connection still noted in it.
+    fn remove(&mut self, page_id: Uuid, generation: u64) {
+        if self
+            .docs
+            .get(&page_id)
+            .is_some_and(|slot| slot.generation == generation)
+            && let Some(slot) = self.docs.remove(&page_id)
+        {
+            for principal in slot.connections.into_values() {
+                self.forget_one(principal.user.id);
+            }
+        }
+    }
+
+    fn forget_one(&mut self, user_id: Uuid) {
+        if let Entry::Occupied(mut count) = self.users.entry(user_id) {
+            *count.get_mut() -= 1;
+            if *count.get() == 0 {
+                count.remove();
+            }
+        }
+    }
+}
+
 /// Puts a [`SyncService`] together. Without being told otherwise it serves one process's
 /// clients, with the default limits, on the system clock.
 pub struct SyncServiceBuilder {
     pool: PgPool,
     pages: PageService,
+    auth: AuthService,
     feed: AccessFeed,
     broadcaster: Arc<dyn Broadcaster>,
     limits: Limits,
@@ -144,24 +208,29 @@ impl SyncServiceBuilder {
     }
 
     /// Starts the access watcher, so call it inside the runtime, after telemetry is
-    /// installed, as it creates the metrics.
+    /// installed, as it creates the metrics. The watcher holds the service weakly: once
+    /// every clone of the service and every live document is gone, it stops too.
     pub fn build(self) -> SyncService {
         describe();
         let inner = Arc::new(Inner {
             pool: self.pool,
             pages: self.pages,
+            auth: self.auth,
             broadcaster: self.broadcaster,
             limits: self.limits,
             clock: self.clock,
             red: Red::new(SUBSYSTEM),
             stop: CancellationToken::new(),
             tasks: TaskTracker::new(),
-            docs: Mutex::new(HashMap::new()),
+            registry: Mutex::new(Registry::default()),
             epoch: self.feed.epoch,
         });
-        inner
-            .tasks
-            .spawn(access::watch(Arc::clone(&inner), self.feed.changes));
+        inner.tasks.spawn(access::watch(
+            Arc::downgrade(&inner),
+            inner.stop.clone(),
+            inner.limits.revalidate_interval,
+            self.feed.changes,
+        ));
         SyncService { inner }
     }
 }
@@ -220,10 +289,18 @@ impl Admission {
 }
 
 impl SyncService {
-    pub fn builder(pool: PgPool, pages: PageService, feed: AccessFeed) -> SyncServiceBuilder {
+    /// The live documents of `pages`, whose connections' sessions and tokens `auth` checks
+    /// again as access changes, and whose changes `feed` brings.
+    pub fn builder(
+        pool: PgPool,
+        pages: PageService,
+        auth: AuthService,
+        feed: AccessFeed,
+    ) -> SyncServiceBuilder {
         SyncServiceBuilder {
             pool,
             pages,
+            auth,
             feed,
             broadcaster: Arc::new(LocalBroadcaster::new()),
             limits: Limits::default(),
@@ -233,6 +310,17 @@ impl SyncService {
 
     pub fn limits(&self) -> &Limits {
         &self.inner.limits
+    }
+
+    /// Whether the principal may open one more connection to the page, as
+    /// [`Limits::connections_per_user`] and [`Limits::connections_per_page`] allow. Ask it
+    /// before the upgrade; [`connect`](Self::connect) holds to the same limits.
+    pub fn has_room(&self, admission: &Admission) -> bool {
+        self.inner.registry().has_room(
+            &self.inner.limits,
+            admission.principal.user.id,
+            admission.page_id,
+        )
     }
 
     /// Asks the rules whether the principal may open the page's document, and whether to
@@ -257,7 +345,8 @@ impl SyncService {
     /// open. The connection's client gets the server's sync step 1 first.
     pub async fn connect(&self, admission: Admission) -> Result<Connection, CloseReason> {
         let id = ClientId::next();
-        let (outbox, receiver) = Outbox::new(self.inner.limits.client_queue);
+        let limits = &self.inner.limits;
+        let (outbox, receiver) = Outbox::new(limits.client_queue, limits.client_queue_bytes);
         let mut attempt = 0;
         let (commands, generation) = loop {
             attempt += 1;
@@ -312,6 +401,7 @@ impl SyncService {
             // watcher could see this connection.
             let recheck = Recheck {
                 page_id: admission.page_id,
+                generation,
                 client: id,
                 principal: admission.principal,
                 commands,
@@ -326,11 +416,14 @@ impl SyncService {
     /// A page's document as blocks: the live document's, with what was sent to it and is not
     /// saved yet, while the page is open; otherwise the one saved, its snapshot with the
     /// updates logged after it. It opens no live document. A page without a document has
-    /// an empty one. Whether the caller may read it is not asked here.
-    pub async fn content(&self, page_id: Uuid) -> Result<neon_blocks::Document, ContentError> {
+    /// an empty one. Blocks that do not read, which the editor would not show either, are
+    /// left out, as [`neon_blocks::read_lenient`] reads, and logged by count. Whether the
+    /// caller may read it is not asked here.
+    pub async fn content(&self, page_id: Uuid) -> Result<neon_blocks::Document, LoadError> {
         let live = self
             .inner
-            .docs()
+            .registry()
+            .docs
             .get(&page_id)
             .map(|slot| slot.commands.clone());
         if let Some(commands) = live {
@@ -338,21 +431,21 @@ impl SyncService {
             if commands.send(Command::Read { done }).await.is_ok()
                 && let Ok(read) = answer.await
             {
-                return Ok(read?);
+                return Ok(readable(page_id, read));
             }
             // It unloaded meanwhile, and saved everything first.
         }
-        let saved = neon_store::documents::saved(&self.inner.pool, page_id)
-            .await
-            .map_err(LoadError::from)?;
+        let saved = neon_store::documents::saved(&self.inner.pool, page_id).await?;
         let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
-        Ok(neon_blocks::read_doc(&doc)?)
+        let fragment = neon_blocks::fragment(&doc);
+        let read = neon_blocks::read_lenient(&doc.transact(), &fragment);
+        Ok(readable(page_id, read))
     }
 
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {
-        let live = self.inner.docs().len();
+        let live = self.inner.registry().docs.len();
         info!(documents = live, "saving the live documents");
         self.inner.stop.cancel();
         self.inner.tasks.close();
@@ -361,17 +454,22 @@ impl SyncService {
     }
 
     /// The page's live document, started if there is none, with the connection noted in
-    /// it for the access watcher.
+    /// it for the access watcher, when the limits of connections leave room for it.
     fn slot(
         &self,
         admission: &Admission,
         client: ClientId,
     ) -> Result<(mpsc::Sender<Command>, u64), CloseReason> {
-        let mut docs = self.inner.docs();
+        let mut registry = self.inner.registry();
         if self.inner.stop.is_cancelled() {
             return Err(CloseReason::Restarting);
         }
-        let slot = match docs.entry(admission.page_id) {
+        let user_id = admission.principal.user.id;
+        if !registry.has_room(&self.inner.limits, user_id, admission.page_id) {
+            return Err(CloseReason::TooManyConnections);
+        }
+        *registry.users.entry(user_id).or_default() += 1;
+        let slot = match registry.docs.entry(admission.page_id) {
             Entry::Occupied(slot) => slot.into_mut(),
             Entry::Vacant(vacant) => {
                 static GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -399,52 +497,38 @@ impl SyncService {
 /// A connection the access watcher looks at again.
 struct Recheck {
     page_id: Uuid,
+    generation: u64,
     client: ClientId,
     principal: Principal,
     commands: mpsc::Sender<Command>,
 }
 
 impl Inner {
-    fn docs(&self) -> MutexGuard<'_, HashMap<Uuid, Slot>> {
-        self.docs.lock().unwrap_or_else(PoisonError::into_inner)
+    fn registry(&self) -> MutexGuard<'_, Registry> {
+        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Takes a page's document out of the registry, if it is still the one of
     /// `generation`.
     fn forget(&self, page_id: Uuid, generation: u64) {
-        Self::remove(&mut self.docs(), page_id, generation);
-    }
-
-    fn remove(docs: &mut HashMap<Uuid, Slot>, page_id: Uuid, generation: u64) {
-        if docs
-            .get(&page_id)
-            .is_some_and(|slot| slot.generation == generation)
-        {
-            docs.remove(&page_id);
-        }
+        self.registry().remove(page_id, generation);
     }
 
     /// Takes a connection out of its document's slot.
     fn unregister(&self, page_id: Uuid, generation: u64, client: ClientId) {
-        if let Some(slot) = self.docs().get_mut(&page_id)
-            && slot.generation == generation
-        {
-            slot.connections.remove(&client);
-        }
+        self.registry().unregister(page_id, generation, client);
     }
 
-    /// The open connections any of `changes` may concern.
-    fn concerned(&self, changes: &[crate::pages::AccessChange]) -> Vec<Recheck> {
-        let docs = self.docs();
-        let mut concerned = Vec::new();
-        for (page_id, slot) in docs.iter() {
+    /// The open connections whose person and workspace `keep` says to look at again.
+    fn connections(&self, mut keep: impl FnMut(Uuid, &Principal) -> bool) -> Vec<Recheck> {
+        let registry = self.registry();
+        let mut found = Vec::new();
+        for (page_id, slot) in &registry.docs {
             for (client, principal) in &slot.connections {
-                if changes
-                    .iter()
-                    .any(|change| change.concerns(slot.workspace_id, principal.user.id))
-                {
-                    concerned.push(Recheck {
+                if keep(slot.workspace_id, principal) {
+                    found.push(Recheck {
                         page_id: *page_id,
+                        generation: slot.generation,
                         client: *client,
                         principal: principal.clone(),
                         commands: slot.commands.clone(),
@@ -452,21 +536,42 @@ impl Inner {
                 }
             }
         }
-        concerned
+        found
     }
 
-    /// Asks the rules again what a connection's principal may do with its page, and tells
-    /// its document.
-    async fn recheck(&self, connection: Recheck) -> Result<(), PageError> {
+    /// Checks again that a connection's session or token holds, then asks the rules what
+    /// its principal may do with its page now, and tells its document.
+    async fn recheck(&self, connection: Recheck) -> Result<(), RecheckError> {
+        let principal = match self.auth.refresh(&connection.principal).await {
+            Ok(principal) => principal,
+            Err(crate::auth::AuthError::Unauthenticated) => {
+                let _ = connection
+                    .commands
+                    .send(Command::Close {
+                        client: connection.client,
+                        reason: CloseReason::SignedOut,
+                    })
+                    .await;
+                return Ok(());
+            }
+            Err(error) => return Err(RecheckError::Auth(error)),
+        };
         let access = match self
             .pages
-            .document_access(&connection.principal, connection.page_id)
+            .document_access(&principal, connection.page_id)
             .await
         {
             Ok(view) => Some(view.access),
             Err(error) if error.is_expected() => None,
-            Err(error) => return Err(error),
+            Err(error) => return Err(RecheckError::Page(error)),
         };
+        // The next look starts from what holds now: the account's role, the token's scopes.
+        if let Some(slot) = self.registry().docs.get_mut(&connection.page_id)
+            && slot.generation == connection.generation
+            && let Some(held) = slot.connections.get_mut(&connection.client)
+        {
+            *held = principal;
+        }
         // A document that is gone has closed its connections already.
         let _ = connection
             .commands
@@ -479,14 +584,21 @@ impl Inner {
     }
 }
 
-/// Why a page's document could not be read.
+/// Why a connection could not be looked at again: it keeps what it had until the next look.
 #[derive(Debug, thiserror::Error)]
-pub enum ContentError {
+enum RecheckError {
     #[error(transparent)]
-    Load(#[from] LoadError),
-    /// It holds what is not a block document: never what the editor writes.
-    #[error("the document does not read as blocks: {0}")]
-    Blocks(#[from] neon_blocks::ReadError),
+    Auth(#[from] crate::auth::AuthError),
+    #[error(transparent)]
+    Page(#[from] PageError),
+}
+
+/// The blocks of a lenient read, telling the log how many were left out, never what.
+fn readable(page_id: Uuid, read: neon_blocks::Lenient) -> neon_blocks::Document {
+    if read.dropped > 0 {
+        warn!(%page_id, blocks = read.dropped, "blocks of a document do not read; left out");
+    }
+    read.document
 }
 
 /// How a connection ended.

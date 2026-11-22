@@ -81,6 +81,7 @@ impl AuthService {
                 return Err(AuthError::NotFound("no such token"));
             }
             info!(user_id = %principal.user.id, token_id = %id, "API token revoked");
+            self.ended(principal.user.id);
             Ok(())
         })
         .await

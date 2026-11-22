@@ -21,6 +21,22 @@ pub struct Limits {
     /// How many messages may wait to be sent to a client. One that falls further behind is
     /// disconnected, so it cannot hold up the others.
     pub client_queue: usize,
+    /// How many bytes of messages may wait to be sent to a client, likewise. Room for a
+    /// whole document's sync step 2 and a few updates; a message alone in the queue is
+    /// taken whatever its size.
+    pub client_queue_bytes: usize,
+    /// How many sync step 1 messages, each answered with what the client lacks, a
+    /// connection may send per second, on average, and at once above that. A connection
+    /// sends one as it opens; more close it as too many messages. One that comes while the
+    /// answer to the last still waits to be sent is not answered again: the client gets
+    /// that answer, and every update after it.
+    pub sync_requests_per_second: u32,
+    pub sync_request_burst: u32,
+    /// How many connections one person may have open on this server, across every page,
+    /// and how many one page may have. One more is refused before its upgrade, with
+    /// `429`, or closed as too many connections when several came at once.
+    pub connections_per_user: usize,
+    pub connections_per_page: usize,
     /// How long sending one message to a client may take: long enough for a whole large
     /// document over a slow link.
     pub write_timeout: Duration,
@@ -39,6 +55,18 @@ pub struct Limits {
     pub compact_bytes: usize,
     /// How many awareness client ids, cursors and presence, one connection may hold.
     pub awareness_clients: usize,
+    /// The largest awareness state, a client's cursor and name as JSON, in bytes. A larger
+    /// one closes the connection as a message too big.
+    pub max_awareness_state: usize,
+    /// How many awareness messages a connection may send per second, on average, and at
+    /// once above that. Past them its awareness messages are dropped, not applied nor
+    /// sent on: the next one tells the same, and browsers renew theirs every 15 seconds.
+    pub awareness_per_second: u32,
+    pub awareness_burst: u32,
+    /// How often every open connection is looked at again, as an access change would make
+    /// it: whether its session or token still holds, and what the rules let it do now.
+    /// It catches what no change tells of, such as a session expiring.
+    pub revalidate_interval: Duration,
 }
 
 impl Default for Limits {
@@ -49,6 +77,11 @@ impl Default for Limits {
             messages_per_second: 100,
             message_burst: 1000,
             client_queue: 512,
+            client_queue_bytes: 24 * 1024 * 1024,
+            sync_requests_per_second: 1,
+            sync_request_burst: 10,
+            connections_per_user: 20,
+            connections_per_page: 200,
             write_timeout: Duration::from_secs(30),
             ping_interval: Duration::from_secs(30),
             idle_unload: Duration::from_secs(30),
@@ -57,6 +90,10 @@ impl Default for Limits {
             compact_updates: 500,
             compact_bytes: 4 * 1024 * 1024,
             awareness_clients: 8,
+            max_awareness_state: 8 * 1024,
+            awareness_per_second: 20,
+            awareness_burst: 100,
+            revalidate_interval: Duration::from_secs(300),
         }
     }
 }

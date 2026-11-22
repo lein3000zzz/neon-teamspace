@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use bytes::Bytes;
@@ -30,31 +30,47 @@ impl fmt::Display for ClientId {
     }
 }
 
-/// Where messages for one client wait until its connection sends them: a queue of bounded
-/// length, and, once the connection is to close, why. Cheap to clone.
+/// Where messages for one client wait until its connection sends them: a queue bounded in
+/// length and in bytes, and, once the connection is to close, why. Cheap to clone.
 #[derive(Clone)]
 pub struct Outbox {
     queue: mpsc::Sender<Bytes>,
     closing: Arc<Closing>,
+    max_bytes: usize,
 }
 
+/// What an outbox and its receiver share.
 struct Closing {
     reason: OnceLock<CloseReason>,
     signal: CancellationToken,
+    /// The bytes of the messages waiting.
+    waiting: AtomicUsize,
+    /// How many messages were queued, and how many of them the connection took to send.
+    queued: AtomicU64,
+    taken: AtomicU64,
 }
 
+/// A message queued in an [`Outbox`], to tell later whether it was taken to be sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Queued(u64);
+
 impl Outbox {
-    /// An outbox holding at most `capacity` messages, and the end its connection reads.
-    pub fn new(capacity: usize) -> (Self, OutboxReceiver) {
+    /// An outbox holding at most `capacity` messages and `max_bytes` of them, and the end
+    /// its connection reads. A message is taken into an empty outbox whatever its size.
+    pub fn new(capacity: usize, max_bytes: usize) -> (Self, OutboxReceiver) {
         let (queue, receiver) = mpsc::channel(capacity.max(1));
         let closing = Arc::new(Closing {
             reason: OnceLock::new(),
             signal: CancellationToken::new(),
+            waiting: AtomicUsize::new(0),
+            queued: AtomicU64::new(0),
+            taken: AtomicU64::new(0),
         });
         (
             Self {
                 queue,
                 closing: Arc::clone(&closing),
+                max_bytes,
             },
             OutboxReceiver {
                 queue: receiver,
@@ -63,19 +79,48 @@ impl Outbox {
         )
     }
 
-    /// Queues a message, without waiting. A full queue means the client fell behind: the
-    /// connection closes instead, as [`CloseReason::TooSlow`]. Returns whether it was queued.
+    /// Queues a message, without waiting. A full queue, by count or by bytes, means the
+    /// client fell behind: the connection closes instead, as [`CloseReason::TooSlow`].
+    /// Returns whether it was queued.
     pub fn send(&self, message: Bytes) -> bool {
+        self.queue_message(message).is_some()
+    }
+
+    /// Queues a message as [`send`](Self::send) does, and says which it was, so that
+    /// [`was_taken`](Self::was_taken) tells later whether the connection took it to send.
+    pub fn send_tracked(&self, message: Bytes) -> Option<Queued> {
+        self.queue_message(message)
+    }
+
+    /// Whether the connection took a message queued earlier to send: it no longer waits.
+    pub fn was_taken(&self, queued: Queued) -> bool {
+        self.closing.taken.load(Ordering::SeqCst) >= queued.0
+    }
+
+    fn queue_message(&self, message: Bytes) -> Option<Queued> {
         if self.is_closing() {
-            return false;
+            return None;
+        }
+        let len = message.len();
+        let waiting = self.closing.waiting.fetch_add(len, Ordering::SeqCst);
+        if waiting > 0 && waiting.saturating_add(len) > self.max_bytes {
+            self.closing.waiting.fetch_sub(len, Ordering::SeqCst);
+            self.close(CloseReason::TooSlow);
+            return None;
         }
         match self.queue.try_send(message) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) => {
-                self.close(CloseReason::TooSlow);
-                false
+            // Its document's task is the one to queue messages for a client, so the count
+            // is this message's place in the queue.
+            Ok(()) => Some(Queued(
+                self.closing.queued.fetch_add(1, Ordering::SeqCst) + 1,
+            )),
+            Err(error) => {
+                self.closing.waiting.fetch_sub(len, Ordering::SeqCst);
+                if matches!(error, TrySendError::Full(_)) {
+                    self.close(CloseReason::TooSlow);
+                }
+                None
             }
-            Err(TrySendError::Closed(_)) => false,
         }
     }
 
@@ -114,7 +159,11 @@ impl OutboxReceiver {
             biased;
             () = self.closing.signal.cancelled() => Next::Close(self.reason()),
             message = self.queue.recv() => match message {
-                Some(message) => Next::Send(message),
+                Some(message) => {
+                    self.closing.waiting.fetch_sub(message.len(), Ordering::SeqCst);
+                    self.closing.taken.fetch_add(1, Ordering::SeqCst);
+                    Next::Send(message)
+                }
                 // Every sender is gone without closing it: the document is.
                 None => Next::Close(self.reason()),
             },
@@ -207,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_full_outbox_closes_its_connection_as_too_slow() {
-        let (outbox, mut receiver) = Outbox::new(2);
+        let (outbox, mut receiver) = Outbox::new(2, 1024);
 
         assert!(outbox.send(Bytes::from_static(b"1")));
         assert!(outbox.send(Bytes::from_static(b"2")));
@@ -222,8 +271,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_outbox_holding_too_many_bytes_closes_its_connection() {
+        let (outbox, mut receiver) = Outbox::new(8, 10);
+
+        // Alone, a message larger than the bound is taken, and sent.
+        assert!(outbox.send(Bytes::from(vec![1; 16])));
+        assert_eq!(receiver.next().await, Next::Send(Bytes::from(vec![1; 16])));
+        assert!(outbox.send(Bytes::from(vec![2; 6])));
+        assert!(outbox.send(Bytes::from(vec![3; 4])));
+        // Sent messages make room.
+        assert_eq!(receiver.next().await, Next::Send(Bytes::from(vec![2; 6])));
+        assert!(outbox.send(Bytes::from(vec![4; 6])));
+        assert!(!outbox.send(Bytes::from(vec![5; 1])));
+
+        assert_eq!(receiver.next().await, Next::Close(CloseReason::TooSlow));
+    }
+
+    #[tokio::test]
+    async fn an_outbox_tells_when_a_message_was_taken() {
+        let (outbox, mut receiver) = Outbox::new(8, 1024);
+        let first = outbox
+            .send_tracked(Bytes::from_static(b"a"))
+            .expect("queued");
+        let second = outbox
+            .send_tracked(Bytes::from_static(b"b"))
+            .expect("queued");
+
+        assert!(!outbox.was_taken(first));
+        receiver.next().await;
+        assert!(outbox.was_taken(first));
+        assert!(!outbox.was_taken(second));
+        receiver.next().await;
+        assert!(outbox.was_taken(second));
+    }
+
+    #[tokio::test]
     async fn messages_come_in_order_until_the_outbox_closes() {
-        let (outbox, mut receiver) = Outbox::new(4);
+        let (outbox, mut receiver) = Outbox::new(4, 1024);
         outbox.send(Bytes::from_static(b"a"));
         outbox.send(Bytes::from_static(b"b"));
 
@@ -239,9 +323,9 @@ mod tests {
         let page = Uuid::from_u128(1);
         let other_page = Uuid::from_u128(2);
         let (a, b, c) = (ClientId::next(), ClientId::next(), ClientId::next());
-        let (outbox_a, mut to_a) = Outbox::new(4);
-        let (outbox_b, mut to_b) = Outbox::new(4);
-        let (outbox_c, mut to_c) = Outbox::new(4);
+        let (outbox_a, mut to_a) = Outbox::new(4, 1024);
+        let (outbox_b, mut to_b) = Outbox::new(4, 1024);
+        let (outbox_c, mut to_c) = Outbox::new(4, 1024);
         broadcaster.join(page, a, outbox_a);
         broadcaster.join(page, b, outbox_b);
         broadcaster.join(other_page, c, outbox_c.clone());

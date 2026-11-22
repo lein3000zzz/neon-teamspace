@@ -143,8 +143,9 @@ impl AuthService {
     /// Ends a session. One already gone is not an error.
     pub async fn logout(&self, session_id: Uuid) -> Result<(), AuthError> {
         self.observe("logout", async {
-            if sessions::delete(self.pool(), session_id).await? {
+            if let Some(user_id) = sessions::delete(self.pool(), session_id).await? {
                 info!(%session_id, "signed out");
+                self.ended(user_id);
             }
             Ok(())
         })
@@ -181,6 +182,50 @@ impl AuthService {
                 user,
                 credential: Credential::Session { id: session.id },
             })
+        })
+        .await
+    }
+
+    /// The principal as its session or API token stands now, read again: with its
+    /// account's current role and, for a token, the scopes that role allows. Answers
+    /// unauthenticated once the session or token ended or expired, or the account was
+    /// disabled. It does not count as a use: a session's idle expiry stays.
+    pub async fn refresh(&self, principal: &Principal) -> Result<Principal, AuthError> {
+        self.observe("refresh", async {
+            let now = self.now();
+            match &principal.credential {
+                Credential::Session { id } => {
+                    let found = sessions::by_id(self.pool(), *id).await?;
+                    match found {
+                        Some((session, user))
+                            if !session.is_expired(now) && !user.is_disabled() =>
+                        {
+                            Ok(Principal {
+                                user,
+                                credential: Credential::Session { id: session.id },
+                            })
+                        }
+                        _ => Err(AuthError::Unauthenticated),
+                    }
+                }
+                Credential::Token { id, .. } => {
+                    let found = api_tokens::by_id(self.pool(), *id).await?;
+                    match found {
+                        Some((token, user)) if !token.is_expired(now) && !user.is_disabled() => {
+                            let scopes = effective_scopes(&token.scopes, user.role);
+                            Ok(Principal {
+                                user,
+                                credential: Credential::Token {
+                                    id: token.id,
+                                    name: token.name,
+                                    scopes,
+                                },
+                            })
+                        }
+                        _ => Err(AuthError::Unauthenticated),
+                    }
+                }
+            }
         })
         .await
     }
@@ -234,6 +279,7 @@ impl AuthService {
                 return Err(AuthError::NotFound("no such session"));
             }
             info!(user_id = %principal.user.id, session_id = %id, "session revoked");
+            self.ended(principal.user.id);
             Ok(())
         })
         .await
@@ -247,6 +293,9 @@ impl AuthService {
                 sessions::delete_for_user(self.pool(), principal.user.id, principal.session_id())
                     .await?;
             info!(user_id = %principal.user.id, ended, "other sessions revoked");
+            if ended > 0 {
+                self.ended(principal.user.id);
+            }
             Ok(ended)
         })
         .await
