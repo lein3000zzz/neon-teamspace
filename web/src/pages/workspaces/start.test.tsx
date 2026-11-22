@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { http } from "msw";
 import { describe, expect, it } from "vitest";
-import { ada } from "@/test/fixtures";
+import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
+import { server } from "@/test/server";
 import { blockStorage } from "@/test/storage";
 import { design, fakeWorkspaces, studio, studioInvitation, summaryOf } from "@/test/workspaces";
 
@@ -26,6 +28,23 @@ describe("the start page", () => {
     await waitFor(() =>
       expect(window.localStorage.getItem(`neon.workspace.${ada.id}`)).toBe(design().id),
     );
+  });
+
+  it("says when the workspaces cannot load, and tries again", async () => {
+    fakeWorkspaces();
+    let fail = true;
+    server.use(
+      http.get("/api/v1/workspaces", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user, router } = renderApp("/");
+
+    const main = within(await screen.findByRole("main"));
+    expect(await main.findByRole("alert")).toBeInTheDocument();
+    fail = false;
+    await user.click(main.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/w/design"));
   });
 
   it("still opens a workspace where the browser refuses storage", async () => {

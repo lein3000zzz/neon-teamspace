@@ -47,6 +47,22 @@ describe("a workspace's pages", () => {
     expect((await page()).queryByRole("link", { name: /Open studio/ })).toBeNull();
   });
 
+  it("says when its teamspaces cannot load, and tries again", async () => {
+    fakeWorkspaces();
+    let fail = true;
+    server.use(
+      http.get("/api/v1/workspaces/:id/teamspaces", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user } = renderApp("/w/design");
+
+    expect(await (await page()).findByRole("alert")).toBeInTheDocument();
+    fail = false;
+    await user.click((await page()).getByRole("button", { name: "Try again" }));
+    expect(await (await page()).findByRole("link", { name: /General/ })).toBeInTheDocument();
+  });
+
   it("tells a guest only shared pages show, with no teamspaces", async () => {
     fakeWorkspaces({ role: "guest" });
     renderApp("/w/design");
@@ -91,6 +107,22 @@ describe("browsing teamspaces", () => {
     expect(closed.getByRole("button", { name: "Join Closed room" })).toBeInTheDocument();
   });
 
+  it("says when the teamspaces cannot load, and tries again", async () => {
+    fakeWorkspaces({ role: "member" });
+    let fail = true;
+    server.use(
+      http.get("/api/v1/workspaces/:id/teamspaces", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user } = renderApp("/w/design/teamspaces");
+
+    expect(await (await page()).findByRole("alert")).toBeInTheDocument();
+    fail = false;
+    await user.click((await page()).getByRole("button", { name: "Try again" }));
+    expect(await card("Open studio")).toBeTruthy();
+  });
+
   it("shows a failed join where it happened", async () => {
     fakeWorkspaces({ role: "member" });
     server.use(
@@ -132,6 +164,23 @@ describe("a teamspace's page", () => {
       "href",
       "/w/design/teamspaces",
     );
+  });
+
+  it("says when the teamspace cannot load for another reason, and tries again", async () => {
+    fakeWorkspaces({ role: "member" });
+    let fail = true;
+    server.use(
+      http.get("/api/v1/workspaces/:id/teamspaces/:teamspace_id", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user } = renderApp(`/w/design/teamspaces/${TEAMSPACE_IDS.closed}`);
+
+    expect(await (await page()).findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Teamspace not found" })).toBeNull();
+    fail = false;
+    await user.click((await page()).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Closed room" })).toBeVisible();
   });
 
   it("leaves a teamspace once asked, but never the default one", async () => {

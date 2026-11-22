@@ -84,6 +84,23 @@ describe("the account's invitations", () => {
     expect(card.getByRole("button", { name: "Accept: Studio" })).toBeEnabled();
   });
 
+  it("says when the invitations cannot load, and tries again", async () => {
+    fakeWorkspaces({ received: [studioInvitation] });
+    let fail = true;
+    server.use(
+      http.get("/api/v1/account/invitations", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user } = renderApp("/account/invitations");
+
+    const main = within(await screen.findByRole("main"));
+    expect(await main.findByRole("alert")).toBeInTheDocument();
+    fail = false;
+    await user.click(main.getByRole("button", { name: "Try again" }));
+    expect(await invitationCard()).toBeTruthy();
+  });
+
   it("is a tab of the account pages", async () => {
     fakeWorkspaces();
     const { user, router } = renderApp("/account");

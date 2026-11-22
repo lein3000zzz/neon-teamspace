@@ -167,6 +167,43 @@ describe("the instance's workspaces", () => {
     await waitFor(() => expect(screen.queryByText("Design", { selector: "p" })).toBeNull());
   });
 
+  it("says when the list cannot load, and tries again", async () => {
+    adminWorkspaces([[design, studio]]);
+    let fail = true;
+    server.use(
+      http.get("/api/v1/admin/workspaces", () =>
+        fail ? apiError(500, "internal", "internal error") : undefined,
+      ),
+    );
+    const { user } = renderApp("/admin/workspaces");
+
+    const main = within(await screen.findByRole("main"));
+    expect(await main.findByRole("alert")).toBeInTheDocument();
+    fail = false;
+    await user.click(main.getByRole("button", { name: "Try again" }));
+    expect(await card("Design")).toBeTruthy();
+  });
+
+  it("shows a refused deletion on the workspace's card, which stays", async () => {
+    adminWorkspaces([[design, studio]]);
+    server.use(
+      http.delete("/api/v1/admin/workspaces/:id", () =>
+        apiError(403, "forbidden", "deleting a workspace needs a browser session"),
+      ),
+    );
+    const { user } = renderApp("/admin/workspaces");
+
+    const first = await card("Design");
+    await user.click(first.getByRole("button", { name: "Delete Design" }));
+    const dialog = within(await screen.findByRole("alertdialog", { name: "Delete Design?" }));
+    await user.type(dialog.getByLabelText("Type Design to confirm"), "Design");
+    await user.click(dialog.getByRole("button", { name: "Delete" }));
+
+    expect(await first.findByRole("alert")).toHaveTextContent("You are not allowed to do this.");
+    expect(screen.queryByText("Design is deleted.")).toBeNull();
+    expect((await card("Design")).getByText("4 members")).toBeInTheDocument();
+  });
+
   it("is a tab of the admin pages, which members do not get", async () => {
     renderApp("/admin/workspaces");
     expect(await screen.findByRole("heading", { level: 1, name: "Not allowed" })).toBeVisible();
