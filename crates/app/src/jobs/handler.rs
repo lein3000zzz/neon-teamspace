@@ -14,6 +14,13 @@ pub trait Handler: Send + Sync + 'static {
     /// The kind of job this handler runs, like `mail.send`.
     fn kind(&self) -> &'static str;
 
+    /// Whether its jobs are kept once they are done or dead, for the worker's retention,
+    /// so they can be inspected. Kinds whose payload must not outlive the run, such as
+    /// mail carrying one-time links, say no: their jobs are deleted as they finish.
+    fn keeps_finished(&self) -> bool {
+        true
+    }
+
     async fn run(&self, job: &Job) -> Result<(), JobError>;
 }
 

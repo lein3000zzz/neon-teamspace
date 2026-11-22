@@ -423,6 +423,104 @@ async fn finished_jobs_past_retention_are_deleted(pool: PgPool) {
     worker.stop().await;
 }
 
+/// Like [`Recorder`], for a kind whose finished jobs are not kept.
+struct Unkept(Recorder);
+
+const UNKEPT: &str = "test.unkept";
+
+#[async_trait]
+impl Handler for Unkept {
+    fn kind(&self) -> &'static str {
+        UNKEPT
+    }
+
+    fn keeps_finished(&self) -> bool {
+        false
+    }
+
+    async fn run(&self, job: &Job) -> Result<(), JobError> {
+        self.0.run(job).await
+    }
+}
+
+async fn exists(pool: &PgPool, id: Uuid) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM jobs WHERE id = $1)")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("the query runs")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn jobs_of_handlers_that_keep_none_are_deleted_as_they_finish(pool: PgPool) {
+    for behavior in [Behavior::Succeed, Behavior::FailPermanently] {
+        let recorder = Recorder::new(behavior);
+        let id = enqueue(&pool, &NewJob::new(UNKEPT, json!({})))
+            .await
+            .unwrap();
+
+        let worker = Worker::new(pool.clone(), config())
+            .handler(Unkept(recorder.clone()))
+            .start()
+            .await
+            .unwrap();
+        eventually("the finished job to be deleted", || async {
+            !recorder.runs().is_empty() && !exists(&pool, id).await
+        })
+        .await;
+        worker.stop().await;
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_job_that_will_be_retried_stays_until_it_finishes(pool: PgPool) {
+    let recorder = Recorder::new(Behavior::Fail);
+    let id = enqueue(&pool, &NewJob::new(UNKEPT, json!({})).max_attempts(2))
+        .await
+        .unwrap();
+
+    let worker = Worker::new(pool.clone(), config())
+        .handler(Unkept(recorder.clone()))
+        .start()
+        .await
+        .unwrap();
+    eventually("both attempts to run", || async {
+        recorder.runs().len() == 2
+    })
+    .await;
+    eventually("the dead job to be deleted", || async {
+        !exists(&pool, id).await
+    })
+    .await;
+    worker.stop().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn dead_jobs_left_behind_are_deleted_by_maintenance(pool: PgPool) {
+    let unkept = enqueue(&pool, &NewJob::new(UNKEPT, json!({})))
+        .await
+        .unwrap();
+    let kept = enqueue(&pool, &job()).await.unwrap();
+    sqlx::query("UPDATE jobs SET status = 'dead'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let worker = Worker::new(pool.clone(), config())
+        .handler(Recorder::new(Behavior::Succeed))
+        .handler(Unkept(Recorder::new(Behavior::Succeed)))
+        .start()
+        .await
+        .unwrap();
+    eventually("the unkept dead job to be deleted", || async {
+        !exists(&pool, unkept).await
+    })
+    .await;
+    worker.stop().await;
+
+    assert_eq!(status(&pool, kept).await.0, "dead");
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn start_refuses_an_invalid_config(pool: PgPool) {
     let config = WorkerConfig {

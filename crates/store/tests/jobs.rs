@@ -189,6 +189,61 @@ async fn mark_dead_keeps_the_last_error(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_job_can_be_given_its_id(pool: PgPool) {
+    let id = Uuid::now_v7();
+
+    let queued = jobs::enqueue(&pool, &mail().id(id)).await.unwrap();
+
+    assert_eq!(queued, id);
+    assert_eq!(row(&pool, id).await.status, "queued");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn delete_needs_the_current_lease(pool: PgPool) {
+    let id = jobs::enqueue(&pool, &mail()).await.unwrap();
+    let job = jobs::claim(&pool, WORKER, &kinds(), 1)
+        .await
+        .unwrap()
+        .remove(0);
+
+    assert!(!jobs::delete(&pool, job.lease("worker-b")).await.unwrap());
+    assert_eq!(row(&pool, id).await.status, "running");
+    assert!(jobs::delete(&pool, job.lease(WORKER)).await.unwrap());
+    assert_eq!(count(&pool).await, 0);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn finished_jobs_of_a_kind_are_deleted_at_once(pool: PgPool) {
+    let mut finished = Vec::new();
+    for (kind, status) in [
+        ("mail.send", "done"),
+        ("mail.send", "dead"),
+        ("export.run", "dead"),
+    ] {
+        let id = jobs::enqueue(&pool, &NewJob::new(kind, json!({})))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE jobs SET status = $2 WHERE id = $1")
+            .bind(id)
+            .bind(status)
+            .execute(&pool)
+            .await
+            .unwrap();
+        finished.push(id);
+    }
+    let waiting = jobs::enqueue(&pool, &mail()).await.unwrap();
+
+    let deleted = jobs::delete_finished_of(&pool, &kinds()).await.unwrap();
+
+    assert_eq!(deleted, 2);
+    let left: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM jobs ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, [finished[2], waiting]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn reclaim_takes_back_expired_leases_only(pool: PgPool) {
     let stale = jobs::enqueue(&pool, &mail()).await.unwrap();
     let last_try = jobs::enqueue(&pool, &mail().max_attempts(1)).await.unwrap();
