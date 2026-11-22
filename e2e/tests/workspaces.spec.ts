@@ -227,6 +227,19 @@ test("an owner builds a workspace that others join by invitation and by link", a
     await expect(
       adminPage.getByRole("heading", { level: 1, name: "Workspace not found" }),
     ).toBeVisible();
+    // Nor does the API let them in: the workspace and its teamspaces answer as if absent.
+    const owned = await page.request.get("/api/v1/workspaces");
+    expect(owned.status()).toBe(200);
+    const { workspaces } = (await owned.json()) as {
+      workspaces: { id: string; slug: string }[];
+    };
+    const id = workspaces.find((workspace) => workspace.slug === slug)?.id;
+    expect(id, "the owner's workspace").toBeDefined();
+    for (const path of [`/api/v1/workspaces/${id}`, `/api/v1/workspaces/${id}/teamspaces`]) {
+      const answer = await adminPage.request.get(path);
+      expect(answer.status(), path).toBe(404);
+      expect(((await answer.json()) as { error: { code: string } }).error.code).toBe("not_found");
+    }
   } finally {
     for (const context of contexts) {
       await context.close();
