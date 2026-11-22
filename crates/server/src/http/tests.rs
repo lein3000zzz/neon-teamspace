@@ -69,24 +69,25 @@ pub(super) async fn state_for(
         Clock::system(),
     );
     let (listener, feed) = access_feed();
-    let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+    let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
+        .password_params(CHEAP)
         .envelope(envelope.clone())
+        .mail(mail)
+        .access_changes(listener.clone())
+        .build()
+        .await
+        .expect("the auth service starts");
+    let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
+        .envelope(envelope)
         .access_changes(listener.clone())
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
         .build();
-    let sync = SyncService::builder(pool.clone(), pages.clone(), feed)
+    let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
         .limits(limits)
         .build();
     let transfer = TransferService::builder(pages.clone(), sync.clone()).build();
-    let auth = AuthService::builder(pool, Arc::clone(&settings))
-        .password_params(CHEAP)
-        .envelope(envelope)
-        .mail(mail)
-        .build()
-        .await
-        .expect("the auth service starts");
     AppState {
         settings,
         auth,

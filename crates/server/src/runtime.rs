@@ -235,17 +235,19 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     report_mail(&mail, &settings);
     // One set of buckets for every use case, so each key is counted once.
     let limiter: Arc<dyn RateLimiter> = Arc::new(MemoryLimiter::new());
+    // These services tell the live documents whose access to pages may have changed, and
+    // whose sessions or tokens ended, so they close or limit the connections of those who
+    // lost it.
+    let (listener, feed) = sync::access_feed();
+    let access: Arc<dyn AccessChanges> = listener;
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope.clone())
         .limiter(Arc::clone(&limiter))
         .mail(mail.clone())
+        .access_changes(Arc::clone(&access))
         .build()
         .await
         .context("starting the auth service")?;
-    // Both services tell the live documents whose access to pages may have changed, so
-    // they close or limit the connections of those who lost it.
-    let (listener, feed) = sync::access_feed();
-    let access: Arc<dyn AccessChanges> = listener;
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
         .limiter(Arc::clone(&limiter))
@@ -254,7 +256,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .build();
-    let live = SyncService::builder(pool.clone(), pages.clone(), feed).build();
+    let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone())
         .limiter(limiter)
         .build();

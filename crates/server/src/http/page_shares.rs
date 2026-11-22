@@ -50,8 +50,9 @@ impl From<ShareAccess> for domain::PageAccess {
 pub struct Share {
     pub user: Person,
     pub access: ShareAccess,
-    /// The page it is set on: the one listed, or a page above it.
-    pub page_id: Uuid,
+    /// The page it is set on: the one listed, or a page above it; absent when that is a
+    /// page above that the caller may not see.
+    pub page_id: Option<Uuid>,
     /// Set on a page above the one listed, and holding here too; it changes there.
     pub inherited: bool,
     pub created_by: Option<Uuid>,
@@ -66,7 +67,7 @@ impl From<ListedShare> for Share {
         Self {
             user: listed.person.into(),
             access: listed.share.access.into(),
-            page_id: listed.share.page_id,
+            page_id: listed.set_on,
             inherited: listed.inherited,
             created_by: listed.share.created_by,
             created_at: listed.share.created_at,

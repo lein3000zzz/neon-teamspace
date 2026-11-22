@@ -1,6 +1,7 @@
 //! Real-time sync over real WebSockets: clients with documents of their own converging, a
 //! viewer's change refused, the upgrade's checks, content kept across restarts and
-//! compaction, access changes closing or limiting connections, and the limits.
+//! compaction, access changes, ended sessions and tokens and the trash's purge closing or
+//! limiting connections, and the limits.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -20,16 +21,17 @@ use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::{self, Message as Frame};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use yrs::sync::{Awareness, Message, SyncMessage};
 use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::Encode as _;
 use yrs::{Doc, ReadTxn as _, StateVector, Transact as _, Update, XmlFragmentRef};
 
-use super::auth_tests::user;
+use super::auth_tests::{admin, user};
 use super::pages_tests::{create, general, guest};
 use super::tests::state_for;
-use super::workspaces_tests::{Team, team};
+use super::workspaces_tests::{Browser, Team, team};
 use super::*;
 
 /// Long enough for any step here; reaching it means something never came.
@@ -57,6 +59,7 @@ async fn state_of(pool: PgPool, limits: SyncLimits) -> AppState {
 /// The router of a state, listening on a free port of loopback.
 struct Server {
     addr: SocketAddr,
+    stop: CancellationToken,
     task: JoinHandle<()>,
 }
 
@@ -64,16 +67,44 @@ impl Server {
     async fn start(app: Router) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
         let addr = listener.local_addr().expect("bound");
-        let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("serves");
+        let stop = CancellationToken::new();
+        let task = tokio::spawn({
+            let stop = stop.clone();
+            async move {
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(stop.cancelled_owned())
+                    .await
+                    .expect("serves");
+            }
         });
-        Self { addr, task }
+        Self { addr, stop, task }
+    }
+
+    /// Stops listening, and waits until the server let go of its router.
+    async fn stop(mut self) {
+        self.stop.cancel();
+        timeout(PATIENCE, &mut self.task)
+            .await
+            .expect("the server stops")
+            .expect("the server's task ends");
     }
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        // A test that failed: its runtime ends with it.
         self.task.abort();
+    }
+}
+
+/// Ends what a test started: its clients' sockets, the live documents, which are saved,
+/// and the servers. Nothing then holds the test's database pool, which its end closes:
+/// a live document left running would keep the pool's connections from the other tests.
+async fn finish(state: &AppState, servers: impl IntoIterator<Item = Server>, peers: Vec<Peer>) {
+    drop(peers);
+    state.sync.shutdown().await;
+    for server in servers {
+        server.stop().await;
     }
 }
 
@@ -402,6 +433,7 @@ async fn two_clients_converge_on_concurrent_edits(pool: PgPool) {
             .await
             .expect("read");
     assert_eq!(authors.len(), 2, "{authors:?}");
+    finish(&state, [room.server], vec![ada, dee]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -464,6 +496,7 @@ async fn a_viewer_s_changes_are_refused(pool: PgPool) {
         text_of(&saved(&pool, page).await) == "Plan\nBudget\nDone"
     })
     .await;
+    finish(&state, [room.server], vec![ada, viewer, reader, late]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -535,6 +568,7 @@ async fn upgrades_need_the_origin_a_session_and_a_page_to_see(pool: PgPool) {
     let plain = room.team.ada.get(&format!("/ws/pages/{page}")).await;
     assert_eq!(plain.status, StatusCode::UPGRADE_REQUIRED);
     assert_eq!(plain.code(), "upgrade_required");
+    finish(&state, [room.server], Vec::new()).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -565,8 +599,8 @@ async fn content_survives_a_restart(pool: PgPool) {
     // A server that never saw the page loads it from the snapshot and the update after
     // it, as one would after the first died.
     let second = state_of(pool.clone(), limits).await;
-    let server = Server::start(router(second.clone(), false)).await;
-    let mut again = Peer::join(server.addr, &room.page, &cookie, "ada-2").await;
+    let second_server = Server::start(router(second.clone(), false)).await;
+    let mut again = Peer::join(second_server.addr, &room.page, &cookie, "ada-2").await;
     assert_eq!(text_of(&again.doc), "One\nTwo\nThree");
 
     // Stopping saves the document, and closes its connections to reconnect.
@@ -579,10 +613,12 @@ async fn content_survives_a_restart(pool: PgPool) {
     assert_eq!(again.closed().await, Some(1012));
     assert_eq!(logged_updates(&pool, page).await, 0);
     let third = state_of(pool.clone(), limits).await;
-    let server = Server::start(router(third, false)).await;
-    let reloaded = Peer::join(server.addr, &room.page, &cookie, "ada-3").await;
+    let third_server = Server::start(router(third.clone(), false)).await;
+    let reloaded = Peer::join(third_server.addr, &room.page, &cookie, "ada-3").await;
     assert_eq!(text_of(&reloaded.doc), "One\nTwo\nThree\nFour");
-    drop(ada);
+    finish(&first, [room.server], vec![ada]).await;
+    finish(&second, [second_server], vec![again]).await;
+    finish(&third, [third_server], vec![reloaded]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -656,7 +692,7 @@ async fn compaction_keeps_the_content_identical(pool: PgPool) {
         .as_str()
         .map(uuid);
     assert_eq!(editor, ada_id);
-    drop(dee);
+    finish(&state, [room.server], vec![ada, dee]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -756,6 +792,7 @@ async fn access_changes_reach_open_connections_at_once(pool: PgPool) {
         .await;
     assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
     assert_eq!(dee.closed().await, Some(4404));
+    finish(&state, [room.server], vec![ada, editor, dee]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -818,6 +855,7 @@ async fn connections_keep_to_their_limits(pool: PgPool) {
         }
     }
     assert_eq!(chatty.closed().await, Some(4429));
+    finish(&state, [room.server], vec![big, text, garbage, chatty]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -844,6 +882,7 @@ async fn clients_that_stop_answering_are_dropped(pool: PgPool) {
     };
     assert!(pings >= 1, "the server pinged");
     assert_eq!(ending, None, "dropped without a close");
+    finish(&state, [room.server], vec![peer]).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -867,4 +906,161 @@ async fn a_page_opened_by_a_bearer_token_follows_its_scope(pool: PgPool) {
             .err(),
         Some(StatusCode::UNAUTHORIZED)
     );
+    finish(&state, [room.server], vec![agent, ada]).await;
+}
+
+/// The id of the account a browser is signed in to.
+async fn me(browser: &Browser<'_>) -> String {
+    browser.get("/api/v1/account/me").await.body["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned()
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn ended_sessions_and_tokens_close_their_connections(pool: PgPool) {
+    let state = state_of(pool, quick()).await;
+    admin(&state).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let addr = room.server.addr;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+
+    // Signing out closes the session's connections, and only them.
+    let bob = Browser::sign_in(&app, "bob@example.com").await;
+    let mut signed_out = Peer::join(addr, &room.page, bob.cookie(), "bob").await;
+    let mut bob_elsewhere = Peer::join(addr, &room.page, room.team.bob.cookie(), "bob-2").await;
+    let out = bob.post("/api/v1/auth/logout", json!({})).await;
+    assert_eq!(out.status, StatusCode::NO_CONTENT, "{}", out.body);
+    assert_eq!(signed_out.closed().await, Some(4401));
+
+    // Revoking a token closes what it opened.
+    let token = room.team.ada.token(&["write"]).await;
+    let socket = open(addr, &room.page, &[("authorization", &token)])
+        .await
+        .expect("a write token opens the page");
+    let mut agent = Peer::over(socket, "agent");
+    agent.sync().await;
+    let tokens = room.team.ada.get("/api/v1/account/tokens").await;
+    let token_id = tokens.body["tokens"][0]["id"].as_str().expect("an id");
+    let revoked = room
+        .team
+        .ada
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/account/tokens/{token_id}"),
+            None,
+        )
+        .await;
+    assert_eq!(revoked.status, StatusCode::NO_CONTENT, "{}", revoked.body);
+    assert_eq!(agent.closed().await, Some(4401));
+
+    // An admin disabling an account closes every connection of it.
+    let mut dee = Peer::join(addr, &room.page, room.team.dee.cookie(), "dee").await;
+    let dee_id = me(&room.team.dee).await;
+    let admin = Browser::sign_in(&app, "admin@example.com").await;
+    let disabled = admin
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/admin/users/{dee_id}"),
+            Some(json!({"disabled": true})),
+        )
+        .await;
+    assert_eq!(disabled.status, StatusCode::OK, "{}", disabled.body);
+    assert_eq!(dee.closed().await, Some(4401));
+
+    // The others' connections stay open, and work.
+    bob_elsewhere.write("Still here").await;
+    ada.until_text("Still here").await;
+    finish(
+        &state,
+        [room.server],
+        vec![ada, signed_out, bob_elsewhere, agent, dee],
+    )
+    .await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn connections_are_looked_at_again_now_and_then(pool: PgPool) {
+    let limits = SyncLimits {
+        revalidate_interval: Duration::from_millis(100),
+        ..quick()
+    };
+    let state = state_of(pool.clone(), limits).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let mut dee = Peer::join(room.server.addr, &room.page, room.team.dee.cookie(), "dee").await;
+
+    // Ended without telling anyone, as when it expires, the session's connection closes
+    // at the next look.
+    let dee_id = uuid(&me(&room.team.dee).await);
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+        .bind(dee_id)
+        .execute(&pool)
+        .await
+        .expect("deleted");
+    assert_eq!(dee.closed().await, Some(4401));
+    finish(&state, [room.server], vec![dee]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn purging_the_trash_closes_its_pages(pool: PgPool) {
+    let state = state_of(pool.clone(), quick()).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let addr = room.server.addr;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+    let trashed = room
+        .team
+        .ada
+        .post(&format!("/api/v1/pages/{}/trash", room.page), json!({}))
+        .await;
+    assert_eq!(trashed.status, StatusCode::OK, "{}", trashed.body);
+    ada.until("read-only", |_, event| {
+        *event == Event::Told(Some(READ_ONLY.to_owned()))
+    })
+    .await;
+
+    // Long enough in the trash, the page goes for good, and so does its connection.
+    sqlx::query("UPDATE pages SET trashed_at = trashed_at - interval '400 days' WHERE id = $1")
+        .bind(uuid(&room.page))
+        .execute(&pool)
+        .await
+        .expect("aged");
+    assert_eq!(state.pages.purge_trash().await.expect("purged"), 1);
+    assert_eq!(ada.closed().await, Some(4404));
+    finish(&state, [room.server], vec![ada]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn one_connection_too_many_is_refused_before_its_upgrade(pool: PgPool) {
+    let limits = SyncLimits {
+        connections_per_user: 1,
+        ..quick()
+    };
+    let state = state_of(pool, limits).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let addr = room.server.addr;
+    let cookie = [(COOKIE.as_str(), room.team.ada.cookie())];
+    let first = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+
+    assert_eq!(
+        open(addr, &room.page, &cookie).await.err(),
+        Some(StatusCode::TOO_MANY_REQUESTS)
+    );
+    // Another person still opens the page, and Ada again once her first is closed.
+    let dee = Peer::join(addr, &room.page, room.team.dee.cookie(), "dee").await;
+    drop(first);
+    let mut again = None;
+    for _ in 0..200 {
+        if let Ok(socket) = open(addr, &room.page, &cookie).await {
+            again = Some(Peer::over(socket, "ada-2"));
+            break;
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+    let mut again = again.expect("room for Ada's next connection");
+    again.sync().await;
+    finish(&state, [room.server], vec![dee, again]).await;
 }

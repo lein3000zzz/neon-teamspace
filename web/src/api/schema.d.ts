@@ -900,7 +900,7 @@ export interface paths {
         put?: never;
         /**
          * Move a page
-         * @description Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. The pages moved take their access from their new place.
+         * @description Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. Out of its space, to another teamspace or to private pages, the caller must edit it through the space itself, being in its teamspace or owning it: a page shared with them moves only within its space. The pages moved take their access from their new place.
          */
         post: operations["move_page"];
         delete?: never;
@@ -2196,7 +2196,10 @@ export interface components {
             cover?: components["schemas"]["Cover"] | null;
             /** Format: date-time */
             created_at: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Absent for guests, as are `last_edited_by` and `trashed_by`.
+             */
             created_by?: string | null;
             icon?: string | null;
             /** Format: uuid */
@@ -2208,12 +2211,14 @@ export interface components {
             last_edited_by?: string | null;
             /**
              * Format: uuid
-             * @description The member a private page belongs to; absent for a teamspace's page.
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
              */
             owner_id?: string | null;
             /**
              * Format: uuid
-             * @description The page it is under; absent at the top of its space.
+             * @description The page it is under; absent at the top of its space, and when the caller may not
+             *     see that page.
              */
             parent_id?: string | null;
             /**
@@ -2500,9 +2505,10 @@ export interface components {
             inherited: boolean;
             /**
              * Format: uuid
-             * @description The page it is set on: the one listed, or a page above it.
+             * @description The page it is set on: the one listed, or a page above it; absent when that is a
+             *     page above that the caller may not see.
              */
-            page_id: string;
+            page_id?: string | null;
             /** Format: date-time */
             updated_at: string;
             user: components["schemas"]["Person"];
@@ -2658,7 +2664,11 @@ export interface components {
             icon?: string | null;
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
+             */
             owner_id?: string | null;
             /**
              * Format: uuid
@@ -5918,7 +5928,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description busy, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5981,7 +5991,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6467,7 +6477,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description busy, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7959,7 +7969,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description busy: too many imports and exports are running, with Retry-After; or timeout: the import took longer than 20 seconds. */
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds. */
             503: {
                 headers: {
                     [name: string]: unknown;

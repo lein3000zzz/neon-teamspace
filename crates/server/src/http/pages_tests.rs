@@ -325,10 +325,17 @@ async fn a_guest_sees_only_the_pages_shared_with_them(pool: PgPool) {
     let seen = gus.get(&format!("/api/v1/pages/{b}")).await;
     assert_eq!(seen.status, StatusCode::OK, "{}", seen.body);
     assert_eq!(seen.body["access"], "view");
-    assert_eq!(
-        gus.get(&format!("/api/v1/pages/{c}")).await.status,
-        StatusCode::OK
-    );
+    // Neither the page above, which is not shared with them, nor who made the page, as a
+    // guest knows no other member.
+    for hidden in ["parent_id", "created_by", "last_edited_by", "owner_id"] {
+        assert_eq!(seen.body[hidden], Value::Null, "{hidden}");
+    }
+    let by_member = t.cy.get(&format!("/api/v1/pages/{b}")).await;
+    assert_eq!(by_member.body["parent_id"], a.as_str());
+    assert!(by_member.body["created_by"].is_string());
+    let below = gus.get(&format!("/api/v1/pages/{c}")).await;
+    assert_eq!(below.status, StatusCode::OK);
+    assert_eq!(below.body["parent_id"], b.as_str());
     for unseen in [&a, &d] {
         let answer = gus.get(&format!("/api/v1/pages/{unseen}")).await;
         assert_eq!(answer.status, StatusCode::NOT_FOUND, "{}", answer.body);
@@ -418,6 +425,8 @@ async fn a_guest_sees_only_the_pages_shared_with_them(pool: PgPool) {
         .await;
     assert_eq!(favorites.status, StatusCode::OK, "{}", favorites.body);
     assert_eq!(titles(&favorites), ["B", "Edited"]);
+    assert_eq!(favorites.body["pages"][0]["parent_id"], Value::Null);
+    assert_eq!(favorites.body["pages"][1]["parent_id"], b.as_str());
     let unseen = gus
         .post("/api/v1/account/favorites", json!({"page_id": a}))
         .await;
@@ -544,4 +553,70 @@ async fn changes_need_the_write_scope_and_the_server_s_own_origin(pool: PgPool) 
     )
     .await;
     assert_eq!(unauthenticated.status, StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_share_neither_moves_a_page_away_nor_tells_of_pages_above_it(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let mut ids = Vec::new();
+    for browser in [&t.bob, &t.cy] {
+        let me = browser.get("/api/v1/account/me").await;
+        ids.push(me.body["id"].as_str().expect("an id").to_owned());
+    }
+    let (bob_id, cy_id) = (&ids[0], &ids[1]);
+    // Ada's private Diary, with Entry under it: Bob may view all of it, Cy edit Entry.
+    let diary = create(&t.ada, ws, json!({"private": true}), "Diary").await;
+    let entry = create(&t.ada, ws, json!({"parent_id": diary}), "Entry").await;
+    for (page, user, access) in [(&diary, bob_id, "can_view"), (&entry, cy_id, "can_edit")] {
+        let shared = t
+            .ada
+            .post(
+                &format!("/api/v1/pages/{page}/shares"),
+                json!({"user_id": user, "access": access}),
+            )
+            .await;
+        assert_eq!(shared.status, StatusCode::CREATED, "{}", shared.body);
+    }
+
+    // Cy edits Entry, and may not take it out of Ada's private pages.
+    let move_to = |place: Value| {
+        let cy = &t.cy;
+        let entry = entry.clone();
+        async move { cy.post(&format!("/api/v1/pages/{entry}/move"), place).await }
+    };
+    for place in [json!({"private": true}), json!({"teamspace_id": general})] {
+        let moved = move_to(place.clone()).await;
+        assert_eq!(
+            moved.status,
+            StatusCode::FORBIDDEN,
+            "{place}: {}",
+            moved.body
+        );
+        assert_eq!(moved.code(), "forbidden");
+    }
+    let kept = t.ada.get(&format!("/api/v1/pages/{entry}")).await;
+    assert_eq!(kept.status, StatusCode::OK);
+    assert_eq!(kept.body["parent_id"], diary.as_str());
+    assert!(kept.body["owner_id"].is_string());
+
+    // Cy sees Entry, not Diary: Bob's share from above shows, not where it is set.
+    let seen = t.cy.get(&format!("/api/v1/pages/{entry}")).await;
+    assert_eq!(seen.body["parent_id"], Value::Null);
+    let listed = t.cy.get(&format!("/api/v1/pages/{entry}/shares")).await;
+    assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
+    let shares = listed.body["shares"].as_array().expect("a list");
+    assert_eq!(shares.len(), 2, "{}", listed.body);
+    assert_eq!(shares[0]["page_id"], entry.as_str());
+    assert_eq!(shares[0]["inherited"], false);
+    assert_eq!(shares[1]["user"]["email"], "bob@example.com");
+    assert_eq!(shares[1]["inherited"], true);
+    assert_eq!(shares[1]["page_id"], Value::Null);
+    // Bob, who sees Diary, is told where it is set.
+    let listed = t.bob.get(&format!("/api/v1/pages/{entry}/shares")).await;
+    let shares = listed.body["shares"].as_array().expect("a list");
+    assert!(shares.iter().all(|share| share["page_id"].is_string()));
 }

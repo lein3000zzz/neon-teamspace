@@ -6,8 +6,8 @@
 //! one, as browsers always do, so a page elsewhere cannot open a connection with the
 //! visitor's cookie. It authenticates as any API route does, by the session cookie or an
 //! API token with the read scope, and the rules must let the caller see the page: one they
-//! may not see answers 404, before any upgrade. A request that is no WebSocket upgrade
-//! answers 426.
+//! may not see answers 404, before any upgrade. One more connection than the caller or the
+//! page may have open answers 429. A request that is no WebSocket upgrade answers 426.
 //!
 //! Once upgraded, the sync service's [`Connection`] decides what happens; this module
 //! carries the messages both ways, pings the client and closes the socket with the code
@@ -44,6 +44,13 @@ pub(super) async fn open_page(
     upgrade: Result<WebSocketUpgrade, rejection::WebSocketUpgradeRejection>,
 ) -> Result<Response, ApiError> {
     let admission = state.sync.admit(principal, page_id).await?;
+    if !state.sync.has_room(&admission) {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_connections",
+            CloseReason::TooManyConnections.message(),
+        ));
+    }
     let Ok(upgrade) = upgrade else {
         return Err(ApiError::new(
             StatusCode::UPGRADE_REQUIRED,

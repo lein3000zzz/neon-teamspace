@@ -3933,7 +3933,7 @@
             }
           },
           "503": {
-            "description": "busy, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3969,7 +3969,7 @@
           "pages"
         ],
         "summary": "Move a page",
-        "description": "Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. The pages moved take their access from their new place.",
+        "description": "Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. Out of its space, to another teamspace or to private pages, the caller must edit it through the space itself, being in its teamspace or owning it: a page shared with them moves only within its space. The pages moved take their access from their new place.",
         "operationId": "move_page",
         "parameters": [
           {
@@ -4025,7 +4025,7 @@
             }
           },
           "403": {
-            "description": "forbidden or insufficient_scope.",
+            "description": "forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4694,7 +4694,7 @@
             }
           },
           "503": {
-            "description": "busy, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6756,7 +6756,7 @@
             }
           },
           "503": {
-            "description": "busy: too many imports and exports are running, with Retry-After; or timeout: the import took longer than 20 seconds.",
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9875,7 +9875,8 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Absent for guests, as are `last_edited_by` and `trashed_by`."
           },
           "icon": {
             "type": [
@@ -9901,7 +9902,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The member a private page belongs to; absent for a teamspace's page."
+            "description": "The member a private page belongs to; absent for a teamspace's page, and for\nguests, who know no other member."
           },
           "parent_id": {
             "type": [
@@ -9909,7 +9910,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The page it is under; absent at the top of its space."
+            "description": "The page it is under; absent at the top of its space, and when the caller may not\nsee that page."
           },
           "position": {
             "type": "string",
@@ -10561,7 +10562,6 @@
         "required": [
           "user",
           "access",
-          "page_id",
           "inherited",
           "created_at",
           "updated_at"
@@ -10586,9 +10586,12 @@
             "description": "Set on a page above the one listed, and holding here too; it changes there."
           },
           "page_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid",
-            "description": "The page it is set on: the one listed, or a page above it."
+            "description": "The page it is set on: the one listed, or a page above it; absent when that is a\npage above that the caller may not see."
           },
           "updated_at": {
             "type": "string",
@@ -10980,7 +10983,8 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The member a private page belongs to; absent for a teamspace's page, and for\nguests, who know no other member."
           },
           "parent_id": {
             "type": [

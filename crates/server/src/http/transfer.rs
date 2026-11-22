@@ -1,8 +1,9 @@
 //! Importing pages from markdown, and exporting pages and teamspaces as markdown.
 //!
 //! An import is a `multipart/form-data` upload of one file, a markdown file or a zip of
-//! them, whose place the query string names, so the rules and the limits answer before the
-//! file is read. Exports answer with the file itself, to download.
+//! them, whose place the query string names, so the rules and the caller's limits answer
+//! before the file is read; the server's own limit of transfers running answers once it is.
+//! Exports answer with the file itself, to download.
 
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
@@ -153,7 +154,7 @@ impl From<ImportReport> for ImportResult {
         (status = CONFLICT, description = "too_deep: the pages would nest deeper than 100 levels.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "too_large: past a limit of imports, which the message names; or payload_too_large, a form larger than the largest upload.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
-        (status = SERVICE_UNAVAILABLE, description = "busy: too many imports and exports are running, with Retry-After; or timeout: the import took longer than 20 seconds.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -251,7 +252,7 @@ pub struct ExportPage {
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "too_large: more than 5000 pages, or more than 128 MiB of markdown.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
-        (status = SERVICE_UNAVAILABLE, description = "busy, with Retry-After; or timeout: the export took longer than 20 seconds.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -290,7 +291,7 @@ pub(super) async fn export_page(
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "too_large: more than 5000 pages, or more than 128 MiB of markdown.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
-        (status = SERVICE_UNAVAILABLE, description = "busy, with Retry-After; or timeout: the export took longer than 20 seconds.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
