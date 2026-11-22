@@ -235,6 +235,7 @@ fn the_fixtures_cover_every_block_type_and_style() {
         "video",
         "audio",
         "file",
+        "database",
     ]);
     let all_styles = BTreeSet::from([
         "bold",
@@ -418,7 +419,7 @@ fn view_kind(kind: &BlockKind) -> BlockKind {
                 ..FileProps::default()
             };
         }
-        BlockKind::CodeBlock { .. } | BlockKind::Divider { .. } => {}
+        BlockKind::CodeBlock { .. } | BlockKind::Divider { .. } | BlockKind::Database { .. } => {}
     }
     kind
 }

@@ -1,22 +1,18 @@
 /**
- * BlockNote on the server, set up as the web app's editor is: the default schema, and the
- * page's blocks in the XmlFragment the app binds. Fixtures written with it are deterministic:
- * block ids count up in document order and every Yjs document has the same client id.
+ * BlockNote on the server, set up as the web app's editor is: BlockNote's default blocks and
+ * the app's own, and the page's blocks in the XmlFragment the app binds. Fixtures written with
+ * it are deterministic: block ids count up in document order and every Yjs document has the
+ * same client id.
  */
 
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type {
-  Block,
-  DefaultBlockSchema,
-  DefaultInlineContentSchema,
-  DefaultStyleSchema,
-  PartialBlock,
-} from "@blocknote/core";
+import { BlockNoteSchema, createBlockSpec } from "@blocknote/core";
 import { ServerBlockNoteEditor } from "@blocknote/server-util";
 import { getDocument } from "@blocknote/server-util/dom";
 import { yXmlFragmentToProseMirrorRootNode } from "y-prosemirror";
 import * as Y from "yjs";
+import { databaseBlockConfig } from "../../../web/src/components/editor/custom-blocks.ts";
 
 /** The name of the fragment that holds a page's blocks; neon-blocks has the same. */
 export const FRAGMENT = "document-store";
@@ -26,11 +22,26 @@ const CLIENT_ID = 1;
 
 export const FIXTURES = resolve(import.meta.dir, "../../../crates/blocks/tests/fixtures");
 
-const editor = ServerBlockNoteEditor.create<
-  DefaultBlockSchema,
-  DefaultInlineContentSchema,
-  DefaultStyleSchema
->({}, getDocument());
+const dom = getDocument();
+
+/**
+ * The editor's schema: BlockNote's default blocks, and the app's own from the configs the web
+ * app's editor uses. This tool converts blocks and never draws them, so each of the app's
+ * blocks draws as an empty element here.
+ */
+const schema = BlockNoteSchema.create().extend({
+  blockSpecs: {
+    [databaseBlockConfig.type]: createBlockSpec(databaseBlockConfig, {
+      render: () => ({ dom: dom.createElement("div") }),
+    })(),
+  },
+});
+
+/** A block of the schema, and a partial one, which leaves out what has a default. */
+export type Block = typeof schema.Block;
+export type PartialBlock = typeof schema.PartialBlock;
+
+const editor = ServerBlockNoteEditor.create({ schema }, dom);
 
 /** The names of the files in a fixture directory with an extension, without it, sorted. */
 export function fixtureNames(directory: string, extension: string): string[] {

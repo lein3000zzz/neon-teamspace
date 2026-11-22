@@ -165,6 +165,10 @@ document, to the `XmlFragment` named `document-store` that
   changes kept until the connection is back.
 - A paste whose text, with what its blocks cost, comes to more than 3 MiB is refused
   before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
+- The editor's schema (`schema.ts`) is BlockNote's default blocks and the app's database
+  block, made from its config in `custom-blocks.ts`, as
+  [Page documents](/docs/architecture/documents/#block-types) describes. The block draws as a
+  placeholder that names its database by its id.
 
 BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
 every palette and mode: its `--bn-` variables take the palette's tokens, its text and

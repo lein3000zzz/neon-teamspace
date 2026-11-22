@@ -5,6 +5,10 @@ editor itself. It writes the fixtures `neon-blocks` reads, and checks that Block
 `neon-blocks` writes. [Page documents](../../docs/src/content/docs/architecture/documents.md)
 describes the document model and the fixtures.
 
+Its editor has the web app's schema: BlockNote's default blocks, and the app's own made from
+the configs in `../../web/src/components/editor/custom-blocks.ts`. That module imports nothing,
+so this project imports it by its path and needs none of the web app's packages.
+
 The BlockNote packages are pinned to exact versions, and the web app's editor takes the same
 ones. A new BlockNote version changes the fixtures, so its update runs `make blocks-fixtures`
 and commits the result.

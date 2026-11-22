@@ -7,7 +7,8 @@ use pulldown_cmark::{Event, Parser, Tag};
 use super::parse::options;
 use crate::inline::{Marks, Piece, to_pieces};
 use crate::model::{
-    Block, BlockKind, DEFAULT_LANGUAGE, Document, Inline, TableContent, TextAlignment,
+    Block, BlockKind, DEFAULT_LANGUAGE, DatabaseProps, Document, Inline, TableContent,
+    TextAlignment,
 };
 
 /// The document as markdown, ending with a line break unless it is empty.
@@ -207,6 +208,7 @@ fn block_lines(block: &Block) -> Vec<String> {
         BlockKind::Video { props } => vec![media("video", &props.name, &props.url, &props.caption)],
         BlockKind::Audio { props } => vec![media("audio", &props.name, &props.url, &props.caption)],
         BlockKind::File { props } => vec![media("file", &props.name, &props.url, &props.caption)],
+        BlockKind::Database { props } => vec![database(props)],
         BlockKind::BulletListItem { .. }
         | BlockKind::NumberedListItem { .. }
         | BlockKind::CheckListItem { .. } => Vec::new(),
@@ -244,6 +246,35 @@ fn media(name: &str, file: &str, url: &str, caption: &str) -> String {
         escape_text(file, Edges::default(), Context::inline()),
         target(url, caption)
     )
+}
+
+/// `:::database`, the database's id unless it is empty, and `view=` with the view's id when
+/// there is one.
+fn database(props: &DatabaseProps) -> String {
+    let mut line = ":::database".to_owned();
+    if !props.database_id.is_empty() {
+        line.push(' ');
+        line.push_str(&encode_id(&props.database_id));
+    }
+    if let Some(view) = &props.view_id {
+        line.push_str(" view=");
+        line.push_str(&encode_id(view));
+    }
+    line
+}
+
+/// An id as one word that markdown leaves as it is: every byte but ASCII letters, digits,
+/// `-`, `_`, `.` and `~` percent-encoded, so a UUID is written unchanged.
+fn encode_id(id: &str) -> String {
+    let mut out = String::with_capacity(id.len());
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// A link's or image's destination, with its title when there is one.

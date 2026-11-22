@@ -19,6 +19,7 @@ import { FRAGMENT, useSyncSession, type SyncSession } from "./connection";
 import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
 import { pasteFits } from "./paste";
+import { schema } from "./schema";
 
 const copy = strings.pages.editor;
 
@@ -89,6 +90,7 @@ function LiveEditor({ session, editable, self, focusRef }: LiveEditorProps) {
   const [refused, setRefused] = useState(false);
   const editor = useCreateBlockNote(
     {
+      schema,
       ...withCollaboration({
         collaboration: {
           fragment: session.doc.getXmlFragment(FRAGMENT),
