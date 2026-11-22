@@ -250,7 +250,7 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
     >
       {add.isError && (
         <div className="sm:col-span-3">
-          {hasCode(add.error, "invalid_input") ? (
+          {hasCode(add.error, "forbidden") ? (
             <Alert tone="error" live="assertive">
               <p className="text-foreground">{copy.guestRefused}</p>
             </Alert>

@@ -106,7 +106,7 @@ describe("a workspace's teamspaces", () => {
     await waitFor(() => expect(screen.queryByText("Closed room", { selector: "span" })).toBeNull());
   });
 
-  it("lists private teamspaces an admin is not in, by name, to manage them", async () => {
+  it("lists private teamspaces an admin is not in, by name, to join or delete them", async () => {
     const api = fakeWorkspaces({
       role: "admin",
       hidden: [{ id: TEAMSPACE_IDS.private, name: "Secret lab" }],
@@ -115,8 +115,10 @@ describe("a workspace's teamspaces", () => {
 
     const hidden = await card("Secret lab");
     expect(hidden.getByText(/only its name shows to you/)).toBeInTheDocument();
-    await user.click(hidden.getByRole("button", { name: "Members of Secret lab" }));
-    expect(await hidden.findByText("ada@example.com")).toBeInTheDocument();
+    // Its members, settings and access stay closed until the admin is in it.
+    expect(hidden.queryByRole("button", { name: "Members of Secret lab" })).toBeNull();
+    expect(hidden.queryByRole("button", { name: "Edit Secret lab" })).toBeNull();
+    expect(hidden.getByRole("button", { name: "Delete Secret lab" })).toBeInTheDocument();
     await user.click(hidden.getByRole("button", { name: "Add yourself to Secret lab" }));
 
     await waitFor(() =>
@@ -124,6 +126,42 @@ describe("a workspace's teamspaces", () => {
         `${base}/${TEAMSPACE_IDS.private}/join`,
       ]),
     );
+  });
+
+  it("deletes a private teamspace an admin is not in", async () => {
+    const api = fakeWorkspaces({
+      role: "admin",
+      hidden: [{ id: TEAMSPACE_IDS.private, name: "Secret lab" }],
+    });
+    const { user } = renderApp("/w/design/settings/teamspaces");
+
+    const hidden = await card("Secret lab");
+    await user.click(hidden.getByRole("button", { name: "Delete Secret lab" }));
+    const dialog = within(await screen.findByRole("alertdialog", { name: "Delete Secret lab?" }));
+    await user.click(dialog.getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText("Secret lab is deleted.")).toBeInTheDocument();
+    expect(api.changes.map((change) => `${change.method} ${change.path}`)).toEqual([
+      `DELETE ${base}/${TEAMSPACE_IDS.private}`,
+    ]);
+  });
+
+  it("explains a refusal to add someone who became a guest", async () => {
+    fakeWorkspaces();
+    server.use(
+      http.post("/api/v1/workspaces/:id/teamspaces/:teamspace_id/members", () =>
+        apiError(403, "forbidden", "guests are in no teamspace: make them a member first"),
+      ),
+    );
+    const { user } = renderApp("/w/design/settings/teamspaces");
+
+    const open = await card("Open studio");
+    await user.click(open.getByRole("button", { name: "Members of Open studio" }));
+    const form = within(await open.findByRole("form", { name: "Add a member" }));
+    await user.selectOptions(form.getByLabelText("Person"), people.cy.id);
+    await user.click(form.getByRole("button", { name: "Add" }));
+
+    expect(await form.findByRole("alert")).toHaveTextContent(/Guests are in no teamspace/);
   });
 
   it("adds a member to a teamspace, and changes their teamspace role", async () => {

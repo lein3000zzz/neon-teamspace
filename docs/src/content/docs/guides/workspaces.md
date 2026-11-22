@@ -63,8 +63,8 @@ hue; a lock marks private ones. Guests are in no teamspace, so they get no list.
 Each teamspace has a page of its own, `/w/{slug}/teamspaces/{id}`, with its access, its
 members and the way in or out. Its pages will live there too, **planned**. A private
 teamspace answers **Teamspace not found** to anyone outside it, the workspace's owners and
-admins included: they manage it from the [settings](/docs/workspace-settings/teamspaces/)
-by its name alone.
+admins included. They see its name in the [settings](/docs/workspace-settings/teamspaces/),
+where they can delete it, or add themselves to manage it, which its members then see.
 
 ## Invitations
 

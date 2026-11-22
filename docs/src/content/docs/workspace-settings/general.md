@@ -21,8 +21,9 @@ Owners and admins change, in one form:
 - **Members can create teamspaces**: on unless turned off. Owners and admins always can;
   guests never.
 
-Members and guests see the same facts without the form: the name, the address, their role,
-how many people are in it and when it was made.
+Members see the same facts without the form: the name, the address, their role, how many
+people are in it and when it was made. Guests see them too, but for how many people are in
+it, as they see no member but themselves.
 
 ## Colour
 
@@ -35,14 +36,16 @@ the same on every device; [the web app](/docs/architecture/web/#hues-of-things) 
 ## Limits
 
 How many people are in the workspace, guests included, and its member limit, which instance
-admins set; **no limit** unless they set one. A workspace at its limit takes in nobody new,
+admins set; **no limit** unless they set one. Guests see the limit alone. A workspace at its limit takes in nobody new,
 and nobody in it is removed by a limit.
 
 ## Leave workspace
 
 Everyone may leave, after a question. Leaving takes the account out of every teamspace too,
 and coming back needs a new invitation or invite link. The last owner cannot leave: the page
-says to make another member an owner first, or delete the workspace. The app then opens on
+says to make another member an owner first, or delete the workspace. Nor can a member who
+is the last owner of one of its teamspaces, until they make another owner of it or delete
+it; the workspace's owners and admins may leave such a teamspace without an owner. The app then opens on
 another workspace, or on the page for accounts in none.
 
 ## Danger zone

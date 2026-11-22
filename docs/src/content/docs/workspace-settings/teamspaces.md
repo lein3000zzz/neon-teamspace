@@ -32,7 +32,8 @@ a teamspace, its owners and the workspace's owners and admins, also get:
   sending only what changed. General keeps its access, which the form says.
 - **Members**: who is in it, opened in place. A select changes each one's teamspace role,
   owner or member, and **Remove** takes them out after asking; they stay in the workspace.
-  **Add a member** picks someone from the workspace who is not a guest and not in it yet.
+  **Add a member** picks someone from the workspace who is not a guest and not in it yet. If
+  that person became a guest in the meantime, the server refuses, and the card says why.
   General takes everyone but guests, so nobody is added to it or removed from it here.
   A teamspace keeps an owner while its own owners manage it, and the card says so when a
   change would leave none.
@@ -43,9 +44,9 @@ Others see whom to ask, or **Join**, as on the teamspaces page.
 ## Private teamspaces owners and admins are not in
 
 The workspace's owners and admins see these too, by name alone, marked as private teamspaces
-they are not in. Their full view stays closed until they are in one, so the card offers:
+they are not in. Everything else about one stays closed to them until they are in it, its
+members and settings included, so the card offers two things:
 
-- **Add yourself**, which joins it;
-- **Members**, to see and manage who is in it;
-- **Edit**, for its name and access;
-- **Delete**.
+- **Add yourself**, which joins it, as its members then see in its member list. From then on
+  the card is a full one, with **Edit** and **Members**.
+- **Delete**, after asking.

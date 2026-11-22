@@ -697,6 +697,8 @@ export const strings = {
       leaveLede: "You lose access to everything in it until someone invites you again.",
       lastOwner:
         "You are its last owner, so you cannot leave yet: make another member an owner first, or delete the workspace.",
+      lastTeamspaceOwner:
+        "You are the last owner of one of its teamspaces, so you cannot leave yet: make another member its owner first, or delete it.",
       danger: "Danger zone",
       dangerHint:
         "Deleting the workspace removes everything in it, for everyone: its teamspaces, members, invitations and invite links. It cannot be undone.",
@@ -828,7 +830,8 @@ export const strings = {
     count: (n: number) => `${n} ${plural(n, "member", "members")}`,
     yourRole: (role: string) => `You: ${role}`,
     notIn: "You are not in it",
-    hiddenNote: "Private, and you are not in it: only its name shows to you.",
+    hiddenNote:
+      "Private, and you are not in it: only its name shows to you. Add yourself to manage it, which its members then see.",
     settings: {
       create: "Create a teamspace",
       createHint: "You become its owner.",
@@ -878,7 +881,8 @@ export const strings = {
       pending: "Adding…",
       added: (name: string) => `${name} is added.`,
       defaultNote: "Everyone in the workspace but guests is in General, and stays in it.",
-      guestRefused: "Guests are in no teamspace.",
+      guestRefused:
+        "Not added. Guests are in no teamspace, and this person may have become one, or your own role may have changed.",
     },
   },
   workspaceInvite: {

@@ -36,7 +36,8 @@ const copy = strings.teamspaces.settings;
 /**
  * The workspace's teamspaces: creating one, where the role allows, and
  * changing, staffing and deleting those the user manages. Owners and admins
- * also get the private teamspaces they are not in, by name, to manage them.
+ * also get the private teamspaces they are not in, by name, to delete them or
+ * to join them and manage them from inside.
  */
 export function TeamspacesSettingsPage() {
   const workspace = useWorkspace();
@@ -181,6 +182,7 @@ function TeamspaceCard({ teamspace, onDone }: CardProps & { teamspace: Teamspace
       name={teamspace.name}
       access={teamspace.access}
       canManage={canManage}
+      canDelete={canManage}
       onDone={onDone}
       editing={editing}
       onEdit={() => setEditing(true)}
@@ -229,20 +231,21 @@ function TeamspaceCard({ teamspace, onDone }: CardProps & { teamspace: Teamspace
   );
 }
 
-/** A private teamspace an owner or admin is not in: its name, to manage it. */
+/**
+ * A private teamspace an owner or admin is not in: its name alone. They may
+ * delete it, or add themselves, which its members then see, to manage it.
+ */
 function HiddenTeamspaceCard({ teamspace, onDone }: CardProps & { teamspace: TeamspaceName }) {
   const workspace = useWorkspace();
   const join = useJoinTeamspace(workspace.id);
-  const [editing, setEditing] = useState(false);
   return (
     <ManagedCard
       id={teamspace.id}
       name={teamspace.name}
       access="private"
-      canManage
+      canManage={false}
+      canDelete
       onDone={onDone}
-      editing={editing}
-      onEdit={() => setEditing(true)}
       heading={
         <>
           <p className="flex min-w-0 items-center gap-2.5 font-medium">
@@ -256,9 +259,6 @@ function HiddenTeamspaceCard({ teamspace, onDone }: CardProps & { teamspace: Tea
           <p className="text-sm text-muted-foreground">{strings.teamspaces.hiddenNote}</p>
           {join.isError && <ErrorNotice error={join.error} />}
         </>
-      }
-      editor={
-        <EditHiddenForm teamspace={teamspace} onClose={() => setEditing(false)} onDone={onDone} />
       }
       open={
         <Button
@@ -279,12 +279,14 @@ type ManagedCardProps = CardProps & {
   id: string;
   name: string;
   access: TeamspaceAccess;
+  /** Whether the user changes it and its members. */
   canManage: boolean;
+  canDelete: boolean;
   heading: ReactNode;
   /** The edit form, shown in place while `editing`. */
-  editor: ReactNode;
-  editing: boolean;
-  onEdit: () => void;
+  editor?: ReactNode;
+  editing?: boolean;
+  onEdit?: () => void;
   open: ReactNode;
 };
 
@@ -297,9 +299,10 @@ function ManagedCard({
   name,
   access,
   canManage,
+  canDelete,
   heading,
   editor,
-  editing,
+  editing = false,
   onEdit,
   open,
   onDone,
@@ -340,12 +343,12 @@ function ManagedCard({
       </div>
       <ItemActions>
         {open}
-        {canManage && !editing && (
+        {canManage && onEdit !== undefined && !editing && (
           <Button variant="outline" size="sm" aria-label={copy.editLabel(name)} onClick={onEdit}>
             {copy.edit}
           </Button>
         )}
-        {canManage && access !== "default" && (
+        {canDelete && access !== "default" && (
           <Button
             variant="outline"
             size="sm"
@@ -466,70 +469,6 @@ function EditTeamspaceForm({ teamspace, onClose, onDone }: EditProps & { teamspa
           value={pinned}
           onChange={setPinned}
         />
-      </div>
-      <FormButtons pending={update.isPending} onClose={onClose} />
-    </form>
-  );
-}
-
-/** For a private teamspace the user is not in, only its name and access are known. */
-function EditHiddenForm({ teamspace, onClose, onDone }: EditProps & { teamspace: TeamspaceName }) {
-  const workspace = useWorkspace();
-  const accessId = useId();
-  const update = useUpdateTeamspace(workspace.id);
-  const [name, setName] = useState(teamspace.name);
-  const [access, setAccess] = useState<"open" | "closed" | "private">("private");
-  const [problem, setProblem] = useState<string>();
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    update.reset();
-    const found = nameProblem(name);
-    setProblem(found);
-    if (found !== undefined) {
-      event.currentTarget.querySelector("input")?.focus();
-      return;
-    }
-    const typedName = name.trim();
-    update.mutate(
-      {
-        id: teamspace.id,
-        ...(typedName === teamspace.name ? {} : { name: typedName }),
-        ...(access === "private" ? {} : { access }),
-      },
-      {
-        onSuccess: (saved) => {
-          onDone(copy.saved(saved.name));
-          onClose();
-        },
-      },
-    );
-  };
-
-  return (
-    <form
-      noValidate
-      onSubmit={submit}
-      aria-label={copy.editLabel(teamspace.name)}
-      className="grid gap-4 rounded-lg border border-border bg-background p-4"
-    >
-      {update.isError && <ErrorNotice error={update.error} />}
-      <Field label={copy.name} error={problem}>
-        {(control) => (
-          <Input
-            {...control}
-            name="name"
-            autoComplete="off"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        )}
-      </Field>
-      <div className="grid gap-1.5">
-        <p id={accessId} className="text-sm font-medium">
-          {copy.access}
-        </p>
-        <AccessPicker value={access} onChange={setAccess} labelledBy={accessId} />
       </div>
       <FormButtons pending={update.isPending} onClose={onClose} />
     </form>

@@ -52,10 +52,12 @@ export const LINK_TOKEN = "wsl_4yVd0q3oJ2pLmN8sTuVwXyZaBcDeFgHiJkLmNoPqRsT";
 const CREATED = "2026-11-20T09:00:00Z";
 
 const noContent = () => new HttpResponse(null, { status: 204 });
+const noTeamspace = () => apiError(404, "not_found", "no such teamspace");
 
 /**
  * Design, which Ada owns unless a test gives her another role, with Bob as its
- * admin, or its owner when she is not, and Cy and Gus as member and guest.
+ * admin, or its owner when she is not, and Cy and Gus as member and guest. A
+ * guest is not told how many are in it.
  */
 export function design(role: WorkspaceRole = "owner"): Workspace {
   return {
@@ -68,7 +70,7 @@ export function design(role: WorkspaceRole = "owner"): Workspace {
     created_at: CREATED,
     updated_at: CREATED,
     members_can_create_teamspaces: true,
-    member_count: 4,
+    ...(role === "guest" ? {} : { member_count: 4 }),
     limits: {},
   };
 }
@@ -188,6 +190,8 @@ export function fakeWorkspaces(options: Options = {}) {
 
   const base = "/api/v1/workspaces/:id";
   const visible = (id: string) => state.teamspaces.find((entry) => entry.id === id);
+  // Outside a private teamspace, owners and admins may only delete it or join it.
+  const isHidden = (id: unknown) => state.hidden.some((entry) => entry.id === id);
 
   server.use(
     http.get("/api/v1/workspaces", () =>
@@ -246,7 +250,14 @@ export function fakeWorkspaces(options: Options = {}) {
         return noContent();
       }),
     ),
-    http.get(`${base}/members`, () => HttpResponse.json({ members: state.members })),
+    http.get(`${base}/members`, () =>
+      HttpResponse.json({
+        members:
+          role === "guest"
+            ? state.members.filter((entry) => entry.user.id === people.ada.id)
+            : state.members,
+      }),
+    ),
     http.patch(
       `${base}/members/:user_id`,
       record((body, params) => {
@@ -385,20 +396,17 @@ export function fakeWorkspaces(options: Options = {}) {
         const patch = body as Schemas["UpdateTeamspace"];
         const id = params["teamspace_id"] ?? "";
         const found = visible(id);
-        const hidden = state.hidden.find((entry) => entry.id === id);
-        if (hidden && patch.name) {
-          hidden.name = patch.name;
+        if (found === undefined) {
+          return noTeamspace();
         }
         const next: Teamspace = {
-          ...(found ?? { ...teamspaces.private, id, name: hidden?.name ?? "", role: null }),
+          ...found,
           ...(patch.name ? { name: patch.name } : {}),
           ...(patch.access ? { access: patch.access } : {}),
           ...(patch.icon === undefined ? {} : { icon: patch.icon }),
           ...(patch.hue_override === undefined ? {} : { hue_override: patch.hue_override }),
         };
-        if (found) {
-          state.teamspaces = state.teamspaces.map((entry) => (entry.id === id ? next : entry));
-        }
+        state.teamspaces = state.teamspaces.map((entry) => (entry.id === id ? next : entry));
         return HttpResponse.json(next);
       }),
     ),
@@ -440,11 +448,18 @@ export function fakeWorkspaces(options: Options = {}) {
       }),
     ),
     http.get(`${base}/teamspaces/:teamspace_id/members`, ({ params }) =>
-      HttpResponse.json({ members: state.teamspaceMembers[String(params["teamspace_id"])] ?? [] }),
+      isHidden(params["teamspace_id"])
+        ? noTeamspace()
+        : HttpResponse.json({
+            members: state.teamspaceMembers[String(params["teamspace_id"])] ?? [],
+          }),
     ),
     http.post(
       `${base}/teamspaces/:teamspace_id/members`,
       record((body, params) => {
+        if (isHidden(params["teamspace_id"])) {
+          return noTeamspace();
+        }
         const input = body as Schemas["AddTeamspaceMember"];
         const person = Object.values(people).find((entry) => entry.id === input.user_id);
         if (person === undefined) {

@@ -103,6 +103,42 @@ describe("a workspace's general settings", () => {
     expect(screen.getByRole("region", { name: "Leave workspace" })).toBeInTheDocument();
   });
 
+  it("tells a guest the member limit, but not how many are in the workspace", async () => {
+    fakeWorkspaces({ role: "guest" });
+    server.use(
+      http.get("/api/v1/workspaces/:id", () =>
+        Response.json({ ...design("guest"), limits: { members: 10 } }),
+      ),
+    );
+    renderApp("/w/design/settings");
+
+    const facts = within(await screen.findByRole("region", { name: "Workspace" }));
+    expect(facts.getByText("/w/design")).toBeInTheDocument();
+    expect(facts.queryByText("People")).toBeNull();
+    const limits = within(screen.getByRole("region", { name: "Limits" }));
+    expect(limits.getByText("10")).toBeInTheDocument();
+    expect(limits.queryByText(/ of /)).toBeNull();
+  });
+
+  it("explains why the last owner of one of its teamspaces cannot leave", async () => {
+    fakeWorkspaces({ role: "member" });
+    server.use(
+      http.post("/api/v1/workspaces/:id/leave", () =>
+        apiError(409, "last_teamspace_owner", "a teamspace keeps at least one owner"),
+      ),
+    );
+    const { user } = renderApp("/w/design/settings");
+
+    const leave = within(await screen.findByRole("region", { name: "Leave workspace" }));
+    await user.click(leave.getByRole("button", { name: "Leave workspace" }));
+    const dialog = within(await screen.findByRole("alertdialog", { name: "Leave Design?" }));
+    await user.click(dialog.getByRole("button", { name: "Leave workspace" }));
+
+    expect(await leave.findByRole("alert")).toHaveTextContent(
+      /last owner of one of its teamspaces/,
+    );
+  });
+
   it("explains why its last owner cannot leave", async () => {
     fakeWorkspaces();
     server.use(

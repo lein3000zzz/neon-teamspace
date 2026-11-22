@@ -80,11 +80,19 @@ function WorkspaceFacts({ workspace }: { workspace: Workspace }) {
           <span className="font-mono">/w/{workspace.slug}</span>
         </KeyValueRow>
         <KeyValueRow label={copy.role}>{strings.roles[workspace.role]}</KeyValueRow>
-        <KeyValueRow label={copy.members}>{workspace.member_count}</KeyValueRow>
+        <PeopleRow count={workspace.member_count} />
         <KeyValueRow label={copy.created}>{formatDate(workspace.created_at)}</KeyValueRow>
       </KeyValueList>
     </PageSection>
   );
+}
+
+/** How many are in the workspace, which the server tells everyone but guests. */
+function PeopleRow({ count }: { count: number | null | undefined }) {
+  if (count === undefined || count === null) {
+    return null;
+  }
+  return <KeyValueRow label={copy.members}>{count}</KeyValueRow>;
 }
 
 type Problems = {
@@ -201,7 +209,7 @@ function WorkspaceForm({ workspace }: { workspace: Workspace }) {
       </form>
       <KeyValueList className="max-w-xl text-sm">
         <KeyValueRow label={copy.role}>{strings.roles[workspace.role]}</KeyValueRow>
-        <KeyValueRow label={copy.members}>{workspace.member_count}</KeyValueRow>
+        <PeopleRow count={workspace.member_count} />
         <KeyValueRow label={copy.created}>{formatDate(workspace.created_at)}</KeyValueRow>
       </KeyValueList>
     </PageSection>
@@ -242,17 +250,19 @@ function HueSection({ workspace }: { workspace: Workspace }) {
   );
 }
 
-/** What the instance admins set, read only here. */
+/**
+ * What the instance admins set, read only here. A guest learns the limit but
+ * not how many are in the workspace, which the server keeps from them.
+ */
 function LimitsSection({ workspace }: { workspace: Workspace }) {
   const max = workspace.limits.members;
+  const limit = max === undefined || max === null ? copy.noLimit : String(max);
+  const count = workspace.member_count;
   return (
     <PageSection title={copy.limits} hint={copy.limitsHint}>
       <KeyValueList className="max-w-xl text-sm">
         <KeyValueRow label={strings.admin.workspaces.kinds.members}>
-          {copy.memberLimit(
-            workspace.member_count,
-            max === undefined || max === null ? copy.noLimit : String(max),
-          )}
+          {count === undefined || count === null ? limit : copy.memberLimit(count, limit)}
         </KeyValueRow>
       </KeyValueList>
     </PageSection>
@@ -266,9 +276,11 @@ function LeaveSection({ workspace }: { workspace: Workspace }) {
   return (
     <PageSection title={copy.leave} hint={copy.leaveHint}>
       {leave.isError &&
-        (hasCode(leave.error, "last_owner") ? (
+        (hasCode(leave.error, "last_owner", "last_teamspace_owner") ? (
           <Alert tone="error" live="assertive">
-            <p className="text-foreground">{copy.lastOwner}</p>
+            <p className="text-foreground">
+              {hasCode(leave.error, "last_owner") ? copy.lastOwner : copy.lastTeamspaceOwner}
+            </p>
           </Alert>
         ) : (
           <ErrorNotice error={leave.error} />
