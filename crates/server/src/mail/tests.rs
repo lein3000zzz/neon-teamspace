@@ -272,6 +272,43 @@ async fn a_plain_send_writes_both_parts_and_the_headers(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_from_name_stays_on_its_line(pool: PgPool) {
+    let (port, fake) = plain().start().await;
+    let mailer = mailer(pool, port, "none", None).await;
+    mailer
+        .settings
+        .update(
+            [(
+                "instance.name".to_owned(),
+                Change::Set(json!("Neon\r\nBcc: everyone@example.com")),
+            )],
+            None,
+        )
+        .await
+        .expect("saved");
+
+    mailer.send(&hello()).await.expect("sent");
+
+    let data = fake.seen().messages[0].clone();
+    assert!(!data.lines().any(|line| line.starts_with("Bcc:")), "{data}");
+    // The name has specials, so it arrives as an RFC 2047 encoded word.
+    let from = data
+        .lines()
+        .find(|line| line.starts_with("From: "))
+        .expect("a From header");
+    let encoded = from
+        .split("=?utf-8?b?")
+        .nth(1)
+        .and_then(|rest| rest.split("?=").next())
+        .unwrap_or_else(|| panic!("not an encoded word: {from}"));
+    let name = STANDARD.decode(encoded).expect("base64");
+    assert_eq!(
+        String::from_utf8_lossy(&name),
+        "Neon Bcc: everyone@example.com"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn it_signs_in_and_never_repeats_the_password(pool: PgPool) {
     let (port, fake) = plain().start().await;
 

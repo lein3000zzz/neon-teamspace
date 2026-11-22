@@ -23,6 +23,7 @@ use lettre::transport::smtp::client::{Certificate, Tls, TlsParameters, TlsVersio
 use lettre::transport::smtp::extension::ClientId;
 use lettre::transport::smtp::response::{Category, Severity};
 use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
+use neon_app::mail::compose::one_line;
 use neon_app::mail::{Mailer, Outgoing, SendError};
 use neon_app::settings::{INSTANCE_NAME, SettingsService, mail as keys};
 use neon_domain::mail::Security;
@@ -91,7 +92,7 @@ impl SmtpMailer {
             security: Security::parse(settings.get(keys::TLS)).unwrap_or(Security::DEFAULT),
             username: settings.get(keys::USERNAME).to_owned(),
             password: settings.get(keys::PASSWORD).clone(),
-            from: Mailbox::new(Some(from_name.to_owned()), from),
+            from: Mailbox::new(Some(one_line(from_name)), from),
         })
     }
 

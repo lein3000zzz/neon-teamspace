@@ -314,8 +314,8 @@ fn when(at: OffsetDateTime) -> String {
 }
 
 /// Text on one line, for a header: control characters become spaces, and runs of spaces
-/// one.
-fn one_line(text: &str) -> String {
+/// one. Settings such as the instance's name may hold line breaks, which a header must not.
+pub fn one_line(text: &str) -> String {
     text.split(|c: char| c.is_control() || c.is_whitespace())
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>()
