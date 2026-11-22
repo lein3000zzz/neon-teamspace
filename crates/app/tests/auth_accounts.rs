@@ -141,6 +141,44 @@ async fn invite_registration_takes_one_use_of_an_open_invite(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn sign_ups_racing_for_an_invite_s_last_use_let_one_in(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let admin = h.admin().await;
+    let created = h
+        .auth
+        .create_invite(&admin, InviteSpec::default())
+        .await
+        .expect("a single-use invite");
+
+    let racing: Vec<_> = (0..12)
+        .map(|n| {
+            let auth = h.auth.clone();
+            let code = created.code.expose().to_owned();
+            tokio::spawn(async move {
+                auth.register(register(&format!("racer{n}@example.com"), Some(&code)))
+                    .await
+            })
+        })
+        .collect();
+    let mut admitted = 0;
+    for sign_up in racing {
+        match sign_up.await.expect("the sign-up ends") {
+            Ok(_) => admitted += 1,
+            Err(AuthError::InvalidInvite) => {}
+            Err(error) => panic!("only the invite may refuse: {error:?}"),
+        }
+    }
+
+    assert_eq!(admitted, 1);
+    let uses: i32 = h.scalar("SELECT uses FROM invites").await;
+    let recorded: i64 = h.scalar("SELECT count(*) FROM invite_uses").await;
+    let users: i64 = h
+        .scalar("SELECT count(*) FROM users WHERE email LIKE 'racer%'")
+        .await;
+    assert_eq!((uses, recorded, users), (1, 1, 1));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_bound_invite_admits_only_its_address_which_counts_as_verified(pool: PgPool) {
     let h = Harness::new(pool).await;
     h.set("auth.verify_email", json!(true)).await;
