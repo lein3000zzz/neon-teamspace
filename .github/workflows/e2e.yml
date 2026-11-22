@@ -1,7 +1,7 @@
 # The end-to-end tests: both images built from the checkout, a throwaway Compose stack, and
 # the tests against it, all through make e2e. On each pull request into main; on a pull
-# request into dev only when it changes the images, the stack or the tests; by hand; and
-# before each release, which calls this workflow.
+# request into dev only when it changes the images, the stack, the tests or the Makefile that
+# runs them; by hand; and before each release, which calls this workflow.
 name: E2E
 
 on:
@@ -33,9 +33,10 @@ jobs:
           filters: |
             e2e:
               - deployments/**
-              - web/Dockerfile
+              - web/Dockerfile* # and its .dockerignore
               - web/Caddyfile
               - e2e/**
+              - Makefile
               - .github/workflows/e2e.yml
 
   e2e:
