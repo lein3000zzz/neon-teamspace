@@ -29,6 +29,7 @@ tracing-appender = "0.2.5"
 tracing-log = "0.2.0"
 tracing-opentelemetry = { version = "0.34.0", default-features = false, features = ["tracing-log"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+url = "2.5.9"
 uuid = { version = "1.29.3", features = ["v7"] }
 
 # Heap profiles come from jemalloc, which only produces usable backtraces on Linux. It is built

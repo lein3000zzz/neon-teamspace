@@ -631,6 +631,17 @@ fn config_check_hides_credentials_in_observability_urls() {
                 "no {line:?} in {shown}"
             );
         }
+        // Debug output, as an error or a log line could show it, redacts them the same way.
+        let debug = format!("{loaded:?}");
+        assert!(!debug.contains(PASSWORD), "{debug}");
+        assert!(
+            debug.contains(r#"endpoint: Some("http://neon:redacted@collector:4318/")"#),
+            "{debug}"
+        );
+        assert!(
+            debug.contains(r#"server_address: Some("http://redacted@pyroscope:4040/")"#),
+            "{debug}"
+        );
         Ok(())
     });
 }
