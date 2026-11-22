@@ -163,6 +163,28 @@ describe("the page trees in the sidebar", () => {
     });
   });
 
+  it("puts the title back, and says why, when a rename is refused", async () => {
+    fakeWorkspaces();
+    fakePages();
+    server.use(
+      http.patch("/api/v1/pages/:id", () =>
+        apiError(400, "invalid_input", "the title is too long"),
+      ),
+    );
+    const { user } = renderApp("/w/design");
+
+    await user.click(within(await row("Launch")).getByRole("button", { name: "More for Launch" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    const field = (await sidebar()).getByRole("textbox", { name: "New title for Launch" });
+    await user.clear(field);
+    await user.type(field, "Liftoff{Enter}");
+
+    const side = await sidebar();
+    expect(await side.findByText("The title is too long.")).toBeInTheDocument();
+    expect(await side.findByRole("link", { name: "Launch" })).toBeInTheDocument();
+    expect(side.queryByRole("link", { name: "Liftoff" })).toBeNull();
+  });
+
   it("leaves the title as it was on Escape", async () => {
     fakeWorkspaces();
     const api = fakePages();
@@ -321,10 +343,32 @@ describe("the page trees in the sidebar", () => {
     await waitFor(() => expect(side.queryByRole("link", { name: "Launch" })).toBeNull());
     await user.click(side.getByRole("button", { name: "Undo" }));
     expect(await side.findByRole("link", { name: "Launch" })).toBeInTheDocument();
+    // The row the page was trashed from is gone; the notice still hears the answer.
+    await waitFor(() => expect(side.queryByText("Launch is in the trash.")).toBeNull());
     expect(api.changes.map((change) => change.path)).toEqual([
       `/api/v1/pages/${PAGE_IDS.launch}/trash`,
       `/api/v1/pages/${PAGE_IDS.launch}/restore`,
     ]);
+  });
+
+  it("says why an Undo of a trash failed", async () => {
+    fakeWorkspaces();
+    fakePages();
+    server.use(
+      http.post("/api/v1/pages/:id/restore", () =>
+        apiError(409, "conflict", "the page above it is in the trash"),
+      ),
+    );
+    const { user } = renderApp("/w/design");
+    const side = await sidebar();
+
+    await user.click(within(await row("Launch")).getByRole("button", { name: "More for Launch" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move to the trash" }));
+    await waitFor(() => expect(side.queryByRole("link", { name: "Launch" })).toBeNull());
+    await user.click(await side.findByRole("button", { name: "Undo" }));
+
+    expect(await side.findByText("The page above it is in the trash.")).toBeInTheDocument();
+    expect(side.queryByText("Launch is in the trash.")).toBeNull();
   });
 
   it("offers a viewer no way to change a page", async () => {

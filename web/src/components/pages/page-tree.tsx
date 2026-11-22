@@ -310,7 +310,13 @@ type RenameFieldProps = {
 function RenameField({ workspace, page, onDone }: RenameFieldProps) {
   const queryClient = useQueryClient();
   const nav = usePageNav();
-  const update = useUpdatePage(workspace.id, page.id);
+  // The title before the rename, put back if the server refuses the new one.
+  // The field is gone by then, so the mutation itself does it.
+  const before = useRef(page.title);
+  const update = useUpdatePage(workspace.id, page.id, (error) => {
+    showPage(queryClient, workspace.id, page.id, { title: before.current });
+    nav.setNotice({ tone: "error", error });
+  });
   const [value, setValue] = useState(page.title);
   const field = useRef<HTMLInputElement>(null);
   // Enter or Escape ends it, and the field then leaves the page, which blurs it.
@@ -326,15 +332,7 @@ function RenameField({ workspace, page, onDone }: RenameFieldProps) {
     finished.current = true;
     if (save && value !== page.title) {
       showPage(queryClient, workspace.id, page.id, { title: value });
-      update.mutate(
-        { title: value },
-        {
-          onError: (error) => {
-            showPage(queryClient, workspace.id, page.id, { title: page.title });
-            nav.setNotice({ tone: "error", error });
-          },
-        },
-      );
+      update.mutate({ title: value });
     }
     onDone(fromKeyboard);
   };

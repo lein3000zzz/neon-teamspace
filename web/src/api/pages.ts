@@ -228,11 +228,17 @@ export function useCreatePage(workspaceId: string) {
  * Changes a page's title, icon, cover or style. What it shows in lists is
  * written there as soon as the server answers, without reading them again. A
  * title typed further while the save was on its way stays: the next save
- * sends it.
+ * sends it. `onFailed` runs when the server refuses, even once the component
+ * that asked is gone, as a field that sends on leaving it is.
  */
-export function useUpdatePage(workspaceId: string, pageId: string) {
+export function useUpdatePage(
+  workspaceId: string,
+  pageId: string,
+  onFailed?: (error: unknown, body: UpdatePage) => void,
+) {
   const queryClient = useQueryClient();
   return useMutation({
+    ...(onFailed === undefined ? {} : { onError: onFailed }),
     mutationFn: (body: UpdatePage) =>
       call(api.PATCH("/api/v1/pages/{id}", { ...pagePath(pageId), body })),
     onSuccess: (page, body) => {

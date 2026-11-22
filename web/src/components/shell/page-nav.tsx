@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Plus, X } from "lucide-react";
 import { useId } from "react";
-import { favoritesQuery, privatePagesQuery, sharedPagesQuery } from "@/api/pages";
+import { favoritesQuery, privatePagesQuery, sharedPagesQuery, useRestorePage } from "@/api/pages";
 import type { WorkspaceSummary } from "@/api/workspaces";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { PageMenu } from "@/components/pages/page-menu";
@@ -138,9 +138,13 @@ export function SharedNav({ workspace, onNavigate }: SectionProps) {
   );
 }
 
-/** What the last change from the sidebar did, or why it failed, until dismissed. */
-export function PageNavNotice() {
+/**
+ * What the last change from the sidebar did, or why it failed, until dismissed.
+ * Its Undo runs here, where it stays until the answer comes.
+ */
+export function PageNavNotice({ workspace }: { workspace: WorkspaceSummary }) {
   const nav = usePageNav();
+  const restore = useRestorePage(workspace.id);
   const notice = nav.notice;
   if (notice === null) {
     return null;
@@ -159,12 +163,23 @@ export function PageNavNotice() {
   if (notice.tone === "error") {
     return <ErrorNotice error={notice.error}>{dismiss}</ErrorNotice>;
   }
+  const trashed = notice.restore;
   return (
     <Alert live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <p className="min-w-0 flex-1 text-foreground">{notice.text}</p>
-        {notice.undo && (
-          <Button variant="outline" size="sm" onClick={notice.undo}>
+        {trashed !== undefined && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={restore.isPending}
+            onClick={() =>
+              restore.mutate(trashed, {
+                onSuccess: () => nav.setNotice(null),
+                onError: (error) => nav.setNotice({ tone: "error", error }),
+              })
+            }
+          >
             {strings.pages.menu.undo}
           </Button>
         )}

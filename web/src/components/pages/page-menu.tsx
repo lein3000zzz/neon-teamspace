@@ -17,7 +17,6 @@ import {
   favoritesQuery,
   useAddFavorite,
   useRemoveFavorite,
-  useRestorePage,
   useTrashPage,
   type PageAccess,
 } from "@/api/pages";
@@ -71,7 +70,6 @@ export function PageMenu({
   const addFavorite = useAddFavorite(workspace.id);
   const removeFavorite = useRemoveFavorite(workspace.id);
   const trash = useTrashPage(workspace.id);
-  const restore = useRestorePage(workspace.id);
   const [dialog, setDialog] = useState<"move" | "share" | null>(null);
   const title = titleOf(page);
   const editor = edits(page.access);
@@ -145,15 +143,7 @@ export function PageMenu({
                 onSelect={() =>
                   trash.mutate(page.id, {
                     onSuccess: () =>
-                      nav.setNotice({
-                        tone: "info",
-                        text: copy.trashed(title),
-                        undo: () =>
-                          restore.mutate(page.id, {
-                            onSuccess: () => nav.setNotice(null),
-                            onError: report,
-                          }),
-                      }),
+                      nav.setNotice({ tone: "info", text: copy.trashed(title), restore: page.id }),
                     onError: report,
                   })
                 }

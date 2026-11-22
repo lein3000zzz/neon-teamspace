@@ -122,7 +122,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </ul>
         {current !== undefined && (
           <>
-            <PageNavNotice />
+            <PageNavNotice workspace={current} />
             <FavoritesNav workspace={current} onNavigate={onNavigate} />
             {seesTeamspaces(current.role) && (
               <TeamspaceNav workspace={current} onNavigate={onNavigate} />

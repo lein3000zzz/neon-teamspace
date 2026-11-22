@@ -8,9 +8,13 @@ export type DraggedPage = {
   blocked: ReadonlySet<string>;
 };
 
-/** What went wrong with the last change made from the sidebar, or what it did. */
+/**
+ * What went wrong with the last change made from the sidebar, or what it did:
+ * `restore` names the page its Undo brings back from the trash. The notice
+ * does that itself, as the row the page was trashed from is gone by then.
+ */
 export type NavNotice =
-  { tone: "error"; error: unknown } | { tone: "info"; text: string; undo?: () => void };
+  { tone: "error"; error: unknown } | { tone: "info"; text: string; restore?: string };
 
 type PageNavState = {
   /** Pages are closed until opened; sections, such as a teamspace's, open until folded. */
