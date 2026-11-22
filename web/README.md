@@ -150,7 +150,9 @@ A page is at `/w/$slug/p/$pageId` (`src/pages/pages/page.tsx`) and the trash at
 favorites. The sidebar's trees are in `src/components/pages`; which pages are open, which
 sections folded and which page is being dragged live in `PageNavProvider`, shared by the
 column and the drawer. A title typed in a page's header is written into the cached trees
-as it is typed (`showPage`) and saved once typing pauses.
+as it is typed (`showPage`) and saved once typing pauses. `import-dialog.tsx` imports
+markdown into a page, a teamspace or the private pages, and the page menu and the teamspace
+page export it, saving the file with `saveFile` (`src/lib/download.ts`).
 
 The editor (`src/components/editor`) is BlockNote with its shadcn variant, at exactly the
 versions `tools/blocknote-fixtures` pins, with no XL package. `React.lazy` loads it, so its

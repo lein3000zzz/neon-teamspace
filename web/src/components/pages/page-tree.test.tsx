@@ -105,6 +105,8 @@ describe("the page trees in the sidebar", () => {
     const menu = within(await screen.findByRole("menu"));
     expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Add to favorites",
+      "Export as markdown",
+      "Export with subpages",
     ]);
   });
 
@@ -371,7 +373,7 @@ describe("the page trees in the sidebar", () => {
     expect(side.queryByText("Launch is in the trash.")).toBeNull();
   });
 
-  it("offers a viewer no way to change a page", async () => {
+  it("offers a viewer no way to change a page, only to mark and export it", async () => {
     fakeWorkspaces({ role: "member" });
     fakePages({
       pages: [
@@ -396,6 +398,8 @@ describe("the page trees in the sidebar", () => {
     const menu = within(await screen.findByRole("menu"));
     expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Add to favorites",
+      "Export as markdown",
+      "Export with subpages",
     ]);
   });
 });

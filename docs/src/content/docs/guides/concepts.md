@@ -11,9 +11,10 @@ work, in the API and the web app, as described here, in
 app: nesting, private pages, sharing, moving, the trash and favorites, and their content in
 the live editor, as [Pages](/docs/guides/pages/) and
 [Editing pages](/docs/guides/editing-pages/) have it. Their documents sync live over
-WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it. The rest is
-**planned**: it describes the design the code is being built toward, so the details may
-still change.
+WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it, and markdown imports as
+pages and pages export as markdown, as [Import and export](/docs/guides/import-export/) has
+it. The rest is **planned**: it describes the design the code is being built toward, so the
+details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -102,7 +103,7 @@ their edits merge. Markdown is the way in and out. Markdown shortcuts work while
 people, and pasted markdown becoming blocks.
 
 `.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
-zip of markdown files. That works through the API already; see
+zip of markdown files, in the web app and through the API; see
 [Import and export](/docs/guides/import-export/).
 
 A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or

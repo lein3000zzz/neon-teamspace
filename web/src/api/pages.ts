@@ -5,8 +5,10 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { saveFile } from "@/lib/download";
 import { call, send } from "./call";
 import { api, type Schemas } from "./client";
+import { ApiError } from "./errors";
 import { keys } from "./keys";
 
 export type Page = Schemas["Page"];
@@ -24,6 +26,8 @@ export type ShareAccess = Schemas["ShareAccess"];
 export type CreatePage = Schemas["CreatePage"];
 export type UpdatePage = Schemas["UpdatePage"];
 export type MovePage = Schemas["MovePage"];
+export type ImportResult = Schemas["ImportResult"];
+export type SkipReason = Schemas["SkipReason"];
 
 /** Where a page goes: under a page, at the top of a teamspace, or among the caller's private pages. */
 export type PagePlace = { parent_id: string } | { teamspace_id: string } | { private: true };
@@ -379,5 +383,112 @@ export function useRemoveFavorite(workspaceId: string) {
         }),
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.favorites(workspaceId) }),
+  });
+}
+
+/** The largest file an import takes, as the server has it. */
+export const IMPORT_LIMIT = 32 * 1024 * 1024;
+
+/** The names an import takes: a markdown file, or a zip of them. */
+export const IMPORTED_NAMES = /\.(md|markdown|zip)$/i;
+
+/**
+ * Imports a markdown file, or a zip of them, as pages in a place: under a
+ * page, at the top of a teamspace, or among the caller's private pages. The
+ * trees are read again, as the new pages show there.
+ */
+export function useImportPages(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ place, file }: { place: PagePlace; file: File }) =>
+      call(
+        api.POST("/api/v1/workspaces/{id}/pages/import", {
+          params: { path: { id: workspaceId }, query: place },
+          // The schema writes the part as a string, as OpenAPI writes binary; the form carries the file.
+          body: { file: file.name },
+          bodySerializer: () => {
+            const form = new FormData();
+            form.append("file", file, file.name);
+            return form;
+          },
+        }),
+      ),
+    onSuccess: () => refreshPlaces(queryClient, workspaceId),
+  });
+}
+
+type Download = { data?: Blob; error?: unknown; response: Response };
+
+/**
+ * Saves what an export answered as a download, under the name the server
+ * gives it in Content-Disposition, or `fallback`. It is saved here, as the
+ * answer comes, so it is saved even once the menu that asked for it is gone.
+ */
+async function download(request: Promise<Download>, fallback: string): Promise<void> {
+  const { data, error, response } = await request;
+  if (!response.ok || data === undefined) {
+    throw ApiError.from(response, error);
+  }
+  saveFile(data, attachmentName(response.headers.get("Content-Disposition")) ?? fallback);
+}
+
+/**
+ * The file name in a Content-Disposition header: RFC 6266's `filename*`,
+ * which holds it in full, when there, else the plain `filename`.
+ */
+export function attachmentName(header: string | null): string | undefined {
+  if (header === null) {
+    return undefined;
+  }
+  const extended = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)?.[1];
+  if (extended !== undefined) {
+    try {
+      return decodeURIComponent(extended.trim());
+    } catch {
+      // A malformed escape: the plain name still says it.
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]*)"/i.exec(header)?.[1];
+  return plain === undefined || plain === "" ? undefined : plain;
+}
+
+/** What to tell once an export is saved, or why it failed, even once the component that asked is gone. */
+type ExportHandlers = { onSaved?: () => void; onFailed?: (error: unknown) => void };
+
+const exportCallbacks = ({ onSaved, onFailed }: ExportHandlers) => ({
+  ...(onSaved === undefined ? {} : { onSuccess: () => onSaved() }),
+  ...(onFailed === undefined ? {} : { onError: (error: unknown) => onFailed(error) }),
+});
+
+/**
+ * Exports a page as markdown, and saves it: the page alone as a `.md` file,
+ * or, with `children`, a zip of it and every page under it.
+ */
+export function useExportPage(handlers: ExportHandlers = {}) {
+  return useMutation({
+    ...exportCallbacks(handlers),
+    mutationFn: ({ id, children }: { id: string; children: boolean }) =>
+      download(
+        api.GET("/api/v1/pages/{id}/export", {
+          params: { path: { id }, query: children ? { children: true } : {} },
+          parseAs: "blob",
+        }),
+        children ? "Export.zip" : "Export.md",
+      ),
+  });
+}
+
+/** Exports every page of a teamspace as a zip of markdown files, and saves it. */
+export function useExportTeamspace(handlers: ExportHandlers = {}) {
+  return useMutation({
+    ...exportCallbacks(handlers),
+    mutationFn: (id: string) =>
+      download(
+        api.GET("/api/v1/teamspaces/{id}/export", {
+          params: { path: { id } },
+          parseAs: "blob",
+        }),
+        "Export.zip",
+      ),
   });
 }

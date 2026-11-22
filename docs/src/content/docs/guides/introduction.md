@@ -63,7 +63,8 @@ the features build on:
   log of updates and snapshots, with connections closed or made read-only as access
   changes; see [Real-time sync](/docs/architecture/realtime/).
 - Import of markdown files and zips of them as pages, and export of pages and teamspaces as
-  markdown, through the API; see [Import and export](/docs/guides/import-export/).
+  markdown, in the web app and through the API; see
+  [Import and export](/docs/guides/import-export/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -75,12 +76,11 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Importing and exporting markdown in the web app.
-2. Databases with table, board and list views.
-3. Comments, mentions and an inbox, page history, search and attachments.
-4. Agents over MCP, and webhooks in and out.
-5. Signed releases and the first version, 0.1.0.
-6. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Databases with table, board and list views.
+2. Comments, mentions and an inbox, page history, search and attachments.
+3. Agents over MCP, and webhooks in and out.
+4. Signed releases and the first version, 0.1.0.
+5. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

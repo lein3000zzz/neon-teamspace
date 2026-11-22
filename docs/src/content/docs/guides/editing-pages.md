@@ -1,10 +1,10 @@
 ---
 title: Editing pages
-description: The page trees in the sidebar, making, moving and sharing pages, a page's icon, cover, title and style, the live editor, and the trash, in the web app.
+description: The page trees in the sidebar, making, moving and sharing pages, a page's icon, cover, title and style, the live editor, importing and exporting markdown, and the trash, in the web app.
 ---
 
 This page is about the web app's pages for pages: the trees in the sidebar, a page's header,
-its content in the live editor, sharing and the trash. [Pages](/docs/guides/pages/) has the
+its content in the live editor, importing and exporting, sharing and the trash. [Pages](/docs/guides/pages/) has the
 rules behind them and the API they call, and [Permissions](/docs/reference/permissions/#pages)
 the table of who may do what.
 
@@ -56,6 +56,8 @@ title, ready to type.
 | **Share…** | Opens [sharing](#sharing). | Those who edit it, but not guests. |
 | **Move to…** | Opens the list of places it can go. | Those who edit it. |
 | **Move up**, **Move down** | Swaps it with the sibling before or after it. | Those who edit it, while there is such a sibling. |
+| **Import into this page…** | Imports a markdown file or a zip of them under it; see [Importing and exporting](#importing-and-exporting). | Those who edit it. |
+| **Export as markdown**, **Export with subpages** | Saves it as a `.md` file, or with the pages under it as a zip. | Everyone who sees it. |
 | **Move to the trash** | Moves it, with the pages under it, to the [trash](#the-trash). | Those who edit it. |
 
 The page's own header has the same menu, but for renaming in place and the moves up and
@@ -133,7 +135,7 @@ header, and one who may edit again gets them back.
 | An error | The server could not read what the browser sent. | Lost. |
 
 A paste that would be larger than the server takes is refused before it reaches the page,
-with a notice; paste it in parts, or [import it](/docs/guides/import-export/) as a markdown
+with a notice; paste it in parts, or [import it](#importing-and-exporting) as a markdown
 file. The server's own limits are in [Real-time sync](/docs/architecture/realtime/#limits).
 
 The editor connects to `/ws/pages/{id}` on the same origin as the app, over `wss:` when the
@@ -141,6 +143,21 @@ app is served over HTTPS. Browser tabs never sync with each other directly: ever
 goes through the server, which checks what each person may do. The names and colours of
 others' cursors come from the server, which says who each connection is, so nobody shows
 under another person's name.
+
+## Importing and exporting
+
+Markdown comes in and goes out:
+
+- **Import into this page…**, in a page's menu, **Import** on a teamspace's page, and **Import
+  markdown** on the workspace's home take a `.md` or `.markdown` file, or a `.zip` of them,
+  up to 32 MiB. A file becomes a page, and a zip becomes pages, each folder a page with the
+  pages of its files under it. The dialog then links to what it made and lists what of a zip
+  it left out, such as images, as attachments come later.
+- **Export as markdown** and **Export with subpages**, in a page's menu, and **Export** on a
+  teamspace's page save a `.md` file or a zip of them.
+
+[Import and export](/docs/guides/import-export/) has how a zip becomes pages, what markdown
+keeps of a page, and the limits.
 
 ## Sharing
 

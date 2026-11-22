@@ -227,6 +227,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
                 ? () => moveTo(beside, { after: after.id })
                 : undefined
             }
+            onNavigate={onNavigate}
           />
           {editor && (
             <Button

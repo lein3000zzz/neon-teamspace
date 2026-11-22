@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Compass, Lock, Plus, Settings, UserPlus } from "lucide-react";
+import { Compass, Lock, Plus, Settings, Upload, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { favoritesQuery, sharedPagesQuery } from "@/api/pages";
 import { teamspacesQuery } from "@/api/teamspaces";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { EntityMark } from "@/components/nodes/entity-mark";
+import { ImportDialog } from "@/components/pages/import-dialog";
 import { PageCards } from "@/components/pages/page-cards";
 import { useNewPage } from "@/components/pages/use-new-page";
 import { PageSection } from "@/components/settings/page-section";
@@ -27,6 +29,7 @@ export function WorkspaceHomePage() {
   const workspace = useWorkspace();
   const guest = !seesTeamspaces(workspace.role);
   const newPage = useNewPage(workspace);
+  const [importing, setImporting] = useState(false);
   return (
     <div className="grid gap-10">
       <PageHeader
@@ -41,10 +44,16 @@ export function WorkspaceHomePage() {
       >
         <div className="mt-3 flex flex-wrap gap-2">
           {hasPrivatePages(workspace.role) && (
-            <Button disabled={newPage.pending} onClick={() => newPage.start({ private: true })}>
-              <Plus aria-hidden />
-              {newPage.pending ? strings.pages.creating : copy.newPage}
-            </Button>
+            <>
+              <Button disabled={newPage.pending} onClick={() => newPage.start({ private: true })}>
+                <Plus aria-hidden />
+                {newPage.pending ? strings.pages.creating : copy.newPage}
+              </Button>
+              <Button variant="outline" onClick={() => setImporting(true)}>
+                <Upload aria-hidden />
+                {copy.importPrivate}
+              </Button>
+            </>
           )}
           {manages(workspace.role) && (
             <Button asChild variant="outline">
@@ -70,6 +79,15 @@ export function WorkspaceHomePage() {
           </Button>
         </div>
       </PageHeader>
+      {importing && (
+        <ImportDialog
+          workspace={workspace}
+          place={{ private: true }}
+          placeName={strings.pages.transfer.privatePlace}
+          open
+          onOpenChange={setImporting}
+        />
+      )}
       <Favorites />
       {!guest && <YourTeamspaces />}
       <SharedWithYou guest={guest} />

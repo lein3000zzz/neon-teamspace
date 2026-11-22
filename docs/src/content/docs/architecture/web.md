@@ -125,6 +125,11 @@ A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
 - A title is shown in the trees, the favorites and the ways down to pages as it is typed,
   by writing it into those cached lists, and saved over `PATCH /api/v1/pages/{id}` once
   typing pauses for half a second, or as the field is left.
+- An import sends its file as a form to `POST /api/v1/workspaces/{id}/pages/import`, after
+  checking its name and size, then reads the trees again. An export reads the file as a blob
+  and saves it through a link to an object URL, named after its `Content-Disposition`, so
+  the app can show the server's message when it refuses; the file is saved from the request
+  itself, even once the menu that asked is gone.
 - `web/src/lib/page-rules.ts` repeats the page rules only to decide which controls show.
 - The page trees' open pages, folded sections and the page being dragged are kept while the
   app runs, shared by the sidebar's column and its drawer.

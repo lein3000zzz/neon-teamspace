@@ -87,6 +87,15 @@ type Options = {
 const isLive = (entry: Page) => (entry.trashed_at ?? null) === null;
 const missing = () => apiError(404, "not_found", "no such page");
 
+/** An export's answer: its content, named as the server names it. */
+const exported = (body: string, type: string, name: string) =>
+  new HttpResponse(body, {
+    headers: {
+      "Content-Type": type,
+      "Content-Disposition": `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    },
+  });
+
 /**
  * The page routes of the server for Design, holding what changes, so a page
  * reads back what it did. Every request that changes something is recorded.
@@ -100,6 +109,10 @@ export function fakePages(options: Options = {}) {
     shared: options.shared ?? [],
   };
   const changes: Recorded[] = [];
+  /** Each import, with where it went and the file it carried. */
+  const imports: { query: Record<string, string>; text: string }[] = [];
+  /** Each export asked for, by its path and query. */
+  const exports: string[] = [];
   let made = 0;
 
   const record = (
@@ -193,6 +206,49 @@ export function fakePages(options: Options = {}) {
 
   const base = "/api/v1/pages/:id";
   server.use(
+    // One page per import, titled after the file's first heading, as the server titles
+    // them; a zip, of that type, also leaves out an image. The file's name is not kept:
+    // jsdom's files lose theirs on their way into Node's requests.
+    http.post("/api/v1/workspaces/:id/pages/import", async ({ request }) => {
+      const query = Object.fromEntries(new URL(request.url).searchParams);
+      const file = (await request.formData()).get("file");
+      const text = typeof file === "string" || file === null ? "" : await file.text();
+      const zip = typeof file !== "string" && file?.type === "application/zip";
+      imports.push({ query, text });
+      const id = MADE_IDS[made] ?? MADE_IDS[0];
+      made += 1;
+      const title = /^# (.+)$/m.exec(text)?.[1] ?? "Imported";
+      const created = page({ id, title }, "a0");
+      state.pages.push(created);
+      const placed = place(created, {
+        ...(query["parent_id"] ? { parent_id: query["parent_id"] } : {}),
+        ...(query["teamspace_id"] ? { teamspace_id: query["teamspace_id"] } : {}),
+        ...(query["private"] === "true" ? { private: true } : {}),
+      });
+      return HttpResponse.json(
+        {
+          pages: [placed],
+          count: 1,
+          skipped: zip ? [{ path: "Roadmap/logo.png", reason: "attachment" }] : [],
+        },
+        { status: 201 },
+      );
+    }),
+    http.get(`${base}/export`, ({ request, params }) => {
+      const url = new URL(request.url);
+      exports.push(`${url.pathname}${url.search}`);
+      const found = find(String(params["id"]));
+      if (found === undefined) {
+        return missing();
+      }
+      return url.searchParams.get("children") === "true"
+        ? exported("PK", "application/zip", `${found.title}.zip`)
+        : exported(`# ${found.title}\n`, "text/markdown; charset=utf-8", `${found.title}.md`);
+    }),
+    http.get("/api/v1/teamspaces/:id/export", ({ request }) => {
+      exports.push(new URL(request.url).pathname);
+      return exported("PK", "application/zip", "General.zip");
+    }),
     http.get("/api/v1/teamspaces/:id/pages", ({ params }) =>
       HttpResponse.json({ pages: tree((entry) => entry.teamspace_id === params["id"]) }),
     ),
@@ -390,5 +446,5 @@ export function fakePages(options: Options = {}) {
       }),
     ),
   );
-  return { state, changes, find };
+  return { state, changes, imports, exports, find };
 }

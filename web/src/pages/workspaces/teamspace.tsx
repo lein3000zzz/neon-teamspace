@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Lock, LogOut, Plus, Settings } from "lucide-react";
+import { Download, Lock, LogOut, Plus, Settings, Upload } from "lucide-react";
 import { useState } from "react";
 import { hasCode } from "@/api/errors";
-import { teamspacePagesQuery } from "@/api/pages";
+import { teamspacePagesQuery, useExportTeamspace } from "@/api/pages";
 import { teamspaceQuery, useLeaveTeamspace, type Teamspace } from "@/api/teamspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Chip, ChipList } from "@/components/nodes/chip";
 import { EntityMark } from "@/components/nodes/entity-mark";
+import { ImportDialog } from "@/components/pages/import-dialog";
 import { PageCards } from "@/components/pages/page-cards";
 import { useNewPage } from "@/components/pages/use-new-page";
 import { PageSection } from "@/components/settings/page-section";
@@ -116,29 +117,64 @@ function TeamspaceView({ teamspace }: { teamspace: Teamspace }) {
   );
 }
 
-/** The pages at the teamspace's top, and, for its members, the way to add one. */
+/**
+ * The pages at the teamspace's top, and, for its members, the ways to add one
+ * and to import markdown; for everyone who sees them, the way to export them.
+ */
 function TeamspacePages({ teamspace }: { teamspace: Teamspace }) {
   const workspace = useWorkspace();
   const pages = useQuery(teamspacePagesQuery(workspace.id, teamspace.id));
   const newPage = useNewPage(workspace);
+  const exporter = useExportTeamspace();
+  const [importing, setImporting] = useState(false);
   const top = pages.data === undefined ? [] : forestOf(pages.data).roots;
+  const transfer = strings.pages.transfer;
   return (
     <PageSection
       title={copy.pages}
       hint={copy.pagesHint}
       actions={
-        teamspace.role ? (
-          <Button
-            size="sm"
-            disabled={newPage.pending}
-            onClick={() => newPage.start({ teamspace_id: teamspace.id })}
-          >
-            <Plus aria-hidden />
-            {newPage.pending ? strings.pages.creating : copy.newPage}
-          </Button>
-        ) : undefined
+        <div className="flex flex-wrap gap-2">
+          {teamspace.role && (
+            <>
+              <Button
+                size="sm"
+                disabled={newPage.pending}
+                onClick={() => newPage.start({ teamspace_id: teamspace.id })}
+              >
+                <Plus aria-hidden />
+                {newPage.pending ? strings.pages.creating : copy.newPage}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
+                <Upload aria-hidden />
+                {transfer.import}
+              </Button>
+            </>
+          )}
+          {top.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporter.isPending}
+              onClick={() => exporter.mutate(teamspace.id)}
+            >
+              <Download aria-hidden />
+              {exporter.isPending ? transfer.exporting(teamspace.name) : transfer.export}
+            </Button>
+          )}
+        </div>
       }
     >
+      {importing && (
+        <ImportDialog
+          workspace={workspace}
+          place={{ teamspace_id: teamspace.id }}
+          placeName={teamspace.name}
+          open
+          onOpenChange={setImporting}
+        />
+      )}
+      {exporter.isError && <ErrorNotice error={exporter.error} />}
       {pages.isPending && <Loading />}
       {pages.isError && (
         <ErrorNotice

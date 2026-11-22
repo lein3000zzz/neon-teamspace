@@ -47,7 +47,7 @@ export function FavoritesNav({ workspace, onNavigate }: SectionProps) {
                 <span className="min-w-0 flex-1 truncate">{titleOf(page)}</span>
               </Link>
               <div data-row-actions="" className="flex shrink-0 items-center">
-                <PageMenu workspace={workspace} page={page} />
+                <PageMenu workspace={workspace} page={page} onNavigate={onNavigate} />
               </div>
             </div>
           </li>

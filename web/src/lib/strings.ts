@@ -661,6 +661,7 @@ export const strings = {
       lede: "Its pages live in its teamspaces and in your private pages, all in the sidebar.",
       guestLede: "As a guest, you see the pages shared with you, and the pages under them.",
       newPage: "New private page",
+      importPrivate: "Import markdown",
       favorites: "Favorites",
       favoritesHint: "The pages you marked, in your order.",
       shared: "Shared with you",
@@ -936,6 +937,46 @@ export const strings = {
       trash: "Move to the trash",
       trashed: (title: string) => `${title} is in the trash.`,
       undo: "Undo",
+    },
+    transfer: {
+      importInto: "Import into this page…",
+      import: "Import",
+      exportPage: "Export as markdown",
+      exportTree: "Export with subpages",
+      export: "Export",
+      exporting: (name: string) => `Exporting ${name}…`,
+      title: (place: string) => `Import into ${place}`,
+      lede: "A markdown file becomes a page. A zip of them becomes pages: each folder is a page, with the pages of its files and folders under it. The new pages go after those already there.",
+      file: "File",
+      hint: "A .md or .markdown file, or a .zip of them, up to 32 MiB.",
+      pick: "Choose a file to import.",
+      wrongKind: "Choose a .md, .markdown or .zip file.",
+      tooLarge: (size: string) => `That file is ${size}: an import takes up to 32 MiB.`,
+      submit: "Import",
+      pending: "Importing…",
+      cancel: "Cancel",
+      done: "Done",
+      close: "Close",
+      imported: (count: number) =>
+        count === 1
+          ? "Imported 1 page."
+          : `Imported ${count} pages, the pages under them included.`,
+      open: (title: string) => `Open ${title}`,
+      made: "Pages imported",
+      skipped: (count: number) =>
+        count === 1
+          ? "1 file of the zip was left out:"
+          : `${count} files of the zip were left out:`,
+      reasons: {
+        attachment: "not markdown; attachments come later",
+        hidden: "hidden",
+        link: "a symbolic link",
+        encrypted: "encrypted",
+        unsupported_compression: "compressed in a way the server does not read",
+        not_text: "not UTF-8 text",
+        duplicate: "a second file for the same page",
+      },
+      privatePlace: "your private pages",
     },
     move: {
       title: (title: string) => `Move ${title}`,

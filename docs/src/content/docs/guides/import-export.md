@@ -9,12 +9,32 @@ or a page with the pages under it, or a whole teamspace, as a zip laid out the s
 zip that one export writes imports back as the same pages with the same markdown.
 
 :::note[What is built]
-Both work through the API. The web app's buttons for them are **planned**.
+Both work in the web app, as [below](#in-the-web-app), and through the API.
 :::
 
 The markdown is GitHub's, with a small extension for toggles and media blocks, as
 [Page documents](/docs/architecture/documents/#markdown) lists. Some things a page holds have
 no markdown, such as colours, and an export leaves them out; that page lists them too.
+
+## In the web app
+
+| Where | What it does | Who sees it |
+|---|---|---|
+| **Import into this page…**, in a page's menu | Imports under that page, after the pages already there. | Those who edit the page. |
+| **Import**, on a teamspace's page | Imports at the top of the teamspace. | Its members. |
+| **Import markdown**, on the workspace's home | Imports among your private pages. | Members, not guests. |
+| **Export as markdown**, in a page's menu | Saves the page alone as a `.md` file. | Everyone who sees the page. |
+| **Export with subpages**, in a page's menu | Saves the page and every page under it as a zip. | Everyone who sees the page. |
+| **Export**, on a teamspace's page | Saves every page of the teamspace as a zip. | Everyone who may list its pages. |
+
+An import asks for one file: a `.md` or `.markdown` file, or a `.zip` of them. The app checks
+its name and that it is at most 32 MiB before sending it. Once the server made the pages, the
+dialog says how many, with a link to each page at the place, and lists the files of a zip it
+left out and why. The sidebar shows the new pages at once.
+
+An export is saved as a download, named as the server names it. While it is on its way, the
+sidebar says so. When the server refuses an import or an export, the app shows its message,
+such as a limit below that the file is past, or how long to wait when the server is busy.
 
 ## Importing
 

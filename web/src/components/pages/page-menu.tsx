@@ -3,6 +3,7 @@ import { cn } from "cn";
 import {
   ArrowDown,
   ArrowUp,
+  Download,
   FolderInput,
   MoreHorizontal,
   Pencil,
@@ -10,12 +11,14 @@ import {
   Star,
   StarOff,
   Trash2,
+  Upload,
   UserPlus,
 } from "lucide-react";
 import { useState } from "react";
 import {
   favoritesQuery,
   useAddFavorite,
+  useExportPage,
   useRemoveFavorite,
   useTrashPage,
   type PageAccess,
@@ -32,6 +35,7 @@ import {
 import { edits, mayShare } from "@/lib/page-rules";
 import { titleOf } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
+import { ImportDialog } from "./import-dialog";
 import { MoveDialog, type MovedPage } from "./move-dialog";
 import { usePageNav } from "./page-nav-state";
 import { ShareDialog } from "./share-dialog";
@@ -49,12 +53,15 @@ type PageMenuProps = {
   /** Present when there is a sibling to pass, the keyboard's way to reorder. */
   onMoveUp?: (() => void) | undefined;
   onMoveDown?: (() => void) | undefined;
+  /** Runs as a page made here is opened, such as to close the drawer. */
+  onNavigate?: (() => void) | undefined;
 };
 
 /**
  * Everything to do with a page from one button: rename, add a page inside,
- * move it, favorite it, share it, or move it to the trash. Each shows only to
- * those it can work for: a viewer gets the favorite alone.
+ * import markdown into it, export it, move it, favorite it, share it, or move
+ * it to the trash. Each shows only to those it can work for: a viewer gets the
+ * favorite and the exports.
  */
 export function PageMenu({
   workspace,
@@ -64,17 +71,23 @@ export function PageMenu({
   onAddInside,
   onMoveUp,
   onMoveDown,
+  onNavigate,
 }: PageMenuProps) {
   const nav = usePageNav();
   const favorites = useQuery(favoritesQuery(workspace.id));
   const addFavorite = useAddFavorite(workspace.id);
   const removeFavorite = useRemoveFavorite(workspace.id);
   const trash = useTrashPage(workspace.id);
-  const [dialog, setDialog] = useState<"move" | "share" | null>(null);
+  const report = (error: unknown) => nav.setNotice({ tone: "error", error });
+  const exporter = useExportPage({ onSaved: () => nav.setNotice(null), onFailed: report });
+  const [dialog, setDialog] = useState<"move" | "share" | "import" | null>(null);
   const title = titleOf(page);
   const editor = edits(page.access);
   const favorite = favorites.data?.some((entry) => entry.id === page.id) ?? false;
-  const report = (error: unknown) => nav.setNotice({ tone: "error", error });
+  const exportAs = (children: boolean) => {
+    nav.setNotice({ tone: "info", text: strings.pages.transfer.exporting(title) });
+    exporter.mutate({ id: page.id, children });
+  };
 
   return (
     <>
@@ -119,6 +132,21 @@ export function PageMenu({
               {copy.share}
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
+          {editor && (
+            <DropdownMenuItem onSelect={() => setDialog("import")}>
+              <Upload aria-hidden />
+              {strings.pages.transfer.importInto}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem disabled={exporter.isPending} onSelect={() => exportAs(false)}>
+            <Download aria-hidden />
+            {strings.pages.transfer.exportPage}
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={exporter.isPending} onSelect={() => exportAs(true)}>
+            <Download aria-hidden />
+            {strings.pages.transfer.exportTree}
+          </DropdownMenuItem>
           {editor && (
             <>
               <DropdownMenuSeparator />
@@ -172,6 +200,16 @@ export function PageMenu({
           page={page}
           open
           onOpenChange={(open) => setDialog(open ? "share" : null)}
+        />
+      )}
+      {dialog === "import" && (
+        <ImportDialog
+          workspace={workspace}
+          place={{ parent_id: page.id }}
+          placeName={title}
+          open
+          onOpenChange={(open) => setDialog(open ? "import" : null)}
+          onNavigate={onNavigate}
         />
       )}
     </>
