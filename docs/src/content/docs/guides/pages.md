@@ -158,7 +158,7 @@ of pages under it out of the trash, and `access`.
 |---|---|
 | `GET /api/v1/teamspaces/{id}/pages` | A teamspace's pages, for everyone who may see it in full. |
 | `GET /api/v1/workspaces/{id}/private-pages` | The caller's private pages. Guests get `403 forbidden`. |
-| `GET /api/v1/workspaces/{id}/shared-pages` | The pages shared with the caller, each with the pages under it, in the order they were made. A shared page under another one shared with them shows under that one only. Shared pages at the top have no `parent_id`, as the page above them stays hidden. |
+| `GET /api/v1/workspaces/{id}/shared-pages` | The pages shared with the caller, each with the pages under it, in the order they were made, but those in a teamspace the caller is in, whose tree holds them already. A shared page under another one shared with them shows under that one only. Shared pages at the top have no `parent_id`, as the page above them stays hidden. |
 
 A tree comes whole up to 1000 pages. A larger one comes in parts: an answer with `next` has
 more, and passing that value back as `after` gets the next part. `limit` asks for smaller

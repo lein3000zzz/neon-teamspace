@@ -127,7 +127,8 @@ impl PageService {
 
     /// The pages of a workspace shared with the caller, out of the trash, each with the
     /// pages under it: how guests find theirs, and members the pages they reach through
-    /// shares alone.
+    /// shares alone. Pages in a teamspace the caller is in are left out, as its tree holds
+    /// them.
     pub async fn shared_tree(
         &self,
         principal: &Principal,

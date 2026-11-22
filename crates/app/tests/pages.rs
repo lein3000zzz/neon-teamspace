@@ -508,6 +508,45 @@ async fn access_is_the_most_of_what_the_teamspace_and_every_share_above_give(poo
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn shared_pages_leave_out_those_of_the_callers_teamspaces(pool: PgPool) {
+    let t = team(pool).await;
+    t.h.workspaces
+        .join_teamspace(&t.dee, t.id, t.open)
+        .await
+        .expect("Dee joins the open teamspace");
+    let roadmap = t.page(&t.cy, Location::Teamspace(t.open), "Roadmap").await;
+    let q1 = t.page(&t.cy, Location::Under(roadmap), "Q1").await;
+    t.page(&t.cy, Location::Under(q1), "Hiring").await;
+    t.share(&t.cy, q1, &t.dee, PageAccess::Edit).await;
+    let outside = t
+        .page(&t.cy, Location::Teamspace(t.closed), "Outside")
+        .await;
+    t.share(&t.cy, outside, &t.dee, PageAccess::View).await;
+    let shared = |who: Principal| {
+        let pages = t.h.pages.clone();
+        let id = t.id;
+        async move {
+            pages
+                .shared_tree(&who, id, None, None)
+                .await
+                .expect("listed")
+        }
+    };
+
+    // Q1 shows in the open teamspace's tree, so only the closed one's page is listed.
+    assert_eq!(titles(&shared(t.dee.clone()).await), ["Outside"]);
+    // Out of the teamspace, the share is how Dee reaches Q1, with the page under it.
+    t.h.workspaces
+        .leave_teamspace(&t.dee, t.id, t.open)
+        .await
+        .expect("Dee leaves");
+    assert_eq!(
+        titles(&shared(t.dee.clone()).await),
+        ["Q1", "Hiring", "Outside"]
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn shares_are_listed_with_those_inherited_from_above(pool: PgPool) {
     let t = team(pool).await;
     let above = t

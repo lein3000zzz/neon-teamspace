@@ -1367,7 +1367,7 @@ export interface paths {
         };
         /**
          * List the pages shared with the caller
-         * @description The pages of the workspace shared with the caller, out of the trash, each with the pages under it, as a tree: how guests find their pages. A shared page under another one shared with them shows under that one only. The pages shared are in the order they were made.
+         * @description The pages of the workspace shared with the caller, out of the trash, each with the pages under it, as a tree: how guests find their pages, and members those they reach through shares alone. Pages in a teamspace the caller is in are left out, as that teamspace's tree holds them. A shared page under another one shared with them shows under that one only. The pages shared are in the order they were made.
          */
         get: operations["shared_pages"];
         put?: never;

@@ -760,9 +760,11 @@ pub(super) async fn private_pages(
     tag = "pages",
     summary = "List the pages shared with the caller",
     description = "The pages of the workspace shared with the caller, out of the trash, each with \
-                   the pages under it, as a tree: how guests find their pages. A shared page under \
-                   another one shared with them shows under that one only. The pages shared are in \
-                   the order they were made.",
+                   the pages under it, as a tree: how guests find their pages, and members those \
+                   they reach through shares alone. Pages in a teamspace the caller is in are left \
+                   out, as that teamspace's tree holds them. A shared page under another one \
+                   shared with them shows under that one only. The pages shared are in the order \
+                   they were made.",
     params(("id" = Uuid, Path, description = "The workspace's id."), ListPages),
     responses(
         (status = OK, description = "The tree, or a part of it.", body = PageTree),

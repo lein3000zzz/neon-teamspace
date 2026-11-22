@@ -711,10 +711,11 @@ pub async fn space_tree(
 }
 
 /// The pages shared with `user_id` in a workspace and out of the trash, with every page
-/// under them, in the order of the tree as [`space_tree`] has it. A shared page under
-/// another one shared with them is listed under that one only. The pages shared are in
-/// the order their ids sort, which is the order they were made in, and without their
-/// parent, which they are listed at the top in place of.
+/// under them, in the order of the tree as [`space_tree`] has it, but those in a teamspace
+/// they are in, whose tree they have already. A shared page under another one shared with
+/// them is listed under that one only. The pages shared are in the order their ids sort,
+/// which is the order they were made in, and without their parent, which they are listed
+/// at the top in place of.
 pub async fn shared_tree(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
@@ -727,6 +728,10 @@ pub async fn shared_tree(
                SELECT s.page_id
                FROM page_shares s JOIN pages p ON p.id = s.page_id
                WHERE s.workspace_id = $1 AND s.user_id = $2 AND p.trashed_at IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM teamspace_members m
+                     WHERE m.teamspace_id = p.teamspace_id AND m.user_id = $2
+                 )
            ), up (root, id, depth) AS (
                SELECT p.id, p.parent_id, 1 FROM pages p JOIN shared ON shared.id = p.id
              UNION ALL
