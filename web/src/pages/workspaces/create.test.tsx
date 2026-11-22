@@ -24,9 +24,7 @@ describe("creating a workspace", () => {
         body: { name: "Launch crew", icon: "🛰️" },
       },
     ]);
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Nothing here yet" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("heading", { level: 1, name: "Launch crew" })).toBeVisible();
   });
 
   it("checks the name, icon and address before sending", async () => {

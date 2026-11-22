@@ -101,8 +101,8 @@ still loads. Either way, new choices apply for the rest of the visit without bei
 ## Signing in and the API
 
 Every call to the server goes through `src/api`: `client.ts` is the typed `openapi-fetch` client,
-and `auth.ts`, `account.ts`, `admin.ts`, `workspaces.ts` and `teamspaces.ts` hold the TanStack
-Query queries and mutations of each part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
+and `auth.ts`, `account.ts`, `admin.ts`, `workspaces.ts`, `teamspaces.ts` and `pages.ts` hold
+the TanStack Query queries and mutations of each part, so a change to an endpoint has one place to land. The session is the server's `HttpOnly`
 cookie, sent because the app and the API share an origin; the same origin satisfies the server's
 check of `Origin` on requests that change something.
 
@@ -141,6 +141,30 @@ A workspace invite link, `/workspace-invite/$token`, moves its token into the ta
 start page sends the tab back to it while it is held. Leaving or deleting a workspace, or
 changing its slug, moves the page on from the mutation's own `onSuccess`, before the workspace
 leaves the cache: a page whose workspace is gone unmounts, and with it its `mutate()` callbacks.
+
+## Pages and the editor
+
+A page is at `/w/$slug/p/$pageId` (`src/pages/pages/page.tsx`) and the trash at
+`/w/$slug/trash`. `src/api/pages.ts` holds their calls, under the workspace's key: the trees
+(`keys.pageTrees`), each page and what hangs under it (`keys.pages`), the trash and the
+favorites. The sidebar's trees are in `src/components/pages`; which pages are open, which
+sections folded and which page is being dragged live in `PageNavProvider`, shared by the
+column and the drawer. A title typed in a page's header is written into the cached trees
+as it is typed (`showPage`) and saved once typing pauses.
+
+The editor (`src/components/editor`) is BlockNote with its shadcn variant, at exactly the
+versions `tools/blocknote-fixtures` pins, with no XL package. `React.lazy` loads it, so its
+chunk only comes with a page. It binds the page's Yjs document, the `document-store`
+fragment the server's `neon-blocks` reads, through the stock `y-websocket` provider on
+`/ws/pages/{id}` of this origin. `connection.ts` turns the provider's events into the states
+the page shows, and `cursor.ts` draws others' cursors in their hue. `src/styles/editor.css`
+puts BlockNote on the theme's tokens; `index.css` has Tailwind generate the utilities its
+shadcn components use. BlockNote also asks for `interactive-widget=resizes-content` in the
+viewport meta tag, which `index.html` has, so a phone's keyboard resizes the page rather
+than covering it.
+
+The tests talk to an MSW fake of the page routes (`src/test/pages.ts`) and, for the editor,
+to a fake of the sync endpoint speaking the y-websocket protocol (`src/test/sync.ts`).
 
 ## Content-Security-Policy
 

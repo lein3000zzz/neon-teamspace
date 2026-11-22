@@ -14,6 +14,13 @@ globalThis.ResizeObserver ??= NoopResizeObserver;
 // The router restores scroll positions on navigation; jsdom has no layout to scroll.
 window.scrollTo = () => {};
 
+// index.html's viewport, which BlockNote checks for as its editor starts.
+const viewport = document.createElement("meta");
+viewport.name = "viewport";
+viewport.content =
+  "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content";
+document.head.append(viewport);
+
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 
 afterEach(() => {

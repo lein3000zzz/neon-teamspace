@@ -39,6 +39,8 @@ import { Route as AuthWorkspaceInviteIndexRouteImport } from './routes/_auth/wor
 import { Route as AuthWorkspaceInviteTokenRouteImport } from './routes/_auth/workspace-invite/$token'
 import { Route as AppWSlugIndexRouteImport } from './routes/_app/w/$slug/index'
 import { Route as AppWSlugSettingsRouteImport } from './routes/_app/w/$slug/settings'
+import { Route as AppWSlugTrashRouteImport } from './routes/_app/w/$slug/trash'
+import { Route as AppWSlugPPageIdRouteImport } from './routes/_app/w/$slug/p/$pageId'
 import { Route as AppWSlugSettingsIndexRouteImport } from './routes/_app/w/$slug/settings/index'
 import { Route as AppWSlugSettingsMembersRouteImport } from './routes/_app/w/$slug/settings/members'
 import { Route as AppWSlugSettingsTeamspacesRouteImport } from './routes/_app/w/$slug/settings/teamspaces'
@@ -195,6 +197,16 @@ const AppWSlugSettingsRoute = AppWSlugSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppWSlugRoute,
 } as any)
+const AppWSlugTrashRoute = AppWSlugTrashRouteImport.update({
+  id: '/trash',
+  path: '/trash',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
+const AppWSlugPPageIdRoute = AppWSlugPPageIdRouteImport.update({
+  id: '/p/$pageId',
+  path: '/p/$pageId',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
 const AppWSlugSettingsIndexRoute = AppWSlugSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -251,7 +263,9 @@ export interface FileRoutesByFullPath {
   '/join/': typeof AuthJoinIndexRoute
   '/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
   '/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
+  '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug/': typeof AppWSlugIndexRoute
+  '/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -282,7 +296,9 @@ export interface FileRoutesByTo {
   '/admin': typeof AppAdminIndexRoute
   '/join': typeof AuthJoinIndexRoute
   '/workspace-invite': typeof AuthWorkspaceInviteIndexRoute
+  '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug': typeof AppWSlugIndexRoute
+  '/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -320,7 +336,9 @@ export interface FileRoutesById {
   '/_auth/join/': typeof AuthJoinIndexRoute
   '/_auth/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
   '/_app/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
+  '/_app/w/$slug/trash': typeof AppWSlugTrashRoute
   '/_app/w/$slug/': typeof AppWSlugIndexRoute
+  '/_app/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
   '/_app/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/_app/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/_app/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -357,7 +375,9 @@ export interface FileRouteTypes {
     | '/join/'
     | '/workspace-invite/'
     | '/w/$slug/settings'
+    | '/w/$slug/trash'
     | '/w/$slug/'
+    | '/w/$slug/p/$pageId'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
     | '/w/$slug/teamspaces/$teamspaceId'
@@ -388,7 +408,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/join'
     | '/workspace-invite'
+    | '/w/$slug/trash'
     | '/w/$slug'
+    | '/w/$slug/p/$pageId'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
     | '/w/$slug/teamspaces/$teamspaceId'
@@ -425,7 +447,9 @@ export interface FileRouteTypes {
     | '/_auth/join/'
     | '/_auth/workspace-invite/'
     | '/_app/w/$slug/settings'
+    | '/_app/w/$slug/trash'
     | '/_app/w/$slug/'
+    | '/_app/w/$slug/p/$pageId'
     | '/_app/w/$slug/settings/members'
     | '/_app/w/$slug/settings/teamspaces'
     | '/_app/w/$slug/teamspaces/$teamspaceId'
@@ -650,6 +674,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWSlugSettingsRouteImport
       parentRoute: typeof AppWSlugRoute
     }
+    '/_app/w/$slug/trash': {
+      id: '/_app/w/$slug/trash'
+      path: '/trash'
+      fullPath: '/w/$slug/trash'
+      preLoaderRoute: typeof AppWSlugTrashRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
+    '/_app/w/$slug/p/$pageId': {
+      id: '/_app/w/$slug/p/$pageId'
+      path: '/p/$pageId'
+      fullPath: '/w/$slug/p/$pageId'
+      preLoaderRoute: typeof AppWSlugPPageIdRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
     '/_app/w/$slug/settings/': {
       id: '/_app/w/$slug/settings/'
       path: '/'
@@ -745,14 +783,18 @@ const AppWSlugSettingsRouteWithChildren =
 
 interface AppWSlugRouteChildren {
   AppWSlugSettingsRoute: typeof AppWSlugSettingsRouteWithChildren
+  AppWSlugTrashRoute: typeof AppWSlugTrashRoute
   AppWSlugIndexRoute: typeof AppWSlugIndexRoute
+  AppWSlugPPageIdRoute: typeof AppWSlugPPageIdRoute
   AppWSlugTeamspacesTeamspaceIdRoute: typeof AppWSlugTeamspacesTeamspaceIdRoute
   AppWSlugTeamspacesIndexRoute: typeof AppWSlugTeamspacesIndexRoute
 }
 
 const AppWSlugRouteChildren: AppWSlugRouteChildren = {
   AppWSlugSettingsRoute: AppWSlugSettingsRouteWithChildren,
+  AppWSlugTrashRoute: AppWSlugTrashRoute,
   AppWSlugIndexRoute: AppWSlugIndexRoute,
+  AppWSlugPPageIdRoute: AppWSlugPPageIdRoute,
   AppWSlugTeamspacesTeamspaceIdRoute: AppWSlugTeamspacesTeamspaceIdRoute,
   AppWSlugTeamspacesIndexRoute: AppWSlugTeamspacesIndexRoute,
 }

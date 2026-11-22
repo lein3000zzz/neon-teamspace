@@ -36,6 +36,24 @@ export const keys = {
     teamspaceId,
     "members",
   ],
+  /** Every page of a workspace read one by one, with what hangs under each. */
+  pages: (id: string) => ["workspaces", id, "pages"],
+  page: (id: string, pageId: string) => ["workspaces", id, "pages", pageId],
+  breadcrumbs: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "breadcrumbs"],
+  shares: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "shares"],
+  /** Every tree of a workspace's pages: its teamspaces', the private and the shared one. */
+  pageTrees: (id: string) => ["workspaces", id, "page-trees"],
+  teamspacePages: (id: string, teamspaceId: string) => [
+    "workspaces",
+    id,
+    "page-trees",
+    "teamspace",
+    teamspaceId,
+  ],
+  privatePages: (id: string) => ["workspaces", id, "page-trees", "private"],
+  sharedPages: (id: string) => ["workspaces", id, "page-trees", "shared"],
+  trash: (id: string) => ["workspaces", id, "trash"],
+  favorites: (id: string) => ["workspaces", id, "favorites"],
 } as const;
 
 /** The roots of the signed-in user's data. */

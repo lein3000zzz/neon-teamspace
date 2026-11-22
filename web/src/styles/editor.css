@@ -1,0 +1,249 @@
+/*
+ * BlockNote on the app's tokens, in every palette and mode.
+ *
+ * BlockNote's own sheets are unlayered and load with the editor, possibly
+ * after this one, so every rule here leads with `html` to win on specificity
+ * rather than on order. Its shadcn menus take the shadcn variables through
+ * Tailwind's utilities (the @source in index.css); what remains is the
+ * editor's own --bn- variables, and the few colours its sheets write out.
+ *
+ * Text and highlight colours sit at the accent's lightness and chroma, so they
+ * keep its 4.5:1 contrast on the ground at every hue, as the accent does.
+ */
+
+html .bn-root,
+html .bn-root[data-color-scheme] {
+  --bn-font-family: var(--page-font, var(--font-stack-sans));
+  --bn-border-radius: var(--radius);
+  --bn-colors-editor-text: var(--fg);
+  --bn-colors-editor-background: var(--bg);
+  --bn-colors-menu-text: var(--popover-foreground);
+  --bn-colors-menu-background: var(--popover);
+  --bn-colors-tooltip-text: var(--fg);
+  --bn-colors-tooltip-background: var(--raised);
+  --bn-colors-hovered-text: var(--fg);
+  --bn-colors-hovered-background: var(--hover);
+  --bn-colors-selected-text: var(--accent-ink);
+  --bn-colors-selected-background: var(--neon);
+  --bn-colors-disabled-text: var(--fg-muted);
+  --bn-colors-disabled-background: var(--raised);
+  --bn-colors-shadow: transparent;
+  --bn-colors-border: var(--line);
+  --bn-colors-side-menu: var(--fg-muted);
+  --bn-shadow-medium: none;
+  --bn-shadow-light: none;
+
+  --bn-colors-highlights-gray-text: var(--fg-muted);
+  --bn-colors-highlights-gray-background: var(--hover);
+  --bn-colors-highlights-brown-text: oklch(var(--accent-l) calc(var(--accent-c) * 0.45) 55);
+  --bn-colors-highlights-brown-background: oklch(
+    var(--accent-l) calc(var(--accent-c) * 0.45) 55 / 0.18
+  );
+  --bn-colors-highlights-red-text: oklch(var(--accent-l) var(--accent-c) 25);
+  --bn-colors-highlights-red-background: oklch(var(--accent-l) var(--accent-c) 25 / 0.16);
+  --bn-colors-highlights-orange-text: oklch(var(--accent-l) var(--accent-c) 55);
+  --bn-colors-highlights-orange-background: oklch(var(--accent-l) var(--accent-c) 55 / 0.16);
+  --bn-colors-highlights-yellow-text: oklch(var(--accent-l) var(--accent-c) 90);
+  --bn-colors-highlights-yellow-background: oklch(var(--accent-l) var(--accent-c) 90 / 0.18);
+  --bn-colors-highlights-green-text: oklch(var(--accent-l) var(--accent-c) 145);
+  --bn-colors-highlights-green-background: oklch(var(--accent-l) var(--accent-c) 145 / 0.16);
+  --bn-colors-highlights-blue-text: oklch(var(--accent-l) var(--accent-c) 250);
+  --bn-colors-highlights-blue-background: oklch(var(--accent-l) var(--accent-c) 250 / 0.16);
+  --bn-colors-highlights-purple-text: oklch(var(--accent-l) var(--accent-c) 295);
+  --bn-colors-highlights-purple-background: oklch(var(--accent-l) var(--accent-c) 295 / 0.16);
+  --bn-colors-highlights-pink-text: oklch(var(--accent-l) var(--accent-c) 345);
+  --bn-colors-highlights-pink-background: oklch(var(--accent-l) var(--accent-c) 345 / 0.16);
+}
+
+/* The page's dot grid shows through, the text lines up with the title, and it
+   is set in the page's font. The caret marks focus, as in the title, rather
+   than a ring around the whole page. */
+html .bn-root .bn-editor {
+  background-color: transparent;
+  padding-inline: var(--page-inset);
+}
+html .bn-root .bn-default-styles {
+  font-family: var(--bn-font-family);
+}
+html .bn-root .bn-editor:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Headings under the page's title, as in Notion: the title stays the largest
+   text on the page. BlockNote animates between levels with --prev-level. */
+html .bn-root [data-content-type="heading"] {
+  --level: 1.875em;
+}
+html .bn-root [data-content-type="heading"][data-level="2"] {
+  --level: 1.5em;
+}
+html .bn-root [data-content-type="heading"][data-level="3"] {
+  --level: 1.25em;
+}
+html .bn-root [data-prev-level="1"] {
+  --prev-level: 1.875em;
+}
+html .bn-root [data-prev-level="2"] {
+  --prev-level: 1.5em;
+}
+html .bn-root [data-prev-level="3"] {
+  --prev-level: 1.25em;
+}
+
+/* Small text, as Notion sets it: the body a step down, headings with it. */
+html [data-small-text] .bn-root .bn-editor {
+  font-size: 0.875rem;
+}
+
+/* The colours BlockNote writes out for text and highlights, from the same variables. */
+html .bn-root [data-text-color="gray"],
+html .bn-root [data-style-type="textColor"][data-value="gray"] {
+  color: var(--bn-colors-highlights-gray-text);
+}
+html .bn-root [data-text-color="brown"],
+html .bn-root [data-style-type="textColor"][data-value="brown"] {
+  color: var(--bn-colors-highlights-brown-text);
+}
+html .bn-root [data-text-color="red"],
+html .bn-root [data-style-type="textColor"][data-value="red"] {
+  color: var(--bn-colors-highlights-red-text);
+}
+html .bn-root [data-text-color="orange"],
+html .bn-root [data-style-type="textColor"][data-value="orange"] {
+  color: var(--bn-colors-highlights-orange-text);
+}
+html .bn-root [data-text-color="yellow"],
+html .bn-root [data-style-type="textColor"][data-value="yellow"] {
+  color: var(--bn-colors-highlights-yellow-text);
+}
+html .bn-root [data-text-color="green"],
+html .bn-root [data-style-type="textColor"][data-value="green"] {
+  color: var(--bn-colors-highlights-green-text);
+}
+html .bn-root [data-text-color="blue"],
+html .bn-root [data-style-type="textColor"][data-value="blue"] {
+  color: var(--bn-colors-highlights-blue-text);
+}
+html .bn-root [data-text-color="purple"],
+html .bn-root [data-style-type="textColor"][data-value="purple"] {
+  color: var(--bn-colors-highlights-purple-text);
+}
+html .bn-root [data-text-color="pink"],
+html .bn-root [data-style-type="textColor"][data-value="pink"] {
+  color: var(--bn-colors-highlights-pink-text);
+}
+html .bn-root [data-background-color="gray"],
+html .bn-root [data-style-type="backgroundColor"][data-value="gray"] {
+  background-color: var(--bn-colors-highlights-gray-background);
+}
+html .bn-root [data-background-color="brown"],
+html .bn-root [data-style-type="backgroundColor"][data-value="brown"] {
+  background-color: var(--bn-colors-highlights-brown-background);
+}
+html .bn-root [data-background-color="red"],
+html .bn-root [data-style-type="backgroundColor"][data-value="red"] {
+  background-color: var(--bn-colors-highlights-red-background);
+}
+html .bn-root [data-background-color="orange"],
+html .bn-root [data-style-type="backgroundColor"][data-value="orange"] {
+  background-color: var(--bn-colors-highlights-orange-background);
+}
+html .bn-root [data-background-color="yellow"],
+html .bn-root [data-style-type="backgroundColor"][data-value="yellow"] {
+  background-color: var(--bn-colors-highlights-yellow-background);
+}
+html .bn-root [data-background-color="green"],
+html .bn-root [data-style-type="backgroundColor"][data-value="green"] {
+  background-color: var(--bn-colors-highlights-green-background);
+}
+html .bn-root [data-background-color="blue"],
+html .bn-root [data-style-type="backgroundColor"][data-value="blue"] {
+  background-color: var(--bn-colors-highlights-blue-background);
+}
+html .bn-root [data-background-color="purple"],
+html .bn-root [data-style-type="backgroundColor"][data-value="purple"] {
+  background-color: var(--bn-colors-highlights-purple-background);
+}
+html .bn-root [data-background-color="pink"],
+html .bn-root [data-style-type="backgroundColor"][data-value="pink"] {
+  background-color: var(--bn-colors-highlights-pink-background);
+}
+
+/* Blocks: quotes, rules, code and tables in the palette's ink and lines. */
+html .bn-root [data-content-type="quote"] blockquote {
+  color: var(--fg-muted);
+  border-left-color: var(--fg-muted);
+}
+html .bn-root [data-content-type="divider"] hr,
+html .bn-root .bn-block-content[data-content-type="pageBreak"] > div {
+  border-top-color: var(--line);
+}
+html .bn-root .bn-block-content[data-content-type="codeBlock"] {
+  color: var(--fg);
+  background-color: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+html .bn-root .bn-block-content[data-content-type="codeBlock"] > div > select {
+  color: var(--fg-muted);
+}
+html .bn-root .bn-block-content[data-content-type="codeBlock"] > div > select > option {
+  color: var(--fg);
+  background-color: var(--bg);
+}
+html .bn-root .bn-inline-content code,
+html .bn-root .bn-block-content[data-content-type="codeBlock"] code {
+  font-family: var(--font-stack-mono);
+}
+html .bn-root .bn-editor [data-content-type="table"] th,
+html .bn-root .bn-editor [data-content-type="table"] td {
+  border-color: var(--line);
+}
+html .bn-root [data-file-block] .bn-add-file-button,
+html .bn-root .bn-preview-placeholder {
+  color: var(--fg-muted);
+  background-color: var(--raised);
+}
+html .bn-root .bn-editor[contenteditable="true"] [data-file-block] .bn-add-file-button:hover,
+html
+  .bn-root
+  .bn-editor[contenteditable="true"]
+  .bn-preview-placeholder:not(.bn-preview-placeholder-error):hover {
+  background-color: var(--hover);
+}
+
+/* What is selected, and where things drop, in the accent. */
+html .bn-root .bn-block-content.ProseMirror-selectednode > ::after,
+html .bn-root .ProseMirror-selectednode > .bn-block-content > ::after,
+html .bn-root .bn-block-content .ProseMirror-selectednode::after,
+html .bn-root .bn-block-outer[data-drop-target="true"]::after {
+  background-color: var(--neon-soft);
+  box-shadow: inset 0 0 0 2px var(--neon);
+}
+html .bn-root .bn-inline-content .ProseMirror-selectednode::after,
+html .bn-root .ProseMirror .selectedCell::after {
+  background-color: var(--neon-soft);
+  box-shadow: none;
+}
+html .bn-root .ProseMirror .column-resize-handle,
+html .bn-root .bn-table-drop-cursor {
+  background-color: var(--neon);
+}
+
+/*
+ * Other people's cursors, each in their own hue: the cursor element carries
+ * data-hue and --accent-h (see cursor.ts), so --neon is theirs, at this
+ * reader's lightness and chroma. Live cursors glow in dark mode.
+ */
+html .bn-editor .bn-collaboration-cursor__base .bn-collaboration-cursor__caret {
+  background-color: var(--neon);
+  box-shadow: var(--glow);
+}
+html .bn-editor .bn-collaboration-cursor__base .bn-collaboration-cursor__label {
+  background-color: var(--neon);
+  font-family: var(--font-stack-sans);
+}
+html .bn-editor .bn-collaboration-cursor__base[data-active] .bn-collaboration-cursor__label {
+  color: var(--accent-ink);
+}

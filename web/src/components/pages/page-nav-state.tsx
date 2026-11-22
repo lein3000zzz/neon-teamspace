@@ -1,0 +1,90 @@
+import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
+
+/** A page being dragged in the sidebar, and what it may not be dropped on. */
+export type DraggedPage = {
+  id: string;
+  title: string;
+  /** The page and the pages under it: a page never goes under itself. */
+  blocked: ReadonlySet<string>;
+};
+
+/** What went wrong with the last change made from the sidebar, or what it did. */
+export type NavNotice =
+  { tone: "error"; error: unknown } | { tone: "info"; text: string; undo?: () => void };
+
+type PageNavState = {
+  /** Pages are closed until opened; sections, such as a teamspace's, open until folded. */
+  isOpen: (id: string) => boolean;
+  setOpen: (id: string, open: boolean) => void;
+  /** Opens every page above the one in view, so it shows in its tree. */
+  openAll: (ids: readonly string[]) => void;
+  isFolded: (section: string) => boolean;
+  setFolded: (section: string, folded: boolean) => void;
+  dragged: DraggedPage | null;
+  setDragged: (page: DraggedPage | null) => void;
+  notice: NavNotice | null;
+  setNotice: (notice: NavNotice | null) => void;
+};
+
+const PageNavContext = createContext<PageNavState | null>(null);
+
+/**
+ * What the page trees in the sidebar keep while the app runs: which pages are
+ * open, which sections folded, the page being dragged, and the last notice.
+ * The column and the drawer show the same sidebar, so they share it.
+ */
+export function PageNavProvider({ children }: { children: ReactNode }) {
+  const [open, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [folded, setFoldedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [dragged, setDragged] = useState<DraggedPage | null>(null);
+  const [notice, setNotice] = useState<NavNotice | null>(null);
+
+  const setOpen = useCallback((id: string, next: boolean) => {
+    setOpenIds((current) => toggled(current, id, next));
+  }, []);
+  const openAll = useCallback((ids: readonly string[]) => {
+    setOpenIds((current) =>
+      ids.every((id) => current.has(id)) ? current : new Set([...current, ...ids]),
+    );
+  }, []);
+  const setFolded = useCallback((section: string, next: boolean) => {
+    setFoldedIds((current) => toggled(current, section, next));
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      isOpen: (id: string) => open.has(id),
+      setOpen,
+      openAll,
+      isFolded: (section: string) => folded.has(section),
+      setFolded,
+      dragged,
+      setDragged,
+      notice,
+      setNotice,
+    }),
+    [open, folded, dragged, notice, setOpen, openAll, setFolded],
+  );
+  return <PageNavContext value={value}>{children}</PageNavContext>;
+}
+
+function toggled(set: ReadonlySet<string>, id: string, member: boolean): ReadonlySet<string> {
+  if (set.has(id) === member) {
+    return set;
+  }
+  const next = new Set(set);
+  if (member) {
+    next.add(id);
+  } else {
+    next.delete(id);
+  }
+  return next;
+}
+
+export function usePageNav(): PageNavState {
+  const state = use(PageNavContext);
+  if (state === null) {
+    throw new Error("usePageNav must be used inside <PageNavProvider>");
+  }
+  return state;
+}

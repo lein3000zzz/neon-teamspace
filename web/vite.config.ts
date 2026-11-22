@@ -47,6 +47,9 @@ export default defineConfig({
     outDir: "dist",
     // No data: URIs, so the production CSP can keep img-src and font-src at 'self'.
     assetsInlineLimit: 0,
+    // The editor, BlockNote on ProseMirror, is one chunk of about 1.2 MB that only a page
+    // loads; everything else stays well under the default 500 kB.
+    chunkSizeWarningLimit: 1300,
   },
   test: {
     environment: "jsdom",
