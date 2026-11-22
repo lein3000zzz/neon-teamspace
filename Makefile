@@ -26,6 +26,8 @@ E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
+# The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
+E2E_ADMIN     := admin@e2e.example
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
 # Where check builds, so that its offline build never reuses one checked against a database.
@@ -192,7 +194,9 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 # containers' logs when it failed, and keeps the run's exit status.
 e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
 	@set -e; \
-	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)"; \
+	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
+		E2E_ADMIN_EMAIL="$(E2E_ADMIN)" E2E_ADMIN_PASSWORD="$$(openssl rand -hex 16)" \
+		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)"; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
 		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
 	$(E2E_COMPOSE) up --detach --build --wait; \

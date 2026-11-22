@@ -43,6 +43,12 @@ the features build on:
   an internal admin listener; see [Observability](/docs/architecture/observability/).
 - The HTTP API's skeleton with its first endpoint, `GET /api/v1/meta`, and its OpenAPI
   description; see the [API reference](/docs/reference/api/).
+- Accounts: registration modes, invites, requests to join, sessions, API tokens and the
+  admin's work on accounts, through the API and the web app's pages; see
+  [Signing in and accounts](/docs/guides/signing-in/), [Accounts and
+  registration](/docs/guides/accounts/) and [Administration](/docs/admin/users/).
+- Outgoing mail over SMTP for verification, password resets, mailed invites and requests
+  to join, queued with the change it reports; see [Mail](/docs/self-hosting/mail/).
 - Workspaces in the API: their members and roles, invitations and invite links,
   teamspaces, limits and hues; see [Workspaces and teamspaces](/docs/guides/workspaces/)
   and [Permissions](/docs/reference/permissions/).
@@ -57,17 +63,14 @@ the features build on:
 These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Accounts in the web app: sign-in and sign-up pages, account settings and the admin
-   pages, over the server's [account API](/docs/guides/accounts/), and the mail that
-   verification, resets and requests to join send.
-2. Workspaces in the web app: the switcher, and the pages for members, invitations,
+1. Workspaces in the web app: the switcher, and the pages for members, invitations,
    teamspaces and the instance admins' list of workspaces.
-3. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
-4. Databases with table, board and list views.
-5. Comments, mentions and an inbox, page history, search and attachments.
-6. Agents over MCP, and webhooks in and out.
-7. Signed releases and the first version, 0.1.0.
-8. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+2. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
+3. Databases with table, board and list views.
+4. Comments, mentions and an inbox, page history, search and attachments.
+5. Agents over MCP, and webhooks in and out.
+6. Signed releases and the first version, 0.1.0.
+7. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

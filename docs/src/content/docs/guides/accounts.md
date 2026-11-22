@@ -7,6 +7,10 @@ Accounts belong to the instance. Each has an email address, a display name, a pa
 a role, `admin` or `user`. Admins manage accounts, invites, requests to join and the
 runtime settings. Everyone else uses the workspaces they are in.
 
+This page has the rules and the API. The web app's pages for them are in [Signing in and
+accounts](/docs/guides/signing-in/), and the admin pages in
+[Administration](/docs/admin/users/).
+
 :::note[Mail]
 Verifying sign-ups, password resets, mailed invites and requests to join all send mail, so
 they work once [mail is set up](/docs/self-hosting/mail/). Until then they stay off, and
@@ -49,8 +53,9 @@ rescues an instance whose admins all lost their passwords.
 Admins can add accounts in every mode, signed in at a browser. An account an admin makes
 counts as verified.
 
-Signing up never signs anyone in. The sign-up form calls `POST /api/v1/auth/register`, and
-then the person signs in with their password.
+Signing up never signs anyone in by itself. The web app's sign-up form calls
+`POST /api/v1/auth/register`, then signs in with the same password, unless the address must
+be verified first.
 
 ## Invites
 

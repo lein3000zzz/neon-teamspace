@@ -14,7 +14,7 @@ function expectSecurityHeaders(headers: Record<string, string>, label: string) {
 }
 
 test("the app, the docs and the API carry the security headers", async ({ request }) => {
-  for (const path of ["/", "/settings/appearance", "/docs/", "/api/v1/meta", "/missing.js"]) {
+  for (const path of ["/", "/account/appearance", "/docs/", "/api/v1/meta", "/missing.js"]) {
     const response = await request.get(path);
 
     expectSecurityHeaders(response.headers(), path);
