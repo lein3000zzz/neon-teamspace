@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO page_updates (page_id, \"update\", author_id, created_at)\n           SELECT $1, u.body, u.author_id, u.created_at\n           FROM UNNEST($2::bytea[], $3::uuid[], $4::timestamptz[])\n               WITH ORDINALITY AS u (body, author_id, created_at, n)\n           ORDER BY u.n\n           RETURNING seq",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "page_updates",
+            "name": "seq"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "ByteaArray",
+        "UuidArray",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7afb8306bbd746153f44e7f38ccd652741576b9c61b9f5a1dfce21567f377ceb"
+}

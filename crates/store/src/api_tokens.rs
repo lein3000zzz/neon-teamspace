@@ -75,7 +75,8 @@ pub async fn by_token_hash(
     executor: impl PgExecutor<'_>,
     token_hash: &[u8],
 ) -> sqlx::Result<Option<(ApiToken, User)>> {
-    let row = sqlx::query!(
+    sqlx::query_as!(
+        Found,
         "SELECT t.id, t.user_id, t.name, t.prefix, t.scopes, t.created_at, t.expires_at,
                 t.last_used_at,
                 u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
@@ -85,32 +86,77 @@ pub async fn by_token_hash(
         token_hash,
     )
     .fetch_optional(executor)
-    .await?;
-    row.map(|row| {
-        let user = User {
-            id: row.user_id,
-            email: Email::from_stored(row.email),
-            display_name: row.display_name,
-            role: parse_role(&row.role)?,
-            hue_override: parse_hue(row.hue)?,
-            email_verified_at: row.email_verified_at,
-            disabled_at: row.disabled_at,
-            created_at: row.user_created_at,
-            updated_at: row.user_updated_at,
-        };
-        let token = ApiToken {
-            id: row.id,
-            user_id: row.user_id,
-            name: row.name,
-            prefix: row.prefix,
-            scopes: parse_scopes(&row.scopes)?,
-            created_at: row.created_at,
-            expires_at: row.expires_at,
-            last_used_at: row.last_used_at,
-        };
-        Ok((token, user))
-    })
+    .await?
+    .map(Found::split)
     .transpose()
+}
+
+/// A token by its id with its owner, to tell whether it still holds.
+pub async fn by_id(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+) -> sqlx::Result<Option<(ApiToken, User)>> {
+    sqlx::query_as!(
+        Found,
+        "SELECT t.id, t.user_id, t.name, t.prefix, t.scopes, t.created_at, t.expires_at,
+                t.last_used_at,
+                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
+                u.created_at AS user_created_at, u.updated_at AS user_updated_at
+         FROM api_tokens t JOIN users u ON u.id = t.user_id
+         WHERE t.id = $1",
+        id,
+    )
+    .fetch_optional(executor)
+    .await?
+    .map(Found::split)
+    .transpose()
+}
+
+/// A token's row with its owner's.
+struct Found {
+    id: Uuid,
+    user_id: Uuid,
+    name: String,
+    prefix: String,
+    scopes: Vec<String>,
+    created_at: OffsetDateTime,
+    expires_at: Option<OffsetDateTime>,
+    last_used_at: Option<OffsetDateTime>,
+    email: String,
+    display_name: String,
+    role: String,
+    hue: Option<i16>,
+    email_verified_at: Option<OffsetDateTime>,
+    disabled_at: Option<OffsetDateTime>,
+    user_created_at: OffsetDateTime,
+    user_updated_at: OffsetDateTime,
+}
+
+impl Found {
+    fn split(self) -> sqlx::Result<(ApiToken, User)> {
+        let user = User {
+            id: self.user_id,
+            email: Email::from_stored(self.email),
+            display_name: self.display_name,
+            role: parse_role(&self.role)?,
+            hue_override: parse_hue(self.hue)?,
+            email_verified_at: self.email_verified_at,
+            disabled_at: self.disabled_at,
+            created_at: self.user_created_at,
+            updated_at: self.user_updated_at,
+        };
+        let token = ApiToken::try_from(Row {
+            id: self.id,
+            user_id: self.user_id,
+            name: self.name,
+            prefix: self.prefix,
+            scopes: self.scopes,
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+            last_used_at: self.last_used_at,
+        })?;
+        Ok((token, user))
+    }
 }
 
 /// A user's tokens, oldest first.

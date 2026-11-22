@@ -10,8 +10,10 @@ work, in the API and the web app, as described here, in
 [Workspace rules and API](/docs/guides/workspace-rules/). Pages work in the API and the web
 app: nesting, private pages, sharing, moving, the trash and favorites, and their content in
 the live editor, as [Pages](/docs/guides/pages/) and
-[Editing pages](/docs/guides/editing-pages/) have it. The rest is **planned**: it describes
-the design the code is being built toward, so the details may still change.
+[Editing pages](/docs/guides/editing-pages/) have it. Their documents sync live over
+WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it. The rest is
+**planned**: it describes the design the code is being built toward, so the details may
+still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -95,10 +97,13 @@ rules.
 
 A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
 tables. Everyone on a page edits the same live document: each sees the others' cursors, and
-their edits merge. Markdown shortcuts work while typing. **Planned:** callouts, mentions and
-embedded views of a database, agents editing beside people, and markdown as the way in and
-out: pasted markdown becomes blocks, `.md` files or a zip of them can be imported, and a page
-or a whole teamspace exports as a zip of markdown files.
+their edits merge. Markdown is the way in and out. Markdown shortcuts work while typing.
+**Planned:** callouts, mentions and embedded views of a database, agents editing beside
+people, and pasted markdown becoming blocks.
+
+`.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
+zip of markdown files. That works through the API already; see
+[Import and export](/docs/guides/import-export/).
 
 A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
 full width. Members can mark pages as favorites. Trashed pages go to the trash with the

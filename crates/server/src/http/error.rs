@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
+use neon_app::transfer::TransferError;
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
@@ -241,6 +242,34 @@ impl From<PageError> for ApiError {
             }
         };
         Self::new(status, error.code(), error.to_string())
+    }
+}
+
+impl From<TransferError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: TransferError) -> Self {
+        let (code, message) = (error.code(), error.to_string());
+        let (status, retry_after) = match error {
+            TransferError::Page(error) => return error.into(),
+            TransferError::Content { .. } | TransferError::Internal(_) => {
+                tracing::error!(error = %message, "an import or export failed");
+                return Self::internal();
+            }
+            TransferError::InvalidInput(_) => (StatusCode::BAD_REQUEST, None),
+            TransferError::TooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, None),
+            TransferError::RateLimited { retry_after } => {
+                (StatusCode::TOO_MANY_REQUESTS, Some(retry_after))
+            }
+            TransferError::Busy => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Some(TransferError::BUSY_RETRY),
+            ),
+            TransferError::TimedOut(_) => (StatusCode::SERVICE_UNAVAILABLE, None),
+        };
+        let mut api = Self::new(status, code, message);
+        api.retry_after = retry_after;
+        api
     }
 }
 

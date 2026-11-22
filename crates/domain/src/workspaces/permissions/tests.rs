@@ -232,6 +232,7 @@ fn all_actions() -> Vec<Action> {
         Action::CreatePage,
         Action::ViewPage,
         Action::EditPage,
+        Action::ChangePageSpace,
         Action::TrashPage,
         Action::RestorePage,
         Action::DeletePage,
@@ -296,6 +297,7 @@ fn kind(action: Action) -> Kind {
         Action::ListPages | Action::CreatePage => Kind::Pages,
         Action::ViewPage
         | Action::EditPage
+        | Action::ChangePageSpace
         | Action::TrashPage
         | Action::RestorePage
         | Action::DeletePage
@@ -471,6 +473,7 @@ fn tables() -> Vec<(Action, &'static str)> {
         // Actions on a page.
         (Action::ViewPage, VIEW_PAGE),
         (Action::EditPage, EDIT_PAGE),
+        (Action::ChangePageSpace, CHANGE_SPACE),
         (Action::TrashPage, EDIT_PAGE),
         (Action::RestorePage, FROM_THE_TRASH),
         (Action::DeletePage, FROM_THE_TRASH),
@@ -747,6 +750,66 @@ fn pages_table(action: Action, table: &str) {
     }
 }
 
+/// Rows by what the actor's role gets of the page's space before shares, what the page or
+/// one above it is shared with them for, `none`, `view` or `edit` each, and `live` or
+/// `trashed`, then one outcome for every role: for actions that the space's own access
+/// decides, whatever is shared. Checked on every space with every share, for each role
+/// with what the space gives it.
+fn by_space_table(action: Action, table: &str) {
+    let access = |cell: &str| match cell {
+        "none" => None,
+        "view" => Some(PageAccess::View),
+        "edit" => Some(PageAccess::Edit),
+        other => panic!("an access is none, view or edit: {other:?}"),
+    };
+    let mut outcomes = std::collections::HashMap::new();
+    for row in rows(table) {
+        let [base, shared, state, cell] = row[..] else {
+            panic!("a row is an access, a share, a state and an outcome: {row:?}");
+        };
+        let trashed = match state {
+            "live" => false,
+            "trashed" => true,
+            other => panic!("a state is live or trashed: {other:?}"),
+        };
+        let want = expected(&[cell, cell, cell, cell])[0];
+        let earlier = outcomes.insert((access(base), access(shared), trashed), want);
+        assert!(earlier.is_none(), "one row for each case: {row:?}");
+    }
+    assert_eq!(
+        outcomes.len(),
+        18,
+        "a row for every access, share and state"
+    );
+    let mut used = std::collections::HashSet::new();
+    for (space, by_role) in space_access_table() {
+        for shared in SHARES {
+            for trashed in [false, true] {
+                let want = by_role.map(|base| {
+                    used.insert((base, shared, trashed));
+                    outcomes[&(base, shared, trashed)]
+                });
+                let label = format!("{space:?}, shared {shared:?}, trashed {trashed}");
+                check_members(
+                    action,
+                    Resource::Page {
+                        space,
+                        shared,
+                        trashed,
+                    },
+                    want,
+                    &label,
+                );
+            }
+        }
+    }
+    assert_eq!(
+        used.len(),
+        outcomes.len(),
+        "every row is a case that happens"
+    );
+}
+
 /// What each space gives each role before shares: `e` edit, `v` view, `-` nothing.
 fn space_access_table() -> Vec<(PageSpace, [Option<PageAccess>; 4])> {
     space_rows(SPACE_ACCESS)
@@ -896,6 +959,30 @@ const EDIT_PAGE: &str = "
     edit trashed f f f f
 ";
 
+/// Moving a page to another teamspace or to private pages: for those its space lets edit
+/// it, out of the trash. A share to edit moves it only within its space, which shares to
+/// view do not.
+const CHANGE_SPACE: &str = "
+    none none live    h
+    none none trashed h
+    none view live    f
+    none view trashed h
+    none edit live    f
+    none edit trashed f
+    view none live    f
+    view none trashed h
+    view view live    f
+    view view trashed h
+    view edit live    f
+    view edit trashed f
+    edit none live    y
+    edit none trashed f
+    edit view live    y
+    edit view trashed f
+    edit edit live    y
+    edit edit trashed f
+";
+
 /// Restoring and deleting for good: a page in the trash, by those who could edit it.
 const FROM_THE_TRASH: &str = "
     none live    h h h h
@@ -936,7 +1023,7 @@ fn every_action_has_exactly_one_table() {
         .filter(|action| kind(**action) != Kind::Instance)
         .count();
 
-    assert_eq!(actions.len(), 53, "every action and parameter is listed");
+    assert_eq!(actions.len(), 54, "every action and parameter is listed");
     assert_eq!(tables.len(), workspace_and_below);
     for action in actions.iter().filter(|a| kind(**a) != Kind::Instance) {
         let found = tables.iter().filter(|(a, _)| a == action).count();
@@ -952,6 +1039,7 @@ fn workspace_actions_follow_their_tables() {
             Kind::Member => member_table(action, table),
             Kind::Teamspace => teamspace_table(action, table),
             Kind::Pages => pages_table(action, table),
+            Kind::Page if action == Action::ChangePageSpace => by_space_table(action, table),
             Kind::Page => page_table(action, table),
             Kind::Instance => unreachable!("instance actions have no table"),
         }
@@ -1208,6 +1296,54 @@ fn guests_reach_pages_only_through_shares() {
         .expect_err("refused")
         .to_string(),
         "guests have no private pages: they see the pages shared with them"
+    );
+}
+
+#[test]
+fn a_share_moves_a_page_only_within_its_space() {
+    let member = as_member(WorkspaceRole::Member);
+    let guest = as_member(WorkspaceRole::Guest);
+    let page = |space, shared| Resource::Page {
+        space,
+        shared,
+        trashed: false,
+    };
+    let theirs = PageSpace::Private { own: false };
+    let secret = PageSpace::Teamspace {
+        access: TeamspaceAccess::Private,
+        membership: None,
+    };
+    let in_secret = PageSpace::Teamspace {
+        access: TeamspaceAccess::Private,
+        membership: Some(TeamspaceRole::Member),
+    };
+    let edit = Some(PageAccess::Edit);
+
+    for (actor, space) in [(member, theirs), (member, secret), (guest, secret)] {
+        assert_eq!(
+            authorize(actor, Action::EditPage, page(space, edit)),
+            Ok(())
+        );
+        assert_eq!(
+            authorize(actor, Action::ChangePageSpace, page(space, edit))
+                .expect_err("refused")
+                .to_string(),
+            "a page shared with you moves only within its space: those in its teamspace, or \
+             its owner, may move it elsewhere",
+            "{space:?}"
+        );
+    }
+    assert_eq!(
+        authorize(member, Action::ChangePageSpace, page(in_secret, None)),
+        Ok(())
+    );
+    assert_eq!(
+        authorize(
+            member,
+            Action::ChangePageSpace,
+            page(PageSpace::Private { own: true }, None)
+        ),
+        Ok(())
     );
 }
 

@@ -212,6 +212,7 @@ impl Harness {
             .mail(mail.clone())
             .envelope(options.envelope)
             .clock(time.clock())
+            .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
             .build()
             .await
             .expect("the service starts");

@@ -869,6 +869,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pages/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a page as markdown
+         * @description The page as a markdown file, its title as its first heading. With `children=true`, a zip of its file and, in a folder of the same name beside it, those of the pages under it, each page's folder holding the files of the pages under that one: the pages out of the trash, or for a page in the trash, those that went there with it. What markdown cannot hold, such as colours, is left out. Each caller may export 10 times, then once more every 30 seconds.
+         */
+        get: operations["export_page"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pages/{id}/move": {
         parameters: {
             query?: never;
@@ -880,7 +900,7 @@ export interface paths {
         put?: never;
         /**
          * Move a page
-         * @description Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. The pages moved take their access from their new place.
+         * @description Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. Out of its space, to another teamspace or to private pages, the caller must edit it through the space itself, being in its teamspace or owning it: a page shared with them moves only within its space. The pages moved take their access from their new place.
          */
         post: operations["move_page"];
         delete?: never;
@@ -971,6 +991,26 @@ export interface paths {
          * @description With the pages under it, for those who edit it. It stays there for `pages.trash_retention`, 30 days unless set otherwise, then is deleted for good.
          */
         post: operations["trash_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teamspaces/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a teamspace as markdown
+         * @description A zip of the teamspace's pages out of the trash, for everyone who may list them: each page's markdown file, its title as its first heading, the pages at the top of the teamspace at the top of the zip, and the files of the pages under a page in a folder of the same name beside its file. Guests get `not_found`. Each caller may export 10 times, then once more every 30 seconds.
+         */
+        get: operations["export_teamspace"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1272,6 +1312,26 @@ export interface paths {
          * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it.
          */
         post: operations["create_page"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/pages/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import pages from markdown
+         * @description Makes pages from a markdown file, or from a zip of them whose folders become pages with the pages of their files under them. A folder and a markdown file of its name beside it are one page. A file's first heading is its page's title, else its name. The pages go last under a page the caller edits, at the top of a teamspace they are in, or among their private pages, as the query names; nothing is made unless all of it can be. Other files of a zip, such as images, are left out and listed. Each caller may import 10 times, then once more every 30 seconds.
+         */
+        post: operations["import_pages"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1845,6 +1905,21 @@ export interface components {
          * @enum {string}
          */
         Font: "default" | "serif" | "mono";
+        /** @description What an import made. */
+        ImportResult: {
+            /**
+             * Format: int64
+             * @description How many pages were made, those under them included.
+             */
+            count: number;
+            /**
+             * @description The pages made where the import went, in order. The pages under them are listed by
+             *     the trees.
+             */
+            pages: components["schemas"]["Page"][];
+            /** @description The files of a zip left out, in the zip's order. */
+            skipped: components["schemas"]["SkippedFile"][];
+        };
         /** @description An invite, without its code. */
         Invite: {
             /** @description Whether its code can be copied again. */
@@ -2121,7 +2196,10 @@ export interface components {
             cover?: components["schemas"]["Cover"] | null;
             /** Format: date-time */
             created_at: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Absent for guests, as are `last_edited_by` and `trashed_by`.
+             */
             created_by?: string | null;
             icon?: string | null;
             /** Format: uuid */
@@ -2133,12 +2211,14 @@ export interface components {
             last_edited_by?: string | null;
             /**
              * Format: uuid
-             * @description The member a private page belongs to; absent for a teamspace's page.
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
              */
             owner_id?: string | null;
             /**
              * Format: uuid
-             * @description The page it is under; absent at the top of its space.
+             * @description The page it is under; absent at the top of its space, and when the caller may not
+             *     see that page.
              */
             parent_id?: string | null;
             /**
@@ -2425,9 +2505,10 @@ export interface components {
             inherited: boolean;
             /**
              * Format: uuid
-             * @description The page it is set on: the one listed, or a page above it.
+             * @description The page it is set on: the one listed, or a page above it; absent when that is a
+             *     page above that the caller may not see.
              */
-            page_id: string;
+            page_id?: string | null;
             /** Format: date-time */
             updated_at: string;
             user: components["schemas"]["Person"];
@@ -2454,6 +2535,20 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["User"];
+        };
+        /**
+         * @description Why a file of a zip was left out.
+         * @enum {string}
+         */
+        SkipReason: "attachment" | "hidden" | "link" | "encrypted" | "unsupported_compression" | "not_text" | "duplicate";
+        /** @description A file of a zip left out of an import. */
+        SkippedFile: {
+            /**
+             * @description Its path in the zip.
+             * @example Roadmap/diagram.png
+             */
+            path: string;
+            reason: components["schemas"]["SkipReason"];
         };
         /**
          * @description The parts of a page's style to set; each left out stays as it is, or takes its default
@@ -2569,7 +2664,11 @@ export interface components {
             icon?: string | null;
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The member a private page belongs to; absent for a teamspace's page, and for
+             *     guests, who know no other member.
+             */
             owner_id?: string | null;
             /**
              * Format: uuid
@@ -5756,6 +5855,99 @@ export interface operations {
             };
         };
     };
+    export_page: {
+        parameters: {
+            query?: {
+                /**
+                 * @description True for a zip of the page and the pages under it; a markdown file of the page alone
+                 *     when false or absent.
+                 */
+                children?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file, as an attachment named after the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/markdown": unknown;
+                    "application/zip": unknown;
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     move_page: {
         parameters: {
             query?: never;
@@ -5799,7 +5991,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden or insufficient_scope. */
+            /** @description forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6201,6 +6393,92 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    export_teamspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The teamspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zip, as an attachment named after the teamspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: more than 5000 pages, or more than 128 MiB of markdown. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7572,6 +7850,127 @@ export interface operations {
             };
             /** @description too_deep: pages nest at most 100 levels. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    import_pages: {
+        parameters: {
+            query?: {
+                /** @description The page of the workspace to import under, which the caller edits. */
+                parent_id?: string;
+                /** @description The teamspace to import at the top of, which the caller is in. */
+                teamspace_id?: string;
+                /** @description True to import among the caller's private pages. */
+                private?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * @description A markdown file, named `.md` or `.markdown`, or a zip of them, named `.zip`, at most
+                     *     32 MiB.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The pages made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description invalid_input: no place or several, no file or several, a file that is not markdown or a zip, not UTF-8, a zip that cannot be read or holds no markdown file, or an entry whose path leads outside the zip; or invalid_body, a form that cannot be read. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest importing private pages; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, teamspace or parent, or none the caller may see. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_deep: the pages would nest deeper than 100 levels. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_large: past a limit of imports, which the message names; or payload_too_large, a form larger than the largest upload. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

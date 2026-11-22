@@ -1,5 +1,6 @@
 //! Pages: creating, changing, moving, trashing, restoring and deleting them, the trees they
-//! make, sharing them, favorites, and the trash's hourly purge.
+//! make, sharing them, favorites, importing trees of them and outlining them for exports,
+//! and the trash's hourly purge.
 //!
 //! Every use case asks [`authorize`] before it acts, so who may do what is decided in one
 //! place, the domain. A change to a workspace's tree locks the tree first, in the
@@ -16,7 +17,9 @@
 mod access;
 mod error;
 mod favorites;
+mod imports;
 mod operations;
+mod outlines;
 mod shares;
 mod trees;
 
@@ -40,7 +43,9 @@ use crate::settings::{SettingsService, pages as keys};
 
 pub use access::{AccessChange, AccessChanges, NoListener};
 pub use error::PageError;
+pub use imports::{Imported, ImportedContent, ImportedPage};
 pub use operations::{Location, NewPage, PageUpdate};
+pub use outlines::{OutlinePage, TeamspaceOutline};
 pub use shares::ListedShare;
 pub use trees::{MAX_LIST, TrashList, Tree, TreePage};
 
@@ -51,11 +56,15 @@ const NO_PAGE: &str = "no such page";
 const NO_WORKSPACE: &str = "no such workspace";
 const NO_TEAMSPACE: &str = "no such teamspace";
 
-/// A page as the caller sees it, with what they may do with it.
+/// A page as the caller sees it, with what they may do with it. The page it is under is
+/// left out, `parent_id` being `None`, when the caller may not see that page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageView {
     pub page: Page,
     pub access: PageAccess,
+    /// The caller is a guest, who knows no other member: what is shown of the page leaves
+    /// out who made, changed, trashed or owns it.
+    pub members_hidden: bool,
 }
 
 /// The page use cases. Cheap to clone; clones share everything.
@@ -135,15 +144,22 @@ impl PageService {
     }
 
     /// Deletes for good the pages in the trash longer than `pages.trash_retention`, with
-    /// the pages under them. The hourly cleanup runs it.
+    /// the pages under them, and says how many. The hourly cleanup runs it.
     pub async fn purge_trash(&self) -> Result<u64, PageError> {
         self.observe("purge_trash", async {
             let before = self.now() - self.trash_retention();
             let purged = repo::purge_trash(self.pool(), before).await?;
-            if purged > 0 {
-                info!(pages = purged, "pages deleted from the trash");
+            if !purged.is_empty() {
+                info!(pages = purged.len(), "pages deleted from the trash");
             }
-            Ok(purged)
+            for page in purged.iter().filter(|page| page.on_its_own) {
+                self.changed(AccessChange::Pages {
+                    workspace_id: page.workspace_id,
+                    page_id: page.id,
+                    user_id: None,
+                });
+            }
+            Ok(u64::try_from(purged.len()).unwrap_or(u64::MAX))
         })
         .await
     }
@@ -231,6 +247,11 @@ impl PageService {
     }
 }
 
+/// Whether an actor is a guest, who knows no other member.
+fn is_guest(actor: Actor) -> bool {
+    actor.role.is_some_and(|role| !role.joins_teamspaces())
+}
+
 /// The principal as the rules see them in a workspace where their role is `role`.
 fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
     Actor {
@@ -310,8 +331,42 @@ fn seen(principal: &Principal, facts: &PageFacts) -> Result<Option<PageView>, Pa
         access_of(actor, space, facts.shared).map(|access| PageView {
             page: facts.page.clone(),
             access,
+            members_hidden: is_guest(actor),
         }),
     )
+}
+
+/// Leaves out of each view the page it is under, when the principal may not see that page.
+async fn hide_parents(
+    conn: &mut PgConnection,
+    principal: &Principal,
+    views: &mut [PageView],
+) -> Result<(), PageError> {
+    let parents: Vec<Uuid> = views
+        .iter()
+        .filter_map(|view| view.page.parent_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    if parents.is_empty() {
+        return Ok(());
+    }
+    let mut seen_parents = std::collections::HashSet::new();
+    for facts in repo::facts(&mut *conn, &parents, principal.user.id).await? {
+        if seen(principal, &facts)?.is_some() {
+            seen_parents.insert(facts.page.id);
+        }
+    }
+    for view in views {
+        if view
+            .page
+            .parent_id
+            .is_some_and(|parent| !seen_parents.contains(&parent))
+        {
+            view.page.parent_id = None;
+        }
+    }
+    Ok(())
 }
 
 /// Asks the rules about an action on a space's pages.
@@ -364,17 +419,32 @@ impl Context {
         self.chain.len()
     }
 
-    /// The page as the principal sees it. Ask the rules first.
+    /// The page as the principal sees it, without the page above it when they may not see
+    /// that one. Ask the rules first.
     fn view(self) -> Result<PageView, PageError> {
         let access = access_of(self.actor, self.space, self.chain[0].shared)
             .ok_or(PageError::NotFound(NO_PAGE))?;
-        let page = self
+        let parent_seen = self.chain.get(1).is_some_and(|parent| self.sees(parent));
+        let members_hidden = is_guest(self.actor);
+        let mut page = self
             .chain
             .into_iter()
             .next()
             .map(|link| link.page)
             .ok_or(PageError::NotFound(NO_PAGE))?;
-        Ok(PageView { page, access })
+        if !parent_seen {
+            page.parent_id = None;
+        }
+        Ok(PageView {
+            page,
+            access,
+            members_hidden,
+        })
+    }
+
+    /// Whether the principal may see a page of the chain.
+    fn sees(&self, link: &Link) -> bool {
+        authorize(self.actor, Action::ViewPage, self.resource(link)).is_ok()
     }
 
     /// The pages from the highest one the principal sees down to the page.
@@ -382,7 +452,7 @@ impl Context {
         let mut crumbs: Vec<Page> = self
             .chain
             .iter()
-            .take_while(|link| authorize(self.actor, Action::ViewPage, self.resource(link)).is_ok())
+            .take_while(|link| self.sees(link))
             .map(|link| link.page.clone())
             .collect();
         crumbs.reverse();

@@ -3845,13 +3845,131 @@
         ]
       }
     },
+    "/api/v1/pages/{id}/export": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Export a page as markdown",
+        "description": "The page as a markdown file, its title as its first heading. With `children=true`, a zip of its file and, in a folder of the same name beside it, those of the pages under it, each page's folder holding the files of the pages under that one: the pages out of the trash, or for a page in the trash, those that went there with it. What markdown cannot hold, such as colours, is left out. Each caller may export 10 times, then once more every 30 seconds.",
+        "operationId": "export_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "children",
+            "in": "query",
+            "description": "True for a zip of the page and the pages under it; a markdown file of the page alone\nwhen false or absent.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, as an attachment named after the page.",
+            "content": {
+              "text/markdown": {},
+              "application/zip": {}
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "too_large: more than 5000 pages, or more than 128 MiB of markdown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/pages/{id}/move": {
       "post": {
         "tags": [
           "pages"
         ],
         "summary": "Move a page",
-        "description": "Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. The pages moved take their access from their new place.",
+        "description": "Moves it, with the pages under it, under another page, to the top of a teamspace or to the caller's private pages, and places it among its new siblings; to reorder it, name the place it is in. The caller edits the page and where it goes. Out of its space, to another teamspace or to private pages, the caller must edit it through the space itself, being in its teamspace or owning it: a page shared with them moves only within its space. The pages moved take their access from their new place.",
         "operationId": "move_page",
         "parameters": [
           {
@@ -3907,7 +4025,7 @@
             }
           },
           "403": {
-            "description": "forbidden or insufficient_scope.",
+            "description": "forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4469,6 +4587,114 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/teamspaces/{id}/export": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Export a teamspace as markdown",
+        "description": "A zip of the teamspace's pages out of the trash, for everyone who may list them: each page's markdown file, its title as its first heading, the pages at the top of the teamspace at the top of the zip, and the files of the pages under a page in a folder of the same name beside its file. Guests get `not_found`. Each caller may export 10 times, then once more every 30 seconds.",
+        "operationId": "export_teamspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The teamspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The zip, as an attachment named after the teamspace.",
+            "content": {
+              "application/zip": {}
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "too_large: more than 5000 pages, or more than 128 MiB of markdown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6349,6 +6575,188 @@
           },
           "409": {
             "description": "too_deep: pages nest at most 100 levels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/pages/import": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Import pages from markdown",
+        "description": "Makes pages from a markdown file, or from a zip of them whose folders become pages with the pages of their files under them. A folder and a markdown file of its name beside it are one page. A file's first heading is its page's title, else its name. The pages go last under a page the caller edits, at the top of a teamspace they are in, or among their private pages, as the query names; nothing is made unless all of it can be. Other files of a zip, such as images, are left out and listed. Each caller may import 10 times, then once more every 30 seconds.",
+        "operationId": "import_pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "parent_id",
+            "in": "query",
+            "description": "The page of the workspace to import under, which the caller edits.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "query",
+            "description": "The teamspace to import at the top of, which the caller is in.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "private",
+            "in": "query",
+            "description": "True to import among the caller's private pages.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "description": "The form of an import.",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "A markdown file, named `.md` or `.markdown`, or a zip of them, named `.zip`, at most\n32 MiB.",
+                    "contentMediaType": "application/octet-stream"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The pages made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: no place or several, no file or several, a file that is not markdown or a zip, not UTF-8, a zip that cannot be read or holds no markdown file, or an entry whose path leads outside the zip; or invalid_body, a form that cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest importing private pages; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, teamspace or parent, or none the caller may see.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too_deep: the pages would nest deeper than 100 levels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "too_large: past a limit of imports, which the message names; or payload_too_large, a form larger than the largest upload.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the import took longer than 20 seconds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8716,6 +9124,37 @@
           "mono"
         ]
       },
+      "ImportResult": {
+        "type": "object",
+        "description": "What an import made.",
+        "required": [
+          "pages",
+          "count",
+          "skipped"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many pages were made, those under them included.",
+            "minimum": 0
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "description": "The pages made where the import went, in order. The pages under them are listed by\nthe trees."
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedFile"
+            },
+            "description": "The files of a zip left out, in the zip's order."
+          }
+        }
+      },
       "Invite": {
         "type": "object",
         "description": "An invite, without its code.",
@@ -9436,7 +9875,8 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Absent for guests, as are `last_edited_by` and `trashed_by`."
           },
           "icon": {
             "type": [
@@ -9462,7 +9902,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The member a private page belongs to; absent for a teamspace's page."
+            "description": "The member a private page belongs to; absent for a teamspace's page, and for\nguests, who know no other member."
           },
           "parent_id": {
             "type": [
@@ -9470,7 +9910,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The page it is under; absent at the top of its space."
+            "description": "The page it is under; absent at the top of its space, and when the caller may not\nsee that page."
           },
           "position": {
             "type": "string",
@@ -10122,7 +10562,6 @@
         "required": [
           "user",
           "access",
-          "page_id",
           "inherited",
           "created_at",
           "updated_at"
@@ -10147,9 +10586,12 @@
             "description": "Set on a page above the one listed, and holding here too; it changes there."
           },
           "page_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid",
-            "description": "The page it is set on: the one listed, or a page above it."
+            "description": "The page it is set on: the one listed, or a page above it; absent when that is a\npage above that the caller may not see."
           },
           "updated_at": {
             "type": "string",
@@ -10204,6 +10646,37 @@
           },
           "user": {
             "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "SkipReason": {
+        "type": "string",
+        "description": "Why a file of a zip was left out.",
+        "enum": [
+          "attachment",
+          "hidden",
+          "link",
+          "encrypted",
+          "unsupported_compression",
+          "not_text",
+          "duplicate"
+        ]
+      },
+      "SkippedFile": {
+        "type": "object",
+        "description": "A file of a zip left out of an import.",
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Its path in the zip.",
+            "example": "Roadmap/diagram.png"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/SkipReason"
           }
         }
       },
@@ -10510,7 +10983,8 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The member a private page belongs to; absent for a teamspace's page, and for\nguests, who know no other member."
           },
           "parent_id": {
             "type": [

@@ -532,15 +532,61 @@ pub async fn delete(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<boo
     Ok(result.rows_affected() == 1)
 }
 
-/// Deletes what went to the trash before `before`, with everything under it.
+/// A page the trash's purge deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Purged {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    /// Trashed on its own, rather than along with a page above it.
+    pub on_its_own: bool,
+}
+
+/// Deletes what went to the trash before `before`, with everything under it, and says
+/// what it deleted.
 pub async fn purge_trash(
     executor: impl PgExecutor<'_>,
     before: OffsetDateTime,
-) -> sqlx::Result<u64> {
-    let result = sqlx::query!("DELETE FROM pages WHERE trashed_at < $1", before)
-        .execute(executor)
-        .await?;
-    Ok(result.rows_affected())
+) -> sqlx::Result<Vec<Purged>> {
+    Ok(sqlx::query!(
+        "DELETE FROM pages WHERE trashed_at < $1 RETURNING id, workspace_id, trashed_with",
+        before
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|row| Purged {
+        id: row.id,
+        workspace_id: row.workspace_id,
+        on_its_own: row.trashed_with == Some(row.id),
+    })
+    .collect())
+}
+
+/// Which of `ids` are `root` or under it, or no longer exist: the pages a change to
+/// `root` and the pages under it may concern, of those open.
+pub async fn within(
+    executor: impl PgExecutor<'_>,
+    root: Uuid,
+    ids: &[Uuid],
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        r#"WITH RECURSIVE up (start, id, depth) AS (
+               SELECT id, id, 0 FROM pages WHERE id = ANY($2)
+             UNION ALL
+               SELECT u.start, p.parent_id, u.depth + 1
+               FROM up u JOIN pages p ON p.id = u.id
+               WHERE p.parent_id IS NOT NULL AND u.depth < $3
+           )
+           SELECT start AS "id!" FROM up WHERE id = $1
+           UNION
+           SELECT gone.id AS "id!" FROM unnest($2::uuid[]) AS gone (id)
+           WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = gone.id)"#,
+        root,
+        ids,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
 }
 
 /// The pages of a workspace trashed on their own, rather than along with a page above
@@ -739,4 +785,77 @@ pub async fn shared_tree(
         })
     })
     .collect()
+}
+
+/// A page as an export lists it: its place in the tree, its title, and when its content
+/// last changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineNode {
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub title: String,
+    pub content_updated_at: OffsetDateTime,
+}
+
+/// A page, then every page under it that is where it is: out of the trash for a page out
+/// of it, or for a page in it, those that went to the trash with it. In the order of the
+/// tree, as [`space_tree`] has it; at most `limit`.
+pub async fn outline(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<OutlineNode>> {
+    sqlx::query_as!(
+        OutlineNode,
+        r#"WITH RECURSIVE tree (id, batch, path, depth) AS (
+               SELECT id, trashed_with, position COLLATE "C", 1 FROM pages WHERE id = $1
+             UNION ALL
+               SELECT c.id, t.batch, (t.path || '!' || c.position) COLLATE "C", t.depth + 1
+               FROM tree t
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_with IS NOT DISTINCT FROM t.batch
+               WHERE t.depth < $3
+           )
+           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           FROM tree t JOIN pages p ON p.id = t.id
+           ORDER BY t.path COLLATE "C", p.id
+           LIMIT $2"#,
+        id,
+        limit,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
+}
+
+/// Every page out of the trash in a space of a workspace, `space` being the teamspace's or
+/// the owner's id, in the order of the tree, as [`space_tree`] has it; at most `limit`.
+pub async fn space_outline(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    space: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<OutlineNode>> {
+    sqlx::query_as!(
+        OutlineNode,
+        r#"WITH RECURSIVE tree (id, path, depth) AS (
+               SELECT id, position COLLATE "C", 1 FROM pages
+               WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2
+                 AND parent_id IS NULL AND trashed_at IS NULL
+             UNION ALL
+               SELECT c.id, (t.path || '!' || c.position) COLLATE "C", t.depth + 1
+               FROM tree t
+               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL
+               WHERE t.depth < $4
+           )
+           SELECT p.id, p.parent_id, p.title, p.content_updated_at
+           FROM tree t JOIN pages p ON p.id = t.id
+           ORDER BY t.path COLLATE "C", p.id
+           LIMIT $3"#,
+        workspace_id,
+        space,
+        limit,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
 }

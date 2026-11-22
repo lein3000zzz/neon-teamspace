@@ -1,0 +1,756 @@
+//! Live documents, through their connections without a socket: clients that fall behind,
+//! awareness, unloading, the size limit, batched logging, a page deleted under its
+//! document, the limits on sync requests, awareness and connections, updates out of
+//! order, and the metrics.
+
+mod support;
+
+use std::collections::HashMap;
+use std::time::Duration;
+
+use bytes::Bytes;
+use metrics_util::MetricKind;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::pages::{Location, NewPage};
+use neon_app::sync::{CloseReason, Connection, Ending, Limits, Next, SyncService, access_feed};
+use neon_blocks::{Block, SequentialIds};
+use neon_domain::auth::Principal;
+use neon_domain::pages::Placement;
+use neon_domain::workspaces::WorkspaceRole;
+use sqlx::PgPool;
+use support::Harness;
+use tokio::time::{sleep, timeout};
+use uuid::Uuid;
+use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
+use yrs::updates::decoder::Decode as _;
+use yrs::updates::encoder::Encode as _;
+use yrs::{
+    Doc, ReadTxn as _, StateVector, Transact as _, Update, XmlFragment as _, XmlFragmentRef, XmlOut,
+};
+
+/// Long enough for any step here; reaching it means something never came.
+const PATIENCE: Duration = Duration::from_secs(10);
+
+/// Ada owns Design, with Dee as a member; Notes is a page in General.
+struct Team {
+    h: Harness,
+    ada: Principal,
+    dee: Principal,
+    page: Uuid,
+}
+
+async fn team(pool: PgPool) -> Team {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let dee = h.person("dee@example.com").await;
+    let workspace = h.workspace(&ada, "Design").await.workspace.id;
+    h.bring_in(&ada, workspace, &dee, WorkspaceRole::Member)
+        .await;
+    let general = h
+        .workspaces
+        .list_teamspaces(&ada, workspace)
+        .await
+        .expect("listed")
+        .teamspaces[0]
+        .teamspace
+        .id;
+    let page = h
+        .pages
+        .create_page(
+            &ada,
+            workspace,
+            Location::Teamspace(general),
+            Placement::Last,
+            NewPage::default(),
+        )
+        .await
+        .expect("created")
+        .page
+        .id;
+    Team { h, ada, dee, page }
+}
+
+impl Team {
+    fn sync(&self, limits: Limits) -> SyncService {
+        let (_, feed) = access_feed();
+        SyncService::builder(
+            self.h.pool.clone(),
+            self.h.pages.clone(),
+            self.h.auth.clone(),
+            feed,
+        )
+        .limits(limits)
+        .build()
+    }
+}
+
+/// Logs at once and keeps documents loaded.
+fn quick() -> Limits {
+    Limits {
+        persist_delay: Duration::from_millis(5),
+        idle_unload: Duration::from_secs(3600),
+        ..Limits::default()
+    }
+}
+
+/// A client with a document of its own, talking to a connection directly.
+struct Client {
+    connection: Connection,
+    doc: Doc,
+    fragment: XmlFragmentRef,
+    ids: SequentialIds,
+}
+
+impl Client {
+    async fn open(sync: &SyncService, who: &Principal, page: Uuid, name: &str) -> Self {
+        let admission = sync.admit(who.clone(), page).await.expect("admitted");
+        let connection = sync.connect(admission).await.expect("connected");
+        let doc = Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        let mut client = Self {
+            connection,
+            doc,
+            fragment,
+            ids: SequentialIds::new(name),
+        };
+        let state_vector = client.doc.transact().state_vector();
+        client
+            .send(&Message::Sync(SyncMessage::SyncStep1(state_vector)))
+            .await
+            .expect("sent");
+        client
+            .until("the server's sync step 2", |message| {
+                matches!(message, Message::Sync(SyncMessage::SyncStep2(_)))
+            })
+            .await;
+        client
+    }
+
+    async fn send(&mut self, message: &Message) -> Result<(), CloseReason> {
+        self.connection
+            .receive(Bytes::from(message.encode_v1()))
+            .await
+    }
+
+    /// The next message from the server, applied, or why the connection closed.
+    async fn next(&mut self) -> Result<Message, CloseReason> {
+        let next = timeout(PATIENCE, self.connection.next())
+            .await
+            .expect("something comes");
+        let data = match next {
+            Next::Send(data) => data,
+            Next::Close(reason) => return Err(reason),
+        };
+        let message = Message::decode_v1(&data).expect("a y-sync message");
+        match &message {
+            Message::Sync(SyncMessage::SyncStep1(state_vector)) => {
+                let update = self.doc.transact().encode_state_as_update_v1(state_vector);
+                self.send(&Message::Sync(SyncMessage::SyncStep2(update)))
+                    .await
+                    .expect("sent");
+            }
+            Message::Sync(SyncMessage::SyncStep2(update) | SyncMessage::Update(update)) => {
+                self.doc
+                    .transact_mut()
+                    .apply_update(Update::decode_v1(update).expect("an update"))
+                    .expect("applies");
+            }
+            _ => {}
+        }
+        Ok(message)
+    }
+
+    async fn until(&mut self, what: &str, mut done: impl FnMut(&Message) -> bool) -> Message {
+        loop {
+            let message = self
+                .next()
+                .await
+                .unwrap_or_else(|reason| panic!("closed waiting for {what}: {reason}"));
+            if done(&message) {
+                return message;
+            }
+        }
+    }
+
+    /// The messages waiting for the client, until none comes for a moment. Sync step 2
+    /// messages are applied.
+    async fn waiting(&mut self) -> Vec<Message> {
+        let mut messages = Vec::new();
+        while let Ok(Next::Send(data)) =
+            timeout(Duration::from_millis(200), self.connection.next()).await
+        {
+            let message = Message::decode_v1(&data).expect("a y-sync message");
+            if let Message::Sync(SyncMessage::SyncStep2(update)) = &message {
+                self.doc
+                    .transact_mut()
+                    .apply_update(Update::decode_v1(update).expect("an update"))
+                    .expect("applies");
+            }
+            messages.push(message);
+        }
+        messages
+    }
+
+    async fn closed(&mut self) -> CloseReason {
+        loop {
+            if let Err(reason) = self.next().await {
+                return reason;
+            }
+        }
+    }
+
+    /// A paragraph added, as the update that adds it.
+    fn paragraph(&mut self, text: &str) -> Message {
+        let mut txn = self.doc.transact_mut();
+        neon_blocks::append(
+            &mut txn,
+            &self.fragment,
+            &[Block::paragraph(text)],
+            &mut self.ids,
+        )
+        .expect("a document");
+        Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
+    }
+
+    async fn write(&mut self, text: &str) -> Result<(), CloseReason> {
+        let update = self.paragraph(text);
+        self.send(&update).await
+    }
+
+    fn text(&self) -> String {
+        neon_blocks::read_doc(&self.doc)
+            .expect("blocks")
+            .plain_text()
+    }
+}
+
+async fn rows(pool: &PgPool, page: Uuid) -> Vec<(Option<Uuid>, i64)> {
+    sqlx::query_as(
+        "SELECT author_id, length(\"update\")::bigint FROM page_updates WHERE page_id = $1
+         ORDER BY seq",
+    )
+    .bind(page)
+    .fetch_all(pool)
+    .await
+    .expect("read")
+}
+
+async fn eventually<F, Fut>(what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    timeout(PATIENCE, async {
+        while !check().await {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("waited too long for {what}"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_client_that_falls_behind_is_disconnected(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        client_queue: 4,
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    // Dee opens the page and reads nothing more.
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+
+    for n in 0..10 {
+        ada.write(&format!("line {n}")).await.expect("taken");
+    }
+    // Ada is not held up, and goes on.
+    let mut late = Client::open(&sync, &t.ada, t.page, "late").await;
+    assert_eq!(late.text().lines().count(), 10);
+    loop {
+        match dee.next().await {
+            Ok(_) => {}
+            Err(reason) => {
+                assert_eq!(reason, CloseReason::TooSlow);
+                break;
+            }
+        }
+    }
+    dee.connection
+        .leave(Ending::Closed(CloseReason::TooSlow))
+        .await;
+    ada.write("after").await.expect("taken");
+    late.until("Ada's last line", |_| true).await;
+    assert!(late.text().ends_with("after"));
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn awareness_reaches_everyone_and_leaves_with_its_client(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    let mut ada_awareness = Awareness::new(Doc::with_client_id(11));
+    ada_awareness
+        .set_local_state(serde_json::json!({"user": {"name": "Ada"}}))
+        .expect("set");
+    let presence = Message::Awareness(ada_awareness.update().expect("an update"));
+    ada.send(&presence).await.expect("taken");
+
+    // Everyone hears it, Ada too, which keeps her client's connection alive.
+    for client in [&mut ada, &mut dee] {
+        let heard = client
+            .until("Ada's presence", |message| {
+                matches!(message, Message::Awareness(_))
+            })
+            .await;
+        let Message::Awareness(update) = heard else {
+            unreachable!()
+        };
+        assert_eq!(update.clients.len(), 1);
+        assert!(
+            update
+                .clients
+                .values()
+                .any(|entry| entry.json.contains("Ada"))
+        );
+    }
+    // A newcomer gets everyone's state with its sync.
+    let admission = sync.admit(t.dee.clone(), t.page).await.expect("admitted");
+    let mut newcomer = sync.connect(admission).await.expect("connected");
+    let _step1 = newcomer.next().await;
+    let Next::Send(states) = newcomer.next().await else {
+        panic!("no awareness")
+    };
+    let Message::Awareness(states) = Message::decode_v1(&states).expect("decodes") else {
+        panic!("not awareness")
+    };
+    assert_eq!(states.clients.len(), 1);
+    newcomer.leave(Ending::ByClient).await;
+
+    // Dee cannot speak for Ada's cursor.
+    let mut forged = Awareness::new(Doc::with_client_id(11));
+    for _ in 0..3 {
+        forged
+            .set_local_state(serde_json::json!({"user": {"name": "Not Ada"}}))
+            .expect("set");
+    }
+    dee.send(&Message::Awareness(forged.update().expect("an update")))
+        .await
+        .expect("taken");
+    dee.send(&Message::AwarenessQuery).await.expect("taken");
+    let answer = dee
+        .until("the states", |message| {
+            matches!(message, Message::Awareness(_))
+        })
+        .await;
+    let Message::Awareness(AwarenessUpdate { clients }) = answer else {
+        unreachable!()
+    };
+    assert!(clients.values().all(|entry| entry.json.contains("\"Ada\"")));
+
+    // Ada leaving takes her presence with her.
+    ada.connection.leave(Ending::ByClient).await;
+    let gone = dee
+        .until("Ada's presence to go", |message| {
+            matches!(message, Message::Awareness(_))
+        })
+        .await;
+    let Message::Awareness(update) = gone else {
+        unreachable!()
+    };
+    assert!(update.clients.values().all(|entry| &*entry.json == "null"));
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn idle_documents_are_saved_and_unload(pool: PgPool) {
+    let recorder = DebuggingRecorder::new();
+    let mut metrics = Metrics::new(recorder.snapshotter());
+    let _metrics = metrics::set_default_local_recorder(&recorder);
+    let t = team(pool.clone()).await;
+    let sync = t.sync(Limits {
+        idle_unload: Duration::from_millis(50),
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    assert_eq!(metrics.gauge("neon_sync_open_connections"), 1.0);
+    assert_eq!(metrics.gauge("neon_sync_live_documents"), 1.0);
+    ada.write("Kept").await.expect("taken");
+    eventually("the update to be logged", || async {
+        !rows(&pool, t.page).await.is_empty()
+    })
+    .await;
+    ada.connection.leave(Ending::ByClient).await;
+
+    timeout(PATIENCE, async {
+        while metrics.gauge("neon_sync_live_documents") != 0.0 {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the document unloads");
+    assert!(
+        rows(&pool, t.page).await.is_empty(),
+        "the snapshot took them in"
+    );
+    assert_eq!(metrics.gauge("neon_sync_open_connections"), 0.0);
+    assert_eq!(metrics.red("load", "ok"), 1);
+    assert_eq!(metrics.red("persist", "ok"), 1);
+    assert_eq!(metrics.red("compact", "ok"), 1);
+    assert_eq!(
+        metrics.counter("neon_sync_disconnects_total", "cause", "client"),
+        1
+    );
+
+    let again = Client::open(&sync, &t.dee, t.page, "dee").await;
+    assert_eq!(again.text(), "Kept");
+    assert_eq!(metrics.red("load", "ok"), 2);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn documents_keep_to_their_size_limit(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_document: 4096,
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    let line = "x".repeat(200);
+    let mut refused = None;
+    for _ in 0..100 {
+        if let Err(reason) = ada.write(&line).await {
+            refused = Some(reason);
+            break;
+        }
+        // Let the document close the connection before the next write, once it is full.
+        sleep(Duration::from_millis(5)).await;
+    }
+    let reason = match refused {
+        Some(reason) => reason,
+        None => ada.closed().await,
+    };
+    assert_eq!(reason, CloseReason::DocumentTooLarge);
+
+    // What was taken is kept, and only deleting is still allowed.
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    let lines = dee.text().lines().count();
+    assert!(lines > 1, "{lines}");
+    let deletion = {
+        let mut txn = dee.doc.transact_mut();
+        let Some(XmlOut::Element(group)) = dee.fragment.first_child() else {
+            panic!("no block group");
+        };
+        let blocks = group.len(&txn);
+        group.remove_range(&mut txn, 1, blocks - 1);
+        txn.encode_update_v1()
+    };
+    let only_deletes = Update::decode_v1(&deletion).expect("an update");
+    assert!(only_deletes.insertions(true).is_empty());
+    dee.send(&Message::Sync(SyncMessage::Update(deletion)))
+        .await
+        .expect("taken");
+    let mut check = Client::open(&sync, &t.ada, t.page, "check").await;
+    assert_eq!(check.text().lines().count(), 1);
+    // Saved again, the document is small, and takes more.
+    check.write(&line).await.expect("taken");
+    dee.until("the new line", |message| {
+        matches!(message, Message::Sync(SyncMessage::Update(_)))
+    })
+    .await;
+    assert_eq!(dee.text().lines().count(), 2);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn quick_updates_are_logged_together_with_their_author(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let sync = t.sync(Limits {
+        persist_delay: Duration::from_millis(300),
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    for word in ["one", "two", "three"] {
+        ada.write(word).await.expect("taken");
+    }
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    dee.write("four").await.expect("taken");
+    eventually("both authors' updates to be logged", || async {
+        rows(&pool, t.page).await.len() == 2
+    })
+    .await;
+
+    let logged = rows(&pool, t.page).await;
+    let authors: Vec<Option<Uuid>> = logged.iter().map(|(author, _)| *author).collect();
+    assert_eq!(authors, [Some(t.ada.user.id), Some(t.dee.user.id)]);
+    sync.shutdown().await;
+    assert!(rows(&pool, t.page).await.is_empty());
+    let text: Option<String> = sqlx::query_scalar("SELECT search_text FROM pages WHERE id = $1")
+        .bind(t.page)
+        .fetch_one(&pool)
+        .await
+        .expect("read");
+    assert_eq!(text.as_deref(), Some("one\ntwo\nthree\nfour"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_deleted_under_its_document_closes_it(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    ada.write("Soon gone").await.expect("taken");
+    t.h.pages.trash_page(&t.ada, t.page).await.expect("trashed");
+    t.h.pages
+        .delete_page(&t.ada, t.page)
+        .await
+        .expect("deleted");
+
+    // Nobody told the service; logging the next change finds the page gone.
+    ada.write("Too late").await.expect("taken");
+    assert_eq!(ada.closed().await, CloseReason::AccessLost);
+    let admission = sync.admit(t.ada.clone(), t.page).await;
+    assert!(admission.is_err());
+    assert!(rows(&pool, t.page).await.is_empty());
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_client_that_falls_behind_by_bytes_is_disconnected(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        client_queue_bytes: 8 * 1024,
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+
+    // Few messages, many bytes: Dee reads none of them.
+    for n in 0..8 {
+        ada.write(&format!("{n}{}", "y".repeat(2000)))
+            .await
+            .expect("taken");
+    }
+    assert_eq!(dee.closed().await, CloseReason::TooSlow);
+    let late = Client::open(&sync, &t.ada, t.page, "late").await;
+    assert_eq!(late.text().lines().count(), 8);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn sync_requests_get_one_answer_at_a_time(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        sync_request_burst: 100,
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    ada.write(&"x".repeat(10_000)).await.expect("taken");
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+
+    // Dee asks for the whole document again and again, and reads nothing.
+    let whole = Message::Sync(SyncMessage::SyncStep1(StateVector::default()));
+    for _ in 0..50 {
+        dee.send(&whole).await.expect("taken");
+    }
+    // What the document does in turn, it did by the time it answers a read.
+    sync.content(t.page).await.expect("read");
+    let answers = |messages: &[Message]| {
+        messages
+            .iter()
+            .filter(|message| matches!(message, Message::Sync(SyncMessage::SyncStep2(_))))
+            .count()
+    };
+    assert_eq!(answers(&dee.waiting().await), 1, "one answer waits, not 50");
+    // Once that answer is sent, the next request has one of its own.
+    dee.send(&whole).await.expect("taken");
+    sync.content(t.page).await.expect("read");
+    assert_eq!(answers(&dee.waiting().await), 1);
+    assert!(dee.text().starts_with('x'));
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn sync_requests_past_their_rate_close_the_connection(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        sync_requests_per_second: 1,
+        sync_request_burst: 3,
+        ..quick()
+    });
+    // Opening sent the first.
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    let whole = Message::Sync(SyncMessage::SyncStep1(StateVector::default()));
+    for _ in 0..3 {
+        dee.send(&whole).await.expect("taken");
+    }
+    assert_eq!(dee.closed().await, CloseReason::TooManyMessages);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_update_needing_changes_the_document_lacks_is_refused(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    // The second paragraph's update needs the first's, which never comes.
+    let _withheld = ada.paragraph("first");
+    let second = ada.paragraph(&"z".repeat(5000));
+    ada.send(&second).await.expect("taken");
+    assert_eq!(ada.closed().await, CloseReason::OutOfOrder);
+
+    // The document kept none of it, nor does the one saved.
+    let dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    assert_eq!(dee.text(), "");
+    let everything = dee
+        .doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    assert!(everything.len() < 64, "{} bytes", everything.len());
+    sync.shutdown().await;
+    assert!(rows(&pool, t.page).await.is_empty());
+    let snapshot = neon_store::documents::snapshot(&pool, t.page)
+        .await
+        .expect("read");
+    assert!(snapshot.is_none_or(|snapshot| snapshot.state.len() < 64));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn awareness_states_keep_to_their_size_and_rate(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_awareness_state: 256,
+        awareness_per_second: 1,
+        awareness_burst: 2,
+        ..quick()
+    });
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    let mut cursor = Awareness::new(Doc::with_client_id(11));
+
+    // Past the rate, presence is dropped, not passed on, and the connection stays.
+    for n in 0..5 {
+        cursor
+            .set_local_state(serde_json::json!({"user": {"name": format!("Ada {n}")}}))
+            .expect("set");
+        ada.send(&Message::Awareness(cursor.update().expect("an update")))
+            .await
+            .expect("taken");
+    }
+    sync.content(t.page).await.expect("read");
+    let heard = dee
+        .waiting()
+        .await
+        .into_iter()
+        .filter(|message| matches!(message, Message::Awareness(_)))
+        .count();
+    assert_eq!(heard, 2);
+    // A state past its size closes the connection, as too big.
+    cursor
+        .set_local_state(serde_json::json!({"user": {"name": "A".repeat(300)}}))
+        .expect("set");
+    ada.send(&Message::Awareness(cursor.update().expect("an update")))
+        .await
+        .expect("taken");
+    assert_eq!(ada.closed().await, CloseReason::MessageTooBig);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn connections_are_limited_per_person_and_per_page(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        connections_per_user: 2,
+        connections_per_page: 3,
+        ..quick()
+    });
+    let first = Client::open(&sync, &t.ada, t.page, "ada-1").await;
+    let _second = Client::open(&sync, &t.ada, t.page, "ada-2").await;
+
+    let ada = sync.admit(t.ada.clone(), t.page).await.expect("admitted");
+    assert!(!sync.has_room(&ada), "Ada has two open");
+    assert_eq!(
+        sync.connect(ada).await.err(),
+        Some(CloseReason::TooManyConnections)
+    );
+    let _dee = Client::open(&sync, &t.dee, t.page, "dee-1").await;
+    let dee = sync.admit(t.dee.clone(), t.page).await.expect("admitted");
+    assert!(!sync.has_room(&dee), "the page has three open");
+
+    // One leaving makes room again.
+    first.connection.leave(Ending::ByClient).await;
+    assert!(sync.has_room(&dee));
+    let again = sync.connect(dee).await;
+    assert!(again.is_ok());
+    sync.shutdown().await;
+}
+
+/// What the recorder saw, added up: each snapshot swaps counters and gauges back to zero.
+struct Metrics {
+    snapshotter: Snapshotter,
+    gauges: HashMap<String, f64>,
+    counters: HashMap<(String, Vec<(String, String)>), u64>,
+}
+
+impl Metrics {
+    fn new(snapshotter: Snapshotter) -> Self {
+        Self {
+            snapshotter,
+            gauges: HashMap::new(),
+            counters: HashMap::new(),
+        }
+    }
+
+    fn read(&mut self) {
+        for (key, _, _, value) in self.snapshotter.snapshot().into_vec() {
+            let (kind, key) = key.into_parts();
+            match (kind, value) {
+                (MetricKind::Gauge, DebugValue::Gauge(value)) => {
+                    *self.gauges.entry(key.name().to_owned()).or_default() += value.into_inner();
+                }
+                (MetricKind::Counter, DebugValue::Counter(n)) => {
+                    let labels = key
+                        .labels()
+                        .map(|label| (label.key().to_owned(), label.value().to_owned()))
+                        .collect();
+                    *self
+                        .counters
+                        .entry((key.name().to_owned(), labels))
+                        .or_default() += n;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn gauge(&mut self, name: &str) -> f64 {
+        self.read();
+        self.gauges.get(name).copied().unwrap_or(0.0)
+    }
+
+    /// The total of a counter over the series whose labels include these.
+    fn counted(&mut self, name: &str, labels: &[(&str, &str)]) -> u64 {
+        self.read();
+        self.counters
+            .iter()
+            .filter(|((counted, have), _)| {
+                counted == name
+                    && labels
+                        .iter()
+                        .all(|(key, value)| have.iter().any(|(k, v)| k == key && v == value))
+            })
+            .map(|(_, n)| n)
+            .sum()
+    }
+
+    fn counter(&mut self, name: &str, label: &str, value: &str) -> u64 {
+        self.counted(name, &[(label, value)])
+    }
+
+    fn red(&mut self, operation: &str, status: &str) -> u64 {
+        self.counted(
+            "neon_sync_operations_total",
+            &[("operation", operation), ("status", status)],
+        )
+    }
+}

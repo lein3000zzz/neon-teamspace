@@ -1,11 +1,11 @@
 //! One page at a time: creating, reading and changing a page, moving it, trashing it,
 //! restoring it, deleting it for good, and the way down to it.
 
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageStyle, Placement, Space, check_title,
 };
-use neon_domain::workspaces::{Action, PageSpace, Resource, authorize, check_icon};
+use neon_domain::workspaces::{Action, PageSpace, Resource, WorkspaceRole, authorize, check_icon};
 use neon_store::pages::{self as repo, Move, Restore, Siblings};
 use neon_store::{teamspaces, workspaces};
 use sqlx::PgConnection;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::{
     AccessChange, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, actor,
-    check_space,
+    check_space, is_guest,
 };
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
@@ -69,39 +69,16 @@ impl PageService {
             let mut tx = self.pool().begin().await?;
             let role = in_workspace(&mut tx, principal, workspace_id).await?;
             repo::lock_tree(&mut *tx, workspace_id).await?;
-            let (space, parent_id) = match location {
-                Location::Under(parent) => {
-                    let context = self.context(&mut tx, principal, parent).await?;
-                    context.check(Action::EditPage)?;
-                    if context.page().workspace_id != workspace_id {
-                        return Err(PageError::NotFound(NO_PAGE));
-                    }
-                    if context.depth() >= MAX_DEPTH {
-                        return Err(PageError::TooDeep);
-                    }
-                    (context.page().space, Some(parent))
-                }
-                Location::Teamspace(id) => {
-                    let space = teamspace_space(&mut tx, workspace_id, id, user).await?;
-                    check_space(
-                        actor(principal, role),
-                        space,
-                        Action::CreatePage,
-                        NO_TEAMSPACE,
-                    )?;
-                    (Space::Teamspace(id), None)
-                }
-                Location::Private => {
-                    let space = PageSpace::Private { own: true };
-                    check_space(
-                        actor(principal, role),
-                        space,
-                        Action::CreatePage,
-                        NO_WORKSPACE,
-                    )?;
-                    (Space::Private { owner: user }, None)
-                }
-            };
+            let Target {
+                space,
+                parent_id,
+                depth,
+            } = self
+                .target(&mut tx, principal, workspace_id, role, location)
+                .await?;
+            if depth >= MAX_DEPTH {
+                return Err(PageError::TooDeep);
+            }
             let siblings = Siblings::of(workspace_id, parent_id, space);
             let position = self.position(&mut tx, siblings, None, placement).await?;
             let now = self.now();
@@ -132,10 +109,11 @@ impl PageService {
                 page_id = %page.id,
                 "page created"
             );
-            // Whoever may add a page somewhere edits what is there.
+            // Whoever may add a page somewhere edits what is there, and sees it.
             Ok(PageView {
                 page,
                 access: PageAccess::Edit,
+                members_hidden: is_guest(actor(principal, role)),
             })
         })
         .await
@@ -149,6 +127,34 @@ impl PageService {
             let context = self.context(&mut conn, principal, id).await?;
             context.check(Action::ViewPage)?;
             context.view()
+        })
+        .await
+    }
+
+    /// What the caller may do with a page's document now: edit it when they edit the page,
+    /// it is out of the trash and their token, if any, has the write scope; else view it.
+    /// A page they may not see is not found, as for [`page`](Self::page).
+    pub async fn document_access(
+        &self,
+        principal: &Principal,
+        id: Uuid,
+    ) -> Result<PageView, PageError> {
+        self.observe("document_access", async {
+            let mut conn = self.pool().acquire().await?;
+            let context = self.context(&mut conn, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            let access = if principal.can(Scope::Write) && context.check(Action::EditPage).is_ok() {
+                PageAccess::Edit
+            } else {
+                PageAccess::View
+            };
+            let members_hidden = is_guest(context.actor);
+            let page = context.page().clone();
+            Ok(PageView {
+                page,
+                access,
+                members_hidden,
+            })
         })
         .await
     }
@@ -198,7 +204,9 @@ impl PageService {
 
     /// Moves a page, with the pages under it, under another page, to the top of a
     /// teamspace or to the caller's private pages, placed among its new siblings. It needs
-    /// edit access to the page and to where it goes, and never goes under itself.
+    /// edit access to the page and to where it goes, and never goes under itself. Out of
+    /// its space, it needs edit access from the space itself: a share to edit moves a page
+    /// only within its space.
     pub async fn move_page(
         &self,
         principal: &Principal,
@@ -241,6 +249,9 @@ impl PageService {
                     (Space::Private { owner: user }, None)
                 }
             };
+            if space != source.page().space {
+                source.check(Action::ChangePageSpace)?;
+            }
             if parent_id.is_none() && 1 + height > MAX_DEPTH {
                 return Err(PageError::TooDeep);
             }
@@ -269,11 +280,14 @@ impl PageService {
                 space_id = %space.id(),
                 "page moved"
             );
-            self.changed(AccessChange::Pages {
-                workspace_id,
-                page_id: id,
-                user_id: None,
-            });
+            // Placed elsewhere among the same siblings, it gives nobody else access.
+            if parent_id != source.page().parent_id || space != source.page().space {
+                self.changed(AccessChange::Pages {
+                    workspace_id,
+                    page_id: id,
+                    user_id: None,
+                });
+            }
             moved.view()
         })
         .await
@@ -412,6 +426,62 @@ impl PageService {
         .await
     }
 
+    /// Where pages added at `location` go, once the rules let the principal add them there:
+    /// under a page they edit, at the top of a teamspace they are in, or among their own
+    /// private pages.
+    pub(super) async fn target(
+        &self,
+        conn: &mut PgConnection,
+        principal: &Principal,
+        workspace_id: Uuid,
+        role: Option<WorkspaceRole>,
+        location: Location,
+    ) -> Result<Target, PageError> {
+        let user = principal.user.id;
+        match location {
+            Location::Under(parent) => {
+                let context = self.context(&mut *conn, principal, parent).await?;
+                context.check(Action::EditPage)?;
+                if context.page().workspace_id != workspace_id {
+                    return Err(PageError::NotFound(NO_PAGE));
+                }
+                Ok(Target {
+                    space: context.page().space,
+                    parent_id: Some(parent),
+                    depth: context.depth(),
+                })
+            }
+            Location::Teamspace(id) => {
+                let space = teamspace_space(&mut *conn, workspace_id, id, user).await?;
+                check_space(
+                    actor(principal, role),
+                    space,
+                    Action::CreatePage,
+                    NO_TEAMSPACE,
+                )?;
+                Ok(Target {
+                    space: Space::Teamspace(id),
+                    parent_id: None,
+                    depth: 0,
+                })
+            }
+            Location::Private => {
+                let space = PageSpace::Private { own: true };
+                check_space(
+                    actor(principal, role),
+                    space,
+                    Action::CreatePage,
+                    NO_WORKSPACE,
+                )?;
+                Ok(Target {
+                    space: Space::Private { owner: user },
+                    parent_id: None,
+                    depth: 0,
+                })
+            }
+        }
+    }
+
     /// Locks the tree of a page's workspace, then reads the page as the lock leaves it.
     async fn locked_context(
         &self,
@@ -427,12 +497,20 @@ impl PageService {
     }
 }
 
+/// Where pages are added: their space, the page they go under, if any, and how deep that
+/// page is, 0 at the top of the space.
+pub(super) struct Target {
+    pub(super) space: Space,
+    pub(super) parent_id: Option<Uuid>,
+    pub(super) depth: usize,
+}
+
 /// The principal's role in a workspace, once the rules let them know of it.
 pub(super) async fn in_workspace(
     conn: &mut PgConnection,
     principal: &Principal,
     workspace_id: Uuid,
-) -> Result<Option<neon_domain::workspaces::WorkspaceRole>, PageError> {
+) -> Result<Option<WorkspaceRole>, PageError> {
     let workspace = workspaces::get(&mut *conn, workspace_id)
         .await?
         .ok_or(PageError::NotFound(NO_WORKSPACE))?;

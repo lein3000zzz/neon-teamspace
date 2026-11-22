@@ -3,10 +3,10 @@
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the hourly workspace and auth cleanups stop, the auth
-//! work begun after earlier answers finishes, the database pool closes, the admin listener stops,
-//! and the telemetry flushes last, so what the other parts log while stopping is still
-//! written.
+//! the gauges stop if metrics are on, the live documents close their connections and are
+//! saved, the hourly workspace and auth cleanups stop, the auth work begun after earlier
+//! answers finishes, the database pool closes, the admin listener stops, and the telemetry
+//! flushes last, so what the other parts log while stopping is still written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -29,9 +29,11 @@ use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
-use neon_app::pages::{AccessChanges, NoListener, PageService};
+use neon_app::pages::{AccessChanges, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
+use neon_app::sync::{self, SyncService};
+use neon_app::transfer::TransferService;
 use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
@@ -70,6 +72,9 @@ const PING_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long stopping waits for auth work begun after earlier answers, such as mail after a
 /// request to join. Each piece gives up after a minute itself.
 const BACKGROUND_STOP: Duration = Duration::from_secs(60);
+
+/// How long stopping waits for the live documents to be saved.
+const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Runs the server until SIGINT or SIGTERM, then stops it.
 pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
@@ -230,27 +235,35 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     report_mail(&mail, &settings);
     // One set of buckets for every use case, so each key is counted once.
     let limiter: Arc<dyn RateLimiter> = Arc::new(MemoryLimiter::new());
+    // These services tell the live documents whose access to pages may have changed, and
+    // whose sessions or tokens ended, so they close or limit the connections of those who
+    // lost it.
+    let (listener, feed) = sync::access_feed();
+    let access: Arc<dyn AccessChanges> = listener;
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope.clone())
         .limiter(Arc::clone(&limiter))
         .mail(mail.clone())
+        .access_changes(Arc::clone(&access))
         .build()
         .await
         .context("starting the auth service")?;
-    // Both services tell one listener whose access to pages may have changed. Nothing holds
-    // pages open yet, so nothing listens.
-    let access: Arc<dyn AccessChanges> = Arc::new(NoListener);
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
-        .limiter(limiter)
+        .limiter(Arc::clone(&limiter))
         .access_changes(Arc::clone(&access))
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .build();
+    let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed).build();
+    let transfer = TransferService::builder(pages.clone(), live.clone())
+        .limiter(limiter)
+        .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
+    save_on_shutdown(shutdown, &live);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
@@ -269,6 +282,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             auth,
             workspaces,
             pages,
+            sync: live,
+            transfer,
             web: Arc::new(web),
         },
         config.observability.tracing.trust_incoming,
@@ -354,6 +369,25 @@ fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pa
         "workspace cleanup",
         DEFAULT_HOOK_TIMEOUT,
         cleanup.stop(),
+    );
+}
+
+/// Saves the live documents and closes their connections when stopping, after the HTTP
+/// server stopped taking new ones and before the pool closes.
+fn save_on_shutdown(shutdown: &Shutdown, live: &SyncService) {
+    let live = live.clone();
+    on_stop(
+        shutdown,
+        "live documents",
+        SAVE_TIMEOUT + STOP_MARGIN,
+        async move {
+            if tokio::time::timeout(SAVE_TIMEOUT, live.shutdown())
+                .await
+                .is_err()
+            {
+                warn!("live documents were not all saved in time");
+            }
+        },
     );
 }
 

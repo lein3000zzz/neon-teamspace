@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pages\n         SET search_text = COALESCE($2, search_text),\n             content_updated_at = GREATEST(content_updated_at, COALESCE($3, content_updated_at)),\n             last_edited_by = CASE\n                 WHEN $3::timestamptz >= GREATEST(updated_at, content_updated_at) THEN $4\n                 ELSE last_edited_by\n             END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d3862d1fa0d08f93d37d1c16d35a0b82fa7d7a01206a537c776a07c97cef83f"
+}

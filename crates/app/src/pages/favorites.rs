@@ -14,7 +14,7 @@ use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{PageError, PageService, PageView, key_in, renumbered, seen};
+use super::{PageError, PageService, PageView, hide_parents, key_in, renumbered, seen};
 
 const NOT_FAVORITE: &str = "this page is not among your favorites";
 
@@ -47,6 +47,7 @@ impl PageService {
                     list.push(view);
                 }
             }
+            hide_parents(&mut conn, principal, &mut list).await?;
             Ok(list)
         })
         .await

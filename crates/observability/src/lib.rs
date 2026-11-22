@@ -51,7 +51,8 @@
 //! - **Unrecorded outcomes.** A [`red::RedGuard`] dropped without a result, by `?`, an early
 //!   return or a cancelled future, counts as an error instead of disappearing.
 //! - **Summaries instead of histograms.** Every duration histogram gets buckets, the
-//!   subsystem's preset or a default, so they aggregate across instances.
+//!   subsystem's preset or a default, so they aggregate across instances. Histograms of
+//!   sizes, whose names end in `_bytes`, get buckets of bytes, 64 to 16 MiB.
 //! - **Unbounded label values.** HTTP metrics use route templates, a fixed `unmatched` route
 //!   and `_OTHER` for unknown methods, never raw paths.
 //! - **Secrets in URLs.** Request spans, and so every log line inside a request, record the

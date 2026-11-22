@@ -5,6 +5,7 @@
 //! inside the caller's transaction, so the caller decides what commits together.
 
 pub mod api_tokens;
+pub mod documents;
 pub mod email_tokens;
 pub mod favorites;
 pub mod invites;

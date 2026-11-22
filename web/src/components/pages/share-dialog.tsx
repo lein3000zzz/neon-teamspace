@@ -97,20 +97,23 @@ export function ShareDialog({ workspace, page, open, onOpenChange }: ShareDialog
                   onDone={setDone}
                 />
               ))}
-              {inherited.map((share) => (
-                <li
-                  key={`${share.page_id}:${share.user.id}`}
-                  className="grid gap-1 rounded-lg border border-border bg-card p-3"
-                >
-                  <Person share={share} guest={roles.get(share.user.id) === "guest"} />
-                  <p className="text-xs text-muted-foreground">
-                    {copy.accesses[share.access]} ·{" "}
-                    {titles.has(share.page_id)
-                      ? copy.from(titles.get(share.page_id) ?? "")
-                      : copy.fromAbove}
-                  </p>
-                </li>
-              ))}
+              {inherited.map((share, index) => {
+                // A share set on a page the caller may not see comes without its page.
+                const setOn = share.page_id ?? undefined;
+                const from = setOn === undefined ? undefined : titles.get(setOn);
+                return (
+                  <li
+                    key={`${share.page_id ?? index}:${share.user.id}`}
+                    className="grid gap-1 rounded-lg border border-border bg-card p-3"
+                  >
+                    <Person share={share} guest={roles.get(share.user.id) === "guest"} />
+                    <p className="text-xs text-muted-foreground">
+                      {copy.accesses[share.access]} ·{" "}
+                      {from === undefined ? copy.fromAbove : copy.from(from)}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

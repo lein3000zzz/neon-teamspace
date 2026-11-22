@@ -244,3 +244,123 @@ async fn pages_go_with_their_workspace_and_private_ones_with_their_owner(pool: P
     );
     assert_eq!(pages::get(&pool, team.id).await.expect("read"), None);
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn outlines_follow_the_tree_and_the_trash(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let at = |parent: Option<&Page>, position: &str, title: &str| {
+        let mut made = page(
+            f.workspace,
+            Space::Teamspace(f.one),
+            parent.map(|p| p.id),
+            position,
+        );
+        made.title = title.into();
+        made
+    };
+    // Positions that sort one way byte by byte and another in a natural collation.
+    let second = at(None, "aZ", "second");
+    let first = at(None, "Zz", "first");
+    let under = at(Some(&second), "a0", "under");
+    let deeper = at(Some(&under), "a0", "deeper");
+    let late = at(Some(&second), "a1", "late");
+    for made in [&second, &first, &under, &deeper, &late] {
+        pages::insert(&pool, made).await.expect("saved");
+    }
+    let titles = |nodes: Vec<pages::OutlineNode>| {
+        nodes
+            .into_iter()
+            .map(|node| node.title)
+            .collect::<Vec<String>>()
+    };
+
+    let space = pages::space_outline(&pool, f.workspace, f.one, 100)
+        .await
+        .expect("listed");
+    assert_eq!(space[2].parent_id, Some(second.id));
+    assert_eq!(
+        titles(space),
+        ["first", "second", "under", "deeper", "late"]
+    );
+    let limited = pages::space_outline(&pool, f.workspace, f.one, 2)
+        .await
+        .expect("listed");
+    assert_eq!(titles(limited), ["first", "second"]);
+    assert_eq!(
+        titles(pages::outline(&pool, second.id, 100).await.expect("listed")),
+        ["second", "under", "deeper", "late"]
+    );
+
+    // A page trashed on its own leaves the outline of what is out of the trash; the
+    // outline of a page in the trash holds what went there with it.
+    pages::trash(&pool, late.id, f.ada, now())
+        .await
+        .expect("trashed");
+    pages::trash(&pool, second.id, f.ada, now())
+        .await
+        .expect("trashed");
+    assert_eq!(
+        titles(pages::outline(&pool, second.id, 100).await.expect("listed")),
+        ["second", "under", "deeper"]
+    );
+    assert_eq!(
+        titles(pages::outline(&pool, late.id, 100).await.expect("listed")),
+        ["late"]
+    );
+    assert_eq!(
+        titles(
+            pages::space_outline(&pool, f.workspace, f.one, 100)
+                .await
+                .expect("listed")
+        ),
+        ["first"]
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_change_to_a_page_reaches_it_the_pages_under_it_and_those_gone(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let in_one = |parent: Option<&Page>, position: &str| {
+        page(
+            f.workspace,
+            Space::Teamspace(f.one),
+            parent.map(|p| p.id),
+            position,
+        )
+    };
+    let top = in_one(None, "a0");
+    let under = in_one(Some(&top), "a0");
+    let deeper = in_one(Some(&under), "a0");
+    let beside = in_one(None, "a1");
+    for made in [&top, &under, &deeper, &beside] {
+        pages::insert(&pool, made).await.expect("saved");
+    }
+    let gone = Uuid::from_u128(0x0193_a5b2_0000_7000_8000_0000_0000_00a1);
+    let open = [top.id, under.id, deeper.id, beside.id, gone];
+    let within = |root| {
+        let pool = pool.clone();
+        async move {
+            let mut found = pages::within(&pool, root, &open).await.expect("read");
+            found.sort();
+            found
+        }
+    };
+    let sorted = |mut ids: Vec<Uuid>| {
+        ids.sort();
+        ids
+    };
+
+    assert_eq!(
+        within(under.id).await,
+        sorted(vec![under.id, deeper.id, gone])
+    );
+    assert_eq!(
+        within(top.id).await,
+        sorted(vec![top.id, under.id, deeper.id, gone])
+    );
+    assert_eq!(within(beside.id).await, sorted(vec![beside.id, gone]));
+    assert_eq!(
+        pages::within(&pool, top.id, &[]).await.expect("read"),
+        Vec::<Uuid>::new()
+    );
+}

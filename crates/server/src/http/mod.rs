@@ -14,7 +14,9 @@ mod openapi;
 mod page_shares;
 mod pages;
 mod principal;
+mod sync;
 mod teamspaces;
+mod transfer;
 mod web;
 mod workspaces;
 
@@ -32,6 +34,8 @@ use axum::routing::get;
 use neon_app::auth::AuthService;
 use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
+use neon_app::sync::SyncService;
+use neon_app::transfer::TransferService;
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::duration;
 use neon_observability::http::HttpLayer;
@@ -57,6 +61,8 @@ pub struct AppState {
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
     pub pages: PageService,
+    pub sync: SyncService,
+    pub transfer: TransferService,
     pub web: Arc<WebConfig>,
 }
 
@@ -175,8 +181,20 @@ fn api() -> OpenApiRouter<AppState> {
         ))
         .routes(routes!(favorites::list_favorites, favorites::add_favorite))
         .routes(routes!(favorites::move_favorite))
-        .routes(routes!(favorites::remove_favorite));
-    OpenApiRouter::with_openapi(openapi::base()).nest("/api/v1", routes)
+        .routes(routes!(favorites::remove_favorite))
+        .routes(routes!(transfer::export_page))
+        .routes(routes!(transfer::export_teamspace))
+        // Uploads are larger than the bodies of other routes.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(transfer::import_pages))
+                .layer(transfer::import_body_limit()),
+        );
+    // Real-time sync speaks WebSocket, which the API's description has no words for; the
+    // docs describe it.
+    OpenApiRouter::with_openapi(openapi::base())
+        .nest("/api/v1", routes)
+        .route("/ws/pages/{page_id}", get(sync::open_page))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -289,6 +307,10 @@ mod auth_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]
+mod sync_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;
 #[cfg(test)]
 mod workspaces_tests;

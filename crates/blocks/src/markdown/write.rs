@@ -29,6 +29,9 @@ enum List {
     Numbered(char),
 }
 
+/// The largest number CommonMark reads as a list item's.
+const MAX_NUMBER: u64 = 999_999_999;
+
 /// The lines of a sequence of sibling blocks.
 fn blocks(blocks: &[Block]) -> Vec<String> {
     let mut flat = Vec::new();
@@ -62,7 +65,8 @@ fn blocks(blocks: &[Block]) -> Vec<String> {
                         number = u64::from(start.unwrap_or(1));
                     }
                 }
-                let marker = format!("{number}{delimiter} ");
+                // CommonMark reads at most nine digits as a list item's number.
+                let marker = format!("{}{delimiter} ", number.min(MAX_NUMBER));
                 (
                     list_item(&marker, "", content, &block.children),
                     Some(List::Numbered(delimiter)),
@@ -83,7 +87,7 @@ fn blocks(blocks: &[Block]) -> Vec<String> {
 /// come after their parent, and empty paragraphs are left out.
 fn flatten<'a>(blocks: &'a [Block], flat: &mut Vec<&'a Block>) {
     for block in blocks {
-        if holds_children(&block.kind) {
+        if holds_children(block) {
             flat.push(block);
             continue;
         }
@@ -96,13 +100,20 @@ fn flatten<'a>(blocks: &'a [Block], flat: &mut Vec<&'a Block>) {
     }
 }
 
-fn holds_children(kind: &BlockKind) -> bool {
-    match kind {
+/// Whether a block's children are written in it, rather than after it.
+fn holds_children(block: &Block) -> bool {
+    match &block.kind {
         BlockKind::BulletListItem { .. }
         | BlockKind::NumberedListItem { .. }
         | BlockKind::CheckListItem { .. }
         | BlockKind::ToggleListItem { .. } => true,
         BlockKind::Heading { props, .. } => props.is_toggleable,
+        // A quote holds its children, as a quote of `> - a` reads, unless they start with a
+        // paragraph, which would read as more of the quote's own text.
+        BlockKind::Quote { .. } => block
+            .children
+            .first()
+            .is_some_and(|child| !matches!(child.kind, BlockKind::Paragraph { .. })),
         _ => false,
     }
 }
@@ -163,12 +174,27 @@ fn block_lines(block: &Block) -> Vec<String> {
             toggle(&title, &block.children)
         }
         BlockKind::Quote { content, .. } => {
-            let lines = inline(content, Context::lines());
-            if lines.is_empty() {
-                vec![">".to_owned()]
-            } else {
-                lines.iter().map(|line| format!("> {line}")).collect()
+            let quoted = |line: &String| {
+                if line.is_empty() {
+                    ">".to_owned()
+                } else {
+                    format!("> {line}")
+                }
+            };
+            let mut lines: Vec<String> = inline(content, Context::lines())
+                .iter()
+                .map(quoted)
+                .collect();
+            if holds_children(block) {
+                if !lines.is_empty() {
+                    lines.push(">".to_owned());
+                }
+                lines.extend(blocks(&block.children).iter().map(quoted));
             }
+            if lines.is_empty() {
+                lines.push(">".to_owned());
+            }
+            lines
         }
         BlockKind::CodeBlock { props, code } => code_block(&props.language, code),
         BlockKind::Divider { .. } => vec!["---".to_owned()],
@@ -816,7 +842,8 @@ fn escape_text(text: &str, edges: Edges, context: Context) -> String {
         let before = index.checked_sub(1).map(|i| chars[i]);
         let after = chars.get(index + 1).copied();
         let at_edge = (edges.first && index == 0) || (edges.last && index + 1 == chars.len());
-        if at_edge && (c == ' ' || c == '\t') {
+        // A carriage return would end the line, and markdown strips whitespace at its edges.
+        if c == '\r' || (at_edge && (c == ' ' || c == '\t')) {
             out.push_str(&format!("&#{};", u32::from(c)));
             continue;
         }

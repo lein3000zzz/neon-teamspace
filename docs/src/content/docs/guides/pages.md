@@ -1,6 +1,6 @@
 ---
 title: Pages
-description: Where pages live and who reaches them, their order, sharing, moving, the trash, favorites, and the API for all of it.
+description: Where pages live and who reaches them, their order, sharing, moving, the trash, favorites, import and export, and the API for all of it.
 ---
 
 A page is a document of a workspace. Pages nest under other pages, as deep as 100 levels,
@@ -10,8 +10,8 @@ and the API. Who may do what is also listed, in one table, on the
 
 :::note[What is built]
 Everything here works through the API, and in the web app as
-[Editing pages](/docs/guides/editing-pages/) describes, a page's content in its live editor
-included.
+[Editing pages](/docs/guides/editing-pages/) describes. A page's content, its blocks, is
+edited live over a WebSocket, as [Real-time sync](/docs/architecture/realtime/) describes.
 :::
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`
@@ -66,7 +66,9 @@ are gradients between two of them. Image covers come with attachments.
 `GET /api/v1/pages/{id}` reads a page: its place (`teamspace_id` or `owner_id`, and
 `parent_id`), its title, icon, cover and style, who made it and who changed it last, and
 `access`, which is `edit` or `view`: what the caller may do with it. `PATCH` changes what its
-body names, for those who edit the page; `null` removes the icon or the cover.
+body names, for those who edit the page; `null` removes the icon or the cover. `parent_id`
+is left out when the caller may not see the page above, and a guest, who knows no other
+member, is not told who made, changed, trashed or owns the page.
 
 ## Order
 
@@ -98,6 +100,12 @@ The page and the pages under it take their access from where they land. A page m
 a teamspace into the caller's private pages leaves the teamspace's members, and one moved
 into a teamspace reaches its members. Shares stay with the pages they are on.
 
+Out of its space, into another teamspace or into private pages, a page moves only for those
+its space lets edit it: the members of its teamspace, or the owner of a private page.
+Someone who edits it through a share alone moves it within its space, under pages they edit
+there, and is told `403 forbidden` for anywhere else; a share never takes a page out of a
+member's private pages or out of a private teamspace.
+
 `GET /api/v1/pages/{id}/breadcrumbs` lists the way down to a page: the pages above it the
 caller sees, from the highest, then the page. For a guest it starts at the page shared with
 them.
@@ -112,7 +120,7 @@ space gives them and every share on it or on a page above it.
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/pages/{id}/shares` | Lists the shares on the page, then those on each page above it, marked `inherited`, each with the page it is set on. |
+| `GET /api/v1/pages/{id}/shares` | Lists the shares on the page, then those on each page above it, marked `inherited`, each with the page it is set on; that page is left out when the caller may not see it. |
 | `POST /api/v1/pages/{id}/shares` | Shares the page with `user_id` for `access`. A second share with the same person answers `409 already_shared`. |
 | `PATCH /api/v1/pages/{id}/shares/{user_id}` | Changes what a share on this page gives. |
 | `DELETE /api/v1/pages/{id}/shares/{user_id}` | Removes a share on this page. |
@@ -170,11 +178,20 @@ Each account keeps favorite pages in an order of its own, across its workspaces.
 A favorite the caller can no longer see, or one in the trash, stays saved and is left out of
 the list until it can be seen again.
 
+## Import and export
+
+Markdown files and zips of them import as pages, and a page, a page with the pages under it,
+or a teamspace exports as markdown. [Import and export](/docs/guides/import-export/) has the
+rules, the layout of the zips and the limits.
+
 ## When access changes
 
-Moving, trashing, restoring and deleting a page, and adding, changing or removing a share,
-may change who reaches a page. So do joining and leaving a teamspace, a new role in one, a
-teamspace's new access or its deletion, and a member's new role, leaving or removal. Once
-such a change is saved, the server passes it to the live editor, **planned**, which checks
-again what each person with those pages open may do. It closes the page for someone who may
-no longer see it, and stops the editing of someone who may now only view it.
+Moving a page to another place, trashing, restoring and deleting it, and adding, changing or
+removing a share, may change who reaches a page; so does the trash's purge. So do joining and
+leaving a teamspace, a new role in one, a teamspace's new access or its deletion, a member's
+new role, leaving or removal, and signing out, a revoked session or token, or a disabled
+account. Once
+such a change is saved, the server checks again, at once, what each person with those pages
+open may do. It closes the page for someone who may no longer see it, and stops the editing
+of someone who may now only view it, as [Real-time
+sync](/docs/architecture/realtime/#when-access-changes) describes.

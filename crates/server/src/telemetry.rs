@@ -3,17 +3,21 @@
 //! Commands that print their output, such as `neon openapi`, install nothing: logs go to
 //! stdout, which is theirs.
 
-use neon_app::{auth, jobs, workspaces};
+use neon_app::{auth, jobs, pages, sync, transfer, workspaces};
 use neon_observability::red::Buckets;
 use neon_observability::{InitError, ServiceInfo, Telemetry, http};
 
-/// The RED subsystems with the histogram buckets that fit what they time: requests and
-/// the auth and workspace use cases, a password hash included, take milliseconds to
-/// seconds, jobs up to minutes.
-const SUBSYSTEMS: [(&str, Buckets); 4] = [
+/// The RED subsystems with the histogram buckets that fit what they time: requests, the
+/// auth, workspace and page use cases, a password hash included, and loading and saving
+/// documents take milliseconds to seconds, imports and exports up to their time limit, jobs
+/// up to minutes.
+const SUBSYSTEMS: [(&str, Buckets); 7] = [
     (http::SUBSYSTEM, Buckets::Medium),
     (auth::SUBSYSTEM, Buckets::Medium),
     (workspaces::SUBSYSTEM, Buckets::Medium),
+    (pages::SUBSYSTEM, Buckets::Medium),
+    (sync::SUBSYSTEM, Buckets::Medium),
+    (transfer::SUBSYSTEM, Buckets::XLong),
     (jobs::SUBSYSTEM, Buckets::Long),
 ];
 

@@ -5,8 +5,8 @@ description: How the web app is built, how its API types stay in step with the s
 
 The web app is a single-page app in `web/`: React and TypeScript, built with Vite into static
 files that Caddy serves. Bun installs its packages and runs its scripts. It talks to the
-server only through the JSON API under `/api/v1` and the WebSocket that syncs a page, under
-`/ws`.
+server only through the JSON API under `/api/v1` and the WebSocket of
+[real-time sync](/docs/architecture/realtime/), under `/ws`, which syncs a page.
 
 ## The stack
 

@@ -73,8 +73,10 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`; outgoing webhooks and exports will be, **planned** with the features that need
-them. The hourly cleanup of expired sessions, links and invites is not a job but a
+`mail.send`; outgoing webhooks will be, **planned** with the feature. Imports and exports are
+not jobs: the request that asks for one waits for it, within
+[their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
+answer. The hourly cleanup of expired sessions, links and invites is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
@@ -187,19 +189,23 @@ keys of their own; both go when their page goes, and when the person leaves the 
 
 ## Content
 
-**Planned.** Content is stored according to how it is edited:
+Content is stored according to how it is edited. Pages' documents are kept as below;
+database properties, search and attachments are **planned**.
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
-  numbered in order, and the latest snapshot of the whole document, `page_snapshots`, after
-  which older updates are compacted into it. Page history is built from the snapshots. The
-  tables are there already, for the live editor to fill. What a document holds, and how the
-  server reads it, is in [Page documents](/docs/architecture/documents/).
+  numbered in order with their authors, and the latest snapshot of the whole document,
+  `page_snapshots`, which takes in the updates before it: they are deleted in the same
+  transaction. An imported page starts with a snapshot of its content and an empty log.
+  Page history, **planned**, is to be built from the snapshots. What a document
+  holds, and how the server reads it, is in [Page documents](/docs/architecture/documents/);
+  how the live documents log and compact, in [Real-time sync](/docs/architecture/realtime/#saving).
 - **Database properties**, such as a row's status or assignee, are plain columns and rows,
   so views filter, sort and group them in SQL.
 - **Search** uses Postgres full-text search with the `simple` configuration, which does not
   stem words and so works the same for any language, together with `pg_trgm` for partial
   words and typos. A page's search text, `pages.search_text`, is updated in the same
-  transaction that stores its snapshot, so search never waits on the job queue.
+  transaction that stores its snapshot, so search never waits on the job queue. That text
+  is written already; the search over it is to come.
 - **Attachments** go through an object store: a directory on local disk by default, or any
   S3-compatible service, such as SeaweedFS. They count toward the workspace's storage limit.
 

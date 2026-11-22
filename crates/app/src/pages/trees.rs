@@ -19,7 +19,7 @@ use uuid::Uuid;
 use super::operations::{in_workspace, teamspace_space};
 use super::{
     NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, access_of, actor, check_space,
-    seen,
+    hide_parents, is_guest, seen,
 };
 
 /// The most pages a list answers with at once, and how many unless told fewer.
@@ -43,6 +43,9 @@ pub struct TreePage {
     /// How many pages are under it, out of the trash.
     pub child_count: i64,
     pub access: PageAccess,
+    /// The caller is a guest, who knows no other member: whose private page it is stays
+    /// unshown.
+    pub members_hidden: bool,
 }
 
 /// A part of a tree, and where the next part starts when there is more.
@@ -176,30 +179,33 @@ impl PageService {
             let mut conn = self.pool().acquire().await?;
             in_workspace(&mut conn, principal, workspace_id).await?;
             let mut list = TrashList::default();
-            for _ in 0..TRASH_ROUNDS {
-                let batch = repo::trashed(&mut *conn, workspace_id, after, limit).await?;
-                let exhausted = i64::try_from(batch.len()).unwrap_or(i64::MAX) < limit;
-                let facts = facts_by_id(&mut conn, &batch, principal).await?;
-                for page in batch {
-                    after = page.trashed_at.map(|at| (at, page.id));
-                    if let Some(view) = facts
-                        .get(&page.id)
-                        .map(|f| seen(principal, f))
-                        .transpose()?
-                        .flatten()
-                    {
-                        list.pages.push(view);
-                        if i64::try_from(list.pages.len()).unwrap_or(i64::MAX) == limit {
-                            list.next = after.map(|(at, id)| trash_position(at, id));
-                            return Ok(list);
+            'rounds: {
+                for _ in 0..TRASH_ROUNDS {
+                    let batch = repo::trashed(&mut *conn, workspace_id, after, limit).await?;
+                    let exhausted = i64::try_from(batch.len()).unwrap_or(i64::MAX) < limit;
+                    let facts = facts_by_id(&mut conn, &batch, principal).await?;
+                    for page in batch {
+                        after = page.trashed_at.map(|at| (at, page.id));
+                        if let Some(view) = facts
+                            .get(&page.id)
+                            .map(|f| seen(principal, f))
+                            .transpose()?
+                            .flatten()
+                        {
+                            list.pages.push(view);
+                            if i64::try_from(list.pages.len()).unwrap_or(i64::MAX) == limit {
+                                list.next = after.map(|(at, id)| trash_position(at, id));
+                                break 'rounds;
+                            }
                         }
                     }
+                    if exhausted {
+                        break 'rounds;
+                    }
                 }
-                if exhausted {
-                    return Ok(list);
-                }
+                list.next = after.map(|(at, id)| trash_position(at, id));
             }
-            list.next = after.map(|(at, id)| trash_position(at, id));
+            hide_parents(&mut conn, principal, &mut list.pages).await?;
             Ok(list)
         })
         .await
@@ -246,6 +252,7 @@ fn tree(
                 icon: node.icon,
                 child_count: node.child_count,
                 access,
+                members_hidden: is_guest(actor),
             })
         })
         .collect();

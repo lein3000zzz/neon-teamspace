@@ -8,7 +8,9 @@ A page's content is one Yjs document. The browser edits it with
 document through y-prosemirror. The server holds the same document with yrs, the Rust port of
 Yjs. The `neon-blocks` crate reads the blocks out of that document into a typed model, writes
 a model back into it in the shape the editor writes, and converts the model to and from
-markdown. Export, import, search and agents' edits, all **planned**, are to go through it.
+markdown. The live documents read a page's text through it for search as they save, and
+[import and export](/docs/guides/import-export/) convert pages through it. Agents' edits,
+**planned**, are to go through it too.
 Like `neon-domain`, it does no I/O and has no async code.
 
 ## The fragment
@@ -118,7 +120,8 @@ The crate's functions:
 
 | Function | What it does |
 |---|---|
-| `read(txn, fragment)`, `read_doc(doc)` | The document a fragment holds. |
+| `read(txn, fragment)`, `read_doc(doc)` | The document a fragment holds, or why it is not one the editor writes. |
+| `read_lenient(txn, fragment)` | What of the fragment reads, as the editor would show it: a block that does not read, such as one of a type the schema does not know, is left out with the blocks under it, and counted. Exports read pages so. |
 | `replace(txn, fragment, document, ids)` | Replaces the fragment's blocks, keeping its top-level `blockGroup`. |
 | `append(txn, fragment, blocks, ids)` | Adds blocks after the last top-level block. |
 | `markdown::to_markdown(document)` | The document as markdown. |
@@ -142,12 +145,12 @@ pulldown-cmark with GitHub's tables, strikethrough and task lists.
 | paragraph | its text; a line break is `\` at the end of a line |
 | heading | `#` to `######` |
 | bullet list item | `- item` |
-| numbered list item | `1. item`, counting up from the list's `start` |
+| numbered list item | `1. item`, counting up from the list's `start`, at most 999999999, the most CommonMark reads |
 | check list item | `- [ ] item`, `- [x] item` |
 | toggle list item | `:::toggle Title`, its children, `:::` |
 | toggleable heading | `:::toggle ## Title`, its children, `:::` |
-| quote | `> text` |
-| code block | a fenced block, its language as the info string |
+| quote | `> text`, holding its children unless the first is a paragraph |
+| code block | a fenced block, its language as the info string, which reads back as the info string's first word |
 | divider | `---` |
 | table | a pipe table whose first row is the header |
 | image | `![name](url "caption")` on a line of its own |
@@ -200,8 +203,11 @@ Markdown cannot hold everything a page can. Writing drops:
 - text and background colours, of blocks and of text;
 - text alignment, but for a table column's;
 - empty paragraphs;
-- the nesting of children under blocks other than list items and toggles, which are written
-  after their parent at its level;
+- the nesting of children under blocks other than list items, toggles and quotes, and under a
+  quote whose first child is a paragraph, which are written after their parent at its level;
+- a link without text, which the editor cannot hold either;
+- the words of a code block's language after its first, as in `c sharp`, since the info
+  string's first word is the language;
 - tables' column widths, header columns, spans and cell colours, and a table without a header
   row, which comes back with its first row as the header;
 - images' and videos' preview widths, and whether a file shows a preview;
@@ -209,9 +215,10 @@ Markdown cannot hold everything a page can. Writing drops:
 - whitespace at the edges of bold, italic and strikethrough text, which moves outside the
   style.
 
-Everything else comes back as it was. Reading what was written and writing it again gives the
-same markdown, so a page that goes out and comes back changes at most once. Reading markdown,
-a soft line break is a space, as CommonMark has it. Raw HTML other than the tags above stays
+Everything else comes back as it was; a carriage return in text is written `&#13;`, so it
+stays one. Reading what was written and writing it again gives the same markdown, so a page
+that goes out and comes back changes at most once. Reading markdown, a soft line break is a
+space, as CommonMark has it. Raw HTML other than the tags above stays
 text, and an image inside a paragraph splits it, since images are blocks.
 
 ## Tested against BlockNote

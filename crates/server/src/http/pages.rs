@@ -200,9 +200,11 @@ pub struct Page {
     pub workspace_id: Uuid,
     /// The teamspace it is in; absent for a private page.
     pub teamspace_id: Option<Uuid>,
-    /// The member a private page belongs to; absent for a teamspace's page.
+    /// The member a private page belongs to; absent for a teamspace's page, and for
+    /// guests, who know no other member.
     pub owner_id: Option<Uuid>,
-    /// The page it is under; absent at the top of its space.
+    /// The page it is under; absent at the top of its space, and when the caller may not
+    /// see that page.
     pub parent_id: Option<Uuid>,
     /// Its key among its siblings, which sort by it, byte by byte.
     #[schema(example = "a0")]
@@ -214,6 +216,7 @@ pub struct Page {
     pub cover: Option<Cover>,
     pub style: PageStyle,
     pub access: PageAccess,
+    /// Absent for guests, as are `last_edited_by` and `trashed_by`.
     pub created_by: Option<Uuid>,
     /// Who changed it last, its content included.
     pub last_edited_by: Option<Uuid>,
@@ -237,11 +240,12 @@ pub struct Page {
 impl From<PageView> for Page {
     fn from(view: PageView) -> Self {
         let page = view.page;
+        let member = |id: Option<Uuid>| id.filter(|_| !view.members_hidden);
         Self {
             id: page.id,
             workspace_id: page.workspace_id,
             teamspace_id: page.space.teamspace_id(),
-            owner_id: page.space.owner_id(),
+            owner_id: member(page.space.owner_id()),
             parent_id: page.parent_id,
             position: page.position,
             title: page.title,
@@ -253,20 +257,20 @@ impl From<PageView> for Page {
                 full_width: page.style.full_width,
             },
             access: view.access.into(),
-            created_by: page.created_by,
-            last_edited_by: page.last_edited_by,
+            created_by: member(page.created_by),
+            last_edited_by: member(page.last_edited_by),
             created_at: page.created_at,
             updated_at: page.updated_at,
             content_updated_at: page.content_updated_at,
             trashed_at: page.trashed_at,
-            trashed_by: page.trashed_by,
+            trashed_by: member(page.trashed_by),
             trashed_with: page.trashed_with,
         }
     }
 }
 
-/// The one place a page is made in or moved to.
-fn location(
+/// The one place a page is made in, moved to or imported to.
+pub(super) fn location(
     parent_id: Option<Uuid>,
     teamspace_id: Option<Uuid>,
     private: bool,
@@ -466,14 +470,17 @@ pub struct MovePage {
     description = "Moves it, with the pages under it, under another page, to the top of a \
                    teamspace or to the caller's private pages, and places it among its new \
                    siblings; to reorder it, name the place it is in. The caller edits the page \
-                   and where it goes. The pages moved take their access from their new place.",
+                   and where it goes. Out of its space, to another teamspace or to private \
+                   pages, the caller must edit it through the space itself, being in its \
+                   teamspace or owning it: a page shared with them moves only within its space. \
+                   The pages moved take their access from their new place.",
     params(("id" = Uuid, Path, description = "The page's id.")),
     request_body = MovePage,
     responses(
         (status = OK, description = "The page.", body = Page),
         (status = BAD_REQUEST, description = "invalid_input: no place or several, a place in another workspace, or a placement beside a page that is not a sibling.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views the page or its new place and does not edit it, or edits the page through a share only and names another space; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the page or its new place.", body = ErrorBody),
         (status = CONFLICT, description = "cycle: under itself or one of its subpages; or too_deep.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -631,6 +638,8 @@ pub struct TreePage {
     /// the caller.
     pub parent_id: Option<Uuid>,
     pub teamspace_id: Option<Uuid>,
+    /// The member a private page belongs to; absent for a teamspace's page, and for
+    /// guests, who know no other member.
     pub owner_id: Option<Uuid>,
     pub title: String,
     pub icon: Option<String>,
@@ -645,7 +654,7 @@ impl From<AppTreePage> for TreePage {
             id: page.id,
             parent_id: page.parent_id,
             teamspace_id: page.space.teamspace_id(),
-            owner_id: page.space.owner_id(),
+            owner_id: page.space.owner_id().filter(|_| !page.members_hidden),
             title: page.title,
             icon: page.icon,
             child_count: page.child_count,

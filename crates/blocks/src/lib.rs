@@ -25,4 +25,7 @@ pub use model::{
     NumberedListItemProps, QuoteProps, StyledText, Styles, TableCell, TableCellProps, TableContent,
     TableProps, TableRow, TextAlignment, TextProps,
 };
-pub use ydoc::{FRAGMENT, NotADocument, ReadError, append, fragment, read, read_doc, replace};
+pub use ydoc::{
+    FRAGMENT, Lenient, NotADocument, ReadError, append, fragment, read, read_doc, read_lenient,
+    replace,
+};

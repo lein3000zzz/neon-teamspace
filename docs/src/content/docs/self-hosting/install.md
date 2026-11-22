@@ -129,7 +129,11 @@ Leave `NEON_DOMAIN` unset, so Caddy serves plain HTTP, point the proxy at `NEON_
 and set `NEON_WEB_TRUSTED_PROXIES` to the proxy's addresses, such as `10.0.0.0/8`, so Caddy
 takes the client's address from the proxy's `X-Forwarded-For`. The server only ever sees the
 client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
-set.
+set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
+do by default.
+
+`NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
+change something, and WebSocket upgrades, whose `Origin` is another.
 
 Caddy sets the same security headers on every answer: a Content-Security-Policy that allows
 only the instance's own scripts, styles, images, fonts and connections, with a policy of
