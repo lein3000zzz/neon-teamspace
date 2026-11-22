@@ -88,16 +88,11 @@ impl Refusal {
 /// The principal of the bearer token, or else of the session cookie.
 async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refusal> {
     if let Some(header) = parts.headers.get(AUTHORIZATION) {
-        let token = header
-            .to_str()
-            .ok()
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .map(str::trim)
-            .ok_or_else(|| {
-                Refusal::new(ApiError::unauthenticated(
-                    "the Authorization header wants Bearer and an API token",
-                ))
-            })?;
+        let token = header.to_str().ok().and_then(bearer_token).ok_or_else(|| {
+            Refusal::new(ApiError::unauthenticated(
+                "the Authorization header wants Bearer and an API token",
+            ))
+        })?;
         return state.auth.authenticate_token(token).await.map_err(|error| {
             Refusal::new(match error {
                 AuthError::Unauthenticated => ApiError::unauthenticated(
@@ -123,6 +118,13 @@ async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refu
         })
 }
 
+/// The token of an `Authorization` value of the Bearer scheme, whose name is matched
+/// whatever its case (RFC 9110, section 11.1).
+fn bearer_token(value: &str) -> Option<&str> {
+    let (scheme, token) = value.trim_start().split_once(' ')?;
+    scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
+}
+
 fn missing_scope(scope: Scope) -> Response {
     ApiError::new(
         StatusCode::FORBIDDEN,
@@ -130,4 +132,24 @@ fn missing_scope(scope: Scope) -> Response {
         format!("this API token lacks the {scope} scope"),
     )
     .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bearer_token;
+
+    #[test]
+    fn the_bearer_scheme_is_matched_whatever_its_case() {
+        for value in [
+            "Bearer nw_abc",
+            "bearer nw_abc",
+            "BEARER  nw_abc ",
+            " Bearer nw_abc",
+        ] {
+            assert_eq!(bearer_token(value), Some("nw_abc"), "{value:?}");
+        }
+        for value in ["Basic abc", "Bearernw_abc", "Bearer", "nw_abc", ""] {
+            assert_eq!(bearer_token(value), None, "{value:?}");
+        }
+    }
 }
