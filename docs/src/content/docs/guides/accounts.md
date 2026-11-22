@@ -180,8 +180,15 @@ The last admin who can sign in can be neither demoted nor disabled, which answer
 `last_admin`. Two admins demoting each other at the same moment cannot both succeed: each
 change locks the admins first, so the second sees the first's result.
 
+Instance admins also list, limit and delete workspaces, without seeing what is in them; see
+[Workspaces and teamspaces](/docs/guides/workspaces/#for-instance-admins).
+
 ## Preferences
 
 Each user's look of the web app, the palette, the mode, the accent hue and the interface
 font, is kept with their account at `/api/v1/account/preferences`, so it follows them from
 browser to browser.
+
+Apart from the accent, which colours the app for them, each user is drawn in a hue of their
+own wherever others see them: the one their id hashes to, or one they pin with
+`hue_override` on `PATCH /api/v1/account/me`.

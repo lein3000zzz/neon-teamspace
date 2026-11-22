@@ -91,7 +91,7 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Guides',
-          items: ['guides/introduction', 'guides/concepts', 'guides/accounts'],
+          items: ['guides/introduction', 'guides/concepts', 'guides/accounts', 'guides/workspaces'],
         },
         {
           label: 'Self-hosting',
@@ -104,7 +104,7 @@ export default defineConfig({
         },
         {
           label: 'Reference',
-          items: ['reference/settings', apiReference],
+          items: ['reference/settings', 'reference/permissions', apiReference],
         },
         {
           label: 'Architecture',

@@ -107,18 +107,23 @@ card's border. Everything else stays flat.
 
 ### Hues of things
 
-**Planned**, as the things they colour arrive. Users, agents, integrations, teamspaces,
-workspaces and databases each have a hue of their own, worked out from their ID:
+Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
+agents, integrations and databases will too, **planned**, as they arrive:
 
-1. Take the UUID's 16 bytes.
-2. Hash them with 32-bit FNV-1a.
+1. Take the UUID's 16 bytes, in order. Only the canonical form, 8-4-4-4-12 hex digits in
+   any case, counts as a UUID; any other ID is hashed as its UTF-8 text.
+2. Hash them with 32-bit FNV-1a, offset basis `0x811c9dc5`, prime `0x01000193`.
 3. The hue is the hash modulo 360.
 
 Every browser and the server get the same hue for the same ID, with nothing to choose, store
-or sync, and a person's cursor, avatar and mentions share one colour everywhere. Only the hue
-comes from the ID: lightness and chroma come from the palette and mode, as for the accent, so
-the contrast holds whatever hue an ID lands on. A teamspace can pin a hue of its own
-instead.
+or sync, and a person's cursor, avatar and mentions share one colour everywhere. The web
+app's `hueFor` and the server's `hue_for` share the test vectors in
+`web/src/lib/hue-vectors.json`, and both test suites check every one. Only the hue comes from
+the ID: lightness and chroma come from the palette and mode, as for the accent, so the
+contrast holds whatever hue an ID lands on.
+
+A user, workspace or teamspace can pin a hue of its own instead. The API sends both: `hue`,
+the one to draw, and `hue_override`, the pinned one when there is one.
 
 ## Fonts
 

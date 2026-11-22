@@ -43,6 +43,9 @@ the features build on:
   an internal admin listener; see [Observability](/docs/architecture/observability/).
 - The HTTP API's skeleton with its first endpoint, `GET /api/v1/meta`, and its OpenAPI
   description; see the [API reference](/docs/reference/api/).
+- Workspaces in the API: their members and roles, invitations and invite links,
+  teamspaces, limits and hues; see [Workspaces and teamspaces](/docs/guides/workspaces/)
+  and [Permissions](/docs/reference/permissions/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -57,8 +60,9 @@ in the order it is built:
 1. Accounts in the web app: sign-in and sign-up pages, account settings and the admin
    pages, over the server's [account API](/docs/guides/accounts/), and the mail that
    verification, resets and requests to join send.
-2. Workspaces, teamspaces, roles, per-page sharing and per-workspace limits.
-3. Pages and the real-time editor, markdown import and export, the trash.
+2. Workspaces in the web app: the switcher, and the pages for members, invitations,
+   teamspaces and the instance admins' list of workspaces.
+3. Pages and the real-time editor, per-page sharing, markdown import and export, the trash.
 4. Databases with table, board and list views.
 5. Comments, mentions and an inbox, page history, search and attachments.
 6. Agents over MCP, and webhooks in and out.

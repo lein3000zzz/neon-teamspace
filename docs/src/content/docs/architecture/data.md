@@ -4,7 +4,8 @@ description: What Neon Workspace keeps in Postgres, how its SQL is checked, how 
 ---
 
 Everything Neon Workspace keeps lasting is in one Postgres 18 database: settings, the job
-queue, accounts, sessions, invites, and, as they arrive, workspaces and their content. There is no
+queue, accounts, sessions, invites, workspaces with their members, teamspaces, invitations
+and invite links, and, as it arrives, their content. There is no
 cache server and no message broker beside it. Attachments are the one exception, **planned**:
 they go to local disk or an S3-compatible store, as files are better kept outside the
 database.
