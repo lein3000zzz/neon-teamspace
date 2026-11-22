@@ -113,3 +113,101 @@ test("two people typing into one page see each other's text and cursors", async 
     }
   }
 });
+
+test("an editor whose share turns to view goes read-only at once, and back, on one connection", async ({
+  page: ownerPage,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const run = String(Date.now());
+  const owner = account("sharer", run);
+  const guest = account("helper", run);
+  const contexts: BrowserContext[] = [];
+  try {
+    const adminContext = await browser.newContext();
+    contexts.push(adminContext);
+    await makeAccounts(await adminContext.newPage(), [owner, guest]);
+
+    await ownerPage.goto("/login");
+    await signIn(ownerPage, owner.email, PASSWORD);
+    await expect(ownerPage.getByRole("complementary")).toBeVisible();
+    const workspace = await callApi<Workspace>(
+      ownerPage,
+      "POST",
+      "/api/v1/workspaces",
+      { name: `Access ${run}` },
+      201,
+    );
+    await callApi(
+      ownerPage,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/invitations`,
+      { email: guest.email, role: "guest" },
+      201,
+    );
+    const [guestContext, guestPage] = await signedIn(browser, guest);
+    contexts.push(guestContext);
+    await guestPage.getByRole("button", { name: `Accept: Access ${run}` }).click();
+    await expect(guestPage).toHaveURL(new RegExp(`/w/${workspace.slug}$`));
+
+    const answer = await ownerPage.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    const page = await callApi<{ id: string }>(
+      ownerPage,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Shared plan" },
+      201,
+    );
+    const members = await ownerPage.request.get(`/api/v1/workspaces/${workspace.id}/members`);
+    const { members: list } = (await members.json()) as {
+      members: { user: { id: string; email: string } }[];
+    };
+    const guestId = list.find((member) => member.user.email === guest.email)?.user.id;
+    expect(guestId, "the guest's id").toBeDefined();
+    await callApi(
+      ownerPage,
+      "POST",
+      `/api/v1/pages/${page.id}/shares`,
+      { user_id: guestId, access: "can_edit" },
+      201,
+    );
+
+    const sockets: string[] = [];
+    guestPage.on("websocket", (socket) => sockets.push(socket.url()));
+    await guestPage.goto(`/w/${workspace.slug}/p/${page.id}`);
+    await live(guestPage);
+    const title = guestPage.getByRole("textbox", { name: "Page title" });
+    await expect(title).toBeVisible();
+
+    const change = (access: string) =>
+      callApi(
+        ownerPage,
+        "PATCH",
+        `/api/v1/pages/${page.id}/shares/${guestId ?? ""}`,
+        { access },
+        200,
+      );
+
+    // To view: the editor and the header stop taking changes, without reconnecting.
+    await change("can_view");
+    await expect(guestPage.locator("output").filter({ hasText: "Read-only" })).toBeVisible();
+    await expect(content(guestPage)).toHaveAttribute("contenteditable", "false");
+    await expect(title).toHaveCount(0);
+
+    // Back to edit: both take changes again, and what is typed reaches the server.
+    await change("can_edit");
+    await live(guestPage);
+    await expect(title).toBeVisible();
+    await typeAtEnd(guestPage, "Typed after the share came back");
+    await expect
+      .poll(async () => (await ownerPage.request.get(`/api/v1/pages/${page.id}/export`)).text())
+      .toContain("Typed after the share came back");
+    expect(sockets).toHaveLength(1);
+  } finally {
+    for (const context of contexts) {
+      await context.close();
+    }
+  }
+});
