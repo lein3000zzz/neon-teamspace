@@ -1,0 +1,19 @@
+{
+  "name": "neon-workspace-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "chromium": "playwright install --only-shell chromium",
+    "format": "prettier --write .",
+    "check": "tsc && prettier --check .",
+    "licenses": "bun ../scripts/licenses.ts ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "prettier": "^3.10.1",
+    "typescript": "~6.0.3"
+  }
+}

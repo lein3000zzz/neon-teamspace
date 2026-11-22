@@ -18,6 +18,12 @@ LOCAL_IMAGES  := NEON_SERVER_IMAGE=neon-workspace-server:local NEON_WEB_IMAGE=ne
 # Compose reads the whole file, so starting or stopping services that do not use
 # POSTGRES_PASSWORD still needs one.
 NO_DATABASE   := POSTGRES_PASSWORD=unused
+# A throwaway stack for e2e, beside any other: a project of its own, a free port on loopback,
+# and no deployments/.env, so the tests see the defaults.
+E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/docker-compose.yml \
+	-f deployments/docker-compose.e2e.yml
+# The instance name the e2e stack is given, and its tests expect.
+E2E_INSTANCE  := Neon E2E
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
 # Where check builds, so that its offline build never reuses one checked against a database.
@@ -168,14 +174,40 @@ docs-check: ## Type-check the docs and test their scripts; fail if the settings 
 	cd docs && $(BUN) run check
 	@$(call check-generated,$(SETTINGS_PAGE),$(NEON) settings docs,docs-gen)
 
+## End-to-end tests (e2e/)
+
+.PHONY: e2e-install
+e2e-install: ## Install the end-to-end tests' packages and Playwright's headless Chromium, with its system libraries on CI
+	cd e2e && $(BUN) install --frozen-lockfile
+	cd e2e && $(BUN) run chromium $(if $(CI),--with-deps)
+
+.PHONY: e2e-check
+e2e-check: ## Type-check the end-to-end tests and check their formatting
+	cd e2e && $(BUN) run check
+
+.PHONY: e2e
+# The trap removes the stack, its volumes too, however the run ends, after printing the
+# containers' logs when it failed, and keeps the run's exit status.
+e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
+	@set -e; \
+	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" NEON_SETTINGS__INSTANCE__NAME="$(E2E_INSTANCE)" \
+		$(LOCAL_IMAGES); \
+	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
+		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
+	$(E2E_COMPOSE) up --detach --build --wait; \
+	address="$$($(E2E_COMPOSE) port web 80)"; \
+	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
+	(cd e2e && E2E_BASE_URL="http://$$address" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" $(BUN) run test)
+
 ## Checks
 
 .PHONY: licenses
 # Without --offline, cargo-deny first updates its copy of the RustSec advisory database.
-licenses: ## Run cargo-deny's license, advisory, ban and source checks; check web's and docs' licenses
+licenses: ## Run cargo-deny's license, advisory, ban and source checks; check the JS packages' licenses
 	$(CARGO) deny $(DENY_FLAGS) check
 	$(BUN) scripts/licenses.ts web
 	$(BUN) scripts/licenses.ts docs
+	$(BUN) scripts/licenses.ts e2e
 
 .PHONY: check
 # Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
@@ -185,7 +217,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check we
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check licenses ## Every check that needs no Docker or network (all but sqlx-check and test)
+check: fmt-check lint build api-check web-check docs-check e2e-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean

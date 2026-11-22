@@ -1,0 +1,4 @@
+[install]
+# A hoisted node_modules nests each conflicting copy under its dependent,
+# which is the layout ../scripts/licenses.ts walks to see every installed package.
+linker = "hoisted"

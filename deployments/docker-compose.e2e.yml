@@ -1,0 +1,7 @@
+# Overrides for make e2e: a throwaway stack that runs beside any other, under a project name
+# of its own, with the web origin on a free port of this machine's loopback, which
+# `docker compose port web 80` reports.
+services:
+  web:
+    ports: !override
+      - "127.0.0.1::80"
