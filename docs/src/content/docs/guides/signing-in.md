@@ -79,7 +79,7 @@ address filled in.
   goes back to the part of the address before the `@`. Under it, the password: the current
   one and a new one, twice. Changing it signs out every other session.
 - **Sessions**: each browser signed in, with its address and when it was last active. Any
-  but this one can be signed out from here, or all of them at once.
+  of them can be signed out from here, this one included, or every other one at once.
 - **API tokens**: tokens for scripts and tools, each with a name, its scopes and an optional
   end date. A new token's secret shows once, with a button to copy it; after that only its
   first characters identify it. Revoking a token stops it at once.

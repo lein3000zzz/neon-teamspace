@@ -28,6 +28,12 @@ display name. It works whatever the registration mode, `closed` included, and th
 counts as verified. The password follows the instance's rules, so hand it over safely, and
 the person can change it from their account page.
 
+Adding an account, changing a role, and disabling or enabling an account need a browser
+session, which these pages always have. An admin's API token is refused them, so a token
+that leaked cannot make its holder an account or lock an admin out: scripts invite people
+instead. [API tokens](/docs/guides/accounts/#api-tokens) has the rest of what a token may
+do.
+
 ## Roles and disabling
 
 Each account has these, each asked again before it is done:
