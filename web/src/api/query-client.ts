@@ -1,4 +1,10 @@
-import { MutationCache, QueryCache, QueryClient, type DefaultOptions } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  type DefaultOptions,
+  type QueryKey,
+} from "@tanstack/react-query";
 import { ApiError } from "./errors";
 import { keys } from "./keys";
 
@@ -33,22 +39,27 @@ function isRefusal(error: unknown): boolean {
  * - a 401 `unauthenticated` means the session ended (it expired, or was
  *   revoked elsewhere), so nobody is signed in any more; the signed-in layout
  *   sees that and sends the user to sign in again, back to where they were.
- * - a 403 `forbidden` may mean the user's role changed, so who they are is
- *   asked again, and pages they may no longer see say so.
+ * - a 403 `forbidden` may mean the user's role changed, on the instance or in
+ *   a workspace, so who they are and the workspaces' data are asked again, and
+ *   pages and controls they may no longer use say so.
+ * - a 404 `not_found` from a workspace's data may mean the user is no longer
+ *   in it, so their list of workspaces is read again.
  *
  * Tests pass their own query defaults; the session handling and the
  * mutation defaults are the same.
  */
 export function createQueryClient(queries: DefaultOptions["queries"] = APP_QUERY_DEFAULTS) {
   const client: QueryClient = new QueryClient({
-    queryCache: new QueryCache({ onError: (error) => watchSession(client, error) }),
+    queryCache: new QueryCache({
+      onError: (error, query) => watchSession(client, error, query.queryKey),
+    }),
     mutationCache: new MutationCache({ onError: (error) => watchSession(client, error) }),
     defaultOptions: { queries, mutations: APP_MUTATION_DEFAULTS },
   });
   return client;
 }
 
-function watchSession(client: QueryClient, error: unknown) {
+function watchSession(client: QueryClient, error: unknown, queryKey?: QueryKey) {
   if (!(error instanceof ApiError)) {
     return;
   }
@@ -56,5 +67,15 @@ function watchSession(client: QueryClient, error: unknown) {
     client.setQueryData(keys.me, null);
   } else if (error.status === 403 && error.code === "forbidden") {
     void client.invalidateQueries({ queryKey: keys.me });
+    void client.invalidateQueries({ queryKey: WORKSPACES_ROOT });
+  } else if (
+    error.status === 404 &&
+    error.code === "not_found" &&
+    queryKey?.[0] === WORKSPACES_ROOT[0] &&
+    queryKey[1] !== keys.workspaces[1]
+  ) {
+    void client.invalidateQueries({ queryKey: keys.workspaces });
   }
 }
+
+const WORKSPACES_ROOT = [keys.workspaces[0]] as const;

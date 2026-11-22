@@ -46,6 +46,27 @@ describe("the query client", () => {
     expect(client.getQueryState(keys.me)?.isInvalidated).toBe(true);
   });
 
+  it("reads the workspaces again after a 403, as a role in one may have changed", async () => {
+    const client = createQueryClient({ retry: false });
+    client.setQueryData(keys.workspaces, { workspaces: [], can_create: true });
+    client.setQueryData(keys.members("w1"), { members: [] });
+    await failQuery(client, refusal(403, "forbidden"));
+    expect(client.getQueryState(keys.workspaces)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(keys.members("w1"))?.isInvalidated).toBe(true);
+  });
+
+  it("reads the list of workspaces again when one answers not_found", async () => {
+    const client = createQueryClient({ retry: false });
+    client.setQueryData(keys.workspaces, { workspaces: [], can_create: true });
+    await client
+      .fetchQuery({
+        queryKey: keys.members("w1"),
+        queryFn: () => Promise.reject(refusal(404, "not_found")),
+      })
+      .catch(() => undefined);
+    expect(client.getQueryState(keys.workspaces)?.isInvalidated).toBe(true);
+  });
+
   it("retries a failure to connect once, and an answer the server refused never", () => {
     const retry = createQueryClient().getDefaultOptions().queries?.retry;
     expect(typeof retry).toBe("function");
