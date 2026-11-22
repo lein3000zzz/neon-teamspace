@@ -31,6 +31,18 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo chef prepare --recipe-path recipe.json
 
+# The license notices of the crates the binary links, from each crate's own license files, as
+# about.toml at the repository's root sets out. The same for every platform, so it runs once.
+FROM chef AS notices
+RUN cargo install cargo-about --locked --version 0.9.3 --features cli
+COPY Cargo.toml Cargo.lock about.toml about.hbs ./
+COPY crates ./crates
+RUN cargo about generate --locked --fail -m crates/server/Cargo.toml -c about.toml \
+        -o /THIRD_PARTY_NOTICES.txt about.hbs
+# jemalloc's own notice, which about.toml adds to its crate's: a newer crate turns that off.
+RUN grep -q "Jason Evans" /THIRD_PARTY_NOTICES.txt \
+    || { echo "jemalloc's notice is missing: update the tikv-jemalloc-sys checksums in about.toml" >&2; exit 1; }
+
 FROM chef AS build
 ARG TARGETARCH
 
@@ -81,6 +93,7 @@ RUN . /cross.env \
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
 
 COPY --from=build /neon /usr/local/bin/neon
+COPY --from=notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
 
 LABEL org.opencontainers.image.title="neon-workspace-server" \
       org.opencontainers.image.description="Neon Workspace's server, the neon binary" \

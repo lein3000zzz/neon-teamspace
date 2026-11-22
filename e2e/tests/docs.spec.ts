@@ -59,3 +59,14 @@ test.describe("a page missing from the docs", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
   });
 });
+
+test("the docs' third-party notices are served", async ({ request }) => {
+  const notices = await request.get("/docs/THIRD_PARTY_NOTICES.txt");
+
+  expect(notices.status()).toBe(200);
+  expect(notices.headers()["content-type"]).toContain("text/plain");
+  const text = await notices.text();
+  expect(text).toContain("@astrojs/starlight");
+  expect(text).toContain("pagefind");
+  expect(text).toContain("License: MIT");
+});

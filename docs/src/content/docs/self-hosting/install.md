@@ -16,8 +16,8 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 
 | Image | What it holds |
 |---|---|
-| `ghcr.io/lein3000zzz/neon-workspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. |
-| `ghcr.io/lein3000zzz/neon-workspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. |
+| `ghcr.io/lein3000zzz/neon-workspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
+| `ghcr.io/lein3000zzz/neon-workspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
 
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
 `deployments/` directory, which holds the Compose files: a clone, to build both images from

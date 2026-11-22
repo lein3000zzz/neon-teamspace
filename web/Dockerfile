@@ -29,8 +29,10 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lock
 # The headless Chromium that draws the diagrams while the docs build, with the system
 # libraries it needs. It stays in this stage.
 RUN bun run chromium --with-deps
-# The API reference is generated from the committed spec.
+# The API reference is generated from the committed spec, and the license helpers write
+# THIRD_PARTY_NOTICES.txt.
 COPY api /src/api
+COPY scripts /src/scripts
 COPY docs ./
 RUN bun run build
 
@@ -45,6 +47,7 @@ FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20f
 COPY --from=caddyfile /etc/caddy /etc/caddy
 # The app, with THIRD_PARTY_NOTICES.txt and the fonts' license files beside it.
 COPY --from=app /src/web/dist /srv/app
+# The docs, with their own THIRD_PARTY_NOTICES.txt.
 COPY --from=docs /src/docs/dist /srv/docs
 
 # The base image's labels describe Caddy; these describe the image.

@@ -6,6 +6,8 @@ import rehypeMermaid from 'rehype-mermaid'
 import starlightLinksValidator from 'starlight-links-validator'
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi'
 
+import { thirdPartyNotices } from './scripts/lib/notices.ts'
+
 const apiReference = createOpenAPISidebarGroup()
 
 // Diagrams in the Nothing palette: white boxes, black 1px lines, system sans. custom.css
@@ -47,6 +49,8 @@ export default defineConfig({
     }),
   },
   integrations: [
+    // THIRD_PARTY_NOTICES.txt beside the pages: the licenses of the packages they ship.
+    thirdPartyNotices(),
     starlight({
       title: 'Neon Workspace',
       description:
