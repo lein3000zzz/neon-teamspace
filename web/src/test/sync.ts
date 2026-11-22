@@ -2,9 +2,12 @@ import type { WebSocketData } from "msw";
 import * as Y from "yjs";
 import { server, syncLink } from "./server";
 
-/** y-websocket's message types, and y-protocols' sync steps. */
+/** y-websocket's message types, y-protocols' sync steps, and its answers to auth. */
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
+const MESSAGE_AUTH = 2;
+const PERMISSION_DENIED = 0;
+const PERMISSION_GRANTED = 1;
 const STEP_1 = 0;
 const STEP_2 = 1;
 const UPDATE = 2;
@@ -48,6 +51,23 @@ function syncMessage(step: number, payload: Uint8Array): Uint8Array<ArrayBuffer>
 /** An awareness message, as y-websocket sends one: someone's presence. */
 export function awarenessMessage(update: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array([...varUint(MESSAGE_AWARENESS), ...varUint(update.length), ...update]);
+}
+
+/**
+ * An auth message, as the server sends one when the user's access changes:
+ * permission denied with its reason, or, without one, permission granted.
+ */
+export function authMessage(denied?: string): Uint8Array<ArrayBuffer> {
+  if (denied === undefined) {
+    return new Uint8Array([...varUint(MESSAGE_AUTH), ...varUint(PERMISSION_GRANTED)]);
+  }
+  const reason = new TextEncoder().encode(denied);
+  return new Uint8Array([
+    ...varUint(MESSAGE_AUTH),
+    ...varUint(PERMISSION_DENIED),
+    ...varUint(reason.length),
+    ...reason,
+  ]);
 }
 
 function bytesOf(data: WebSocketData): Uint8Array | undefined {
@@ -121,6 +141,10 @@ export function fakeSync({ answers = true }: FakeSyncOptions = {}) {
       for (const client of syncLink.clients) {
         client.close(code, reason);
       }
+    },
+    /** Sends a message to every connection, as the server does to tell them something. */
+    send(message: Uint8Array<ArrayBuffer>) {
+      syncLink.broadcast(message);
     },
   };
 }

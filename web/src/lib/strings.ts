@@ -1067,12 +1067,25 @@ export const strings = {
         connecting: "Fetching the page's content.",
         connected: "Changes are saved as you type, and others see them at once.",
         reconnecting:
-          "The connection dropped. Changes made now are kept here and sent once it is back.",
+          "The connection dropped or the server asked for a pause. Changes made now are kept here and sent once it is back.",
         readOnly: "You can view this page; changes others make show as they happen.",
         closed: "The server ended the connection to this page.",
       },
+      closed: {
+        signedOut: "Your session ended, so this page stopped saving. Sign in again to go on.",
+        accessLost: "You can no longer see this page, so it stopped syncing.",
+        readOnly:
+          "You may only view this page now, so it stopped saving. Changes the server had not taken yet are not kept.",
+        tooLarge:
+          "The last change is too large for the server to save, so the page stopped saving. Reconnect to go on from what is saved, without that change. Large text goes in as a markdown import.",
+        failed:
+          "The connection to this page ended with an error. Reconnect to go on from what is saved; changes the server had not taken yet are not kept.",
+      },
       reconnect: "Reconnect",
       here: (names: string) => `Also here: ${names}`,
+      pasteTooLarge:
+        "That is too much to paste at once: the server would not take it. Paste it in parts, or import it as a markdown file from the page's menu.",
+      dismiss: "Dismiss",
     },
   },
   workspaceInvite: {

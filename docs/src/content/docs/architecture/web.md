@@ -146,11 +146,20 @@ document, to the `XmlFragment` named `document-store` that
   writes that colour into a style attribute as it finds it.
 - Tabs do not sync with each other through a `BroadcastChannel`, as the provider can, so
   every change goes through the server and its checks.
-- Nothing can be typed until the server sent the document once. A viewer's editor never
-  takes input.
-- A close code from 4400 to 4499 means the server ended the connection on purpose, such as
-  when access changed; the provider then stops reconnecting, and the app reads the page
-  again. Any other close is tried again, with changes kept until the connection is back.
+- Nothing can be typed until the server sent the document once, nor once it ended the
+  connection for good. A viewer's editor never takes input.
+- The server's auth messages turn the editor read-only, permission denied, or back,
+  permission granted, as access changes, and the app reads the page again; y-websocket on
+  its own only logs a denial.
+- After a close, `afterClose` in `connection.ts` decides from the code. 4408 and 4429, a
+  client that fell behind or sent too much, are tried again after a pause of a second,
+  doubled each time up to 30 seconds. 1009 and 4413, a change too large, 4401, 4403, 4404,
+  and the codes of a message the server could not read stop it: sending the same again
+  would be refused again, so the app says why and reads the page again, and **Reconnect**
+  starts from a new copy of the document. Any other close is tried again at once, with
+  changes kept until the connection is back.
+- A paste whose text, with what its blocks cost, comes to more than 3 MiB is refused
+  before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
 
 BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
 every palette and mode: its `--bn-` variables take the palette's tokens, its text and

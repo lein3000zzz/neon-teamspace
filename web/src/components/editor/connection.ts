@@ -1,9 +1,16 @@
 import * as decoding from "lib0/decoding";
 import { useMemo, useSyncExternalStore } from "react";
+import { messagePermissionDenied } from "y-protocols/auth";
 import { applyAwarenessUpdate, modifyAwarenessUpdate } from "y-protocols/awareness";
-import { messageAwareness, WebsocketProvider } from "y-websocket";
+import { messageAuth, messageAwareness, WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
-import { STARTING, type Connection, type ConnectionStatus, type Peer } from "./connection-state";
+import {
+  STARTING,
+  type ClosedBy,
+  type Connection,
+  type ConnectionStatus,
+  type Peer,
+} from "./connection-state";
 import { cleanState, collaboratorOf } from "./cursor";
 
 /**
@@ -13,6 +20,15 @@ import { cleanState, collaboratorOf } from "./cursor";
  */
 export const FRAGMENT = "document-store";
 
+/** y-protocols' auth message for access given, which the server sends and y-protocols only names the other of. */
+const messagePermissionGranted = 1;
+
+/** The first pause after the server asked for one, doubled each time up to the longest. */
+const FIRST_PAUSE_MS = 1000;
+const LONGEST_PAUSE_MS = 30 * 1000;
+/** How long a connection stays in sync before the pauses start again from the first. */
+const STEADY_MS = 30 * 1000;
+
 /**
  * Where a page's document is synced: `/ws/pages/{id}` on this origin, over
  * wss: when the page came over https:. The session cookie goes with the
@@ -21,6 +37,39 @@ export const FRAGMENT = "document-store";
 export function syncServer(location: Pick<Location, "protocol" | "host">): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${location.host}/ws/pages`;
+}
+
+/**
+ * What follows the server closing the connection with `code`: trying `again`
+ * at once, as y-websocket does, trying `later`, after a pause, when it says the
+ * client fell behind (4408) or sent too much (4429), or stopping, for why it
+ * closed. It stops where sending the same again would be refused the same
+ * way: a change too large (1009, 4413), a session that ended (4401), access
+ * taken away (4403, 4404), and a message it could not read (1003, 1007, and
+ * the rest of 4400 to 4499, as y-websocket has those). Everything else passes,
+ * such as a restart (1012), too many connections (1013) or an update that
+ * needs changes the server lacks (4422), which the next sync brings.
+ */
+export function afterClose(code: number): "again" | "later" | ClosedBy {
+  switch (code) {
+    case 4401:
+      return "signedOut";
+    case 4403:
+      return "readOnly";
+    case 4404:
+      return "accessLost";
+    case 1009:
+    case 4413:
+      return "tooLarge";
+    case 4408:
+    case 4429:
+      return "later";
+    case 1003:
+    case 1007:
+      return "failed";
+    default:
+      return code >= 4400 && code < 4500 && code !== 4422 ? "failed" : "again";
+  }
 }
 
 export type SyncSession = { doc: Y.Doc; provider: WebsocketProvider };
@@ -35,7 +84,7 @@ const CLOSED_SNAPSHOT: Snapshot = { session: null, connection: STARTING };
  * Tabs never sync with each other directly: every change goes through the
  * server, which checks what the user may do.
  */
-function syncSource(pageId: string, selfId: string, onClosed: () => void) {
+function syncSource(pageId: string, selfId: string, onAccessChanged: () => void) {
   let snapshot = CLOSED_SNAPSHOT;
   return {
     snapshot: () => snapshot,
@@ -43,35 +92,74 @@ function syncSource(pageId: string, selfId: string, onClosed: () => void) {
       const doc = new Y.Doc();
       const provider = new WebsocketProvider(syncServer(window.location), pageId, doc, {
         disableBc: true,
+        shouldReconnect: (event) => afterClose(event.code) === "again",
       });
       const session = { doc, provider };
       let loaded = false;
+      let pauses = 0;
+      let pause: ReturnType<typeof setTimeout> | undefined;
+      let steady: ReturnType<typeof setTimeout> | undefined;
       const publish = (patch: Partial<Connection>) => {
         snapshot = { session, connection: { ...snapshot.connection, ...patch, loaded } };
         notify();
       };
-      const status = (next: ConnectionStatus) => publish({ status: next });
+      const status = (next: ConnectionStatus) => publish({ status: next, closedBy: null });
 
       provider.on("sync", (synced) => {
         if (synced) {
           loaded = true;
           status("connected");
+          clearTimeout(steady);
+          steady = setTimeout(() => {
+            pauses = 0;
+          }, STEADY_MS);
         }
       });
       provider.on("connection-close", () => {
+        clearTimeout(steady);
+        // What the server said this connection may do ends with it; the next is asked afresh.
         if (provider.shouldConnect) {
-          status("reconnecting");
+          publish({ status: "reconnecting", closedBy: null, access: null });
         }
       });
-      provider.on("closed", () => {
-        status("closed");
-        onClosed();
+      provider.on("closed", ({ code }) => {
+        const next = afterClose(code);
+        if (next === "again") {
+          return;
+        }
+        if (next === "later") {
+          status("reconnecting");
+          pause = setTimeout(
+            () => provider.connect(),
+            Math.min(FIRST_PAUSE_MS * 2 ** pauses, LONGEST_PAUSE_MS),
+          );
+          pauses += 1;
+          return;
+        }
+        publish({ status: "closed", closedBy: next, access: null });
+        onAccessChanged();
       });
+
+      // The server turns a connection read-only, or back, as access changes,
+      // with an auth message: y-websocket itself only logs a denial.
+      provider.messageHandlers[messageAuth] = (_encoder, decoder) => {
+        const kind = decoding.readVarUint(decoder);
+        if (kind === messagePermissionDenied) {
+          decoding.readVarString(decoder);
+          publish({ access: "view" });
+        } else if (kind === messagePermissionGranted) {
+          publish({ access: "edit" });
+        } else {
+          return;
+        }
+        onAccessChanged();
+      };
       // Others' presence is cleaned before the editor sees it: see cleanState.
       provider.messageHandlers[messageAwareness] = (_encoder, decoder, from) => {
         const update = decoding.readVarUint8Array(decoder);
         applyAwarenessUpdate(from.awareness, modifyAwarenessUpdate(update, cleanState), from);
       };
+
       const awareness = provider.awareness;
       // Only the others count, so the user's own presence, which the editor
       // sets as it is made, changes nothing here.
@@ -93,6 +181,8 @@ function syncSource(pageId: string, selfId: string, onClosed: () => void) {
       snapshot = { session, connection: STARTING };
       notify();
       return () => {
+        clearTimeout(pause);
+        clearTimeout(steady);
         awareness.off("change", watchPeers);
         provider.destroy();
         doc.destroy();
@@ -119,11 +209,19 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
 
 /**
  * Opens a page's document and its live connection, and closes both when the
- * page goes or changes. `onClosed` runs when the server ends the connection
- * for good, so the page can read again what the user may now do with it; a
- * new one opens the connection afresh, so it should keep its identity.
+ * page goes or changes. `onAccessChanged` runs when the server says the user
+ * may now do more or less with the page, or ends the connection for good, so
+ * the page can read again what the user may do with it; a new one opens the
+ * connection afresh, so it should keep its identity.
  */
-export function useSyncSession(pageId: string, selfId: string, onClosed: () => void): Snapshot {
-  const source = useMemo(() => syncSource(pageId, selfId, onClosed), [pageId, selfId, onClosed]);
+export function useSyncSession(
+  pageId: string,
+  selfId: string,
+  onAccessChanged: () => void,
+): Snapshot {
+  const source = useMemo(
+    () => syncSource(pageId, selfId, onAccessChanged),
+    [pageId, selfId, onAccessChanged],
+  );
   return useSyncExternalStore(source.subscribe, source.snapshot);
 }

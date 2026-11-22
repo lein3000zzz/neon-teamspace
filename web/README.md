@@ -157,7 +157,12 @@ versions `tools/blocknote-fixtures` pins, with no XL package. `React.lazy` loads
 chunk only comes with a page. It binds the page's Yjs document, the `document-store`
 fragment the server's `neon-blocks` reads, through the stock `y-websocket` provider on
 `/ws/pages/{id}` of this origin. `connection.ts` turns the provider's events into the states
-the page shows, and `cursor.ts` draws others' cursors in their hue. `src/styles/editor.css`
+the page shows: it decides from a close code whether to try again (`afterClose`), reads the
+server's auth messages, which turn the editor read-only and back, and cleans others'
+awareness states before the editor reads them. `cursor.ts` draws others' cursors in their
+hue, and `paste.ts` refuses a paste larger than the server takes. `lib0`, the encoding
+library y-websocket's messages are read with, is a dependency for those message handlers.
+`src/styles/editor.css`
 puts BlockNote on the theme's tokens; `index.css` has Tailwind generate the utilities its
 shadcn components use. BlockNote also asks for `interactive-widget=resizes-content` in the
 viewport meta tag, which `index.html` has, so a phone's keyboard resizes the page rather

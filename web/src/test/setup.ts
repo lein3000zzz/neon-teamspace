@@ -14,6 +14,18 @@ globalThis.ResizeObserver ??= NoopResizeObserver;
 // The router restores scroll positions on navigation; jsdom has no layout to scroll.
 window.scrollTo = () => {};
 
+// ProseMirror measures the selection to scroll it into view as text is typed; jsdom
+// measures elements as empty, and ranges not at all.
+Range.prototype.getClientRects ??= function getClientRects() {
+  return document.createElement("span").getClientRects();
+};
+Range.prototype.getBoundingClientRect ??= function getBoundingClientRect() {
+  return document.createElement("span").getBoundingClientRect();
+};
+// BlockNote looks for the block under the pointer, to offer its side menu there.
+Document.prototype.elementFromPoint ??= () => null;
+Document.prototype.elementsFromPoint ??= () => [];
+
 // index.html's viewport, which BlockNote checks for as its editor starts.
 const viewport = document.createElement("meta");
 viewport.name = "viewport";

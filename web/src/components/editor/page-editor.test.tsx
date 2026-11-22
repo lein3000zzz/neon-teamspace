@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
 import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import * as Y from "yjs";
@@ -6,16 +6,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { renderApp } from "@/test/render-app";
 import { fakePages, page, PAGE_IDS } from "@/test/pages";
 import { server, syncLink } from "@/test/server";
-import { awarenessMessage, fakeSync } from "@/test/sync";
+import { authMessage, awarenessMessage, fakeSync } from "@/test/sync";
 import { fakeWorkspaces, people, TEAMSPACE_IDS } from "@/test/workspaces";
-import { FRAGMENT, syncServer } from "./connection";
+import { afterClose, FRAGMENT, syncServer } from "./connection";
 import { collaborator } from "./cursor";
 
 const PATH = `/w/design/p/${PAGE_IDS.roadmap}`;
 
 /** The connection's state, as the page says it. */
-async function indicator(text: string) {
-  return screen.findByText(text, { selector: "output" });
+async function indicator(text: string, timeout = 1000) {
+  return screen.findByText(text, { selector: "output" }, { timeout });
 }
 
 /** The page's content, once the editor is up. */
@@ -76,6 +76,116 @@ describe("the live editor", () => {
     sync.close(4500, "restarting");
     expect(await indicator("Reconnecting")).toBeInTheDocument();
     expect(await indicator("Connected")).toBeInTheDocument();
+  });
+
+  it("tries again after a pause when the server says the client fell behind, keeping what was typed", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const { user } = renderApp(PATH);
+    await indicator("Connected");
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+
+    sync.close(4408, "the connection fell too far behind");
+    expect(await indicator("Reconnecting")).toBeInTheDocument();
+    // Still editable: what is typed now is kept, and sent once the connection is back.
+    expect(editor).toHaveAttribute("contenteditable", "true");
+    await user.click(editor);
+    await user.keyboard("Typed meanwhile");
+    expect(sync.urls).toHaveLength(1);
+
+    expect(await indicator("Connected", 5000)).toBeInTheDocument();
+    expect(sync.urls).toHaveLength(2);
+    await waitFor(() =>
+      expect(sync.doc.getXmlFragment(FRAGMENT).toString()).toContain("Typed meanwhile"),
+    );
+  });
+
+  it("takes no input once the server ended the connection for good", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    renderApp(PATH);
+    await indicator("Connected");
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+
+    sync.close(4401, "your session or token ended: sign in again");
+
+    expect(await indicator("Disconnected")).toBeInTheDocument();
+    expect(await screen.findByText(/Your session ended/)).toBeInTheDocument();
+    expect(await content()).toHaveAttribute("contenteditable", "false");
+  });
+
+  it("does not send a change the server refused as too large again", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const { user } = renderApp(PATH);
+    await indicator("Connected");
+
+    sync.close(1009, "the message is too large");
+
+    expect(await indicator("Disconnected")).toBeInTheDocument();
+    expect(await screen.findByText(/too large for the server to save/)).toBeInTheDocument();
+    expect(await content()).toHaveAttribute("contenteditable", "false");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sync.urls).toHaveLength(1);
+
+    // Reconnecting starts again from what the server holds.
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(await indicator("Connected")).toBeInTheDocument();
+    expect(sync.urls).toHaveLength(2);
+  });
+
+  it("refuses a paste larger than the server takes, and says so", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    renderApp(PATH);
+    await indicator("Connected");
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+    const huge = "A line of pasted text.\n".repeat(200_000);
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        types: ["text/plain"],
+        getData: (type: string) => (type === "text/plain" ? huge : ""),
+      },
+    });
+
+    expect(await screen.findByText(/too much to paste at once/)).toBeInTheDocument();
+    expect(sync.doc.getXmlFragment(FRAGMENT).toString()).not.toContain("A line of pasted text");
+  });
+
+  it("turns read-only, and back, as the server says access changed, reading the page again", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    let reads = 0;
+    server.use(
+      http.get(`/api/v1/pages/${PAGE_IDS.roadmap}`, () => {
+        reads += 1;
+      }),
+    );
+    renderApp(PATH);
+    await indicator("Connected");
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+    const before = reads;
+
+    sync.send(authMessage("read-only"));
+    expect(await indicator("Read-only")).toBeInTheDocument();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "false"));
+    await waitFor(() => expect(reads).toBeGreaterThan(before));
+
+    sync.send(authMessage());
+    expect(await indicator("Connected")).toBeInTheDocument();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+    // One connection all along: access changes in place.
+    expect(sync.urls).toHaveLength(1);
   });
 
   it("stops for good when the server closes the page, reads it again, and reconnects on asking", async () => {
@@ -185,6 +295,25 @@ describe("the live editor", () => {
     const probe = document.createElement("span");
     probe.style.backgroundColor = `${tint}70`;
     expect(selection.style.backgroundColor).toBe(probe.style.backgroundColor);
+  });
+});
+
+describe("what follows a close from the server", () => {
+  it("tries again at once, later, or not, by its code", () => {
+    expect(afterClose(1006)).toBe("again");
+    expect(afterClose(1012)).toBe("again");
+    expect(afterClose(1013)).toBe("again");
+    expect(afterClose(4422)).toBe("again");
+    expect(afterClose(4500)).toBe("again");
+    expect(afterClose(4408)).toBe("later");
+    expect(afterClose(4429)).toBe("later");
+    expect(afterClose(4401)).toBe("signedOut");
+    expect(afterClose(4403)).toBe("readOnly");
+    expect(afterClose(4404)).toBe("accessLost");
+    expect(afterClose(1009)).toBe("tooLarge");
+    expect(afterClose(4413)).toBe("tooLarge");
+    expect(afterClose(1007)).toBe("failed");
+    expect(afterClose(4400)).toBe("failed");
   });
 });
 

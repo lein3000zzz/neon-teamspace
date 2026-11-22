@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import { HueDot } from "@/components/nodes/hue-dot";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { strings } from "@/lib/strings";
 import type { Connection } from "./connection-state";
@@ -13,7 +14,6 @@ type ConnectionIndicatorProps = {
   connection: Connection;
   /** Whether the user only views the page: once in sync it says so instead of connected. */
   readOnly: boolean;
-  onReconnect: () => void;
 };
 
 /**
@@ -21,11 +21,7 @@ type ConnectionIndicatorProps = {
  * accent while it is in sync, and who else has the page open, each a dot in
  * their own hue. Announced politely as it changes.
  */
-export function ConnectionIndicator({
-  connection,
-  readOnly,
-  onReconnect,
-}: ConnectionIndicatorProps) {
+export function ConnectionIndicator({ connection, readOnly }: ConnectionIndicatorProps) {
   const state = connection.status === "connected" && readOnly ? "readOnly" : connection.status;
   const live = connection.status === "connected";
   const names = connection.peers.map((peer) => peer.name).join(", ");
@@ -55,11 +51,29 @@ export function ConnectionIndicator({
         {copy.states[state]}
         <span className="sr-only">. {copy.hints[state]}</span>
       </output>
-      {connection.status === "closed" && (
+    </div>
+  );
+}
+
+type ConnectionClosedProps = {
+  connection: Connection;
+  /** Opens the connection afresh, from what the server holds. */
+  onReconnect: () => void;
+};
+
+/** Why the server ended the page's live connection for good, and the way to start again. */
+export function ConnectionClosed({ connection, onReconnect }: ConnectionClosedProps) {
+  if (connection.status !== "closed" || connection.closedBy === null) {
+    return null;
+  }
+  return (
+    <Alert tone="error" live="assertive">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="min-w-0 flex-1 text-foreground">{copy.closed[connection.closedBy]}</p>
         <Button variant="outline" size="sm" onClick={onReconnect}>
           {copy.reconnect}
         </Button>
-      )}
-    </div>
+      </div>
+    </Alert>
   );
 }

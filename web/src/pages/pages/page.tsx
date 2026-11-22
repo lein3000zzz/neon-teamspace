@@ -17,7 +17,7 @@ import {
   type UpdatePage,
 } from "@/api/pages";
 import { teamspacesQuery } from "@/api/teamspaces";
-import { ConnectionIndicator } from "@/components/editor/connection-indicator";
+import { ConnectionClosed, ConnectionIndicator } from "@/components/editor/connection-indicator";
 import { STARTING, type Connection } from "@/components/editor/connection-state";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
@@ -94,9 +94,10 @@ function PageScreen({ page }: { page: Page }) {
     };
   }, [page]);
 
-  const onClosed = useCallback(() => {
+  const onAccessChanged = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: keys.page(workspace.id, page.id) });
   }, [queryClient, workspace.id, page.id]);
+  const reconnect = () => setGeneration((count) => count + 1);
 
   return (
     <article
@@ -110,8 +111,7 @@ function PageScreen({ page }: { page: Page }) {
         <div className="flex flex-wrap items-center gap-1">
           <ConnectionIndicator
             connection={connection}
-            readOnly={!editable}
-            onReconnect={() => setGeneration((count) => count + 1)}
+            readOnly={!editable || connection.access === "view"}
           />
           {!trashed && <FavoriteToggle page={page} />}
           {!trashed && mayShare(workspace.role, page.access) && <ShareButton page={page} />}
@@ -128,6 +128,7 @@ function PageScreen({ page }: { page: Page }) {
 
       {trashed && <TrashedBanner page={page} />}
       {update.isError && <ErrorNotice error={update.error} />}
+      <ConnectionClosed connection={connection} onReconnect={reconnect} />
 
       <header className="grid gap-3">
         {page.cover && (
@@ -183,13 +184,14 @@ function PageScreen({ page }: { page: Page }) {
       </header>
 
       <Suspense fallback={<Loading label={strings.pages.editor.loading} />}>
+        {/* Access changes in place: the same document goes on, read-only or not. */}
         <PageEditor
-          key={`${page.id}:${editable}:${generation}`}
+          key={`${page.id}:${generation}`}
           pageId={page.id}
           editable={editable}
           user={{ id: me.id, name: me.display_name, hue: me.hue }}
           onConnection={setConnection}
-          onClosed={onClosed}
+          onAccessChanged={onAccessChanged}
           focusRef={focusContent}
         />
       </Suspense>

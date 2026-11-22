@@ -9,12 +9,18 @@ import type {
 import { withCollaboration } from "@blocknote/core/yjs";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { useEffect, type RefObject } from "react";
+import { X } from "lucide-react";
+import { useEffect, useState, type RefObject } from "react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { strings } from "@/lib/strings";
 import { useTheme } from "@/theme/theme-provider";
 import { FRAGMENT, useSyncSession, type SyncSession } from "./connection";
 import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
+import { pasteFits } from "./paste";
+
+const copy = strings.pages.editor;
 
 export type PageEditorProps = {
   pageId: string;
@@ -24,8 +30,8 @@ export type PageEditorProps = {
   user: { id: string; name: string; hue: number };
   /** Told how the live connection stands as it changes. */
   onConnection: (connection: Connection) => void;
-  /** Runs when the server ends the connection for good. */
-  onClosed: () => void;
+  /** Runs when the server says what the user may now do, or ends the connection for good. */
+  onAccessChanged: () => void;
   /** Filled with a way to put the cursor in the content, for Enter in the title. */
   focusRef: RefObject<(() => void) | null>;
 };
@@ -33,19 +39,22 @@ export type PageEditorProps = {
 /**
  * A page's content: BlockNote, its shadcn variant, bound to the page's Yjs
  * document, which the server keeps and shares with everyone who has the page
- * open. Nothing can be typed until the document came from the server, so the
- * first keystrokes never land in an empty copy of it. A viewer's editor never
- * takes input; the server ignores changes from them in any case.
+ * open. It takes input only while what is typed can reach the server: not
+ * before the document came from it, so the first keystrokes never land in an
+ * empty copy, and not once the server ended the connection for good, as
+ * nothing typed then would be sent. A viewer's editor never takes input, and
+ * one the server turns read-only stops at once; the server ignores changes
+ * from viewers in any case.
  */
 export default function PageEditor({
   pageId,
   editable,
   user,
   onConnection,
-  onClosed,
+  onAccessChanged,
   focusRef,
 }: PageEditorProps) {
-  const { session, connection } = useSyncSession(pageId, user.id, onClosed);
+  const { session, connection } = useSyncSession(pageId, user.id, onAccessChanged);
 
   useEffect(() => onConnection(connection), [connection, onConnection]);
 
@@ -56,7 +65,12 @@ export default function PageEditor({
     <LiveEditor
       key={session.doc.guid}
       session={session}
-      editable={editable && connection.loaded}
+      editable={
+        editable &&
+        connection.loaded &&
+        connection.status !== "closed" &&
+        connection.access !== "view"
+      }
       self={collaborator(user.id, user.name, user.hue)}
       focusRef={focusRef}
     />
@@ -72,16 +86,28 @@ type LiveEditorProps = {
 
 function LiveEditor({ session, editable, self, focusRef }: LiveEditorProps) {
   const { mode } = useTheme();
+  const [refused, setRefused] = useState(false);
   const editor = useCreateBlockNote(
-    withCollaboration({
-      collaboration: {
-        fragment: session.doc.getXmlFragment(FRAGMENT),
-        user: { ...self },
-        provider: session.provider,
-        renderCursor,
-        showCursorLabels: "activity",
+    {
+      ...withCollaboration({
+        collaboration: {
+          fragment: session.doc.getXmlFragment(FRAGMENT),
+          user: { ...self },
+          provider: session.provider,
+          renderCursor,
+          showCursorLabels: "activity",
+        },
+      }),
+      // The server refuses a message over its limit, and the paste would be lost.
+      pasteHandler: ({ event, defaultPasteHandler }) => {
+        if (event.clipboardData !== null && !pasteFits(event.clipboardData)) {
+          setRefused(true);
+          return true;
+        }
+        setRefused(false);
+        return defaultPasteHandler();
       },
-    }),
+    },
     [session],
   );
 
@@ -93,7 +119,25 @@ function LiveEditor({ session, editable, self, focusRef }: LiveEditorProps) {
   }, [editor, focusRef]);
 
   return (
-    <section aria-label={strings.pages.editor.label} className="min-h-48">
+    <section aria-label={copy.label} className="grid min-h-48 gap-3">
+      {refused && (
+        <div style={{ paddingInline: "var(--page-inset)" }}>
+          <Alert tone="error" live="assertive">
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-foreground">{copy.pasteTooLarge}</p>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={copy.dismiss}
+                onClick={() => setRefused(false)}
+                className="-my-1"
+              >
+                <X aria-hidden />
+              </Button>
+            </div>
+          </Alert>
+        </div>
+      )}
       <BlockNoteView editor={asSchemaless(editor)} editable={editable} theme={mode} />
     </section>
   );

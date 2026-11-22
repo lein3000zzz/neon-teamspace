@@ -135,10 +135,11 @@ rules what its person may do now:
 | Only view it, having edited it | Stays open, read-only. The server sends an auth message, permission denied with the reason `read-only`. |
 | Edit it, having only viewed it | Stays open and may edit. The server sends an auth message, permission granted. |
 
-y-websocket logs a denied auth message and leaves granted ones alone. The web app's editor,
-**planned**, is to read them to switch between editing and viewing. A connection the rules let in just before a change
-committed, and that joined just after, looks again at its access as it joins, so no change
-slips between the two.
+y-websocket logs a denied auth message and leaves granted ones alone. The web app's editor
+reads them to switch between editing and viewing at once; see
+[The web app](/docs/architecture/web/#pages-and-the-editor). A connection the rules let in
+just before a change committed, and that joined just after, looks again at its access as it
+joins, so no change slips between the two.
 
 Every five minutes the server looks so at every open connection, for what no change tells
 of: a session that expired, or a token past its expiry.
@@ -226,9 +227,11 @@ awareness echo keeps that from happening while the page is open.
 | `4422` | An update that needs changes the server does not have. Reconnect, to sync them. |
 | `4429` | Too many messages. |
 
-y-websocket reconnects after any close. A client should stop after `4401`, which needs a new
-sign-in, and `4403`, `4404` and `4413`, which reconnecting does not cure, and reconnect after
-the rest.
+y-websocket reconnects after any close but 4400 to 4499. A client should stop after `4401`,
+which needs a new sign-in, after `4403`, `4404`, `4413` and `1009`, which reconnecting does
+not cure, as the same change would be sent again, and after `1003` and `1007`, which mean it
+sent what the server cannot read. It should reconnect after `4408` and `4429` after a pause,
+and at once after the rest, `4422` included. The web app does so.
 
 ## Stopping
 

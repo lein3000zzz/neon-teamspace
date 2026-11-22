@@ -115,12 +115,32 @@ the connection's state.
 | **Connecting** | The page's content is on its way. Nothing can be typed until it arrived, so the first keystrokes never land in an empty copy. |
 | **Connected** | In sync: what you type is saved, and others see it at once. |
 | **Read-only** | In sync, and you can view the page but not change it. Others' changes still show as they make them. |
-| **Reconnecting** | The connection dropped and is tried again. Changes made meanwhile are kept in the browser and sent once it is back. |
-| **Disconnected** | The server closed the page for you, as when your access to it changed. The app reads the page again: one you can no longer see shows as not found. **Reconnect** opens it afresh. |
+| **Reconnecting** | The connection dropped, or the server asked the browser to slow down because it fell behind or sent too much, and it is tried again, after a pause in the second case. Changes made meanwhile are kept in the browser and sent once it is back. |
+| **Disconnected** | The server ended the connection for a reason trying again would not cure. The editor stops taking input, a notice says why, and the app reads the page again. **Reconnect** opens the page afresh, from what the server saved. |
+
+When your access changes while the page is open, the editor follows at once, without
+reconnecting: someone whose share now only lets them view gets a read-only editor and
+header, and one who may edit again gets them back.
+
+**Disconnected** comes with one of these:
+
+| Notice | Why | What was typed and not yet saved |
+|---|---|---|
+| Your session ended | You signed out elsewhere, or your session expired or was revoked. The app takes you to sign in. | Lost. |
+| You can no longer see this page | It went to the trash, a share was removed, or you left its teamspace. The page then shows as not found. | Lost. |
+| You may only view this page now | You typed while your access was changing to view. | Lost: the server refused it. |
+| The last change is too large | One change was larger than the server takes at once, 4 MiB, or would make the page larger than it keeps, 16 MiB. | Lost, with that change. |
+| An error | The server could not read what the browser sent. | Lost. |
+
+A paste that would be larger than the server takes is refused before it reaches the page,
+with a notice; paste it in parts, or [import it](/docs/guides/import-export/) as a markdown
+file. The server's own limits are in [Real-time sync](/docs/architecture/realtime/#limits).
 
 The editor connects to `/ws/pages/{id}` on the same origin as the app, over `wss:` when the
 app is served over HTTPS. Browser tabs never sync with each other directly: every change
-goes through the server, which checks what each person may do.
+goes through the server, which checks what each person may do. The names and colours of
+others' cursors come from the server, which says who each connection is, so nobody shows
+under another person's name.
 
 ## Sharing
 
