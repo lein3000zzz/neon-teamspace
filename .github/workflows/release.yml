@@ -47,8 +47,11 @@ jobs:
         with:
           persist-credentials: false
       # No QEMU: each Dockerfile compiles on the runner's platform and cross-compiles for the
-      # other, so a step that would need emulation fails instead of running slowly.
+      # other, so a step that would need emulation fails instead of running slowly. BuildKit
+      # runs from a pinned image rather than the builder's moving default tag.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -86,9 +89,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
-          sbom: true
+          # The SBOM from a pinned scanner image rather than BuildKit's moving default tag.
+          attests: type=sbom,generator=docker/buildkit-syft-scanner:1.12.1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
+          # A tag's run reads only the caches saved for that tag, so this cache serves only a
+          # re-run of the same release. The final images' layers are enough for an unchanged
+          # rebuild to skip every stage, and leave the Actions cache's room to the Rust job. A
+          # failed export does not fail the release.
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.image }},ignore-error=true
       # Keyless signing records the signer, this repository and the commit, in Sigstore's
       # public transparency log. So it runs only once the repository is public, when anyone
       # can pull the images and check the signature.
