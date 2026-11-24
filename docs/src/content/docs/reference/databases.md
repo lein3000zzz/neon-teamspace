@@ -19,10 +19,10 @@ A row without a value of a property has no entry for it, and `null` in a change 
 | `text` | | A string of up to 10,000 characters; line breaks and tabs are kept. | The text |
 | `number` | `number_format`: `plain`, `integer`, `percent` or `currency`; `currency`, an ISO 4217 code such as `EUR`, with `currency` | Any finite number. The format is how it shows: `integer` rounds, `percent` is a hundred times the value with `%`, `0.25` as `25%`, `currency` has two decimals and the code. | `1234.5`, `1235`, `25%`, `12.50 EUR` |
 | `select` | `options` | An option's id. A request may name it by name too, ignoring case. | Its name |
-| `multi_select` | `options` | A list of option ids, each once, in the order given. | Their names, joined by commas |
+| `multi_select` | `options` | A list of option ids, each once, in the order given. One deleted is left out of the rows that had it. | Their names, joined by commas |
 | `status` | `options`, each in a `group`: `to_do`, `in_progress` or `done` | An option's id. A new status starts with Not started, In progress and Done. | Its name |
 | `date` | | `{"start": ..., "end": ...}`, or the start alone: a day, `2026-11-22`, or an RFC 3339 moment, kept in UTC. The end is optional, of the same sort, and not before the start. | `2026-11-22`, `2026-11-22 12:00 UTC`, a range with `→` |
-| `person` | | A list of up to 50 member ids. Guests neither see nor set them. | Their display names |
+| `person` | | A list of up to 50 member ids. Those a change adds must be members; those a row names already stay. Guests neither see, set nor clear them. | Their display names |
 | `checkbox` | | `true`; unchecked is no value, and `false` clears it. | `Yes` |
 | `url` | | A string of up to 2048 bytes, without spaces, starting with `http:`, `https:`, `mailto:` or `tel:`. | The URL |
 | `unique_id` | `prefix`: 1 to 10 letters and digits, starting with a letter, kept in upper case | Computed: the row's number after the prefix, `"NW-42"`, or alone. At most one per database. | `NW-42` |
@@ -56,8 +56,11 @@ Changing a property's type converts each row's value, those in the trash include
 A value that becomes nothing is **lost**, and so is all but the first of several values
 becoming one, as a multi-select's options becoming a select's. A change that loses values
 answers `409 lossy_change`, with how many rows would lose theirs, unless it is sent with
-`"confirm": true`. The title keeps its type, and no other property becomes a title or a
-second unique id.
+`"confirm": true`. One that would make a row's values larger than 64 KiB answers
+`409 limit_reached`. The title keeps its type, and no other property becomes a title or a
+second unique id. A person's values become its people's display names, as text or as
+options, which is why guests, who know no other member, do not change a person property's
+type.
 
 ## Filters
 
@@ -136,7 +139,7 @@ by an option's id or name, a person's id, or `null`; answers name them by id.
 | Field | What it holds |
 |---|---|
 | `name` | 1 to 100 characters. |
-| `layout` | `table`, `board` or `list`. A board groups. |
+| `layout` | `table`, `board` or `list`. A board groups: made one, or given another grouping, it names one. |
 | `filter` | A filter, or `null`. |
 | `sorts` | Up to 10 sorts. |
 | `group` | A grouping, or `null` but on a board. |
@@ -145,8 +148,14 @@ by an option's id or name, a person's id, or `null`; answers name them by id.
 A view keeps what it was given, checked against the schema then. When the schema changes,
 what no longer fits is left out: the conditions, sorts and grouping of a deleted property, or
 of one whose new type does not take their operator or value, and the groups of deleted
-options. A board whose grouping property is gone shows its rows ungrouped until it is given
-another.
+options. A board whose grouping property is gone shows its rows ungrouped, and takes other
+changes, until it is given another.
+
+Guests, who know no other member, read a view without the people it names: conditions that
+compare with a member's id are left out, `me` kept, and so are the people a grouping by
+person places or hides by hand. What the view shows them is the same, as the rows they read
+name nobody. A guest who edits the database and changes a view's filter or grouping replaces
+it with theirs, which names nobody either; their other changes to the view keep it as it is.
 
 ## Limits
 
@@ -161,5 +170,6 @@ another.
 | Sorts of a view | 10 |
 | Groups a view orders or hides | 500 |
 | A text value | 10,000 characters |
+| A row's values together, as JSON text | 64 KiB |
 | A URL value | 2048 bytes |
 | People of a person value | 50 |

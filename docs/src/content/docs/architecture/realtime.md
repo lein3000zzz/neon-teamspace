@@ -289,6 +289,12 @@ Guests hear the same changes without the people: the values of person properties
 out, and so are who made and changed rows. Changes go to two rooms of the broadcaster, one
 for members and one for guests, so each hears its own version.
 
+Changes to one row's values are saved one at a time, each holding the row until it is
+saved, and each is told right after it is saved. Two changes to one row saved within moments
+of each other by two requests may still be told in the other order, as nothing orders the
+telling of two requests: a client that must be sure of a row reads it again with
+`GET /api/v1/rows/{id}`, as it does when it reconnects.
+
 Nothing a connection missed before it opened is sent: a client reads the database, and
 queries it, as it connects and again whenever it reconnects, then applies each message after
 `ready`. A client has nothing to send. What it sends is read and dropped; more than 4 KiB in

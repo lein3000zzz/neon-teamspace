@@ -42,7 +42,8 @@ A few things differ:
 
 A database is a **full page**, a page of its own wherever it is, or **inline**: embedded in
 the page it is under, where the page's body shows it. An inline database is made under the
-page that embeds it, and moved away from that page it becomes a full page.
+page that embeds it, and moved away from that page, or restored from the trash to the top of
+its space while that page is still in the trash, it becomes a full page.
 
 ### Who may do what
 
@@ -51,11 +52,18 @@ their access from it as any subpage does: whoever sees the database sees its sch
 views and every row; whoever edits it changes its properties and views and adds rows, and
 edits every row. A share on a row adds to what that row gives, as a share does on any page,
 so a row shared to edit with someone who only views the database is theirs to change.
-Placing a row among the others by hand is a change to the database too, and needs edit
-access to both. [Permissions](/docs/reference/permissions/#databases-and-rows) has the table.
+Someone who sees a row only through its own share reads it without its `database_id`, as
+its page leaves out the page above it. Placing a row among the others by hand is a change to
+the database too, and needs edit access to both.
+[Permissions](/docs/reference/permissions/#databases-and-rows) has the table.
 
 Guests know no other member, so what they see of a database leaves people out: the values of
-person properties, and who made and last changed each row. They set no person values either.
+person properties, who made and last changed each row, and in views, the people a filter
+names and the person groups a board places or hides by hand. They neither set nor clear a
+row's person values, and do not change a person property's type, whose values would become
+names: each answers `403 forbidden`. A member who changes a person property to text or to
+options does write the names of those it named, as text or as options, for everyone who sees
+the database to read, guests too.
 
 ## Making a database
 
@@ -99,7 +107,8 @@ stays.
 become numbers when they read as one, options carry over between selects and statuses. A
 change that would lose values, such as text becoming numbers where some do not read as one,
 answers `409 lossy_change`, saying how many rows would lose theirs, until it is sent again
-with `"confirm": true`. Settings come with their type: to change only a number's format,
+with `"confirm": true`. One that would make a row's values larger than they may be answers
+`409 limit_reached`, and changes nothing. Settings come with their type: to change only a number's format,
 name its type too, `{"type": "number", "number_format": "percent"}`.
 
 **Options** of a select, multi-select or status change all at once: `options` lists every
@@ -132,8 +141,13 @@ caller may do with it. `GET /api/v1/rows/{id}` reads one.
 `PATCH /api/v1/rows/{id}` changes values: those it names, `null` clearing one, and no others.
 Values are plain data rather than a live document: of two changes to one property, the last
 wins, and two people changing different properties of a row at once both keep theirs.
-Computed properties take no value, a person value names members of the workspace, and a
-value its property does not take answers `400 invalid_input`.
+Changes to a row's values are checked against the schema as it is when they are saved:
+while one is saved, changes to the schema wait for it, and it for them. Computed properties
+take no value, and a value its property does not take answers `400 invalid_input`. A person
+value names members of the workspace: someone a change adds who is not one answers
+`400 invalid_input`, while people a row names already stay as they are, members or not, until
+a change takes them off. A row's values take at most **64 KiB** together, as JSON: a change
+that would make them larger answers `409 limit_reached`.
 
 ### Numbers and unique ids
 
@@ -149,7 +163,9 @@ out: `nw-42` and `42` find the same row.
 rows, `"first"`, `"last"`, or `{"before": id}` or `{"after": id}` beside another row, and
 `group` moves it to another group of a view, `{"view_id": ..., "from": ..., "to": ...}`,
 which sets its value of the view's grouping property. On a board grouped by person, the
-person of `from` makes room for the one of `to`, and the row's other people stay.
+person of `from` makes room for the one of `to`, and the row's other people stay; from a
+person's column to the same one, the value stays as it is. On a board of options, `from`
+does not count.
 
 The order rows are placed in by hand is their page's position among the database's rows. It
 is the database's, shared by every view: a view without sorts shows the rows in it, and a
@@ -216,8 +232,11 @@ caller's offset from UTC, which days are told at: what `today` is, and which day
 falls on.
 
 Filters, sorts and groups are worked out by the server's domain rules over every row of the
-database at once. That is why a database holds at most **10,000 rows** out of the trash: one
-more answers `409 too_many_rows`, and so does restoring one into a database that is full.
+database at once, reading of each row only the values the filter, sorts and grouping name;
+the rows of the part answered with are then read whole. That is why a database holds at most
+**10,000 rows** out of the trash, and a row's values at most 64 KiB: what one query reads is
+bounded. One row more answers `409 too_many_rows`, and so does restoring one into a database
+that is full.
 
 ## Following changes live
 
@@ -251,4 +270,6 @@ export](/docs/guides/import-export/#exporting) describes. Its file ends with a t
 rows: their titles and the properties its first view shows, in that view's order, one line
 for each row in the view's sort order, every row whatever its filter. Exported with the pages
 under it, or with its teamspace, each row is a file of its own in the database's folder: its
-title, its properties that have a value as a list of `name: value`, then its body.
+title, its properties that have a value as a list of `name: value`, then its body. Rows count
+apart from pages toward what one export holds: at most 5000 pages and 10,000 rows, enough
+for a database at its cap.

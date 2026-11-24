@@ -186,9 +186,11 @@ that answers `403 forbidden`. A row in the trash comes back only to its database
 the database is in the trash too, restoring the row alone answers `403 forbidden`.
 
 Guests see neither the people that person properties name nor who made and last changed a
-row, in answers, in the live feed and in exports, and setting a person value answers them
-`403 forbidden`. An API token changes a database only with the `write` scope; a query, which
-is a `POST`, needs only `read`.
+row, in answers, in the live feed and in exports, nor the people a view's filter or person
+grouping names. Setting or clearing a row's person value, and changing a person property's
+type, whose values would become names, answer them `403 forbidden`. Someone who sees a row
+only through its own share reads it without its database's id. An API token changes a
+database only with the `write` scope; a query, which is a `POST`, needs only `read`.
 
 ## The instance
 
