@@ -33,30 +33,20 @@ pub struct ExportRow {
     pub properties: Vec<(String, String)>,
 }
 
-/// What an export writes of a database: its table, and when asked, each row's properties,
-/// by the row's id, for the row's own file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExportDatabase {
-    pub table: ExportTable,
-    pub rows: HashMap<Uuid, ExportRow>,
-}
-
 impl DatabaseService {
-    /// The table of a database the caller sees, for its export, and with `rows`, each
-    /// row's properties too, read with it at once. A guest's leave out the people their
-    /// values name.
-    pub async fn export_database(
+    /// The table of a database the caller sees, for its export, read with only the values
+    /// its columns and sorts need. A guest's leaves out the people its values name.
+    pub async fn export_table(
         &self,
         principal: &Principal,
         database_id: Uuid,
-        rows: bool,
-    ) -> Result<ExportDatabase, DatabaseError> {
-        self.observe("export_database", async {
+    ) -> Result<ExportTable, DatabaseError> {
+        self.observe("export_table", async {
             let mut conn = self.pages().pool().acquire().await?;
             let opened = self.open(&mut conn, principal, database_id, false).await?;
             Self::check(&opened.context, Action::ViewPage)?;
-            let schema = &opened.schema;
-            let views = fitted_views(schema, repo::views(&mut *conn, database_id).await?);
+            let schema = opened.schema;
+            let views = fitted_views(&schema, repo::views(&mut *conn, database_id).await?);
             let view = views.first();
             let title = schema.title().into_iter();
             let shown = view
@@ -70,9 +60,9 @@ impl DatabaseService {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let columns: Vec<&Property> = title.chain(shown).collect();
+            let columns: Vec<Property> = title.chain(shown).cloned().collect();
             let sorts = view
-                .map(|view| view.settings.sorts.as_slice())
+                .map(|view| view.settings.sorts.clone())
                 .unwrap_or_default();
             let read: Vec<Uuid> = columns
                 .iter()
@@ -80,82 +70,128 @@ impl DatabaseService {
                 .chain(sorts.iter().map(|sort| sort.property))
                 .collect();
             let members_hidden = opened.context.members_hidden();
-            let by_name = rows || read.iter().any(|id| names_people(schema, *id));
+            let by_name = read.iter().any(|id| names_people(&schema, *id));
             let names = if members_hidden || !by_name {
                 HashMap::new()
             } else {
                 member_names(&mut conn, opened.database.workspace_id).await?
             };
-            let keys = (!rows).then(|| cell_keys(schema, &read));
+            let keys = cell_keys(&schema, &read);
             let batch = opened.context.page().trashed_with;
             let listed = repo::rows(
                 &mut *conn,
                 database_id,
                 batch,
                 principal.user.id,
-                keys.as_deref(),
+                Some(&keys),
+                None,
             )
             .await?;
-            let all: Vec<Row> = listed
-                .iter()
-                .map(|listed| {
-                    let row = domain_row(schema, &listed.page, listed.number, &listed.cells);
-                    if members_hidden {
-                        row.without_people(schema)
-                    } else {
-                        row
-                    }
-                })
-                .collect();
             let today = Today {
                 me: principal.user.id,
                 offset: UtcOffset::UTC,
                 today: self.now().date(),
             };
-            let outcome = query::run(
-                schema,
-                Query {
-                    filter: None,
-                    sorts,
-                    grouping: None,
-                },
-                &all,
-                &today,
-                &names,
-            );
-            let text = |row: &Row, property: &Property| {
-                row.value(property)
-                    .map(|value| value.display(&property.ty, &names))
-                    .unwrap_or_default()
-            };
-            let lines = outcome
-                .entries
-                .iter()
-                .map(|entry| {
-                    let row = &all[entry.row];
-                    columns.iter().map(|property| text(row, property)).collect()
-                })
-                .collect();
-            let table = ExportTable {
-                columns: columns
+            // Up to every row of the database, sorted: off the async workers.
+            tokio::task::spawn_blocking(move || {
+                let all: Vec<Row> = listed
                     .iter()
-                    .map(|property| property.name.clone())
-                    .collect(),
-                rows: lines,
-            };
-            let rows = if rows {
-                all.iter()
-                    .map(|row| (row.id, properties(schema, row, &names)))
-                    .collect()
-            } else {
-                HashMap::new()
-            };
-            Ok(ExportDatabase { table, rows })
+                    .map(|listed| {
+                        let row = domain_row(&schema, &listed.page, listed.number, &listed.cells);
+                        if members_hidden {
+                            row.without_people(&schema)
+                        } else {
+                            row
+                        }
+                    })
+                    .collect();
+                let outcome = query::run(
+                    &schema,
+                    Query {
+                        filter: None,
+                        sorts: &sorts,
+                        grouping: None,
+                    },
+                    &all,
+                    &today,
+                    &names,
+                );
+                let text = |row: &Row, property: &Property| {
+                    row.value(property)
+                        .map(|value| value.display(&property.ty, &names))
+                        .unwrap_or_default()
+                };
+                ExportTable {
+                    columns: columns
+                        .iter()
+                        .map(|property| property.name.clone())
+                        .collect(),
+                    rows: outcome
+                        .entries
+                        .iter()
+                        .map(|entry| {
+                            let row = &all[entry.row];
+                            columns.iter().map(|property| text(row, property)).collect()
+                        })
+                        .collect(),
+                }
+            })
+            .await
+            .map_err(|error| DatabaseError::Internal(format!("an export's table ended: {error}")))
         })
         .await
     }
 
-    /// A row's properties as text, for its export when its database's are not read with
+    /// The properties of rows of a database the caller sees, as text, by row, for their
+    /// files in an export: those of `row_ids` that are rows of the database where it is,
+    /// read whole. An export reads its rows a batch at a time, which bounds what one read
+    /// holds. A guest's leave out the people.
+    pub async fn export_rows(
+        &self,
+        principal: &Principal,
+        database_id: Uuid,
+        row_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, ExportRow>, DatabaseError> {
+        self.observe("export_rows", async {
+            let mut conn = self.pages().pool().acquire().await?;
+            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            Self::check(&opened.context, Action::ViewPage)?;
+            let schema = &opened.schema;
+            let members_hidden = opened.context.members_hidden();
+            let by_name = schema
+                .properties
+                .iter()
+                .any(|property| property.kind().names_people());
+            let names = if members_hidden || !by_name {
+                HashMap::new()
+            } else {
+                member_names(&mut conn, opened.database.workspace_id).await?
+            };
+            let batch = opened.context.page().trashed_with;
+            let listed = repo::rows(
+                &mut *conn,
+                database_id,
+                batch,
+                principal.user.id,
+                None,
+                Some(row_ids),
+            )
+            .await?;
+            Ok(listed
+                .iter()
+                .map(|listed| {
+                    let mut row = domain_row(schema, &listed.page, listed.number, &listed.cells);
+                    if members_hidden {
+                        row = row.without_people(schema);
+                    }
+                    (row.id, properties(schema, &row, &names))
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// A row's properties as text, for its export when its database is not exported with
     /// it. A guest's leave out the people.
     pub async fn export_row(
         &self,

@@ -1014,6 +1014,7 @@ async fn rows_count_apart_from_the_pages_an_export_holds(pool: PgPool) {
         Limits {
             max_export_pages: 2,
             max_export_rows: 3,
+            export_rows_at_once: 2,
             ..Limits::default()
         },
     )
@@ -1061,20 +1062,29 @@ async fn rows_count_apart_from_the_pages_an_export_holds(pool: PgPool) {
         .trash_page(&t.ada, rows[3])
         .await
         .expect("trashed");
-    // Three are not, however few pages it holds; each has its properties, read with the
-    // database's table at once.
+    // Three are not, however few pages it holds. The table is read once, and the rows
+    // whole two at a time, rather than one by one or all at once: each has its properties.
     snapshotter.snapshot();
     let files = unzipped(&t.export(db, true).await.bytes);
     let ran = operations(&snapshotter);
     assert_eq!(
-        (ran.get("export_database"), ran.get("export_row")),
-        (Some(&1), None)
+        (
+            ran.get("export_table"),
+            ran.get("export_rows"),
+            ran.get("export_row")
+        ),
+        (Some(&1), Some(&2), None)
     );
     assert_eq!(
         names(&files),
         ["Tasks.md", "Tasks/One.md", "Tasks/Three.md", "Tasks/Two.md"]
     );
-    assert_eq!(files["Tasks/Two.md"], "# Two\n\n- Status: Done\n");
+    for title in ["One", "Two", "Three"] {
+        assert_eq!(
+            files[&format!("Tasks/{title}.md")],
+            format!("# {title}\n\n- Status: Done\n")
+        );
+    }
     // A row exported as a zip of its own has its properties too.
     let alone = unzipped(&t.export(rows[0], true).await.bytes);
     assert_eq!(

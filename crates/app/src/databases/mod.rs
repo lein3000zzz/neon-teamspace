@@ -55,7 +55,7 @@ use uuid::Uuid;
 use crate::pages::{Context, PageError, PageService, PageView, key_among, renumbered};
 
 pub use error::DatabaseError;
-pub use export::{ExportDatabase, ExportRow, ExportTable};
+pub use export::{ExportRow, ExportTable};
 pub use live::{Admission, Follow, LiveDatabases, LiveDatabasesBuilder, LiveLimits};
 pub use rows::{GroupMove, NewRow, QueryInput, QueryResult, RowMove};
 pub use schema::{NewDatabase, NewProperty, PropertyChange, PropertySpec};

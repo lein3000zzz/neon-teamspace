@@ -401,14 +401,16 @@ pub struct ListedRow {
 
 /// The rows of a database that are where it is: out of the trash for a database out of
 /// it, or for one in it, those that went to the trash with it, `batch` being its
-/// `trashed_with`. Each with what its page is shared with `user_id` for, and its cells: of
-/// the properties `keys` names, by id, or every one without `keys`.
+/// `trashed_with`; with `only`, those of them it names. Each with what its page is shared
+/// with `user_id` for, and its cells: of the properties `keys` names, by id, or every one
+/// without `keys`.
 pub async fn rows(
     executor: impl PgExecutor<'_>,
     database_id: Uuid,
     batch: Option<Uuid>,
     user_id: Uuid,
     keys: Option<&[String]>,
+    only: Option<&[Uuid]>,
 ) -> sqlx::Result<Vec<ListedRow>> {
     sqlx::query!(
         r#"SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
@@ -426,11 +428,13 @@ pub async fn rows(
            JOIN pages p ON p.id = r.page_id
            LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3
            WHERE r.database_id = $1 AND p.trashed_with IS NOT DISTINCT FROM $2
+             AND ($5::uuid[] IS NULL OR r.page_id = ANY($5::uuid[]))
            ORDER BY p.position, p.id"#,
         database_id,
         batch,
         user_id,
         keys,
+        only,
     )
     .fetch_all(executor)
     .await?

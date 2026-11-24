@@ -15,8 +15,8 @@
 //!   is under; or a zip of a teamspace's pages. Content comes from the live document when
 //!   the page is open, else from what is saved. A database's file ends with a table of its
 //!   rows, their titles and the properties its first view shows; in a zip, each row is a
-//!   file of its own in the database's folder, its properties listed under its title, read
-//!   with the database's table at once.
+//!   file of its own in the database's folder, its properties listed under its title, the
+//!   rows read whole a batch at a time.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
 //!   deep they go, the pages one import makes and the pages and rows one export holds, the
 //!   time each takes, and how many run at once, on the server and for each person; see
@@ -440,26 +440,43 @@ impl TransferService {
     ) -> Result<Export, TransferError> {
         // Boxed, as it moves to a thread and back for each page.
         let mut zip = Box::new(ZipExport::new(self.inner.limits.max_export_bytes));
-        // The properties of the rows of each database met so far, by row, read with its
-        // table, which comes before its rows: parents come first.
+        // The properties of the batch of rows read last, by row.
         let mut rows: HashMap<Uuid, ExportRow> = HashMap::new();
-        for page in pages {
+        for (index, page) in pages.iter().enumerate() {
             deadline.check()?;
             let document = self.content(page.id).await?;
             let databases = &self.inner.databases;
             let extra = match page.kind {
                 PageKind::Page => convert::Extra::None,
                 PageKind::Database => {
-                    let export = databases.export_database(principal, page.id, true).await?;
-                    rows.extend(export.rows);
-                    convert::Extra::Table(export.table)
+                    convert::Extra::Table(databases.export_table(principal, page.id).await?)
                 }
                 PageKind::Row => convert::Extra::Properties(match rows.remove(&page.id) {
                     Some(row) => row,
-                    // The zip starts at the row: its database is not in it.
-                    None => databases.export_row(principal, page.id).await?,
+                    None => match page.parent_id {
+                        // Its database is in the zip, and its rows follow it: this one and
+                        // those after it are read together, a batch at a time.
+                        Some(database_id) => {
+                            let batch: Vec<Uuid> = pages[index..]
+                                .iter()
+                                .take_while(|next| {
+                                    next.kind == PageKind::Row && next.parent_id == page.parent_id
+                                })
+                                .take(self.inner.limits.export_rows_at_once.max(1))
+                                .map(|next| next.id)
+                                .collect();
+                            rows = databases
+                                .export_rows(principal, database_id, &batch)
+                                .await?;
+                            // A row gone since the outline was read has no properties.
+                            rows.remove(&page.id).unwrap_or_default()
+                        }
+                        // The zip starts at the row: its database is not in it.
+                        None => databases.export_row(principal, page.id).await?,
+                    },
                 }),
             };
+            let page = page.clone();
             zip = blocking(move || {
                 let markdown = convert::markdown(&page.title, document, &extra);
                 zip.add(&page, &markdown)?;
@@ -484,12 +501,9 @@ impl TransferService {
         let databases = &self.inner.databases;
         Ok(match page.kind {
             PageKind::Page => convert::Extra::None,
-            PageKind::Database => convert::Extra::Table(
-                databases
-                    .export_database(principal, page.id, false)
-                    .await?
-                    .table,
-            ),
+            PageKind::Database => {
+                convert::Extra::Table(databases.export_table(principal, page.id).await?)
+            }
             PageKind::Row => {
                 convert::Extra::Properties(databases.export_row(principal, page.id).await?)
             }

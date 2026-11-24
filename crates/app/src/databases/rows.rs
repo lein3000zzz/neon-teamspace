@@ -223,6 +223,7 @@ impl DatabaseService {
                 batch,
                 principal.user.id,
                 Some(&keys),
+                None,
             )
             .await?;
             let members_hidden = opened.context.members_hidden();

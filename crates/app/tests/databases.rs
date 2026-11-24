@@ -2524,9 +2524,10 @@ async fn queries_read_whole_rows_only_for_the_part_they_answer_with(pool: PgPool
     }
     // Listed for a filter, sorts and grouping, rows hold only the cells they read.
     let keys = [points.to_string()];
-    let listed = neon_store::databases::rows(&t.h.pool, t.db(), None, t.ada.user.id, Some(&keys))
-        .await
-        .expect("listed");
+    let listed =
+        neon_store::databases::rows(&t.h.pool, t.db(), None, t.ada.user.id, Some(&keys), None)
+            .await
+            .expect("listed");
     assert_eq!(listed.len(), 3);
     for row in &listed {
         let cells: Vec<&String> = row.cells.as_object().expect("cells").keys().collect();

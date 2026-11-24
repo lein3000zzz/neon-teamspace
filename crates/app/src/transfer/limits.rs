@@ -25,6 +25,9 @@ pub struct Limits {
     /// The most rows of databases one export holds besides its pages: by default as many
     /// as a database holds out of the trash.
     pub max_export_rows: usize,
+    /// How many rows of a database an export reads whole at once, for their files: with
+    /// a row's values at most 64 KiB, a batch's values take at most 16 MiB.
+    pub export_rows_at_once: usize,
     /// The most bytes of markdown one export holds, before it is zipped.
     pub max_export_bytes: usize,
     /// The longest an import or export may take, once its file is uploaded.
@@ -48,6 +51,7 @@ impl Default for Limits {
             max_pages: 1000,
             max_export_pages: 5000,
             max_export_rows: neon_domain::databases::MAX_ROWS,
+            export_rows_at_once: 250,
             max_export_bytes: 128 * MIB,
             time_limit: Duration::from_secs(20),
             parallel: 4,
