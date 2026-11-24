@@ -7,11 +7,14 @@ mod support;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::databases::{
-    DatabaseError, DatabaseView, GroupMove, NewDatabase, NewProperty, NewRow, NewView,
-    PropertyChange, PropertySpec, QueryInput, RowMove, RowView, ViewChange,
+    DatabaseError, DatabaseView, Follow, GroupMove, LiveDatabases, LiveLimits, NewDatabase,
+    NewProperty, NewRow, NewView, PropertyChange, PropertySpec, QueryInput, RowMove, RowView,
+    ViewChange,
 };
-use neon_app::pages::{Location, NewPage, PageError};
-use neon_app::sync::{Broadcaster, ClientId, Next, Outbox, OutboxReceiver, Room};
+use neon_app::pages::{AccessChanges, Location, NewPage, PageError};
+use neon_app::sync::{
+    Broadcaster, ClientId, CloseReason, Next, Outbox, OutboxReceiver, Room, access_feed,
+};
 use neon_app::workspaces::NewTeamspace;
 use neon_domain::auth::Principal;
 use neon_domain::databases::filter::{FilterSpec, Operator};
@@ -2661,4 +2664,209 @@ async fn values_written_as_an_option_is_deleted_lose_it_with_the_rest(pool: PgPo
         read.values.get(&tags.to_string()),
         Some(&json!([a.to_string()]))
     );
+}
+
+/// The database feeds of a team's databases, which hear the access changes the harness
+/// recorded once [`tell`](Self::tell) passes them on.
+struct Feeds {
+    live: LiveDatabases,
+    listener: std::sync::Arc<dyn AccessChanges>,
+}
+
+impl Feeds {
+    fn new(t: &Team, limits: LiveLimits) -> Self {
+        let (listener, feed) = access_feed();
+        let live = LiveDatabases::builder(t.h.databases.clone(), t.h.auth.clone(), feed)
+            .limits(limits)
+            .build();
+        Self { live, listener }
+    }
+
+    fn tell(&self, t: &Team) {
+        for change in t.h.changes.take() {
+            self.listener.access_changed(change);
+        }
+    }
+
+    /// Opens a feed of Tasks, and reads its `ready`.
+    async fn follow(&self, t: &Team, who: &Principal) -> Follow {
+        let admission = self
+            .live
+            .admit(who.clone(), t.db())
+            .await
+            .expect("admitted");
+        let mut follow = self.live.connect(admission).expect("connected");
+        assert_eq!(heard(&mut follow).await["type"], "ready");
+        follow
+    }
+}
+
+/// The next message of a feed, which must come.
+async fn heard(follow: &mut Follow) -> Value {
+    match tokio::time::timeout(std::time::Duration::from_secs(10), follow.next())
+        .await
+        .expect("a message came")
+    {
+        Next::Send(bytes) => serde_json::from_slice(&bytes).expect("JSON"),
+        Next::Close(reason) => panic!("closed: {reason}"),
+    }
+}
+
+/// Why a feed closes, the messages before it read past.
+async fn closed(follow: &mut Follow) -> CloseReason {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if let Next::Close(reason) = follow.next().await {
+                return reason;
+            }
+        }
+    })
+    .await
+    .expect("the feed closed")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn feeds_keep_to_their_limits(pool: PgPool) {
+    let t = team(pool).await;
+    let feeds = Feeds::new(
+        &t,
+        LiveLimits {
+            connections_per_user: 1,
+            connections_per_database: 2,
+            client_queue: 2,
+            max_message: 64,
+            messages_per_second: 1,
+            message_burst: 3,
+            ..LiveLimits::default()
+        },
+    );
+    let live = &feeds.live;
+    // One feed for Ada: a second is refused before its upgrade, or, admitted before the
+    // first opened, as it opens.
+    let first = live.admit(t.ada.clone(), t.db()).await.expect("admitted");
+    let second = live.admit(t.ada.clone(), t.db()).await.expect("admitted");
+    assert!(live.has_room(&first));
+    let mut ada = live.connect(first).expect("connected");
+    assert!(!live.has_room(&second));
+    let refused = live.connect(second).err();
+    assert_eq!(refused, Some(CloseReason::TooManyConnections));
+    assert_eq!(refused.map(CloseReason::code), Some(1013));
+    // Two for Tasks: Dee's fits, Cy's does not.
+    let mut dee = feeds.follow(&t, &t.dee).await;
+    let cy = live.admit(t.cy.clone(), t.db()).await.expect("admitted");
+    assert!(!live.has_room(&cy));
+    assert_eq!(
+        live.connect(cy).err(),
+        Some(CloseReason::TooManyConnections)
+    );
+
+    // What a client sends is dropped, within its size and rate.
+    assert_eq!(
+        ada.receive(65).err().map(CloseReason::code),
+        Some(1009),
+        "too large"
+    );
+    for _ in 0..3 {
+        dee.receive(64).expect("within the burst");
+    }
+    assert_eq!(dee.receive(1).err().map(CloseReason::code), Some(4429));
+    drop((ada, dee));
+
+    // A client that reads nothing falls behind: two messages wait at most.
+    let mut slow = feeds.follow(&t, &t.dee).await;
+    t.made("One").await;
+    t.made("Two").await;
+    t.made("Three").await;
+    assert_eq!(closed(&mut slow).await.code(), 4408);
+    drop(slow);
+
+    // Stopping closes every feed, to reconnect to the next server.
+    let mut open = feeds.follow(&t, &t.ada).await;
+    let late = live.admit(t.dee.clone(), t.db()).await.expect("admitted");
+    live.shutdown().await;
+    assert_eq!(closed(&mut open).await.code(), 1012);
+    assert_eq!(live.connect(late).err(), Some(CloseReason::Restarting));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn feeds_are_looked_at_again_now_and_then(pool: PgPool) {
+    let t = team(pool).await;
+    let feeds = Feeds::new(
+        &t,
+        LiveLimits {
+            revalidate_interval: std::time::Duration::from_millis(50),
+            ..LiveLimits::default()
+        },
+    );
+    let mut dee = feeds.follow(&t, &t.dee).await;
+    // Her session ends without anyone being told, as when it expires.
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+        .bind(t.dee.user.id)
+        .execute(&t.h.pool)
+        .await
+        .expect("deleted");
+    assert_eq!(closed(&mut dee).await, CloseReason::SignedOut);
+    feeds.live.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_feed_opened_after_an_access_change_was_told_is_looked_at_as_it_opens(pool: PgPool) {
+    let t = team(pool).await;
+    shared_with_gus(&t, PageAccess::View).await;
+    let feeds = Feeds::new(&t, LiveLimits::default());
+    let mut open = feeds.follow(&t, &t.gus).await;
+    let late = feeds
+        .live
+        .admit(t.gus.clone(), t.db())
+        .await
+        .expect("admitted before the change");
+    t.h.changes.take();
+    t.h.pages
+        .remove_share(&t.ada, t.db(), t.gus.user.id)
+        .await
+        .expect("unshared");
+    feeds.tell(&t);
+    // The feed that was open closes once the watcher heard of the change...
+    assert_eq!(closed(&mut open).await, CloseReason::AccessLost);
+    // ...so it cannot see this one, which the rules let in before the change.
+    let mut late = feeds.live.connect(late).expect("connected");
+    assert_eq!(closed(&mut late).await, CloseReason::AccessLost);
+    feeds.live.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_member_made_a_guest_hears_no_people_on_an_open_feed(pool: PgPool) {
+    let mut t = team(pool).await;
+    let owner = t.add("Owner", spec(PropertyKind::Person), None).await;
+    t.h.pages
+        .share_page(&t.ada, t.db(), t.dee.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    let feeds = Feeds::new(&t, LiveLimits::default());
+    let mut dee = feeds.follow(&t, &t.dee).await;
+    let named = json!({"Name": "Ada's", "Owner": [t.ada.user.id.to_string()]});
+    t.row(&t.ada, named.clone()).await.expect("a row");
+    let created = heard(&mut dee).await;
+    assert_eq!(
+        created["row"]["values"][owner.to_string()],
+        json!([t.ada.user.id.to_string()])
+    );
+    t.h.changes.take();
+    t.h.workspaces
+        .change_member_role(&t.ada, t.id, t.dee.user.id, WorkspaceRole::Guest)
+        .await
+        .expect("made a guest");
+    feeds.tell(&t);
+    // Shared with her to view, she still sees Tasks, and is told she views it.
+    assert_eq!(
+        heard(&mut dee).await,
+        json!({"type": "access", "database_id": t.db().to_string(), "access": "view"})
+    );
+    t.row(&t.ada, named).await.expect("a row");
+    let created = heard(&mut dee).await;
+    assert_eq!(created["type"], "row_created");
+    assert_eq!(created["row"]["values"].get(owner.to_string()), None);
+    assert_eq!(created["row"]["created_by"], Value::Null);
+    drop(dee);
+    feeds.live.shutdown().await;
 }

@@ -1,10 +1,11 @@
 //! Databases over HTTP and WebSocket: the routes, their answers and error codes, the
 //! scopes they need and the origin check, a board queried with a filter and a sort, and
-//! the feed of changes that every client following a database hears.
+//! the feed of changes that every client following a database hears, within its limits.
 
 use axum::http::header::{AUTHORIZATION, COOKIE, ORIGIN};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
-use futures_util::StreamExt as _;
+use futures_util::{SinkExt as _, StreamExt as _};
+use neon_app::databases::LiveLimits;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::net::TcpStream;
@@ -16,7 +17,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use super::auth_tests::{Answer, call, user};
 use super::pages_tests::{general, guest};
 use super::sync_tests::Server;
-use super::tests::state;
+use super::tests::{state, state_with_feeds};
 use super::workspaces_tests::{Browser, id, team};
 use super::*;
 
@@ -867,4 +868,106 @@ async fn feeds_are_checked_as_they_open_and_follow_access_changes(pool: PgPool) 
     assert_eq!(out.status, StatusCode::NO_CONTENT, "{}", out.body);
     assert_eq!(ada.closed().await, Some(4401));
     finish(&state, server, vec![follower, ada]).await;
+}
+
+/// Opens Ada's next feed of `db` once she has room for it: the one before has gone.
+async fn once_there_is_room(addr: std::net::SocketAddr, db: &str, cookie: &str) -> Follower {
+    timeout(PATIENCE, async {
+        loop {
+            match follow(addr, db, &[(COOKIE.as_str(), cookie)]).await {
+                Ok(socket) => {
+                    let mut follower = Follower { socket };
+                    let ready = follower.next().await;
+                    assert_eq!(ready["type"], "ready", "{ready}");
+                    return follower;
+                }
+                Err(StatusCode::TOO_MANY_REQUESTS) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                Err(status) => panic!("the upgrade answered {status}"),
+            }
+        }
+    })
+    .await
+    .expect("room came")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn feeds_keep_to_their_limits_on_the_wire(pool: PgPool) {
+    let limits = LiveLimits {
+        connections_per_user: 1,
+        max_message: 64,
+        messages_per_second: 1,
+        message_burst: 3,
+        ..LiveLimits::default()
+    };
+    let state = state_with_feeds(pool, limits).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let made = database(&t.ada, &t.workspace).await;
+    let db = database_id(&made);
+    let server = Server::start(app.clone()).await;
+    let addr = server.addr;
+
+    // One feed more than Ada may have is refused before its upgrade.
+    let mut big = Follower::join(addr, &db, t.ada.cookie()).await;
+    assert_eq!(
+        follow(addr, &db, &[(COOKIE.as_str(), t.ada.cookie())])
+            .await
+            .err(),
+        Some(StatusCode::TOO_MANY_REQUESTS)
+    );
+    // A message larger than the feed takes closes it.
+    big.socket
+        .send(Frame::Text("x".repeat(65).into()))
+        .await
+        .expect("sent");
+    assert_eq!(big.closed().await, Some(1009));
+
+    // So do more messages than its rate: the burst is three.
+    let mut chatty = once_there_is_room(addr, &db, t.ada.cookie()).await;
+    for _ in 0..6 {
+        if chatty.socket.send(Frame::Text("hi".into())).await.is_err() {
+            break;
+        }
+    }
+    assert_eq!(chatty.closed().await, Some(4429));
+
+    // Stopping closes every feed, to reconnect to the next server.
+    let mut dee = Follower::join(addr, &db, t.dee.cookie()).await;
+    state.live.shutdown().await;
+    assert_eq!(dee.closed().await, Some(1012));
+    finish(&state, server, vec![big, chatty, dee]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn feeds_that_stop_answering_are_dropped(pool: PgPool) {
+    let limits = LiveLimits {
+        connections_per_user: 1,
+        ping_interval: std::time::Duration::from_millis(100),
+        ..LiveLimits::default()
+    };
+    let state = state_with_feeds(pool, limits).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let made = database(&t.ada, &t.workspace).await;
+    let db = database_id(&made);
+    let server = Server::start(app.clone()).await;
+    let addr = server.addr;
+    let mut quiet = Follower::join(addr, &db, t.ada.cookie()).await;
+    // Reading answers pings: this client reads nothing until the server let it go, which
+    // makes room for Ada's next feed.
+    let next = once_there_is_room(addr, &db, t.ada.cookie()).await;
+    let mut pings = 0;
+    let ending = loop {
+        match quiet.socket.next().await {
+            Some(Ok(Frame::Ping(_))) => pings += 1,
+            Some(Ok(Frame::Close(frame))) => break Some(frame),
+            Some(Ok(_)) => {}
+            Some(Err(_)) | None => break None,
+        }
+    };
+    assert!(pings >= 1, "the server pinged");
+    assert_eq!(ending, None, "dropped without a close");
+    finish(&state, server, vec![quiet, next]).await;
 }

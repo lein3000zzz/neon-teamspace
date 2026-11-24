@@ -10,7 +10,7 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
-use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::settings::{Change, SettingsService, registry};
@@ -55,6 +55,28 @@ pub(super) async fn state_for(
     web: WebConfig,
     limits: SyncLimits,
 ) -> AppState {
+    build_state(pool, envelope, web, limits, LiveLimits::default()).await
+}
+
+/// The state, with database feeds that keep to `limits`.
+pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppState {
+    build_state(
+        pool,
+        Envelope::default(),
+        WebConfig::new(None, Vec::new()),
+        SyncLimits::default(),
+        limits,
+    )
+    .await
+}
+
+async fn build_state(
+    pool: PgPool,
+    envelope: Envelope,
+    web: WebConfig,
+    limits: SyncLimits,
+    feeds: LiveLimits,
+) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
         registry(),
@@ -96,7 +118,9 @@ pub(super) async fn state_for(
         .broadcaster(broadcaster)
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
-    let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
+    let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
+        .limits(feeds)
+        .build();
     let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
     AppState {
         settings,
