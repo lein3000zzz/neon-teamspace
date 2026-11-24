@@ -394,8 +394,10 @@ async fn two_clients_converge_on_concurrent_edits(pool: PgPool) {
     let addr = room.server.addr;
     let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
     ada.write("Agenda").await;
+    // Ada's update and Dee's join travel over separate sockets, so Dee's first sync may be
+    // answered before the server applies the update; the update then follows.
     let mut dee = Peer::join(addr, &room.page, room.team.dee.cookie(), "dee").await;
-    assert_eq!(text_of(&dee.doc), "Agenda");
+    dee.until_text("Agenda").await;
 
     // Both type at once, each before seeing the other's change.
     ada.write("from Ada").await;
@@ -464,7 +466,7 @@ async fn a_viewer_s_changes_are_refused(pool: PgPool) {
     // The viewer syncs, its answer to the server's sync step 1 changing nothing, and gets
     // the editor's changes as they come.
     let mut viewer = Peer::join(addr, &room.page, gus.cookie(), "gus").await;
-    assert_eq!(text_of(&viewer.doc), "Plan");
+    viewer.until_text("Plan").await;
     // Nor is all it holds, deletions included, as a client sends after reconnecting.
     let everything = viewer
         .doc
