@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use neon_domain::auth::{Email, Role, User};
-use neon_domain::pages::{Page, PageStyle, Space};
+use neon_domain::pages::{Page, PageKind, PageStyle, Space};
 use neon_domain::workspaces::{Teamspace, TeamspaceAccess, Workspace, WorkspaceRole};
 use neon_store::documents::{self, Edited, NewSnapshot, NewUpdate};
 use neon_store::{pages, teamspaces, users, workspaces};
@@ -65,6 +65,7 @@ async fn page(pool: &PgPool) -> (Uuid, Uuid) {
     let page = Page {
         id: Uuid::now_v7(),
         workspace_id: workspace.id,
+        kind: PageKind::Page,
         space: Space::Teamspace(teamspace.id),
         parent_id: None,
         position: "a0".into(),

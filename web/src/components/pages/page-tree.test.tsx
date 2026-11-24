@@ -62,6 +62,7 @@ describe("the page trees in the sidebar", () => {
       shared: [
         {
           id: PAGE_IDS.goals,
+          kind: "page",
           title: "Goals",
           teamspace_id: TEAMSPACE_IDS.private,
           child_count: 0,
@@ -80,9 +81,10 @@ describe("the page trees in the sidebar", () => {
     fakeWorkspaces({ role: "guest" });
     fakePages({
       shared: [
-        { id: PAGE_IDS.q1, title: "Q1", child_count: 1, access: "view" },
+        { id: PAGE_IDS.q1, kind: "page", title: "Q1", child_count: 1, access: "view" },
         {
           id: PAGE_IDS.goals,
+          kind: "page",
           title: "Goals",
           parent_id: PAGE_IDS.q1,
           child_count: 0,

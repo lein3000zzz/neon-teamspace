@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE tree (id, path, depth) AS (\n               SELECT id, position COLLATE \"C\", 1 FROM pages\n               WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2\n                 AND parent_id IS NULL AND trashed_at IS NULL\n             UNION ALL\n               SELECT c.id, (t.path || '!' || c.position) COLLATE \"C\", t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL\n               WHERE t.depth < $4\n           )\n           SELECT p.id, p.parent_id, p.title, p.content_updated_at\n           FROM tree t JOIN pages p ON p.id = t.id\n           ORDER BY t.path COLLATE \"C\", p.id\n           LIMIT $3",
+  "query": "WITH RECURSIVE tree (id, path, depth) AS (\n               SELECT id, position COLLATE \"C\", 1 FROM pages\n               WHERE workspace_id = $1 AND COALESCE(parent_id, teamspace_id, owner_id) = $2\n                 AND parent_id IS NULL AND trashed_at IS NULL\n             UNION ALL\n               SELECT c.id, (t.path || '!' || c.position) COLLATE \"C\", t.depth + 1\n               FROM tree t\n               JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL\n               WHERE t.depth < $4\n           )\n           SELECT p.id, p.kind, p.parent_id, p.title, p.content_updated_at\n           FROM tree t JOIN pages p ON p.id = t.id\n           ORDER BY t.path COLLATE \"C\", p.id\n           LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "parent_id",
         "type_info": "Uuid",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "title",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -58,10 +69,11 @@
     },
     "nullable": [
       false,
+      false,
       true,
       false,
       false
     ]
   },
-  "hash": "e34ced4eb7616c00fc49b79c3df0379ebae60a445a5ae4923d8f73c823a18bf7"
+  "hash": "4bae32b1e8e44b175f40ee23be00e10e227d5b8a32c077eeb49e965526988d19"
 }

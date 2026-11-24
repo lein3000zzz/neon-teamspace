@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH changed AS (\n               UPDATE database_rows r\n               SET cells = CASE WHEN u.value = 'null'::jsonb THEN r.cells - $1\n                                ELSE r.cells || jsonb_build_object($1::text, u.value) END\n               FROM UNNEST($2::uuid[], $3::jsonb[]) AS u (id, value)\n               WHERE r.page_id = u.id\n               RETURNING octet_length(r.cells::text)::bigint AS bytes\n           )\n           SELECT COALESCE(max(bytes), 0) AS \"largest!\" FROM changed",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "largest!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray",
+        "JsonbArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f28afb347cd5608b2107d86915b34a9bb19d10e24753598d6bda51988e5c18bb"
+}

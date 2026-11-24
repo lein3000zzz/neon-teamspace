@@ -4,6 +4,7 @@ import { forestOf, siblingsOf, subtreeOf, titleOf } from "./page-tree";
 
 const entry = (id: string, parent?: string): TreePage => ({
   id,
+  kind: "page",
   title: id,
   child_count: 0,
   access: "edit",

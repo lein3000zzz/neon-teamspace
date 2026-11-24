@@ -42,6 +42,7 @@ export function page(seed: Seed, position: string): Page {
   return {
     id: seed.id,
     workspace_id: WORKSPACE_ID,
+    kind: "page",
     title: seed.title,
     position,
     style: { font: "default", small_text: false, full_width: false },
@@ -144,6 +145,7 @@ export function fakePages(options: Options = {}) {
   };
   const treeEntry = (entry: Page, space: (entry: Page) => boolean): TreePage => ({
     id: entry.id,
+    kind: entry.kind,
     title: entry.title,
     access: entry.access,
     child_count: childrenOf(entry.id, space).length,

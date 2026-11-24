@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE database_views v SET position = u.position\n         FROM UNNEST($1::uuid[], $2::text[]) AS u (id, position)\n         WHERE v.id = u.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "adb5eecf810c80a37b26a2fd76795b4df892fe5e029b04f8e4e79c632b0e1ca8"
+}

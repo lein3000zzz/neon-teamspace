@@ -3,7 +3,7 @@
 //! and everything gone with its teamspace or workspace.
 
 use neon_domain::auth::{Email, Role, User};
-use neon_domain::pages::{Page, PageStyle, Space};
+use neon_domain::pages::{Page, PageKind, PageStyle, Space};
 use neon_domain::workspaces::{Teamspace, TeamspaceAccess, Workspace, WorkspaceRole};
 use neon_store::pages::{self, Siblings};
 use neon_store::{favorites, teamspaces, users, workspaces};
@@ -84,6 +84,7 @@ fn page(workspace_id: Uuid, space: Space, parent_id: Option<Uuid>, position: &st
     Page {
         id: Uuid::now_v7(),
         workspace_id,
+        kind: PageKind::Page,
         space,
         parent_id,
         position: position.into(),

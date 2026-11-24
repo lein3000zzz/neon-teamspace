@@ -11,9 +11,10 @@ use pulldown_cmark::{
 
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
-    AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE, Document,
-    FileProps, HeadingProps, ImageProps, Inline, NoProps, NumberedListItemProps, QuoteProps,
-    TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE,
+    DatabaseProps, Document, FileProps, HeadingProps, ImageProps, Inline, NoProps,
+    NumberedListItemProps, QuoteProps, TableCell, TableCellProps, TableContent, TableProps,
+    TableRow, TextAlignment, TextProps,
 };
 
 /// The blocks of a markdown text. Any text is markdown, so this cannot fail; the blocks have
@@ -419,7 +420,8 @@ enum Segment<'a> {
     Text(Vec<Line<'a>>),
     Open(&'a str),
     Close(&'a str),
-    Media(Block),
+    /// A line that is a whole block: a file's or a database's.
+    Block(Block),
 }
 
 /// The blocks being built at one level, with the toggles opened in it and not closed yet.
@@ -471,7 +473,7 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
                                 builder.push(Block::paragraph(source));
                             }
                         }
-                        Segment::Media(block) => builder.push(block),
+                        Segment::Block(block) => builder.push(block),
                     }
                 }
             }
@@ -525,7 +527,9 @@ fn segments(lines: Vec<Line<'_>>) -> Vec<Segment<'_>> {
             } else if let Some(rest) = directive(source, "toggle") {
                 Some(Segment::Open(rest))
             } else {
-                media(source).map(Segment::Media)
+                media(source)
+                    .or_else(|| database(source))
+                    .map(Segment::Block)
             };
         match extension {
             Some(segment) => {
@@ -598,6 +602,60 @@ fn media(source: &str) -> Option<Block> {
             },
         },
     }))
+}
+
+/// A database block from a `:::database` line: the database's id, then `view=` and the view's
+/// id, each optional, in that order. Anything else on the line makes it text.
+fn database(source: &str) -> Option<Block> {
+    let rest = directive(source, "database")?;
+    let mut words = rest.split_whitespace().peekable();
+    let database_id = words
+        .next_if(|word| !word.starts_with("view="))
+        .map(decode_id)
+        .unwrap_or_default();
+    let view_id = match words.next() {
+        Some(word) => Some(decode_id(word.strip_prefix("view=")?)),
+        None => None,
+    };
+    if words.next().is_some() {
+        return None;
+    }
+    Some(Block::new(BlockKind::Database {
+        props: DatabaseProps {
+            database_id,
+            view_id,
+        },
+    }))
+}
+
+/// An id as the writer encodes it: each `%` and two hex digits stand for a byte, and anything
+/// else is itself.
+fn decode_id(word: &str) -> String {
+    let hex = |digit: u8| {
+        char::from(digit)
+            .to_digit(16)
+            .and_then(|value| u8::try_from(value).ok())
+    };
+    let bytes = word.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        let escaped = match bytes.get(index..index + 3) {
+            Some([b'%', high, low]) => hex(*high).zip(hex(*low)).map(|(h, l)| h << 4 | l),
+            _ => None,
+        };
+        match escaped {
+            Some(escaped) => {
+                decoded.push(escaped);
+                index += 3;
+            }
+            None => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// The text, target and title of a link that is all of `markdown`.

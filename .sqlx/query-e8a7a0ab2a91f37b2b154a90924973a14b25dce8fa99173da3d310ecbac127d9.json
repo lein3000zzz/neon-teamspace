@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, teamspace_id, owner_id, parent_id, position, title, icon,\n                cover, font, small_text, full_width, created_by, last_edited_by, created_at,\n                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with\n         FROM pages WHERE id = $1",
+  "query": "WITH RECURSIVE chain (id, parent_id, depth) AS (\n               SELECT id, parent_id, 0 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT p.id, p.parent_id, c.depth + 1\n               FROM chain c JOIN pages p ON p.id = c.parent_id\n               WHERE c.depth < $3\n           )\n           SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,\n                  p.created_by,\n                  p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,\n                  p.trashed_at, p.trashed_by, p.trashed_with, s.access AS \"shared?\"\n           FROM chain c\n           JOIN pages p ON p.id = c.id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $2\n           ORDER BY c.depth",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "teamspace_id",
         "type_info": "Uuid",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "owner_id",
         "type_info": "Uuid",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "parent_id",
         "type_info": "Uuid",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "position",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "title",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "icon",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "cover",
         "type_info": "Text",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "font",
         "type_info": "Text",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "small_text",
         "type_info": "Bool",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "full_width",
         "type_info": "Bool",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_by",
         "type_info": "Uuid",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_edited_by",
         "type_info": "Uuid",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "trashed_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "trashed_by",
         "type_info": "Uuid",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "trashed_with",
         "type_info": "Uuid",
         "origin": {
@@ -222,16 +233,30 @@
             "name": "trashed_with"
           }
         }
+      },
+      {
+        "ordinal": 21,
+        "name": "shared?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "access"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Int4"
       ]
     },
     "nullable": [
       false,
       false,
+      false,
       true,
       true,
       true,
@@ -249,8 +274,9 @@
       false,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "efec507204e39a3dfbf7e6d4a4c19c3ef7487091cbc88eee70a5112fea02692c"
+  "hash": "e8a7a0ab2a91f37b2b154a90924973a14b25dce8fa99173da3d310ecbac127d9"
 }

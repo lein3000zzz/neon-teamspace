@@ -10,10 +10,13 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
+use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
-use neon_app::pages::PageService;
+use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::settings::{Change, SettingsService, registry};
-use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed};
+use neon_app::sync::{
+    Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
+};
 use neon_app::transfer::TransferService;
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::settings::Pinned;
@@ -52,6 +55,28 @@ pub(super) async fn state_for(
     web: WebConfig,
     limits: SyncLimits,
 ) -> AppState {
+    build_state(pool, envelope, web, limits, LiveLimits::default()).await
+}
+
+/// The state, with database feeds that keep to `limits`.
+pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppState {
+    build_state(
+        pool,
+        Envelope::default(),
+        WebConfig::new(None, Vec::new()),
+        SyncLimits::default(),
+        limits,
+    )
+    .await
+}
+
+async fn build_state(
+    pool: PgPool,
+    envelope: Envelope,
+    web: WebConfig,
+    limits: SyncLimits,
+    feeds: LiveLimits,
+) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
         registry(),
@@ -68,32 +93,43 @@ pub(super) async fn state_for(
         Some(PUBLIC_URL),
         Clock::system(),
     );
-    let (listener, feed) = access_feed();
+    let (documents, feed) = access_feed();
+    let (followers, databases_feed) = access_feed();
+    let listener: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![documents, followers]));
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope.clone())
         .mail(mail)
-        .access_changes(listener.clone())
+        .access_changes(Arc::clone(&listener))
         .build()
         .await
         .expect("the auth service starts");
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope)
-        .access_changes(listener.clone())
+        .access_changes(Arc::clone(&listener))
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
+        .broadcaster(Arc::clone(&broadcaster))
         .build();
     let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
         .limits(limits)
+        .broadcaster(broadcaster)
         .build();
-    let transfer = TransferService::builder(pages.clone(), sync.clone()).build();
+    let databases = DatabaseService::builder(pages.clone()).build();
+    let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
+        .limits(feeds)
+        .build();
+    let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
     AppState {
         settings,
         auth,
         workspaces,
         pages,
         sync,
+        databases,
+        live,
         transfer,
         web: Arc::new(web),
     }

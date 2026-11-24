@@ -6,7 +6,8 @@ use crate::model::{BlockKind, Document};
 impl Document {
     /// The document's words without markup, for full-text search: each block's text on lines
     /// of its own, children after their parent, table cells separated by tabs, and the names
-    /// and captions of images and files. Link targets, colours and other props are left out.
+    /// and captions of images and files. Link targets, colours and other props are left out,
+    /// and so are database blocks, which only name a database.
     pub fn plain_text(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
         for block in self.walk() {
@@ -31,7 +32,7 @@ impl Document {
                 BlockKind::File { props } => {
                     lines.extend([props.name.clone(), props.caption.clone()]);
                 }
-                BlockKind::Divider { .. } => {}
+                BlockKind::Divider { .. } | BlockKind::Database { .. } => {}
                 kind => lines.extend(kind.inline_content().map(plain_text)),
             }
         }
@@ -42,7 +43,7 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{Block, BlockKind, Document, ImageProps};
+    use crate::model::{Block, BlockKind, DatabaseProps, Document, ImageProps};
 
     #[test]
     fn blocks_are_lines_and_children_follow_parents() {
@@ -62,5 +63,20 @@ mod tests {
             document.plain_text(),
             "first\nnested\ndiagram.png\nThe parts\nlast"
         );
+    }
+
+    #[test]
+    fn databases_are_left_out_but_their_children_are_not() {
+        let database = Block::new(BlockKind::Database {
+            props: DatabaseProps {
+                database_id: "0193a5b2-0000-7000-8000-0000000000d1".into(),
+                view_id: Some("0193a5b2-0000-7000-8000-0000000000e1".into()),
+            },
+        });
+        let document = Document::new(vec![
+            Block::paragraph("before"),
+            database.with_children(vec![Block::paragraph("under it")]),
+        ]);
+        assert_eq!(document.plain_text(), "before\nunder it");
     }
 }

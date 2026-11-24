@@ -13,13 +13,16 @@
 //! - **Exporting** writes a page's markdown file, its title as its first heading; a zip of a
 //!   page's file and those of the pages under it, each page's in the folder of the page it
 //!   is under; or a zip of a teamspace's pages. Content comes from the live document when
-//!   the page is open, else from what is saved.
+//!   the page is open, else from what is saved. A database's file ends with a table of its
+//!   rows, their titles and the properties its first view shows; in a zip, each row is a
+//!   file of its own in the database's folder, its properties listed under its title, the
+//!   rows read whole a batch at a time.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
-//!   deep they go, the pages one import makes and one export holds, the time each takes,
-//!   and how many run at once, on the server and for each person; see [`Limits`]. The rules
-//!   answer before any limit, so someone who may not see a page or place is told so. A
-//!   zip is read and written in memory, never on disk, and no entry's path may lead
-//!   outside it.
+//!   deep they go, the pages one import makes and the pages and rows one export holds, the
+//!   time each takes, and how many run at once, on the server and for each person; see
+//!   [`Limits`]. The rules answer before any limit, so someone who may not see a page or
+//!   place is told so. A zip is read and written in memory, never on disk, and no entry's
+//!   path may lead outside it.
 //! - **Content** that does not read as blocks, which the editor would not show either, is
 //!   left out of an export rather than failing it.
 //!
@@ -39,6 +42,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use neon_domain::auth::Principal;
+use neon_domain::pages::PageKind;
 use neon_domain::pages::files::{EXTENSION, file_name};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
@@ -46,6 +50,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 
+use crate::databases::{DatabaseService, ExportRow};
 use crate::pages::{Location, OutlinePage, PageService, PageView};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::sync::SyncService;
@@ -189,6 +194,7 @@ pub struct TransferService {
 struct Inner {
     pages: PageService,
     sync: SyncService,
+    databases: DatabaseService,
     limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     places: Arc<Semaphore>,
@@ -202,6 +208,7 @@ struct Inner {
 pub struct TransferServiceBuilder {
     pages: PageService,
     sync: SyncService,
+    databases: DatabaseService,
     limiter: Option<Arc<dyn RateLimiter>>,
     limits: Limits,
 }
@@ -223,6 +230,7 @@ impl TransferServiceBuilder {
             inner: Arc::new(Inner {
                 pages: self.pages,
                 sync: self.sync,
+                databases: self.databases,
                 limiter: self
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
@@ -236,11 +244,17 @@ impl TransferServiceBuilder {
 }
 
 impl TransferService {
-    /// Imports and exports of `pages`, reading the content of pages through `sync`.
-    pub fn builder(pages: PageService, sync: SyncService) -> TransferServiceBuilder {
+    /// Imports and exports of `pages`, reading the content of pages through `sync` and the
+    /// rows of databases through `databases`.
+    pub fn builder(
+        pages: PageService,
+        sync: SyncService,
+        databases: DatabaseService,
+    ) -> TransferServiceBuilder {
         TransferServiceBuilder {
             pages,
             sync,
+            databases,
             limiter: None,
             limits: Limits::default(),
         }
@@ -342,25 +356,22 @@ impl TransferService {
                     let pages = self
                         .inner
                         .pages
-                        .page_outline(
-                            principal,
-                            page_id,
-                            children,
-                            self.inner.limits.max_export_pages,
-                        )
+                        .page_outline(principal, page_id, children, self.outline_limit())
                         .await?;
-                    self.check_count(pages.len())?;
+                    self.check_count(&pages)?;
                     let first = pages.first().cloned().ok_or_else(|| {
                         TransferError::Internal(format!("page {page_id} has no outline"))
                     })?;
                     if children {
-                        self.zipped(&first.title, pages, deadline).await
+                        self.zipped(principal, &first.title, pages, deadline).await
                     } else {
                         let document = self.content(first.id).await?;
+                        let extra = self.extra(principal, &first).await?;
                         let name = named(&first.title, Format::Markdown);
-                        let bytes = blocking(move || Ok(convert::markdown(&first.title, document)))
-                            .await?
-                            .into_bytes();
+                        let bytes =
+                            blocking(move || Ok(convert::markdown(&first.title, document, &extra)))
+                                .await?
+                                .into_bytes();
                         Ok(Export {
                             name,
                             format: Format::Markdown,
@@ -401,14 +412,11 @@ impl TransferService {
                     let outline = self
                         .inner
                         .pages
-                        .teamspace_outline(
-                            principal,
-                            teamspace_id,
-                            self.inner.limits.max_export_pages,
-                        )
+                        .teamspace_outline(principal, teamspace_id, self.outline_limit())
                         .await?;
-                    self.check_count(outline.pages.len())?;
-                    self.zipped(&outline.name, outline.pages, deadline).await
+                    self.check_count(&outline.pages)?;
+                    self.zipped(principal, &outline.name, outline.pages, deadline)
+                        .await
                 })
                 .await?;
             info!(
@@ -425,17 +433,52 @@ impl TransferService {
     /// A zip named after `name` of the pages' files, parents first.
     async fn zipped(
         &self,
+        principal: &Principal,
         name: &str,
         pages: Vec<OutlinePage>,
         deadline: Deadline,
     ) -> Result<Export, TransferError> {
         // Boxed, as it moves to a thread and back for each page.
         let mut zip = Box::new(ZipExport::new(self.inner.limits.max_export_bytes));
-        for page in pages {
+        // The properties of the batch of rows read last, by row.
+        let mut rows: HashMap<Uuid, ExportRow> = HashMap::new();
+        for (index, page) in pages.iter().enumerate() {
             deadline.check()?;
             let document = self.content(page.id).await?;
+            let databases = &self.inner.databases;
+            let extra = match page.kind {
+                PageKind::Page => convert::Extra::None,
+                PageKind::Database => {
+                    convert::Extra::Table(databases.export_table(principal, page.id).await?)
+                }
+                PageKind::Row => convert::Extra::Properties(match rows.remove(&page.id) {
+                    Some(row) => row,
+                    None => match page.parent_id {
+                        // Its database is in the zip, and its rows follow it: this one and
+                        // those after it are read together, a batch at a time.
+                        Some(database_id) => {
+                            let batch: Vec<Uuid> = pages[index..]
+                                .iter()
+                                .take_while(|next| {
+                                    next.kind == PageKind::Row && next.parent_id == page.parent_id
+                                })
+                                .take(self.inner.limits.export_rows_at_once.max(1))
+                                .map(|next| next.id)
+                                .collect();
+                            rows = databases
+                                .export_rows(principal, database_id, &batch)
+                                .await?;
+                            // A row gone since the outline was read has no properties.
+                            rows.remove(&page.id).unwrap_or_default()
+                        }
+                        // The zip starts at the row: its database is not in it.
+                        None => databases.export_row(principal, page.id).await?,
+                    },
+                }),
+            };
+            let page = page.clone();
             zip = blocking(move || {
-                let markdown = convert::markdown(&page.title, document);
+                let markdown = convert::markdown(&page.title, document, &extra);
                 zip.add(&page, &markdown)?;
                 Ok(zip)
             })
@@ -448,6 +491,25 @@ impl TransferService {
         })
     }
 
+    /// What a page's file holds besides its title and blocks, exported alone: a database's
+    /// table of rows, or a row's properties.
+    async fn extra(
+        &self,
+        principal: &Principal,
+        page: &OutlinePage,
+    ) -> Result<convert::Extra, TransferError> {
+        let databases = &self.inner.databases;
+        Ok(match page.kind {
+            PageKind::Page => convert::Extra::None,
+            PageKind::Database => {
+                convert::Extra::Table(databases.export_table(principal, page.id).await?)
+            }
+            PageKind::Row => {
+                convert::Extra::Properties(databases.export_row(principal, page.id).await?)
+            }
+        })
+    }
+
     async fn content(&self, page_id: Uuid) -> Result<neon_blocks::Document, TransferError> {
         self.inner
             .sync
@@ -456,11 +518,33 @@ impl TransferService {
             .map_err(|error| TransferError::Content { page_id, error })
     }
 
-    fn check_count(&self, pages: usize) -> Result<(), TransferError> {
-        let max = self.inner.limits.max_export_pages;
-        if pages > max {
+    /// How many pages, rows included, an outline reads at most: one more than an export
+    /// holds tells there are too many.
+    fn outline_limit(&self) -> usize {
+        let limits = &self.inner.limits;
+        limits
+            .max_export_pages
+            .saturating_add(limits.max_export_rows)
+    }
+
+    /// Refuses an outline with more pages, or rows of databases, than one export holds.
+    /// One cut at [`outline_limit`](Self::outline_limit) and one more has too many of one.
+    fn check_count(&self, pages: &[OutlinePage]) -> Result<(), TransferError> {
+        let limits = &self.inner.limits;
+        let rows = pages
+            .iter()
+            .filter(|page| page.kind == PageKind::Row)
+            .count();
+        let (max_pages, max_rows) = (limits.max_export_pages, limits.max_export_rows);
+        if pages.len() - rows > max_pages {
             return Err(TransferError::too_large(format!(
-                "more than {max} pages, the most one export holds: export fewer at once"
+                "more than {max_pages} pages, the most one export holds: export fewer at once"
+            )));
+        }
+        if rows > max_rows {
+            return Err(TransferError::too_large(format!(
+                "more than {max_rows} rows of databases, the most one export holds besides its \
+                 pages: export fewer at once"
             )));
         }
         Ok(())

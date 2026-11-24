@@ -9,7 +9,6 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PartialBlock } from "@blocknote/core";
 import {
   FIXTURES,
   decode,
@@ -18,6 +17,7 @@ import {
   numberBlocks,
   parseMarkdown,
   toJson,
+  type PartialBlock,
 } from "./blocknote.ts";
 
 export interface Fixture {

@@ -3,7 +3,8 @@
 //! A request proves it with `Authorization: Bearer nw_…`, an API token, or with the session
 //! cookie. A bearer header that does not authenticate is refused outright, without falling
 //! back to the cookie. A token's scopes decide what it may do: reading needs `read`, every
-//! other method `write`, and the admin routes `admin`. Unauthenticated requests get 401,
+//! other method `write`, but for the few `POST`s that only read, and the admin routes
+//! `admin`. Unauthenticated requests get 401,
 //! and those their role or scopes do not allow 403, both in the error shape.
 
 use axum::extract::FromRequestParts;
@@ -22,6 +23,24 @@ pub struct Authenticated(pub Principal);
 
 /// An admin, through a session or a token with the admin scope.
 pub struct Admin(pub Principal);
+
+/// Any authenticated user with the read scope, whatever the method: for a `POST` that only
+/// reads, such as a database query whose filter is too large for a query string.
+pub struct Reader(pub Principal);
+
+impl FromRequestParts<AppState> for Reader {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Response> {
+        let principal = authenticate(parts, state)
+            .await
+            .map_err(|refusal| refusal.into_response(state))?;
+        if !principal.can(Scope::Read) {
+            return Err(missing_scope(Scope::Read));
+        }
+        Ok(Self(principal))
+    }
+}
 
 impl FromRequestParts<AppState> for Authenticated {
     type Rejection = Response;

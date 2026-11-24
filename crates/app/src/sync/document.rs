@@ -25,7 +25,7 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
 
-use super::broadcast::{ClientId, Outbox, Queued};
+use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
 use super::protocol::{self, encode};
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
@@ -387,7 +387,7 @@ impl Document {
         }
         self.inner
             .broadcaster
-            .join(self.page_id, joining.id, joining.outbox.clone());
+            .join(Room::Page(self.page_id), joining.id, joining.outbox.clone());
         debug!(
             client = %joining.id,
             user_id = %joining.user_id,
@@ -536,7 +536,7 @@ impl Document {
             let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
             self.inner
                 .broadcaster
-                .broadcast(self.page_id, message, Some(id));
+                .broadcast(Room::Page(self.page_id), message, Some(id));
             self.queue(changed, author);
         }
         applied.map_err(|error| {
@@ -629,7 +629,7 @@ impl Document {
         }
         if let Ok(changed) = self.awareness.update_with_clients(summary.all_changes()) {
             self.inner.broadcaster.broadcast(
-                self.page_id,
+                Room::Page(self.page_id),
                 encode(&Message::Awareness(changed)),
                 None,
             );
@@ -642,7 +642,7 @@ impl Document {
         let Some(client) = self.clients.remove(&id) else {
             return;
         };
-        self.inner.broadcaster.leave(self.page_id, id);
+        self.inner.broadcaster.leave(Room::Page(self.page_id), id);
         if !client.awareness_ids.is_empty() {
             for awareness_id in &client.awareness_ids {
                 self.holders.remove(awareness_id);
@@ -650,7 +650,7 @@ impl Document {
             }
             if let Ok(removed) = self.awareness.update_with_clients(client.awareness_ids) {
                 self.inner.broadcaster.broadcast(
-                    self.page_id,
+                    Room::Page(self.page_id),
                     encode(&Message::Awareness(removed)),
                     None,
                 );

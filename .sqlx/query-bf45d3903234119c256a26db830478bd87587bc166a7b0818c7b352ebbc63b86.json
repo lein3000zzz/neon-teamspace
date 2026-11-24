@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE database_rows SET cells = (cells || $2::jsonb) - $3::text[] WHERE page_id = $1\n           RETURNING cells, octet_length(cells::text)::bigint AS \"bytes!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cells",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "cells"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bytes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "bf45d3903234119c256a26db830478bd87587bc166a7b0818c7b352ebbc63b86"
+}

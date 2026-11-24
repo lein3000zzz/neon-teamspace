@@ -77,6 +77,7 @@ request, so the number of label sets stays small. These subsystems record them:
 | `auth`, the account use cases | The use case, such as `login` or `create_invite`. | A failure of the server, such as a database that does not answer. A refusal, such as a wrong password, is `ok`. | 5 ms to 5 s |
 | `workspaces`, the workspace use cases | The use case, such as `create_workspace` or `accept_invitation`. | A failure of the server. A refusal of the rules, such as `last_owner` or `member_limit`, is `ok`. | 5 ms to 5 s |
 | `pages`, the page use cases | The use case, such as `create_page` or `share_page`. | A failure of the server. A refusal of the rules is `ok`. | 5 ms to 5 s |
+| `databases`, the database use cases | The use case, such as `create_row`, `query`, `update_property` or `follow`, the check of a live feed's access. | A failure of the server. A refusal of the rules, an invalid value or filter, or a type change that would lose values is `ok`. | 5 ms to 5 s |
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
 
@@ -110,7 +111,10 @@ The live documents keep their own gauges, set as they change rather than sampled
 `neon_sync_live_documents`, the page documents held in memory, and
 `neon_sync_open_connections`, the open WebSocket connections. [Real-time
 sync](/docs/architecture/realtime/#metrics) lists them with the histogram of message sizes
-and the counters of messages and disconnects.
+and the counters of messages and disconnects. The database feeds keep theirs likewise:
+`neon_databases_open_connections`, and the counters of [database
+feeds](/docs/architecture/realtime/#database-feeds). No log line or span holds a property's
+value: they carry ids and counts.
 
 ## Traces
 

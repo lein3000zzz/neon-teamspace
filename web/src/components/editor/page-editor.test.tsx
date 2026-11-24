@@ -12,6 +12,7 @@ import { afterClose, FRAGMENT, syncServer } from "./connection";
 import { collaborator } from "./cursor";
 
 const PATH = `/w/design/p/${PAGE_IDS.roadmap}`;
+const DATABASE_ID = "0193a5b2-0000-7000-8000-0000000000d1";
 
 /** The connection's state, as the page says it. */
 async function indicator(text: string, timeout = 1000) {
@@ -63,6 +64,21 @@ describe("the live editor", () => {
     await waitFor(async () => expect(await content()).toHaveTextContent("Kick-off on Monday"));
     blocks.insert(1, [paragraph("block-2", "Retro on Friday")]);
     await waitFor(async () => expect(await content()).toHaveTextContent("Retro on Friday"));
+  });
+
+  it("draws a database block as a placeholder that names its database", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [database("block-1", DATABASE_ID), database("block-2", "")]);
+    renderApp(PATH);
+
+    const region = await screen.findByRole("region", { name: "Page content" });
+    expect(await within(region).findByText(DATABASE_ID)).toBeInTheDocument();
+    expect(await within(region).findByText("none chosen yet")).toBeInTheDocument();
+    expect(within(region).getAllByText("Database")).toHaveLength(2);
   });
 
   it("says when the connection dropped, and when it is back", async () => {
@@ -335,5 +351,15 @@ function paragraph(id: string, text: string): Y.XmlElement {
   const container = new Y.XmlElement("blockContainer");
   container.setAttribute("id", id);
   container.insert(0, [inline]);
+  return container;
+}
+
+/** A database block, in the structure BlockNote keeps blocks in. */
+function database(id: string, databaseId: string): Y.XmlElement {
+  const element = new Y.XmlElement("database");
+  element.setAttribute("databaseId", databaseId);
+  const container = new Y.XmlElement("blockContainer");
+  container.setAttribute("id", id);
+  container.insert(0, [element]);
   return container;
 }

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE up (start, id, depth) AS (\n               SELECT id, id, 0 FROM pages WHERE id = ANY($1)\n             UNION ALL\n               SELECT u.start, p.parent_id, u.depth + 1\n               FROM up u JOIN pages p ON p.id = u.id\n               WHERE p.parent_id IS NOT NULL AND u.depth < $3\n           ), best AS (\n               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 END) AS rank\n               FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2\n               GROUP BY u.start\n           )\n           SELECT p.id AS \"id!\", p.workspace_id AS \"workspace_id!\", p.teamspace_id,\n                  p.owner_id, p.parent_id, p.position AS \"position!\", p.title AS \"title!\",\n                  p.icon, p.cover, p.font AS \"font!\", p.small_text AS \"small_text!\",\n                  p.full_width AS \"full_width!\", p.created_by, p.last_edited_by,\n                  p.created_at AS \"created_at!\", p.updated_at AS \"updated_at!\",\n                  p.content_updated_at AS \"content_updated_at!\", p.trashed_at, p.trashed_by,\n                  p.trashed_with, w.role AS \"workspace_role?\", t.access AS \"teamspace_access?\",\n                  m.role AS \"teamspace_role?\", b.rank AS \"shared?\"\n           FROM pages p\n           LEFT JOIN workspace_members w ON w.workspace_id = p.workspace_id AND w.user_id = $2\n           LEFT JOIN teamspaces t ON t.id = p.teamspace_id\n           LEFT JOIN teamspace_members m ON m.teamspace_id = p.teamspace_id AND m.user_id = $2\n           LEFT JOIN best b ON b.start = p.id\n           WHERE p.id = ANY($1)",
+  "query": "SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,\n                  p.created_by, p.last_edited_by, p.created_at, p.updated_at,\n                  p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,\n                  r.number,\n                  CASE WHEN $4::text[] IS NULL THEN r.cells\n                       ELSE COALESCE((SELECT jsonb_object_agg(k.key, r.cells -> k.key)\n                                      FROM unnest($4::text[]) AS k (key)\n                                      WHERE r.cells ? k.key), '{}'::jsonb)\n                  END AS \"cells!\",\n                  s.access AS \"shared?\"\n           FROM database_rows r\n           JOIN pages p ON p.id = r.page_id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3\n           WHERE r.database_id = $1 AND p.trashed_with IS NOT DISTINCT FROM $2\n             AND ($5::uuid[] IS NULL OR r.page_id = ANY($5::uuid[]))\n           ORDER BY p.position, p.id",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "workspace_id!",
+        "name": "workspace_id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "teamspace_id",
         "type_info": "Uuid",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "owner_id",
         "type_info": "Uuid",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "parent_id",
         "type_info": "Uuid",
         "origin": {
@@ -59,8 +70,8 @@
         }
       },
       {
-        "ordinal": 5,
-        "name": "position!",
+        "ordinal": 6,
+        "name": "position",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -70,8 +81,8 @@
         }
       },
       {
-        "ordinal": 6,
-        "name": "title!",
+        "ordinal": 7,
+        "name": "title",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "icon",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "cover",
         "type_info": "Text",
         "origin": {
@@ -103,8 +114,8 @@
         }
       },
       {
-        "ordinal": 9,
-        "name": "font!",
+        "ordinal": 10,
+        "name": "font",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -114,8 +125,8 @@
         }
       },
       {
-        "ordinal": 10,
-        "name": "small_text!",
+        "ordinal": 11,
+        "name": "small_text",
         "type_info": "Bool",
         "origin": {
           "Table": {
@@ -125,8 +136,8 @@
         }
       },
       {
-        "ordinal": 11,
-        "name": "full_width!",
+        "ordinal": 12,
+        "name": "full_width",
         "type_info": "Bool",
         "origin": {
           "Table": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_by",
         "type_info": "Uuid",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_edited_by",
         "type_info": "Uuid",
         "origin": {
@@ -158,8 +169,8 @@
         }
       },
       {
-        "ordinal": 14,
-        "name": "created_at!",
+        "ordinal": 15,
+        "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
@@ -169,8 +180,8 @@
         }
       },
       {
-        "ordinal": 15,
-        "name": "updated_at!",
+        "ordinal": 16,
+        "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
@@ -180,8 +191,8 @@
         }
       },
       {
-        "ordinal": 16,
-        "name": "content_updated_at!",
+        "ordinal": 17,
+        "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "trashed_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "trashed_by",
         "type_info": "Uuid",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "trashed_with",
         "type_info": "Uuid",
         "origin": {
@@ -224,78 +235,69 @@
         }
       },
       {
-        "ordinal": 20,
-        "name": "workspace_role?",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "workspace_members",
-            "name": "role"
-          }
-        }
-      },
-      {
         "ordinal": 21,
-        "name": "teamspace_access?",
-        "type_info": "Text",
+        "name": "number",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "teamspaces",
-            "name": "access"
+            "table": "database_rows",
+            "name": "number"
           }
         }
       },
       {
         "ordinal": 22,
-        "name": "teamspace_role?",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "teamspace_members",
-            "name": "role"
-          }
-        }
+        "name": "cells!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       },
       {
         "ordinal": 23,
         "name": "shared?",
-        "type_info": "Int4",
-        "origin": "Expression"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "access"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "UuidArray",
         "Uuid",
-        "Int4"
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "UuidArray"
       ]
     },
     "nullable": [
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
+      false,
+      false,
+      false,
       true,
       true,
       true,
       false,
+      false,
       true,
-      true
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      null,
+      false
     ]
   },
-  "hash": "98b064adff3737c59ec8e873f22a9bf7d36006ba2f33f484b26d59f5129cf380"
+  "hash": "2b8e9b9653dfe36a6b43b42eaedc381abb87563b54ae11a950230052986c0e4c"
 }

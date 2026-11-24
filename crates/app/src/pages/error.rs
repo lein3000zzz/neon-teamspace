@@ -22,6 +22,11 @@ pub enum PageError {
     AlreadyShared,
     #[error("the page is among your favorites already")]
     AlreadyFavorite,
+    #[error(
+        "a database holds at most {} rows out of the trash",
+        neon_domain::databases::MAX_ROWS
+    )]
+    TooManyRows,
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("{0}")]
@@ -39,6 +44,7 @@ impl PageError {
             Self::TooDeep => "too_deep",
             Self::AlreadyShared => "already_shared",
             Self::AlreadyFavorite => "already_favorite",
+            Self::TooManyRows => "too_many_rows",
             Self::Database(_) | Self::Internal(_) => "internal",
         }
     }

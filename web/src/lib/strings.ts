@@ -1097,6 +1097,10 @@ export const strings = {
     editor: {
       label: "Page content",
       loading: "Loading the editor…",
+      database: {
+        label: "Database",
+        none: "none chosen yet",
+      },
       states: {
         connecting: "Connecting",
         connected: "Connected",

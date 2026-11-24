@@ -5,7 +5,8 @@ description: What Neon Teamspace keeps in Postgres, how its SQL is checked, how 
 
 Everything Neon Teamspace keeps lasting is in one Postgres 18 database: settings, the job
 queue, accounts, sessions, invites, workspaces with their members, teamspaces, invitations
-and invite links, pages with their shares and favorites, and, as it arrives, their content.
+and invite links, pages with their shares and favorites, and, as it arrives, their content,
+and databases with their properties, views and rows' values.
 There is no
 cache server and no message broker beside it. Attachments are the one exception, **planned**:
 they go to local disk or an S3-compatible store, as files are better kept outside the
@@ -58,6 +59,23 @@ separate step. Each runs in its own transaction, and Postgres records which have
 Migrations only go forward. Nobody edits a released one; a change is a new migration.
 There are no down migrations, as no SQL can bring back the data a schema change dropped.
 To go back, restore the backup taken before the upgrade.
+
+## Databases
+
+A database and its rows are rows of `pages`, of kinds `database` and `row`; their own data is
+beside them. `databases` holds each database's next row number, which only grows, so a number
+is never given twice. `database_properties` and `database_views` hold the properties and
+views, each with its settings as the domain rules write them, in a `jsonb` column, and its
+position among the others, ordered as pages are. `database_rows` holds each row's number and
+its `cells`: a `jsonb` object of values by property id.
+
+A change to a row's values sets and removes single keys of `cells` in one statement,
+`(cells || $set) - $removed`, so two changes to different properties never undo one another,
+and of two changes to one property the last to commit wins. Queries read every row of a
+database at once, by its `database_id`, and the domain rules filter, sort and group them,
+which is why a database holds at most 10,000; a unique index on the database and the number
+finds a row by its unique id. Unique indexes also keep one title, at most one unique id, and
+names apart ignoring case.
 
 ## IDs
 

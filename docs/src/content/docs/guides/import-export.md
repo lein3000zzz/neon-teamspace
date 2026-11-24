@@ -12,7 +12,7 @@ zip that one export writes imports back as the same pages with the same markdown
 Both work in the web app, as [below](#in-the-web-app), and through the API.
 :::
 
-The markdown is GitHub's, with a small extension for toggles and media blocks, as
+The markdown is GitHub's, with a small extension for toggles, media blocks and databases, as
 [Page documents](/docs/architecture/documents/#markdown) lists. Some things a page holds have
 no markdown, such as colours, and an export leaves them out; that page lists them too.
 
@@ -156,7 +156,8 @@ into markdown, and what markdown loses of the content is listed on
 | Files and folders a zip lists, those left out included | 2000 |
 | How many folders deep a file is | 32 |
 | Pages one import makes | 1000 |
-| Pages one export holds | 5000 |
+| Pages one export holds, rows of databases aside | 5000 |
+| Rows of databases one export holds besides its pages | 10,000 |
 | Markdown one export holds, before it is zipped | 128 MiB |
 | How long an import or export takes, after the upload | 20 seconds |
 | Imports and exports running at once on the server, once their file is uploaded | 4 |

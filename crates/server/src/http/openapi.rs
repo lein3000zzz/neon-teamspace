@@ -32,6 +32,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
+        (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),
         (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )
 )]
@@ -141,6 +142,11 @@ mod tests {
             "/api/v1/teamspaces/{id}/pages",
             "/api/v1/pages/{id}/shares",
             "/api/v1/account/favorites",
+            "/api/v1/workspaces/{id}/databases",
+            "/api/v1/databases/{id}",
+            "/api/v1/databases/{id}/query",
+            "/api/v1/databases/{id}/rows/{unique_id}",
+            "/api/v1/rows/{id}/move",
         ] {
             assert!(paths.iter().any(|known| known == path), "{path} is missing");
         }
