@@ -55,7 +55,7 @@ metrics-util.workspace = true
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 # WebSocket clients for the real-time sync's tests, the version axum's server side uses.
-tokio-tungstenite = "0.29.0"
+tokio-tungstenite = "0.30.0"
 tower = { workspace = true, features = ["util"] }
 yrs.workspace = true
 # Zips to import, and to read exports with, in the import and export tests.
