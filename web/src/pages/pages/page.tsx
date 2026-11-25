@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ImagePlus, Smile, Star, UserPlus } from "lucide-react";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { ImagePlus, Maximize2, Smile, Star, UserPlus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { databaseQuery } from "@/api/databases";
 import { hasCode } from "@/api/errors";
 import { keys } from "@/api/keys";
 import {
@@ -19,6 +20,8 @@ import {
 import { teamspacesQuery } from "@/api/teamspaces";
 import { ConnectionClosed, ConnectionIndicator } from "@/components/editor/connection-indicator";
 import { STARTING, type Connection } from "@/components/editor/connection-state";
+import { DatabaseView } from "@/components/databases/database-view";
+import { RowProperties } from "@/components/databases/row-properties";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { CoverBand, CoverPicker } from "@/components/pages/cover-picker";
@@ -32,6 +35,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { useMe } from "@/components/shell/signed-in";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { edits, mayShare } from "@/lib/page-rules";
 import { titleOf } from "@/lib/page-tree";
@@ -42,13 +46,33 @@ const PageEditor = lazy(() => import("@/components/editor/page-editor"));
 const copy = strings.pages.page;
 
 /**
+ * What a page's address says beside the page: the view a database shows, and
+ * the row shown beside it, a peek, when one is open.
+ */
+export type PageSearch = { view?: string; peek?: string };
+
+const ROUTE = "/_app/w/$slug/p/$pageId";
+
+/**
  * A page: the way down to it, its cover, icon and title, and its content in
- * the live editor. A page the user may not see answers not found, as one that
- * does not exist would; one in the trash shows only to its editors, with the
- * way back out.
+ * the live editor; a database's views, for a database; a row's properties
+ * above its content, for a row. A page the user may not see answers not
+ * found, as one that does not exist would; one in the trash shows only to its
+ * editors, with the way back out. A row opened beside the page shows in a
+ * panel over its side.
  */
 export function PageView() {
-  const { pageId } = useParams({ from: "/_app/w/$slug/p/$pageId" });
+  const { pageId } = useParams({ from: ROUTE });
+  const { peek } = useSearch({ from: ROUTE });
+  return (
+    <>
+      <PageById key={pageId} pageId={pageId} />
+      {peek !== undefined && <RowPeek rowId={peek} />}
+    </>
+  );
+}
+
+function PageById({ pageId }: { pageId: string }) {
   const workspace = useWorkspace();
   const page = useQuery(pageQuery(workspace.id, pageId));
 
@@ -73,7 +97,13 @@ export function PageView() {
   return <PageScreen key={page.data.id} page={page.data} />;
 }
 
-function PageScreen({ page }: { page: Page }) {
+type PageScreenProps = {
+  page: Page;
+  /** Shown beside a database, as a peek: the tab keeps its title, and the page offers its own. */
+  peek?: boolean;
+};
+
+function PageScreen({ page, peek = false }: PageScreenProps) {
   const workspace = useWorkspace();
   const me = useMe();
   const queryClient = useQueryClient();
@@ -87,12 +117,15 @@ function PageScreen({ page }: { page: Page }) {
   const set = (body: UpdatePage) => update.mutate(body);
 
   useEffect(() => {
+    if (peek) {
+      return;
+    }
     const before = document.title;
     document.title = documentTitle(page);
     return () => {
       document.title = before;
     };
-  }, [page]);
+  }, [page, peek]);
 
   const onAccessChanged = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: keys.page(workspace.id, page.id) });
@@ -103,22 +136,33 @@ function PageScreen({ page }: { page: Page }) {
     <article
       data-page-font={page.style.font}
       {...(page.style.small_text ? { "data-small-text": "" } : {})}
-      {...(page.style.full_width ? { "data-page-width": "full" } : {})}
+      {...(page.style.full_width || page.kind === "database" ? { "data-page-width": "full" } : {})}
       className="grid gap-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <Breadcrumbs page={page} />
         <div className="flex flex-wrap items-center gap-1">
-          <ConnectionIndicator
-            connection={connection}
-            readOnly={!editable || connection.access === "view"}
-          />
+          {peek && (
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/w/$slug/p/$pageId" params={{ slug: workspace.slug, pageId: page.id }}>
+                <Maximize2 aria-hidden />
+                {strings.databases.peek.openFull}
+              </Link>
+            </Button>
+          )}
+          {page.kind !== "database" && (
+            <ConnectionIndicator
+              connection={connection}
+              readOnly={!editable || connection.access === "view"}
+            />
+          )}
           {!trashed && <FavoriteToggle page={page} />}
           {!trashed && mayShare(workspace.role, page.access) && <ShareButton page={page} />}
           {editable && (
             <StyleMenu
               style={page.style}
               disabled={update.isPending}
+              widthChoice={page.kind !== "database"}
               onChange={(style) => set({ style })}
             />
           )}
@@ -183,19 +227,100 @@ function PageScreen({ page }: { page: Page }) {
         )}
       </header>
 
-      <Suspense fallback={<Loading label={strings.pages.editor.loading} />}>
-        {/* Access changes in place: the same document goes on, read-only or not. */}
-        <PageEditor
-          key={`${page.id}:${generation}`}
-          pageId={page.id}
-          editable={editable}
-          user={{ id: me.id, name: me.display_name, hue: me.hue }}
-          onConnection={setConnection}
-          onAccessChanged={onAccessChanged}
-          focusRef={focusContent}
-        />
-      </Suspense>
+      {page.kind === "row" && <RowProperties page={page} />}
+      {page.kind === "database" ? (
+        <DatabaseBody page={page} />
+      ) : (
+        <Suspense fallback={<Loading label={strings.pages.editor.loading} />}>
+          {/* Access changes in place: the same document goes on, read-only or not. */}
+          <PageEditor
+            key={`${page.id}:${generation}`}
+            pageId={page.id}
+            editable={editable}
+            user={{ id: me.id, name: me.display_name, hue: me.hue }}
+            onConnection={setConnection}
+            onAccessChanged={onAccessChanged}
+            focusRef={focusContent}
+          />
+        </Suspense>
+      )}
     </article>
+  );
+}
+
+/**
+ * A database's page below its title: its views, the one the address names in
+ * view, or its first. Its page's title and icon are the page's as they are
+ * typed, before the database is read again.
+ */
+function DatabaseBody({ page }: { page: Page }) {
+  const workspace = useWorkspace();
+  const { view } = useSearch({ from: ROUTE });
+  const navigate = useNavigate({ from: "/w/$slug/p/$pageId" });
+  const database = useQuery(databaseQuery(workspace.id, page.id));
+  if (database.isPending) {
+    return <Loading label={strings.databases.loading} />;
+  }
+  if (database.isError) {
+    return (
+      <ErrorNotice
+        error={database.error}
+        retrying={database.isFetching}
+        onRetry={() => void database.refetch()}
+      />
+    );
+  }
+  return (
+    <div style={{ paddingLeft: "var(--page-inset)" }}>
+      <DatabaseView
+        database={{ ...database.data, page }}
+        viewId={view}
+        onViewChange={(next) =>
+          void navigate({ search: (previous) => ({ ...previous, view: next }), replace: true })
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * A row beside the page that shows its database, in a panel over the page's
+ * side: the row's page as it is on its own, with the way to open it so.
+ * Closing it, or Escape, goes back to the database where it was.
+ */
+function RowPeek({ rowId }: { rowId: string }) {
+  const workspace = useWorkspace();
+  const navigate = useNavigate({ from: "/w/$slug/p/$pageId" });
+  const page = useQuery(pageQuery(workspace.id, rowId));
+  const close = () =>
+    void navigate({
+      search: (previous) => {
+        const next = { ...previous };
+        delete next.peek;
+        return next;
+      },
+    });
+  const title = page.data === undefined ? strings.pages.untitled : titleOf(page.data);
+  return (
+    <Sheet open onOpenChange={(open) => !open && close()}>
+      <SheetContent side="right" closeLabel={strings.databases.peek.close}>
+        <SheetTitle className="sr-only">{strings.databases.peek.label(title)}</SheetTitle>
+        <div className="mt-10 pr-3">
+          {page.isPending && <Loading />}
+          {page.isError &&
+            (hasCode(page.error, "not_found") ? (
+              <p className="text-sm text-muted-foreground">{copy.notFoundLede}</p>
+            ) : (
+              <ErrorNotice
+                error={page.error}
+                retrying={page.isFetching}
+                onRetry={() => void page.refetch()}
+              />
+            ))}
+          {page.data !== undefined && <PageScreen key={page.data.id} page={page.data} peek />}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

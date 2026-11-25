@@ -4,7 +4,10 @@ import { Dialog as SheetPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { Button } from "./button";
 
-/** A modal panel that slides in from the left edge: the sidebar on narrow screens. */
+/**
+ * A modal panel that slides in from an edge: from the left, the sidebar on
+ * narrow screens; from the right, a row opened beside its database.
+ */
 function Sheet(props: ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
 }
@@ -20,14 +23,28 @@ function SheetTitle({ className, ...props }: ComponentProps<typeof SheetPrimitiv
 type SheetContentProps = ComponentProps<typeof SheetPrimitive.Content> & {
   /** Accessible name of the close button. */
   closeLabel: string;
+  /** The edge it slides in from. */
+  side?: "left" | "right";
 };
+
+const sides = {
+  left: "inset-y-0 left-0 w-[min(18rem,85vw)] border-r safe-top-3 pr-3 safe-bottom-4 safe-left-3 data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
+  right:
+    "inset-y-0 right-0 w-[min(46rem,92vw)] border-l safe-top-3 safe-right-3 safe-bottom-4 pl-3 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+} as const;
 
 /**
  * Focus is trapped inside while open and returns to the trigger on close;
  * Escape, the close button and a tap on the scrim all dismiss it. The panel
  * pads itself clear of the safe area on the three edges it touches.
  */
-function SheetContent({ className, children, closeLabel, ...props }: SheetContentProps) {
+function SheetContent({
+  className,
+  children,
+  closeLabel,
+  side = "left",
+  ...props
+}: SheetContentProps) {
   return (
     <SheetPrimitive.Portal>
       <SheetPrimitive.Overlay
@@ -39,7 +56,8 @@ function SheetContent({ className, children, closeLabel, ...props }: SheetConten
         // The title names the panel; there is no separate description.
         aria-describedby={undefined}
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(18rem,85vw)] flex-col overflow-y-auto overscroll-contain border-r border-border bg-raised safe-top-3 pr-3 safe-bottom-4 safe-left-3 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:animate-in data-[state=open]:slide-in-from-left",
+          "fixed z-50 flex flex-col overflow-y-auto overscroll-contain border-border bg-raised data-[state=closed]:animate-out data-[state=open]:animate-in",
+          sides[side],
           className,
         )}
         {...props}
