@@ -244,12 +244,19 @@ function CreatedToken({
   );
 }
 
-/** Where a token works: every workspace, or the one it is bound to, by name. */
+/**
+ * Where a token works: every workspace, or the one it is bound to, by name
+ * once the user's workspaces come; one they have left since is not among
+ * them, and the token works nowhere until they are back.
+ */
 function worksIn(token: ApiToken, workspaces: readonly WorkspaceSummary[] | undefined): string {
   if (token.workspace_id === undefined || token.workspace_id === null) {
     return copy.everywhere;
   }
-  return workspaces?.find((workspace) => workspace.id === token.workspace_id)?.name ?? "…";
+  if (workspaces === undefined) {
+    return "…";
+  }
+  return workspaces.find((workspace) => workspace.id === token.workspace_id)?.name ?? copy.left;
 }
 
 function TokenCard({ token }: { token: ApiToken }) {

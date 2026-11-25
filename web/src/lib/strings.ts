@@ -341,6 +341,7 @@ export const strings = {
       worksInHint:
         "Bound to one workspace, it works there alone: on no other workspace, your account or the admin routes.",
       everywhere: "Every workspace",
+      left: "A workspace you are no longer in: it works nowhere until you are back",
       expires: "Expires",
       expiresHint: "Optional: it stops at the end of that day. Blank never expires.",
       submit: "Make token",

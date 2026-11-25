@@ -112,6 +112,25 @@ describe("API tokens", () => {
     expect(everywhere.getByText("Every workspace")).toBeInTheDocument();
   });
 
+  it("says when a token's workspace is one the user left", async () => {
+    fakeWorkspaces();
+    tokens([
+      {
+        ...deploy,
+        name: "Bound",
+        workspace_id: "0193a5b2-0000-7000-8000-00000000a0ff",
+      },
+    ]);
+    renderApp("/account/tokens");
+
+    const bound = within((await screen.findByText("Bound")).closest("li") as HTMLElement);
+    expect(
+      await bound.findByText(
+        "A workspace you are no longer in: it works nowhere until you are back",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("offers the admin scope to admins only", async () => {
     tokens();
     renderApp("/account/tokens");
