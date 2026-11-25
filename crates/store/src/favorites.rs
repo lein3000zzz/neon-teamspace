@@ -47,15 +47,20 @@ pub async fn insert(
     Ok(())
 }
 
+/// Takes a page off an account's favorites, if it is among those of `workspace_id` when
+/// that is set, and says whether it was.
 pub async fn delete(
     executor: impl PgExecutor<'_>,
     user_id: Uuid,
     page_id: Uuid,
+    workspace_id: Option<Uuid>,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query!(
-        "DELETE FROM favorites WHERE user_id = $1 AND page_id = $2",
+        "DELETE FROM favorites
+         WHERE user_id = $1 AND page_id = $2 AND ($3::uuid IS NULL OR workspace_id = $3)",
         user_id,
         page_id,
+        workspace_id,
     )
     .execute(executor)
     .await?;

@@ -26,7 +26,7 @@ use super::{
     DatabaseError, DatabaseService, DatabaseView, NO_PROPERTY, Opened, key_for, new_type,
     settings_type, shown_views,
 };
-use crate::pages::{Location, PageError, PageView, Target, actor, in_workspace, is_guest};
+use crate::pages::{Location, PageError, PageView, Target, in_workspace};
 
 /// What a new database starts with, besides its default properties and views.
 #[derive(Debug, Clone, Default)]
@@ -99,14 +99,14 @@ impl DatabaseService {
             let pages = self.pages();
             let user = principal.user.id;
             let mut tx = pages.pool().begin().await?;
-            let role = in_workspace(&mut tx, principal, workspace_id).await?;
+            let standing = in_workspace(&mut tx, principal, workspace_id).await?;
             pages_repo::lock_tree(&mut *tx, workspace_id).await?;
             let Target {
                 space,
                 parent_id,
                 depth,
             } = pages
-                .target(&mut tx, principal, workspace_id, role, location)
+                .target(&mut tx, principal, workspace_id, &standing, location)
                 .await?;
             if depth >= MAX_DEPTH {
                 return Err(PageError::TooDeep.into());
@@ -170,7 +170,7 @@ impl DatabaseService {
                 )
                 .await?;
             }
-            let members_hidden = is_guest(actor(principal, role));
+            let members_hidden = standing.members_hidden();
             let views = shown_views(
                 &schema,
                 repo::views(&mut *tx, page.id).await?,

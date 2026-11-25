@@ -207,6 +207,7 @@ impl From<WorkspaceError> for ApiError {
             WorkspaceError::AlreadyMember
             | WorkspaceError::AlreadyInvited
             | WorkspaceError::MemberLimit { .. }
+            | WorkspaceError::AgentLimit { .. }
             | WorkspaceError::LastOwner(_)
             | WorkspaceError::LastTeamspaceOwner(_)
             | WorkspaceError::SlugTaken

@@ -160,7 +160,15 @@ Each token has scopes:
 |---|---|
 | `read` | `GET` requests. Every scope brings it. |
 | `write` | Every other method on the routes the user may use. |
-| `admin` | The `/api/v1/admin` routes. Only an admin's token may have it. |
+| `admin` | The `/api/v1/admin` routes. Only an admin's token may have it. For a token bound to a workspace, that workspace's admin work instead. |
+
+A token works across the instance unless it is bound to one workspace the user is in, with
+`workspace_id` when it is made: then it works on that workspace's routes and sockets alone,
+and is refused on another workspace, the account's routes but its own workspace's
+favorites, and the admin routes. Its `admin` scope is for the workspace's owners and admins;
+see
+[tokens bound to one workspace](/docs/guides/agents/#tokens-bound-to-one-workspace). An
+agent's tokens, which its owner makes, are always bound to the agent's workspace.
 
 A token never does more than its owner's role allows. When an admin stops being one, their
 tokens lose the `admin` scope at once. Tokens cannot change passwords, end sessions, or make

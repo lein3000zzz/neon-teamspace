@@ -417,16 +417,69 @@ fn states_of(update: &AwarenessUpdate) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// An awareness state as the server passes one on for `who`, with no cursor.
+/// An awareness state as the server passes one on for `who`, a person, with no cursor.
 fn presence_of(who: &Principal) -> serde_json::Value {
     serde_json::json!({
         "user": {
             "id": who.user.id.to_string(),
             "name": who.user.display_name,
             "hue": who.user.hue(),
+            "kind": "human",
         },
         "cursor": null,
     })
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_s_presence_says_what_it_is_and_whom_it_acts_for(pool: PgPool) {
+    let t = team(pool).await;
+    let workspace =
+        t.h.workspaces
+            .list_workspaces(&t.ada)
+            .await
+            .expect("listed")[0]
+            .0
+            .id;
+    let scout = t.h.agent(&t.ada, workspace, "Scout").await;
+    let (_, worker) = t.h.agent_token(&t.ada, &scout, &["write"]).await;
+    let sync = t.sync(quick());
+    let mut agent = Client::open(&sync, &worker, t.page, "scout").await;
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    // It claims to be a person.
+    let mut claimed = Awareness::new(Doc::with_client_id(31));
+    claimed
+        .set_local_state(serde_json::json!({
+            "user": {"name": "Ada", "kind": "human"},
+            "cursor": null,
+        }))
+        .expect("set");
+    agent
+        .send(&Message::Awareness(claimed.update().expect("an update")))
+        .await
+        .expect("taken");
+
+    let heard = dee
+        .until("Scout's presence", |message| {
+            matches!(message, Message::Awareness(_))
+        })
+        .await;
+    let Message::Awareness(update) = heard else {
+        unreachable!()
+    };
+    assert_eq!(
+        states_of(&update),
+        [serde_json::json!({
+            "user": {
+                "id": scout.id.to_string(),
+                "name": "Scout",
+                "hue": scout.hue(),
+                "kind": "agent",
+                "owner": t.ada.user.display_name,
+            },
+            "cursor": null,
+        })]
+    );
+    sync.shutdown().await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

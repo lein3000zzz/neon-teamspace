@@ -1,21 +1,25 @@
 import type { GroupKey, Property } from "@/api/databases";
-import type { Person } from "@/api/workspaces";
 import { optionOf } from "@/lib/database-rules";
+import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { PersonName } from "./cell-value";
 import { OptionChip } from "./option-chip";
 
-/** What a group is called: its option, its person, or the rows without a value. */
+/**
+ * What a group is called: its option, its person, an agent with whom it acts
+ * for, or the rows without a value.
+ */
 export function groupName(
   property: Property,
   key: GroupKey,
-  people: ReadonlyMap<string, Person>,
+  people: ReadonlyMap<string, Someone>,
 ): string {
   if (key === null) {
     return strings.databases.group.noValue(property.name);
   }
   if (property.type === "person") {
-    return people.get(key)?.display_name ?? strings.databases.cells.someone;
+    const person = people.get(key);
+    return person === undefined ? strings.databases.cells.someone : attribution(person);
   }
   return optionOf(property, key)?.name ?? key;
 }
@@ -30,7 +34,7 @@ export function groupHue(property: Property, key: GroupKey): number | undefined 
 type GroupLabelProps = {
   property: Property;
   groupKey: GroupKey;
-  people: ReadonlyMap<string, Person>;
+  people: ReadonlyMap<string, Someone>;
 };
 
 /** A group's name as its heading shows it: an option's pill, a person in their hue, or plain words. */

@@ -9,18 +9,19 @@ use std::collections::HashMap;
 
 use neon_domain::auth::Principal;
 use neon_domain::pages::{PageAccess, PageKind, Space};
-use neon_domain::workspaces::{Action, Actor, PageSpace};
-use neon_store::pages::{self as repo, PageFacts, TreeNode};
-use neon_store::{teamspaces, workspaces};
+use neon_domain::workspaces::{Action, PageSpace};
+use neon_store::pages::{self as repo, TreeNode};
+use neon_store::teamspaces;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::operations::{in_workspace, teamspace_space};
 use super::{
-    NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, access_of, actor, check_space,
-    hide_parents, is_guest, seen,
+    Facts, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, Seat, access_of,
+    check_space, hide_parents,
 };
+use crate::standing::Standing;
 
 /// The most pages a list answers with at once, and how many unless told fewer.
 pub const MAX_LIST: i64 = 1000;
@@ -82,10 +83,15 @@ impl PageService {
                 .await?
                 .ok_or(PageError::NotFound(NO_TEAMSPACE))?;
             let workspace_id = teamspace.workspace_id;
-            let role = workspaces::member_role(&mut *conn, workspace_id, user).await?;
-            let actor = actor(principal, role);
+            let standing = Standing::read(&mut conn, principal, workspace_id).await?;
             let space = teamspace_space(&mut conn, workspace_id, teamspace_id, user).await?;
-            check_space(actor, space, Action::ListPages, NO_TEAMSPACE)?;
+            let theirs = match standing.owner_id() {
+                Some(owner) => {
+                    teamspace_space(&mut conn, workspace_id, teamspace_id, owner).await?
+                }
+                None => space,
+            };
+            check_space(&standing, space, theirs, Action::ListPages, NO_TEAMSPACE)?;
             let nodes = repo::space_tree(
                 &mut *conn,
                 workspace_id,
@@ -95,7 +101,8 @@ impl PageService {
                 limit + 1,
             )
             .await?;
-            Ok(tree(nodes, limit, |_| Some(space), actor))
+            let owners = OwnerSeats::read(&mut conn, &standing, &nodes, |_| Some(theirs)).await?;
+            Ok(tree(nodes, limit, |_| Some(space), &standing, &owners))
         })
         .await
     }
@@ -113,15 +120,17 @@ impl PageService {
             let cursor = cursor.map(tree_cursor).transpose()?;
             let user = principal.user.id;
             let mut conn = self.pool().acquire().await?;
-            let actor = actor(
-                principal,
-                in_workspace(&mut conn, principal, workspace_id).await?,
-            );
+            let standing = in_workspace(&mut conn, principal, workspace_id).await?;
             let space = PageSpace::Private { own: true };
-            check_space(actor, space, Action::ListPages, NO_WORKSPACE)?;
+            // An agent's owner may not see its private pages, so it lists none.
+            let theirs = PageSpace::Private {
+                own: standing.owner_id().is_none(),
+            };
+            check_space(&standing, space, theirs, Action::ListPages, NO_WORKSPACE)?;
             let nodes =
                 repo::space_tree(&mut *conn, workspace_id, user, user, cursor, limit + 1).await?;
-            Ok(tree(nodes, limit, |_| Some(space), actor))
+            let owners = OwnerSeats::read(&mut conn, &standing, &nodes, |_| Some(theirs)).await?;
+            Ok(tree(nodes, limit, |_| Some(space), &standing, &owners))
         })
         .await
     }
@@ -142,26 +151,23 @@ impl PageService {
             let cursor = cursor.map(tree_cursor).transpose()?;
             let user = principal.user.id;
             let mut conn = self.pool().acquire().await?;
-            let actor = actor(
-                principal,
-                in_workspace(&mut conn, principal, workspace_id).await?,
-            );
+            let standing = in_workspace(&mut conn, principal, workspace_id).await?;
             let nodes =
                 repo::shared_tree(&mut *conn, workspace_id, user, cursor, limit + 1).await?;
-            let mut spaces = HashMap::new();
-            for node in &nodes {
-                if let Space::Teamspace(id) = node.space
-                    && !spaces.contains_key(&id)
-                {
-                    let space = teamspace_space(&mut conn, workspace_id, id, user).await?;
-                    spaces.insert(id, space);
-                }
-            }
-            let space_of = |space: Space| match space {
-                Space::Teamspace(id) => spaces.get(&id).copied(),
-                Space::Private { owner } => Some(PageSpace::Private { own: owner == user }),
+            let mine = spaces_of(&mut conn, workspace_id, &nodes, user).await?;
+            let theirs = match standing.owner_id() {
+                Some(owner) => spaces_of(&mut conn, workspace_id, &nodes, owner).await?,
+                None => mine.clone(),
             };
-            Ok(tree(nodes, limit, space_of, actor))
+            let owners =
+                OwnerSeats::read(&mut conn, &standing, &nodes, |space| theirs.get(space)).await?;
+            Ok(tree(
+                nodes,
+                limit,
+                |space| mine.get(space),
+                &standing,
+                &owners,
+            ))
         })
         .await
     }
@@ -185,15 +191,13 @@ impl PageService {
                 for _ in 0..TRASH_ROUNDS {
                     let batch = repo::trashed(&mut *conn, workspace_id, after, limit).await?;
                     let exhausted = i64::try_from(batch.len()).unwrap_or(i64::MAX) < limit;
-                    let facts = facts_by_id(&mut conn, &batch, principal).await?;
+                    let ids: Vec<Uuid> = batch.iter().map(|page| page.id).collect();
+                    let mut seen = Facts::read(&mut conn, principal, &ids)
+                        .await?
+                        .seen(principal)?;
                     for page in batch {
                         after = page.trashed_at.map(|at| (at, page.id));
-                        if let Some(view) = facts
-                            .get(&page.id)
-                            .map(|f| seen(principal, f))
-                            .transpose()?
-                            .flatten()
-                        {
+                        if let Some(view) = seen.remove(&page.id).flatten() {
                             list.pages.push(view);
                             if i64::try_from(list.pages.len()).unwrap_or(i64::MAX) == limit {
                                 list.next = after.map(|(at, id)| trash_position(at, id));
@@ -214,27 +218,95 @@ impl PageService {
     }
 }
 
-/// The facts of each page of `pages` for the principal, by id.
-async fn facts_by_id(
-    conn: &mut PgConnection,
-    pages: &[neon_domain::pages::Page],
-    principal: &Principal,
-) -> Result<HashMap<Uuid, PageFacts>, PageError> {
-    let ids: Vec<Uuid> = pages.iter().map(|page| page.id).collect();
-    Ok(repo::facts(&mut *conn, &ids, principal.user.id)
-        .await?
-        .into_iter()
-        .map(|facts| (facts.page.id, facts))
-        .collect())
+/// The space each page of a tree is in, as `user` stands to it, by the space's id.
+#[derive(Clone)]
+struct Spaces {
+    user: Uuid,
+    teamspaces: HashMap<Uuid, PageSpace>,
 }
 
-/// The nodes of a tree with what the actor may do with each, the `limit` first, and where
-/// the rest start, when there are more.
+impl Spaces {
+    fn get(&self, space: Space) -> Option<PageSpace> {
+        match space {
+            Space::Teamspace(id) => self.teamspaces.get(&id).copied(),
+            Space::Private { owner } => Some(PageSpace::Private {
+                own: owner == self.user,
+            }),
+        }
+    }
+}
+
+async fn spaces_of(
+    conn: &mut PgConnection,
+    workspace_id: Uuid,
+    nodes: &[TreeNode],
+    user: Uuid,
+) -> Result<Spaces, PageError> {
+    let mut teamspaces = HashMap::new();
+    for node in nodes {
+        if let Space::Teamspace(id) = node.space
+            && !teamspaces.contains_key(&id)
+        {
+            teamspaces.insert(
+                id,
+                teamspace_space(&mut *conn, workspace_id, id, user).await?,
+            );
+        }
+    }
+    Ok(Spaces { user, teamspaces })
+}
+
+/// Where an agent's owner stands to each page of a tree, by page id; empty for a person,
+/// who stands where the tree says.
+struct OwnerSeats(Option<HashMap<Uuid, Seat>>);
+
+impl OwnerSeats {
+    async fn read(
+        conn: &mut PgConnection,
+        standing: &Standing,
+        nodes: &[TreeNode],
+        space_of: impl Fn(Space) -> Option<PageSpace>,
+    ) -> Result<Self, PageError> {
+        let Some(owner) = standing.owner_id() else {
+            return Ok(Self(None));
+        };
+        let ids: Vec<Uuid> = nodes.iter().map(|node| node.id).collect();
+        let shares: HashMap<Uuid, Option<PageAccess>> = repo::facts(&mut *conn, &ids, owner)
+            .await?
+            .into_iter()
+            .map(|facts| (facts.page.id, facts.shared))
+            .collect();
+        Ok(Self(Some(
+            nodes
+                .iter()
+                .filter_map(|node| {
+                    let space = space_of(node.space)?;
+                    Some((node.id, (space, shares.get(&node.id).copied().flatten())))
+                })
+                .collect(),
+        )))
+    }
+
+    /// Where the owner stands to a node the principal stands to as `mine`.
+    fn of(&self, node: &TreeNode, mine: Seat) -> Seat {
+        match &self.0 {
+            None => mine,
+            Some(seats) => seats
+                .get(&node.id)
+                .copied()
+                .unwrap_or((PageSpace::Private { own: false }, None)),
+        }
+    }
+}
+
+/// The nodes of a tree with what the principal may do with each, the `limit` first, and
+/// where the rest start, when there are more.
 fn tree(
     mut nodes: Vec<TreeNode>,
     limit: i64,
     space_of: impl Fn(Space) -> Option<PageSpace>,
-    actor: Actor,
+    standing: &Standing,
+    owners: &OwnerSeats,
 ) -> Tree {
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let more = nodes.len() > limit;
@@ -245,7 +317,8 @@ fn tree(
     let pages = nodes
         .into_iter()
         .filter_map(|node| {
-            let access = access_of(actor, space_of(node.space)?, node.shared)?;
+            let mine = (space_of(node.space)?, node.shared);
+            let access = access_of(standing, mine, owners.of(&node, mine))?;
             Some(TreePage {
                 id: node.id,
                 kind: node.kind,
@@ -255,7 +328,7 @@ fn tree(
                 icon: node.icon,
                 child_count: node.child_count,
                 access,
-                members_hidden: is_guest(actor),
+                members_hidden: standing.members_hidden(),
             })
         })
         .collect();

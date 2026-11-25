@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspaces\n         SET name = $2, slug = $3, icon = $4, hue = $5, members_can_create_teamspaces = $6,\n             agents_enabled = $7, agent_creation = $8, updated_at = $9\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int2",
+        "Bool",
+        "Bool",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e31898b9ef5d3e4e0586c9c547f0d5a340f29f20f64aeae507baddcf6c3d2c2"
+}

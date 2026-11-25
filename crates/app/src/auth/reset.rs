@@ -106,7 +106,7 @@ impl AuthService {
             if ended > 0 {
                 self.ended(user_id);
             }
-            Ok(user.email.as_str().to_owned())
+            Ok(user.address().to_owned())
         })
         .await
     }

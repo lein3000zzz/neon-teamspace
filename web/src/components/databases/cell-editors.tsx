@@ -8,7 +8,6 @@ import {
   type RefObject,
 } from "react";
 import { useChangeProperty, type Property, type PropertyOption } from "@/api/databases";
-import type { Person } from "@/api/workspaces";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { fieldStyles, Input } from "@/components/ui/input";
@@ -28,6 +27,7 @@ import {
   URL_SCHEMES,
   type DateValue,
 } from "@/lib/database-rules";
+import { assignable, attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { PersonName } from "./cell-value";
 import { useDatabaseScope } from "./database-scope";
@@ -567,22 +567,34 @@ export function DateEditor({ value, label, onSave, onClose, commitRef }: EditorP
   );
 }
 
-/** The workspace's members to pick from, found by typing; each toggles, and saves at once. */
+/**
+ * The workspace's people and agents to pick from, found by typing, an agent
+ * by its name or its owner's; each toggles, and saves at once. Integrations
+ * are given no work, and the deleted none either.
+ */
 export function PersonEditor({ value, label, onSave, onClose }: EditorProps) {
   const { people } = useDatabaseScope();
   const [query, setQuery] = useState("");
   const listId = useId();
   const chosen = idsOf(value);
   const needle = query.trim().toLowerCase();
-  const everyone: Person[] = [...people.values()].toSorted((a, b) =>
-    a.display_name.localeCompare(b.display_name),
-  );
-  const shown =
-    needle === ""
-      ? everyone
-      : everyone.filter((person) =>
-          `${person.display_name} ${person.email}`.toLowerCase().includes(needle),
-        );
+  const everyone: Someone[] = [...people.values()]
+    .filter(assignable)
+    .toSorted((a, b) => a.display_name.localeCompare(b.display_name));
+  // Those chosen once who can no longer be, a deleted agent or someone who
+  // left, come first, to be taken off.
+  const offered = new Set(everyone.map((person) => person.id));
+  const former = chosen
+    .filter((id) => !offered.has(id))
+    .map((id) => ({ id, person: people.get(id) }));
+  const matches = (person: Someone | undefined) =>
+    needle === "" ||
+    (person !== undefined &&
+      `${attribution(person)} ${person.email ?? ""}`.toLowerCase().includes(needle));
+  const shown = [
+    ...former.filter((entry) => matches(entry.person)),
+    ...everyone.filter(matches).map((person) => ({ id: person.id, person })),
+  ];
   const toggle = (id: string) => {
     const next = chosen.includes(id) ? chosen.filter((entry) => entry !== id) : [...chosen, id];
     onSave(next.length === 0 ? null : next);
@@ -604,14 +616,14 @@ export function PersonEditor({ value, label, onSave, onClose }: EditorProps) {
         }}
       />
       <ul id={listId} aria-label={label} className="grid max-h-64 gap-0.5 overflow-y-auto">
-        {shown.map((person) => {
-          const selected = chosen.includes(person.id);
+        {shown.map(({ id, person }) => {
+          const selected = chosen.includes(id);
           return (
-            <li key={person.id}>
+            <li key={id}>
               <button
                 type="button"
                 aria-pressed={selected}
-                onClick={() => toggle(person.id)}
+                onClick={() => toggle(id)}
                 className="flex min-h-(--tap-sm) w-full items-center gap-2 rounded-md px-2 text-left hover:bg-accent"
               >
                 <PersonName person={person} />

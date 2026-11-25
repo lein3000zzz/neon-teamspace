@@ -4,6 +4,7 @@
 //! function takes an executor: `&PgPool` for a single statement, or `&mut *tx` to run
 //! inside the caller's transaction, so the caller decides what commits together.
 
+pub mod agents;
 pub mod api_tokens;
 pub mod databases;
 pub mod documents;

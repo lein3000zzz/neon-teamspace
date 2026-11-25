@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * List the caller's favorite pages
-         * @description Those they may see and that are out of the trash, in their order.
+         * @description Those they may see and that are out of the trash, in their order. For a token bound to a workspace, that workspace's alone.
          */
         get: operations["list_favorites"];
         put?: never;
@@ -249,7 +249,7 @@ export interface paths {
         put?: never;
         /**
          * Create an API token
-         * @description Its secret is in this answer only; the server keeps its hash. A token never does more than its owner's role allows. Only from a browser session.
+         * @description Its secret is in this answer only; the server keeps its hash. A token never does more than its owner's role allows, and one bound to a workspace works there alone. Only from a browser session.
          */
         post: operations["create_token"];
         delete?: never;
@@ -1398,6 +1398,122 @@ export interface paths {
         patch: operations["update_workspace"];
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a workspace's agents
+         * @description Its agents and integrations, deleted ones too, with their owners and whether they work. For everyone in the workspace but guests.
+         */
+        get: operations["list_agents"];
+        put?: never;
+        /**
+         * Make an agent
+         * @description Makes an agent that the caller owns, a member of the workspace and of its default teamspace. While agents are on, on the instance and in the workspace, for whom the workspace lets make them, never a guest or an agent, and within its agent limit.
+         */
+        post: operations["create_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An agent
+         * @description An agent or integration of the workspace, deleted or not. For everyone in the workspace but guests.
+         */
+        get: operations["get_agent"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an agent
+         * @description For its owner and the workspace's owners and admins. It leaves the workspace, its tokens are revoked and its open connections close; what it made still names it. Deleting one deleted already does nothing.
+         */
+        delete: operations["delete_agent"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename or recolour an agent
+         * @description Changes what the body names, for the agent's owner.
+         */
+        patch: operations["update_agent"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/agents/{agent_id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an agent's tokens
+         * @description Without their secrets. For its owner and the workspace's owners and admins.
+         */
+        get: operations["list_agent_tokens"];
+        put?: never;
+        /**
+         * Make an agent's token
+         * @description A token that acts as the agent, for its owner, bound to the workspace: whatever it does, the agent may do and its owner may too. Its secret is in this answer only; the server keeps its hash. For the agent's owner, from a browser session, while the agent works.
+         */
+        post: operations["create_agent_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/agents/{agent_id}/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an agent's token
+         * @description It stops working at once, and the connections it opened close. For the agent's owner and the workspace's owners and admins, from a browser session.
+         */
+        delete: operations["revoke_agent_token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/agents/{agent_id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hand an agent to someone else
+         * @description Makes another person of the workspace, not a guest and not disabled, its owner, for the workspace's owners and admins. It acts for them from then on, which resumes it if it was suspended; its tokens, which its former owner made, are revoked.
+         */
+        post: operations["transfer_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/databases": {
         parameters: {
             query?: never;
@@ -1909,6 +2025,47 @@ export interface components {
             next?: string | null;
             workspaces: components["schemas"]["AdminWorkspace"][];
         };
+        /** @description An agent or integration of a workspace. */
+        Agent: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            deleted_at?: string | null;
+            /**
+             * Format: int32
+             * @description The hue it is drawn in, 0 to 359: the one pinned, or else its id's.
+             * @example 160
+             */
+            hue: number;
+            /** Format: int32 */
+            hue_override?: number | null;
+            /** Format: uuid */
+            id: string;
+            /** @description `agent` or `integration`. */
+            kind: components["schemas"]["UserKind"];
+            /** @example Scout */
+            name: string;
+            owner?: components["schemas"]["Owner"] | null;
+            status: components["schemas"]["AgentStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /**
+         * @description Who makes agents in a workspace: its owners and admins, or every member but guests.
+         * @enum {string}
+         */
+        AgentCreation: "admins" | "members";
+        AgentList: {
+            /** @description Those not deleted first, each group by name. */
+            agents: components["schemas"]["Agent"][];
+        };
+        /**
+         * @description Whether an agent or integration works now, and why not.
+         * @enum {string}
+         */
+        AgentStatus: "active" | "suspended" | "disabled" | "deleted";
         /** @description An API token, without its secret. */
         ApiToken: {
             /** Format: date-time */
@@ -1930,6 +2087,12 @@ export interface components {
              */
             prefix: string;
             scopes: components["schemas"]["Scope"][];
+            /**
+             * Format: uuid
+             * @description The one workspace it works in; absent for a token that works across the instance.
+             *     An agent's is always its workspace.
+             */
+            workspace_id?: string | null;
         };
         ApiTokenList: {
             /** @description Oldest first. */
@@ -2016,6 +2179,32 @@ export interface components {
          * @enum {string}
          */
         Cover: "accent" | "accent-gradient" | "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "violet" | "pink" | "sunrise" | "lagoon" | "aurora" | "dusk";
+        CreateAgent: {
+            /**
+             * Format: int64
+             * @description The hue to pin, 0 to 359; absent, its id's.
+             */
+            hue_override?: number | null;
+            /**
+             * @description 1 to 100 characters.
+             * @example Scout
+             */
+            name: string;
+        };
+        CreateAgentToken: {
+            /**
+             * Format: date-time
+             * @description After now; absent for a token that never expires.
+             */
+            expires_at?: string | null;
+            /**
+             * @description 1 to 64 characters.
+             * @example Hermes on the build box
+             */
+            name: string;
+            /** @description `read`, `write` or both; never `admin`. */
+            scopes: components["schemas"]["Scope"][];
+        };
         CreateApiToken: {
             /**
              * Format: date-time
@@ -2027,8 +2216,20 @@ export interface components {
              * @example CI deploys
              */
             name: string;
-            /** @description At least one; admin only for an admin. */
+            /**
+             * @description At least one. Admin, for a token across the instance, only for an instance admin,
+             *     for its admin pages' work; for a token bound to a workspace, only for its owners and
+             *     admins, for that workspace's admin work alone.
+             */
             scopes: components["schemas"]["Scope"][];
+            /**
+             * Format: uuid
+             * @description Binds the token to one workspace the caller is in: it works on that workspace's
+             *     routes and sockets alone, and on no other workspace, the caller's account but that
+             *     workspace's favorites, or the instance admins' routes. Absent, it works across the
+             *     instance.
+             */
+            workspace_id?: string | null;
         };
         CreateDatabase: {
             icon?: string | null;
@@ -2262,7 +2463,10 @@ export interface components {
         };
         /** @description The limits that hold for a workspace; absent is no limit. */
         EffectiveLimits: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The most agents and integrations, together.
+             */
             agents?: number | null;
             /**
              * Format: int64
@@ -2578,7 +2782,14 @@ export interface components {
         Member: {
             /** Format: date-time */
             joined_at: string;
+            /** @description An agent's or integration's is always member. */
             role: components["schemas"]["WorkspaceRole"];
+            /**
+             * @description An agent or integration whose owner is out of the workspace, a guest there or
+             *     disabled: its tokens are refused until that ends, or it is handed to someone else.
+             *     Never a person.
+             */
+            suspended: boolean;
             user: components["schemas"]["Person"];
         };
         MemberList: {
@@ -2650,6 +2861,18 @@ export interface components {
             id?: string | null;
             /** @description 1 to 100 characters, unique in the property, ignoring case. */
             name: string;
+        };
+        /** @description The person an agent or integration acts for. */
+        Owner: {
+            /** @example Ada Lovelace */
+            display_name: string;
+            /**
+             * Format: int32
+             * @example 250
+             */
+            hue: number;
+            /** Format: uuid */
+            id: string;
         };
         /** @description A page, without its content, and what the caller may do with it. */
         Page: {
@@ -2756,12 +2979,21 @@ export interface components {
          * @enum {string}
          */
         Palette: "nothing" | "soft" | "warm";
-        /** @description An account as the people it works with see it. */
+        /**
+         * @description A person as the people they work with see them, or an agent or integration with the
+         *     person it acts for: shown as `Scout · via Ada Lovelace`.
+         */
         Person: {
-            /** @example Ada Lovelace */
+            /**
+             * @description A person's name, or an agent's or integration's.
+             * @example Ada Lovelace
+             */
             display_name: string;
-            /** @example ada@example.com */
-            email: string;
+            /**
+             * @description A person's address; absent for an agent or integration, which has none.
+             * @example ada@example.com
+             */
+            email?: string | null;
             /**
              * Format: int32
              * @description The hue they are drawn in, 0 to 359.
@@ -2770,6 +3002,8 @@ export interface components {
             hue: number;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["UserKind"];
+            owner?: components["schemas"]["Owner"] | null;
         };
         /**
          * @description Where a page goes among its siblings: `"first"`, `"last"`, `{"after": id}` or
@@ -3097,11 +3331,11 @@ export interface components {
             /** @example auth.registration */
             key: string;
             /**
-             * @description `bool`, `integer`, `string`, `enum`, `duration` or `secret`.
+             * @description `bool`, `integer`, `string`, `enum`, `duration`, `set` or `secret`.
              * @example enum
              */
             kind: string;
-            /** @description An enum's options. */
+            /** @description An enum's options, or those a set picks from. */
             options?: string[] | null;
             /** @description Set by the environment or the config file, so it cannot change here. */
             pinned: boolean;
@@ -3294,6 +3528,13 @@ export interface components {
             /** @description The token in the link. */
             token: string;
         };
+        TransferAgent: {
+            /**
+             * Format: uuid
+             * @description The person of the workspace, not a guest, who owns it from now on.
+             */
+            owner_id: string;
+        };
         TransferOwnership: {
             /**
              * Format: uuid
@@ -3341,6 +3582,18 @@ export interface components {
          * @enum {string}
          */
         UiFont: "default" | "mono";
+        UpdateAgent: {
+            /**
+             * Format: int64
+             * @description 0 to 359; null goes back to the id's hue.
+             */
+            hue_override?: number | null;
+            /**
+             * @description 1 to 100 characters.
+             * @example Scout
+             */
+            name?: string | null;
+        };
         UpdateMe: {
             /**
              * @description At most 100 characters; blank takes the address's local part.
@@ -3362,8 +3615,8 @@ export interface components {
         };
         UpdateSettings: {
             /**
-             * @description By key: the new value, as JSON of the setting's type, or null to go back to the
-             *     default.
+             * @description By key: the new value, as JSON of the setting's type, a list of options for a set,
+             *     or null to go back to the default.
              */
             changes: Record<string, never>;
         };
@@ -3386,6 +3639,12 @@ export interface components {
             role?: components["schemas"]["Role"] | null;
         };
         UpdateWorkspace: {
+            agent_creation?: components["schemas"]["AgentCreation"] | null;
+            /**
+             * @description Turns the workspace's agents on or off. Off, none is made and every agent's tokens
+             *     are refused, its open connections closed.
+             */
+            agents_enabled?: boolean | null;
             /**
              * Format: int64
              * @description 0 to 359; null goes back to the id's hue.
@@ -3398,7 +3657,7 @@ export interface components {
             /** @description A new name leaves the slug as it is; this changes it. */
             slug?: string | null;
         };
-        /** @description An account. */
+        /** @description A person's account. */
         User: {
             /** Format: date-time */
             created_at: string;
@@ -3433,6 +3692,11 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description What an identity is: a person, or an agent or integration acting for one.
+         * @enum {string}
+         */
+        UserKind: "human" | "agent" | "integration";
         /** @description A page of accounts in the order they were made. */
         UserPage: {
             /**
@@ -3478,17 +3742,38 @@ export interface components {
         };
         /** @description A workspace the caller is in. */
         Workspace: components["schemas"]["WorkspaceSummary"] & {
+            agents: components["schemas"]["WorkspaceAgents"];
             limits: components["schemas"]["EffectiveLimits"];
             /**
              * Format: int64
-             * @description How many people are in it, guests included. Absent for a guest, who knows of no
-             *     member but themselves.
+             * @description How many people are in it, guests included, agents and integrations left out.
+             *     Absent for a guest, who knows of no member but themselves.
              */
             member_count?: number | null;
             /** @description Members, besides owners and admins, may create teamspaces. */
             members_can_create_teamspaces: boolean;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description A workspace's agents as a whole: whether they work, and who makes them. */
+        WorkspaceAgents: {
+            /**
+             * @description Whether the instance has agents at all, as the setting `mcp.identities` says. Off,
+             *     none is made and their tokens are refused, whatever the workspace says.
+             */
+            available: boolean;
+            /**
+             * Format: int64
+             * @description How many agents and integrations it has, deleted ones left out. Absent for a
+             *     guest.
+             */
+            count?: number | null;
+            creation: components["schemas"]["AgentCreation"];
+            /**
+             * @description Whether the workspace has its agents on. Off, none is made and their tokens are
+             *     refused.
+             */
+            enabled: boolean;
         };
         WorkspaceLimits: {
             agents: components["schemas"]["Limit"];
@@ -3845,7 +4130,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3895,7 +4180,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3961,7 +4246,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4017,7 +4302,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4077,7 +4362,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4191,7 +4476,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4251,7 +4536,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4298,7 +4583,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4449,7 +4734,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4509,8 +4794,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: not a browser session, or the admin scope for a user who is no admin. */
+            /** @description forbidden: not a browser session, or the admin scope for a user who is no admin, or of the workspace bound to. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: a workspace to bind to that the caller is not in. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8492,7 +8786,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description token_bound: a token bound to a workspace; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8570,7 +8864,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description token_bound: a token bound to a workspace; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8686,7 +8980,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: only instance admins create workspaces here; or insufficient_scope. */
+            /** @description token_bound: a token bound to a workspace; or forbidden: only instance admins create workspaces here; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8907,6 +9201,610 @@ export interface operations {
             };
             /** @description slug_taken. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgent"];
+            };
+        };
+        responses: {
+            /** @description The agent. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: agents are off, or the caller may not make them; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description agent_limit: the workspace has as many agents and integrations as its limit allows. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgent"];
+            };
+        };
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not its owner, or it is deleted; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_agent_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentToken"];
+            };
+        };
+        responses: {
+            /** @description The token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedApiToken"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not its owner, not a browser session, the admin scope, or the agent does not work now; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_agent_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+                /** @description The token's id. */
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not its owner, an owner or an admin, or not a browser session. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    transfer_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferAgent"];
+            };
+        };
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description invalid_input: not a person, a guest, or a disabled account. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not an owner or admin, or it is deleted; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such agent or member. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

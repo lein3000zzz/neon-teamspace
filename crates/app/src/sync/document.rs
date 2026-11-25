@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_domain::auth::UserKind;
 use neon_domain::pages::PageAccess;
 use neon_store::documents::{self, Edited, LoggedUpdate, NewSnapshot, NewUpdate, Snapshot};
 use tokio::sync::{mpsc, oneshot};
@@ -76,14 +77,19 @@ pub(crate) struct Joining {
 }
 
 /// Who a connection is, as the server writes it into the `user` field of every awareness
-/// state it sends: the account's id, display name and hue. Whatever the client put there
-/// is replaced, so nobody shows under another person's name, and nothing but these three
-/// reaches the others' editors, which draw cursors from them.
+/// state it sends: the account's id, display name, hue and kind and, for an agent or
+/// integration, the name of the person it acts for. Whatever the client put there is
+/// replaced, so nobody shows under another person's name, nor an agent as a person, and
+/// nothing but these reaches the others' editors, which draw cursors from them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Presence {
     pub(crate) id: Uuid,
     pub(crate) name: String,
     pub(crate) hue: u16,
+    pub(crate) kind: UserKind,
+    /// The owner's display name, for an agent or integration whose owner's account is
+    /// still there.
+    pub(crate) owner: Option<String>,
 }
 
 impl Presence {
@@ -95,10 +101,16 @@ impl Presence {
         let Some(fields) = state.as_object_mut() else {
             return Ok(json.into());
         };
-        fields.insert(
-            "user".to_owned(),
-            serde_json::json!({"id": self.id.to_string(), "name": self.name, "hue": self.hue}),
-        );
+        let mut user = serde_json::json!({
+            "id": self.id.to_string(),
+            "name": self.name,
+            "hue": self.hue,
+            "kind": self.kind.as_str(),
+        });
+        if let Some(owner) = &self.owner {
+            user["owner"] = serde_json::Value::from(owner.as_str());
+        }
+        fields.insert("user".to_owned(), user);
         Ok(state.to_string().into())
     }
 }

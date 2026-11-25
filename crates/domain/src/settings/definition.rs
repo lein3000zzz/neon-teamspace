@@ -90,6 +90,15 @@ impl SettingType for Duration {
     }
 }
 
+impl SettingType for [String] {
+    fn from_value(value: &Value) -> Option<&Self> {
+        match value {
+            Value::List(items) => Some(items),
+            _ => None,
+        }
+    }
+}
+
 impl SettingType for Secret {
     fn from_value(value: &Value) -> Option<&Self> {
         match value {
@@ -146,6 +155,21 @@ impl Definition {
             key.name(),
             Kind::Enum(options),
             Value::String(default.to_owned()),
+            description,
+        )
+    }
+
+    /// Some of `options`; the default names some of them too.
+    pub fn set(
+        key: Key<[String]>,
+        options: &'static [&'static str],
+        default: &'static [&'static str],
+        description: &'static str,
+    ) -> Self {
+        Self::new(
+            key.name(),
+            Kind::Set(options),
+            Value::List(default.iter().map(|item| (*item).to_owned()).collect()),
             description,
         )
     }

@@ -21,8 +21,11 @@ use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{Broadcaster, LocalBroadcaster};
-use neon_app::workspaces::{NewWorkspace, WorkspaceDetails, WorkspaceService};
-use neon_domain::auth::{Email, Principal, Role, User};
+use neon_app::workspaces::{
+    AgentService, NewAgent, NewWorkspace, WorkspaceDetails, WorkspaceService,
+};
+use neon_domain::agents::Agent;
+use neon_domain::auth::{Email, Principal, Role, User, UserKind};
 use neon_domain::settings::{Pinned, Secret};
 use neon_domain::workspaces::WorkspaceRole;
 use serde_json::{Value as Json, json};
@@ -135,6 +138,7 @@ pub struct Harness {
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
+    pub agents: AgentService,
     pub pages: PageService,
     pub databases: DatabaseService,
     pub mail: MailQueue,
@@ -228,6 +232,7 @@ impl Harness {
             pool,
             settings,
             auth,
+            agents: AgentService::new(workspaces.clone()),
             workspaces,
             pages,
             databases,
@@ -255,16 +260,19 @@ impl Harness {
         let now = self.time.clock().now();
         let user = User {
             id: Uuid::now_v7(),
+            kind: UserKind::Human,
             display_name: email.local_part().to_owned(),
-            email,
+            email: Some(email.clone()),
             role,
             hue_override: None,
             email_verified_at: Some(now),
             disabled_at: None,
             created_at: now,
             updated_at: now,
+            workspace_id: None,
+            owner_id: None,
         };
-        neon_store::users::insert(&self.pool, &user, &hash)
+        neon_store::users::insert(&self.pool, &user, &email, &hash)
             .await
             .expect("the account is saved");
         user
@@ -327,13 +335,49 @@ impl Harness {
     ) {
         let sent = self
             .workspaces
-            .invite(by, workspace_id, who.user.email.as_str(), role)
+            .invite(by, workspace_id, who.user.address(), role)
             .await
             .expect("invited");
         self.workspaces
             .accept_invitation(who, sent.invitation.id)
             .await
             .expect("accepted");
+    }
+
+    /// An agent `owner` makes in a workspace, named `name`.
+    pub async fn agent(&self, owner: &Principal, workspace_id: Uuid, name: &str) -> Agent {
+        self.agents
+            .create_agent(
+                owner,
+                workspace_id,
+                NewAgent {
+                    name: name.to_owned(),
+                    hue: None,
+                },
+            )
+            .await
+            .expect("the agent is made")
+    }
+
+    /// A token its owner makes for an agent, with `scopes`, and the principal it
+    /// authenticates as.
+    pub async fn agent_token(
+        &self,
+        owner: &Principal,
+        agent: &Agent,
+        scopes: &[&str],
+    ) -> (Secret, Principal) {
+        let (secret, _) = self
+            .agents
+            .create_agent_token(owner, agent.workspace_id, agent.id, "worker", None, scopes)
+            .await
+            .expect("the token is made");
+        let principal = self
+            .auth
+            .authenticate_token(secret.expose())
+            .await
+            .expect("the token works");
+        (secret, principal)
     }
 
     pub async fn scalar<T>(&self, query: &'static str) -> T

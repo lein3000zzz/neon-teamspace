@@ -1,8 +1,7 @@
 import { cn } from "cn";
 import { Check } from "lucide-react";
 import type { Property } from "@/api/databases";
-import type { Person } from "@/api/workspaces";
-import { HueDot } from "@/components/nodes/hue-dot";
+import { PersonLabel } from "@/components/people/person-label";
 import {
   formatDate,
   formatNumber,
@@ -12,16 +11,15 @@ import {
   type DateValue,
 } from "@/lib/database-rules";
 import { formatDateTime } from "@/lib/format";
+import type { Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { useDateFormat } from "./date-format";
 import { OptionChip } from "./option-chip";
 
-const copy = strings.databases.cells;
-
 type CellValueProps = {
   property: Property;
   value: unknown;
-  people: ReadonlyMap<string, Person>;
+  people: ReadonlyMap<string, Someone>;
   /** On one line, cut short, as a table cell shows it; else wrapping, as a card does. */
   inline?: boolean;
 };
@@ -105,12 +103,15 @@ function DateText({ propertyId, value }: { propertyId: string; value: DateValue 
   return <span>{formatDate(value, useDateFormat(propertyId))}</span>;
 }
 
-/** A person a value names, in their hue; one the user does not know is someone. */
-export function PersonName({ person }: { person: Person | undefined }) {
+/**
+ * A person a value names, in their hue, an agent with whom it acts for; one
+ * the user does not know is someone.
+ */
+export function PersonName({ person }: { person: Someone | undefined }) {
   return (
-    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-border px-2 py-px text-xs leading-5">
-      <HueDot {...(person === undefined ? {} : { hue: person.hue })} className="size-1.5" />
-      <span className="truncate">{person?.display_name ?? copy.someone}</span>
-    </span>
+    <PersonLabel
+      person={person}
+      className="rounded-full border border-border px-2 py-px text-xs leading-5"
+    />
   );
 }

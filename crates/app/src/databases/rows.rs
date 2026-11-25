@@ -283,15 +283,27 @@ impl DatabaseService {
                 .await?
                 .into_iter()
                 .collect();
-            let shared = opened.context.chain[0].shared;
+            let context = &opened.context;
+            let owner_shares: HashMap<Uuid, PageAccess> = match context.standing.owner_id() {
+                Some(owner) => neon_store::page_shares::of_pages(&mut *conn, &ids, owner)
+                    .await?
+                    .into_iter()
+                    .collect(),
+                None => HashMap::new(),
+            };
+            let (shared, owner_shared) = (context.chain[0].shared, context.chain[0].owner_shared);
             let rows = part
                 .iter()
                 .map(|entry| {
                     let listed = &listed[entry.row];
+                    let theirs = match context.standing.owner_id() {
+                        Some(_) => owner_shared.max(owner_shares.get(&listed.page.id).copied()),
+                        None => shared.max(listed.shared),
+                    };
                     let access = access_of(
-                        opened.context.actor,
-                        opened.context.space,
-                        shared.max(listed.shared),
+                        &context.standing,
+                        (context.space, shared.max(listed.shared)),
+                        (context.owner_space, theirs),
                     )
                     .unwrap_or(PageAccess::View);
                     let stored = StoredRow {
@@ -813,10 +825,15 @@ async fn check_people(
         return Ok(());
     }
     let ids: Vec<Uuid> = added.iter().copied().collect();
-    let members: HashSet<Uuid> = repo::members_among(&mut *conn, context.page().workspace_id, &ids)
-        .await?
-        .into_iter()
-        .collect();
+    let members = repo::members_among(&mut *conn, context.page().workspace_id, &ids).await?;
+    if members.iter().any(|(_, kind)| !kind.assignable()) {
+        return Err(DatabaseError::InvalidInput(
+            "a person property names people and agents: an integration only delivers what \
+             its webhook's sender posts"
+                .to_owned(),
+        ));
+    }
+    let members: HashSet<Uuid> = members.into_iter().map(|(id, _)| id).collect();
     if members != added {
         return Err(DatabaseError::InvalidInput(
             "a person property names members of the workspace".to_owned(),

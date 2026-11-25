@@ -2,7 +2,9 @@
 //!
 //! Every route needs a browser session or an API token: `read` for `GET`, `write` for the
 //! rest. A favorite the caller may no longer see, or one in the trash, stays saved but is
-//! left out of the list, and comes back with the access.
+//! left out of the list, and comes back with the access. Unlike the account's other routes,
+//! these take a token bound to one workspace, which reaches that workspace's favorites
+//! alone: the others are not there for it, as for a page that is no favorite.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -34,7 +36,8 @@ pub struct ListFavorites {
     path = "/account/favorites",
     tag = "account",
     summary = "List the caller's favorite pages",
-    description = "Those they may see and that are out of the trash, in their order.",
+    description = "Those they may see and that are out of the trash, in their order. For a \
+                   token bound to a workspace, that workspace's alone.",
     params(ListFavorites),
     responses(
         (status = OK, description = "The pages.", body = FavoriteList),

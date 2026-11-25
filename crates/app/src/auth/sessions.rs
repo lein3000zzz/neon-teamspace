@@ -1,11 +1,13 @@
 //! Signing in and out, and recognising a session or an API token on each request.
 
+use neon_domain::agents::IdentityMode;
 use neon_domain::auth::email::{self, MAX_EMAIL_LENGTH};
 use neon_domain::auth::password::MAX_PASSWORD_BYTES;
 use neon_domain::auth::session::{TOUCH_INTERVAL, truncate_user_agent};
-use neon_domain::auth::token::{API_TOKEN_PREFIX, effective_scopes};
+use neon_domain::auth::token::API_TOKEN_PREFIX;
 use neon_domain::auth::{Credential, Principal, Session, User};
 use neon_domain::settings::Secret;
+use neon_store::api_tokens::Found;
 use neon_store::{api_tokens, sessions, users};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -13,6 +15,7 @@ use uuid::Uuid;
 use super::{AuthError, AuthService, require_session};
 use crate::crypto::{hash_secret, new_secret};
 use crate::ratelimit::Bucket;
+use crate::settings::mcp;
 
 /// The longest session or API token read. Longer text matches nothing.
 const MAX_CREDENTIAL: usize = 128;
@@ -188,8 +191,9 @@ impl AuthService {
 
     /// The principal as its session or API token stands now, read again: with its
     /// account's current role and, for a token, the scopes that role allows. Answers
-    /// unauthenticated once the session or token ended or expired, or the account was
-    /// disabled. It does not count as a use: a session's idle expiry stays.
+    /// unauthenticated once the session or token ended or expired, the account was
+    /// disabled, or an agent's token stopped working. It does not count as a use: a
+    /// session's idle expiry stays.
     pub async fn refresh(&self, principal: &Principal) -> Result<Principal, AuthError> {
         self.observe("refresh", async {
             let now = self.now();
@@ -208,59 +212,57 @@ impl AuthService {
                         _ => Err(AuthError::Unauthenticated),
                     }
                 }
-                Credential::Token { id, .. } => {
-                    let found = api_tokens::by_id(self.pool(), *id).await?;
-                    match found {
-                        Some((token, user)) if !token.is_expired(now) && !user.is_disabled() => {
-                            let scopes = effective_scopes(&token.scopes, user.role);
-                            Ok(Principal {
-                                user,
-                                credential: Credential::Token {
-                                    id: token.id,
-                                    name: token.name,
-                                    scopes,
-                                },
-                            })
-                        }
-                        _ => Err(AuthError::Unauthenticated),
-                    }
-                }
+                Credential::Token { id, .. } => match api_tokens::by_id(self.pool(), *id).await? {
+                    Some(found) if self.token_works(&found, now) => Ok(token_principal(found)),
+                    _ => Err(AuthError::Unauthenticated),
+                },
             }
         })
         .await
     }
 
-    /// The principal of an API token, with the scopes its owner's role allows now.
+    /// The principal of an API token, with the scopes its owner's role allows now: a
+    /// person, or an agent, acting as itself for its owner. An agent's token works only
+    /// while the agent does: not deleted, its owner a member of its workspace who can sign
+    /// in, and agents on, on the instance and in the workspace.
     pub async fn authenticate_token(&self, token: &str) -> Result<Principal, AuthError> {
         self.observe("authenticate_token", async {
             if !token.starts_with(API_TOKEN_PREFIX) || token.len() > MAX_CREDENTIAL {
                 return Err(AuthError::Unauthenticated);
             }
             let found = api_tokens::by_token_hash(self.pool(), &hash_secret(token)).await?;
-            let Some((api_token, user)) = found else {
+            let Some(found) = found else {
                 return Err(AuthError::Unauthenticated);
             };
             let now = self.now();
-            if api_token.is_expired(now) || user.is_disabled() {
+            if !self.token_works(&found, now) {
                 return Err(AuthError::Unauthenticated);
             }
-            let due = api_token
+            let token = &found.token;
+            let due = token
                 .last_used_at
                 .is_none_or(|last| now - last >= TOUCH_INTERVAL);
-            if due && let Err(error) = api_tokens::touch(self.pool(), api_token.id, now).await {
-                warn!(token_id = %api_token.id, %error, "recording a token's use failed");
+            if due && let Err(error) = api_tokens::touch(self.pool(), token.id, now).await {
+                warn!(token_id = %token.id, %error, "recording a token's use failed");
             }
-            let scopes = effective_scopes(&api_token.scopes, user.role);
-            Ok(Principal {
-                user,
-                credential: Credential::Token {
-                    id: api_token.id,
-                    name: api_token.name,
-                    scopes,
-                },
-            })
+            Ok(token_principal(found))
         })
         .await
+    }
+
+    /// Whether a token works now: unexpired, its person not disabled, and its agent
+    /// working, bound to the agent's own workspace.
+    fn token_works(&self, found: &Found, now: time::OffsetDateTime) -> bool {
+        if found.token.is_expired(now) || found.user.is_disabled() {
+            return false;
+        }
+        if found.user.kind.is_human() {
+            return true;
+        }
+        let agents_on = IdentityMode::Agent.among(self.settings().get(mcp::IDENTITIES));
+        found.token.workspace_id.is_some()
+            && found.token.workspace_id == found.user.workspace_id
+            && found.standing.status(found.user.kind, agents_on).works()
     }
 
     /// The principal's sessions that have not expired, newest first.
@@ -299,5 +301,19 @@ impl AuthService {
             Ok(ended)
         })
         .await
+    }
+}
+
+/// The principal of a token that works, with the scopes its owner's role allows now.
+fn token_principal(found: Found) -> Principal {
+    let scopes = found.token.scopes_now(found.user.role);
+    Principal {
+        user: found.user,
+        credential: Credential::Token {
+            id: found.token.id,
+            name: found.token.name,
+            scopes,
+            workspace_id: found.token.workspace_id,
+        },
     }
 }

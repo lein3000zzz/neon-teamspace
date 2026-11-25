@@ -1,20 +1,21 @@
 //! Creating workspaces, listing one's own, and changing and deleting them.
 
+use neon_domain::agents::AgentCreation;
 use neon_domain::auth::Principal;
 use neon_domain::hue::check_hue;
 use neon_domain::workspaces::{
     Action, LimitOverrides, Limits, Resource, Teamspace, TeamspaceAccess, TeamspaceRole, Workspace,
-    WorkspaceRole, authorize, check_icon, check_name, check_slug, slug_base, suffixed_slug,
-    usable_as_is,
+    WorkspaceRole, check_icon, check_name, check_slug, slug_base, suffixed_slug, usable_as_is,
 };
-use neon_store::{is_unique_violation, teamspaces, workspaces as repo};
+use neon_store::{agents, is_unique_violation, teamspaces, workspaces as repo};
 use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    AccessChange, Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor,
-    locked_membership, membership,
+    AccessChange, Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, locked_membership,
+    membership,
 };
+use crate::standing::Standing;
 
 /// The name a workspace's default teamspace starts with.
 pub const DEFAULT_TEAMSPACE_NAME: &str = "General";
@@ -40,6 +41,9 @@ pub struct WorkspaceUpdate {
     pub icon: Option<Option<String>>,
     pub hue: Option<Option<i64>>,
     pub members_can_create_teamspaces: Option<bool>,
+    /// Turns its agents on or off: off, none is made and their tokens are refused.
+    pub agents_enabled: Option<bool>,
+    pub agent_creation: Option<AgentCreation>,
 }
 
 /// A workspace as one of its members sees it.
@@ -50,6 +54,10 @@ pub struct WorkspaceDetails {
     pub role: WorkspaceRole,
     /// How many people are in it; unset for a guest, who knows of no member but themselves.
     pub members: Option<i64>,
+    /// How many agents and integrations it has, deleted ones left out; unset for a guest.
+    pub agents: Option<i64>,
+    /// Whether the instance has agents at all, as the setting `mcp.identities` says.
+    pub agents_on: bool,
     pub limits: Limits,
 }
 
@@ -72,7 +80,8 @@ impl WorkspaceService {
             let instance = Resource::Instance {
                 creation: self.creation(),
             };
-            authorize(actor(principal, None), Action::CreateWorkspace, instance)
+            Standing::instance(principal)
+                .authorize_same(Action::CreateWorkspace, instance)
                 .map_err(|denied| WorkspaceError::denied(denied, NO_WORKSPACE))?;
             let name = check_name(&new.name).map_err(WorkspaceError::invalid)?;
             let icon = match new.icon {
@@ -100,6 +109,8 @@ impl WorkspaceService {
                 icon,
                 hue_override,
                 members_can_create_teamspaces: true,
+                agents_enabled: true,
+                agent_creation: AgentCreation::DEFAULT,
                 created_by: Some(user),
                 created_at: now,
                 updated_at: now,
@@ -147,10 +158,19 @@ impl WorkspaceService {
                 workspace,
                 role: WorkspaceRole::Owner,
                 members: Some(1),
+                agents: Some(0),
+                agents_on: self.agents_on(),
                 limits: self.limits(LimitOverrides::default()),
             })
         })
         .await
+    }
+
+    /// Tells those holding pages and databases open for agents to look again, once whether
+    /// agents work on the instance, the setting `mcp.identities`, may have changed: their
+    /// connections close while agents are off.
+    pub fn agents_switched(&self) {
+        self.changed(AccessChange::Agents);
     }
 
     /// Whether the principal may create a workspace now, as `workspaces.creation` says.
@@ -158,16 +178,26 @@ impl WorkspaceService {
         let instance = Resource::Instance {
             creation: self.creation(),
         };
-        authorize(actor(principal, None), Action::CreateWorkspace, instance).is_ok()
+        Standing::instance(principal)
+            .authorize_same(Action::CreateWorkspace, instance)
+            .is_ok()
     }
 
-    /// The workspaces the principal is in, with their role in each, by name.
+    /// The workspaces the principal is in, with their role in each as the rules see it, by
+    /// name: for a token bound to a workspace, that one alone.
     pub async fn list_workspaces(
         &self,
         principal: &Principal,
     ) -> Result<Vec<(Workspace, WorkspaceRole)>, WorkspaceError> {
         self.observe("list_workspaces", async {
-            Ok(repo::list_for_user(self.pool(), principal.user.id).await?)
+            Ok(repo::list_for_user(self.pool(), principal.user.id)
+                .await?
+                .into_iter()
+                .filter_map(|(workspace, role)| {
+                    let role = principal.role_in(workspace.id, Some(role))?;
+                    Some((workspace, role))
+                })
+                .collect())
         })
         .await
     }
@@ -181,8 +211,8 @@ impl WorkspaceService {
         self.observe("get_workspace", async {
             let mut conn = self.pool().acquire().await?;
             let membership = membership(&mut conn, principal, id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            self.details(&mut conn, principal, membership).await
+            membership.check(Action::ViewWorkspace)?;
+            self.details(&mut conn, membership).await
         })
         .await
     }
@@ -198,7 +228,8 @@ impl WorkspaceService {
         self.observe("update_workspace", async {
             let mut tx = self.pool().begin().await?;
             let mut membership = locked_membership(&mut tx, principal, id).await?;
-            membership.check(principal, Action::UpdateWorkspace)?;
+            membership.check(Action::UpdateWorkspace)?;
+            let agents_were = membership.workspace.agents_enabled;
             let workspace = &mut membership.workspace;
             if let Some(name) = update.name {
                 workspace.name = check_name(&name).map_err(WorkspaceError::invalid)?;
@@ -221,6 +252,12 @@ impl WorkspaceService {
             if let Some(allowed) = update.members_can_create_teamspaces {
                 workspace.members_can_create_teamspaces = allowed;
             }
+            if let Some(enabled) = update.agents_enabled {
+                workspace.agents_enabled = enabled;
+            }
+            if let Some(creation) = update.agent_creation {
+                workspace.agent_creation = creation;
+            }
             workspace.updated_at = self.now();
             repo::update(&mut *tx, workspace).await.map_err(|error| {
                 if is_unique_violation(&error, repo::SLUG_TAKEN) {
@@ -229,9 +266,16 @@ impl WorkspaceService {
                     WorkspaceError::Database(error)
                 }
             })?;
-            let details = self.details(&mut tx, principal, membership).await?;
+            let details = self.details(&mut tx, membership).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %id, "workspace updated");
+            if details.workspace.agents_enabled != agents_were {
+                // Agents' connections close, or may open again.
+                self.changed(AccessChange::Workspace {
+                    workspace_id: id,
+                    user_id: None,
+                });
+            }
             Ok(details)
         })
         .await
@@ -248,7 +292,7 @@ impl WorkspaceService {
         self.observe("delete_workspace", async {
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, id).await?;
-            membership.check(principal, Action::DeleteWorkspace)?;
+            membership.check(Action::DeleteWorkspace)?;
             if confirm_name.trim() != membership.workspace.name {
                 return Err(WorkspaceError::ConfirmationMismatch);
             }
@@ -268,21 +312,25 @@ impl WorkspaceService {
     async fn details(
         &self,
         conn: &mut sqlx::PgConnection,
-        principal: &Principal,
         membership: Membership,
     ) -> Result<WorkspaceDetails, WorkspaceError> {
         let role = membership.role()?;
         let id = membership.workspace.id;
-        let members = if membership.check(principal, Action::ListMembers).is_ok() {
-            Some(repo::count_members(&mut *conn, id).await?)
+        let (members, agents) = if membership.check(Action::ListMembers).is_ok() {
+            (
+                Some(repo::count_members(&mut *conn, id).await?),
+                Some(agents::count_live(&mut *conn, id).await?),
+            )
         } else {
-            None
+            (None, None)
         };
         let limits = self.limits_of(&mut *conn, id).await?;
         Ok(WorkspaceDetails {
             workspace: membership.workspace,
             role,
             members,
+            agents,
+            agents_on: self.agents_on(),
             limits,
         })
     }

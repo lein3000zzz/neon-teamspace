@@ -26,6 +26,7 @@ import {
   type GroupDraft,
 } from "@/lib/database-rules";
 import { useSettledSave } from "@/lib/debounce";
+import { attribution } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { useDatabaseScope } from "./database-scope";
 
@@ -378,7 +379,7 @@ function ValueInput({ property, condition: current, onChange }: ValueInputProps)
           {seesPeople &&
             [...people.values()].map((person) => (
               <option key={person.id} value={person.id}>
-                {person.display_name}
+                {attribution(person)}
               </option>
             ))}
         </NativeSelect>

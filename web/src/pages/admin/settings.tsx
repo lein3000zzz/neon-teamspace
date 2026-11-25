@@ -168,13 +168,26 @@ function sameValue(setting: Setting, value: unknown): boolean {
   if (setting.kind === "integer") {
     return String(value).trim() === String(setting.value);
   }
+  if (setting.kind === "set") {
+    return picked(value).join(",") === picked(setting.value).join(",");
+  }
   return value === setting.value;
+}
+
+/** A set's options as a value holds them; nothing for a value that is not a list. */
+function picked(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 /** A value as the settings reference writes it, for the default's line. */
 function shown(value: unknown): string {
   if (typeof value === "boolean") {
     return value ? copy.on : copy.off;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? copy.none : picked(value).join(", ");
   }
   return value === "" || value === null || value === undefined ? "—" : String(value);
 }
@@ -291,6 +304,27 @@ function SettingControl({
           <ToggleGroupItem value="off">{copy.off}</ToggleGroupItem>
         </ToggleGroup>
       );
+    case "set": {
+      const options = setting.options ?? [];
+      return (
+        <ToggleGroup
+          type="multiple"
+          aria-labelledby={labelId}
+          {...(control["aria-describedby"] === undefined
+            ? {}
+            : { "aria-describedby": control["aria-describedby"] })}
+          disabled={disabled}
+          value={picked(value)}
+          onValueChange={(next) => onChange(options.filter((option) => next.includes(option)))}
+        >
+          {options.map((option) => (
+            <ToggleGroupItem key={option} value={option}>
+              {option}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      );
+    }
     case "enum":
       return (
         <NativeSelect

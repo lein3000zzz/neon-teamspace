@@ -11,6 +11,8 @@
 //! instance admin changes nothing inside a workspace.
 
 use super::*;
+use crate::agents::AgentCreation;
+use crate::auth::UserKind;
 use crate::pages::PageAccess;
 
 const ROLES: [WorkspaceRole; 4] = [
@@ -42,11 +44,15 @@ fn expected(cells: &[&str]) -> [char; 4] {
     out
 }
 
-/// What only a browser session may do: what cannot be undone.
+/// What only a browser session may do: what cannot be undone, and managing tokens.
 fn session_only(action: Action) -> bool {
     matches!(
         action,
-        Action::DeleteWorkspace | Action::TransferOwnership | Action::DeleteAnyWorkspace
+        Action::DeleteWorkspace
+            | Action::TransferOwnership
+            | Action::DeleteAnyWorkspace
+            | Action::CreateAgentToken
+            | Action::RevokeAgentToken
     )
 }
 
@@ -78,6 +84,7 @@ fn check_members(action: Action, resource: Resource, want: [char; 4], row: &str)
                     instance_admin,
                     via_session,
                     role: Some(role),
+                    on_behalf_of: None,
                 };
                 let want = if via_session {
                     want
@@ -95,6 +102,7 @@ fn check_members(action: Action, resource: Resource, want: [char; 4], row: &str)
                 instance_admin,
                 via_session,
                 role: None,
+                on_behalf_of: None,
             };
             assert_eq!(
                 authorize(outsider, action, resource),
@@ -119,25 +127,41 @@ fn workspace_table(action: Action, table: &str) {
     }
 }
 
-/// Rows for a member of each role who is not the actor, then `self`, the actor.
+/// Rows for a person of each role who is not the actor, an agent and an integration, whose
+/// role is always member, then `self`, the actor.
 fn member_table(action: Action, table: &str) {
     let rows = rows(table);
     let labels: Vec<&str> = rows.iter().map(|row| row[0]).collect();
     assert_eq!(
         labels,
-        ["owner", "admin", "member", "guest", "self"],
+        [
+            "owner",
+            "admin",
+            "member",
+            "guest",
+            "agent",
+            "integration",
+            "self"
+        ],
         "{action:?}"
     );
-    for row in &rows[..4] {
-        let target = WorkspaceRole::parse(row[0]).expect("a role");
+    for row in &rows[..6] {
+        let (role, kind) = match UserKind::parse(row[0]) {
+            Some(kind) => (WorkspaceRole::Member, kind),
+            None => (
+                WorkspaceRole::parse(row[0]).expect("a role"),
+                UserKind::Human,
+            ),
+        };
         let resource = Resource::Member {
-            role: target,
+            role,
+            kind,
             is_actor: false,
         };
         check_members(action, resource, expected(&row[1..]), row[0]);
     }
     // The actor is a member of their own role.
-    let want = expected(&rows[4][1..]);
+    let want = expected(&rows[6][1..]);
     for instance_admin in [false, true] {
         for via_session in [true, false] {
             for (role, want) in ROLES.into_iter().zip(want) {
@@ -145,9 +169,11 @@ fn member_table(action: Action, table: &str) {
                     instance_admin,
                     via_session,
                     role: Some(role),
+                    on_behalf_of: None,
                 };
                 let resource = Resource::Member {
                     role,
+                    kind: UserKind::Human,
                     is_actor: true,
                 };
                 let want = if via_session {
@@ -238,19 +264,40 @@ fn all_actions() -> Vec<Action> {
         Action::DeletePage,
         Action::ListShares,
         Action::SharePage,
+        Action::CreateAgent,
+        Action::ViewAgent,
+        Action::UpdateAgent,
+        Action::TransferAgent,
+        Action::DeleteAgent,
+        Action::ListAgentTokens,
+        Action::CreateAgentToken,
+        Action::RevokeAgentToken,
     ];
     for role in ROLES {
         actions.push(Action::Invite { role });
         actions.push(Action::CreateInviteLink { role });
         actions.push(Action::ChangeRole { to: role });
-        actions.push(Action::AddTeamspaceMember {
-            workspace_role: role,
-        });
+    }
+    for newcomer in all_newcomers() {
+        actions.push(Action::AddTeamspaceMember { newcomer });
     }
     for access in TeamspaceAccess::ALL {
         actions.push(Action::ChangeTeamspaceAccess { to: *access });
     }
     actions
+}
+
+/// Everyone who may be added to a teamspace: a person of each role, and an agent the
+/// actor owns or not.
+fn all_newcomers() -> Vec<Newcomer> {
+    ROLES
+        .into_iter()
+        .map(Newcomer::Person)
+        .chain([
+            Newcomer::Delegate { own: false },
+            Newcomer::Delegate { own: true },
+        ])
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,6 +308,8 @@ enum Kind {
     Teamspace,
     Pages,
     Page,
+    Agents,
+    Agent,
 }
 
 fn kind(action: Action) -> Kind {
@@ -303,6 +352,14 @@ fn kind(action: Action) -> Kind {
         | Action::DeletePage
         | Action::ListShares
         | Action::SharePage => Kind::Page,
+        Action::CreateAgent => Kind::Agents,
+        Action::ViewAgent
+        | Action::UpdateAgent
+        | Action::TransferAgent
+        | Action::DeleteAgent
+        | Action::ListAgentTokens
+        | Action::CreateAgentToken
+        | Action::RevokeAgentToken => Kind::Agent,
     }
 }
 
@@ -320,8 +377,14 @@ fn all_resources() -> Vec<Resource> {
         });
     }
     for role in ROLES {
-        for is_actor in [false, true] {
-            resources.push(Resource::Member { role, is_actor });
+        for kind in UserKind::ALL {
+            for is_actor in [false, true] {
+                resources.push(Resource::Member {
+                    role,
+                    kind: *kind,
+                    is_actor,
+                });
+            }
         }
     }
     for access in TeamspaceAccess::ALL {
@@ -348,6 +411,30 @@ fn all_resources() -> Vec<Resource> {
             }
         }
     }
+    resources.extend(all_agents_resources());
+    for kind in [UserKind::Agent, UserKind::Integration] {
+        for own in [false, true] {
+            resources.push(Resource::Agent { kind, own });
+        }
+    }
+    resources
+}
+
+/// The workspace's agents with agents on or off, on the instance and in the workspace, and
+/// each who makes them.
+fn all_agents_resources() -> Vec<Resource> {
+    let mut resources = Vec::new();
+    for instance in [true, false] {
+        for workspace in [true, false] {
+            for creation in AgentCreation::ALL {
+                resources.push(Resource::Agents {
+                    instance,
+                    workspace,
+                    creation: *creation,
+                });
+            }
+        }
+    }
     resources
 }
 
@@ -359,6 +446,8 @@ fn resource_kind(resource: Resource) -> Kind {
         Resource::Teamspace { .. } => Kind::Teamspace,
         Resource::Pages { .. } => Kind::Pages,
         Resource::Page { .. } => Kind::Page,
+        Resource::Agents { .. } => Kind::Agents,
+        Resource::Agent { .. } => Kind::Agent,
     }
 }
 
@@ -445,27 +534,39 @@ fn tables() -> Vec<(Action, &'static str)> {
         (Action::RemoveTeamspaceMember, NOT_THE_DEFAULT),
         (
             Action::AddTeamspaceMember {
-                workspace_role: R::Owner,
+                newcomer: Newcomer::Person(R::Owner),
             },
             NOT_THE_DEFAULT,
         ),
         (
             Action::AddTeamspaceMember {
-                workspace_role: R::Admin,
+                newcomer: Newcomer::Person(R::Admin),
             },
             NOT_THE_DEFAULT,
         ),
         (
             Action::AddTeamspaceMember {
-                workspace_role: R::Member,
+                newcomer: Newcomer::Person(R::Member),
             },
             NOT_THE_DEFAULT,
         ),
         (
             Action::AddTeamspaceMember {
-                workspace_role: R::Guest,
+                newcomer: Newcomer::Person(R::Guest),
             },
             ADD_A_GUEST,
+        ),
+        (
+            Action::AddTeamspaceMember {
+                newcomer: Newcomer::Delegate { own: false },
+            },
+            NOT_THE_DEFAULT,
+        ),
+        (
+            Action::AddTeamspaceMember {
+                newcomer: Newcomer::Delegate { own: true },
+            },
+            ADD_OWN_AGENT,
         ),
         // Actions on a space's pages.
         (Action::ListPages, LIST_PAGES),
@@ -479,15 +580,28 @@ fn tables() -> Vec<(Action, &'static str)> {
         (Action::DeletePage, FROM_THE_TRASH),
         (Action::ListShares, LIST_SHARES),
         (Action::SharePage, SHARE_PAGE),
+        // Making agents.
+        (Action::CreateAgent, CREATE_AGENT),
+        // Actions on an agent or integration.
+        (Action::ViewAgent, VIEW_AGENT),
+        (Action::UpdateAgent, OWNER_ALONE),
+        (Action::TransferAgent, MANAGERS),
+        (Action::DeleteAgent, OWNER_OR_MANAGERS),
+        (Action::ListAgentTokens, OWNER_OR_MANAGERS),
+        (Action::CreateAgentToken, MAKE_TOKEN),
+        (Action::RevokeAgentToken, OWNER_OR_MANAGERS),
     ]
 }
 
-/// Everyone knows who is in the workspace, but guests, who know only themselves.
+/// Everyone knows who is in the workspace, agents and integrations too, but guests, who
+/// know only themselves.
 const VIEW_MEMBER: &str = "
     owner  y y y h
     admin  y y y h
     member y y y h
     guest  y y y h
+    agent       y y y h
+    integration y y y h
     self   y y y y
 ";
 
@@ -497,33 +611,42 @@ const MAKE_OWNER: &str = "
     admin  y f f h
     member y f f h
     guest  y f f h
+    agent       f f f h
+    integration f f f h
     self   y f f f
 ";
 
-/// Owners change anyone's role; admins anyone's but an owner's, their own too.
+/// Owners change anyone's role; admins anyone's but an owner's, their own too. An agent's
+/// or integration's stays member.
 const CHANGE_ROLE: &str = "
     owner  y f f h
     admin  y y f h
     member y y f h
     guest  y y f h
+    agent       f f f h
+    integration f f f h
     self   y y f f
 ";
 
-/// Nobody removes themselves: they leave.
+/// Nobody removes themselves: they leave. Agents and integrations are deleted instead.
 const REMOVE_MEMBER: &str = "
     owner  y f f h
     admin  y y f h
     member y y f h
     guest  y y f h
+    agent       f f f h
+    integration f f f h
     self   f f f f
 ";
 
-/// An owner hands ownership to anyone who is not an owner yet.
+/// An owner hands ownership to any person who is not an owner yet.
 const TRANSFER: &str = "
     owner  f f f h
     admin  y f f h
     member y f f h
     guest  y f f h
+    agent       f f f h
+    integration f f f h
     self   f f f f
 ";
 
@@ -658,6 +781,23 @@ const ADD_A_GUEST: &str = "
     private -      h h h h
     private member f f f h
     private owner  f f f h
+";
+
+/// An owner adds their agent to the teamspaces they are in, whatever their role there,
+/// and to no other, the default one aside, which every agent is in.
+const ADD_OWN_AGENT: &str = "
+    default -      f f f h
+    default member f f f h
+    default owner  f f f h
+    open    -      f f f h
+    open    member y y y h
+    open    owner  y y y h
+    closed  -      f f f h
+    closed  member y y y h
+    closed  owner  y y y h
+    private -      h h h h
+    private member y y y h
+    private owner  y y y h
 ";
 
 /// No teamspace becomes the default one.
@@ -1014,6 +1154,115 @@ const SHARE_PAGE: &str = "
     edit trashed f f f f
 ";
 
+/// Rows by whether agents are on, on the instance and in the workspace, and who makes them
+/// there: everyone but guests while agents are on, or only owners and admins.
+fn agents_table(action: Action, table: &str) {
+    let rows = rows(table);
+    let mut seen = Vec::new();
+    for row in &rows {
+        let on = |cell: &str| match cell {
+            "on" => true,
+            "off" => false,
+            other => panic!("agents are on or off: {other:?}"),
+        };
+        let resource = Resource::Agents {
+            instance: on(row[0]),
+            workspace: on(row[1]),
+            creation: AgentCreation::parse(row[2]).expect("who makes agents"),
+        };
+        seen.push(resource);
+        let label = format!(
+            "agents {} on the instance, {} here, made by {}",
+            row[0], row[1], row[2]
+        );
+        check_members(action, resource, expected(&row[3..]), &label);
+    }
+    assert_eq!(
+        seen,
+        all_agents_resources(),
+        "{action:?}: one row each, in order"
+    );
+}
+
+/// Rows `agent` and `integration`, each `mine`, owned by the actor, and `theirs`.
+fn agent_table(action: Action, table: &str) {
+    let rows = rows(table);
+    let labels: Vec<String> = rows
+        .iter()
+        .map(|row| format!("{} {}", row[0], row[1]))
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "agent mine",
+            "agent theirs",
+            "integration mine",
+            "integration theirs"
+        ],
+        "{action:?}"
+    );
+    for (row, label) in rows.iter().zip(&labels) {
+        let resource = Resource::Agent {
+            kind: UserKind::parse(row[0]).expect("a kind"),
+            own: row[1] == "mine",
+        };
+        check_members(action, resource, expected(&row[2..]), label);
+    }
+}
+
+/// Everyone but guests makes agents while agents are on everywhere, unless only owners and
+/// admins do there.
+const CREATE_AGENT: &str = "
+    on  on  admins  y y f f
+    on  on  members y y y f
+    on  off admins  f f f f
+    on  off members f f f f
+    off on  admins  f f f f
+    off on  members f f f f
+    off off admins  f f f f
+    off off members f f f f
+";
+
+/// Everyone but guests, who know of no member, sees an agent and its owner.
+const VIEW_AGENT: &str = "
+    agent       mine   y y y h
+    agent       theirs y y y h
+    integration mine   y y y h
+    integration theirs y y y h
+";
+
+/// Only its owner renames or recolours it.
+const OWNER_ALONE: &str = "
+    agent       mine   y y y h
+    agent       theirs f f f h
+    integration mine   y y y h
+    integration theirs f f f h
+";
+
+/// The workspace's owners and admins hand any agent to someone else.
+const MANAGERS: &str = "
+    agent       mine   y y f h
+    agent       theirs y y f h
+    integration mine   y y f h
+    integration theirs y y f h
+";
+
+/// Its owner, or the workspace's owners and admins.
+const OWNER_OR_MANAGERS: &str = "
+    agent       mine   y y y h
+    agent       theirs y y f h
+    integration mine   y y y h
+    integration theirs y y f h
+";
+
+/// Only its owner makes an agent's tokens; an integration has none.
+const MAKE_TOKEN: &str = "
+    agent       mine   y y y h
+    agent       theirs f f f h
+    integration mine   f f f h
+    integration theirs f f f h
+";
+
 #[test]
 fn every_action_has_exactly_one_table() {
     let actions = all_actions();
@@ -1023,7 +1272,7 @@ fn every_action_has_exactly_one_table() {
         .filter(|action| kind(**action) != Kind::Instance)
         .count();
 
-    assert_eq!(actions.len(), 54, "every action and parameter is listed");
+    assert_eq!(actions.len(), 64, "every action and parameter is listed");
     assert_eq!(tables.len(), workspace_and_below);
     for action in actions.iter().filter(|a| kind(**a) != Kind::Instance) {
         let found = tables.iter().filter(|(a, _)| a == action).count();
@@ -1041,6 +1290,8 @@ fn workspace_actions_follow_their_tables() {
             Kind::Pages => pages_table(action, table),
             Kind::Page if action == Action::ChangePageSpace => by_space_table(action, table),
             Kind::Page => page_table(action, table),
+            Kind::Agents => agents_table(action, table),
+            Kind::Agent => agent_table(action, table),
             Kind::Instance => unreachable!("instance actions have no table"),
         }
     }
@@ -1053,11 +1304,7 @@ fn all_actors() -> Vec<Actor> {
     for instance_admin in [false, true] {
         for via_session in [true, false] {
             for role in [None].into_iter().chain(ROLES.into_iter().map(Some)) {
-                actors.push(Actor {
-                    instance_admin,
-                    via_session,
-                    role,
-                });
+                actors.push(Actor::person(instance_admin, via_session, role));
             }
         }
     }
@@ -1130,12 +1377,14 @@ fn only_a_browser_session_deletes_or_transfers() {
         instance_admin: true,
         via_session,
         role: Some(WorkspaceRole::Owner),
+        on_behalf_of: None,
     };
     let workspace = Resource::Workspace {
         members_can_create_teamspaces: true,
     };
     let member = Resource::Member {
         role: WorkspaceRole::Member,
+        kind: UserKind::Human,
         is_actor: false,
     };
     let instance = Resource::Instance {
@@ -1167,9 +1416,11 @@ fn refusals_say_why() {
         instance_admin: false,
         via_session: true,
         role: Some(WorkspaceRole::Admin),
+        on_behalf_of: None,
     };
     let owner_target = Resource::Member {
         role: WorkspaceRole::Owner,
+        kind: UserKind::Human,
         is_actor: false,
     };
 
@@ -1211,6 +1462,7 @@ fn as_member(role: WorkspaceRole) -> Actor {
         instance_admin: false,
         via_session: true,
         role: Some(role),
+        on_behalf_of: None,
     }
 }
 

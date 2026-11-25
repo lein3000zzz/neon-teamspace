@@ -8,6 +8,7 @@ export type WorkspaceSummary = Schemas["WorkspaceSummary"];
 export type Workspace = Schemas["Workspace"];
 export type WorkspaceList = Schemas["WorkspaceList"];
 export type WorkspaceRole = Schemas["WorkspaceRole"];
+export type AgentCreation = Schemas["AgentCreation"];
 export type Person = Schemas["Person"];
 export type Member = Schemas["Member"];
 export type SentInvitation = Schemas["SentInvitation"];

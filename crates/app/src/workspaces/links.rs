@@ -13,7 +13,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::lifecycle::Joined;
-use super::{WorkspaceError, WorkspaceService, locked_membership, membership};
+use super::{WorkspaceError, WorkspaceService, locked_membership, membership, require_person};
 use crate::crypto::{OpenError, hash_secret, new_secret};
 use crate::ratelimit::Bucket;
 
@@ -62,7 +62,7 @@ impl WorkspaceService {
             let mut tx = self.pool().begin().await?;
             locked_membership(&mut tx, principal, workspace_id)
                 .await?
-                .check(principal, Action::CreateInviteLink { role })?;
+                .check(Action::CreateInviteLink { role })?;
             let max_uses = check_link_uses(spec.max_uses).map_err(WorkspaceError::invalid)?;
             let expires_at =
                 check_link_expiry(spec.expires_at, now).map_err(WorkspaceError::invalid)?;
@@ -126,7 +126,7 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             membership(&mut conn, principal, workspace_id)
                 .await?
-                .check(principal, Action::ManageInviteLinks)?;
+                .check(Action::ManageInviteLinks)?;
             Ok(repo::links(&mut *conn, workspace_id).await?)
         })
         .await
@@ -143,7 +143,7 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             membership(&mut conn, principal, workspace_id)
                 .await?
-                .check(principal, Action::ManageInviteLinks)?;
+                .check(Action::ManageInviteLinks)?;
             let sealed = repo::sealed_token(&mut *conn, workspace_id, id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_LINK))?
@@ -193,7 +193,7 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             membership(&mut conn, principal, workspace_id)
                 .await?
-                .check(principal, Action::ManageInviteLinks)?;
+                .check(Action::ManageInviteLinks)?;
             if !repo::revoke_link(&mut *conn, workspace_id, id, principal.user.id, self.now())
                 .await?
             {
@@ -220,6 +220,7 @@ impl WorkspaceService {
         token: &Secret,
     ) -> Result<LinkPreview, WorkspaceError> {
         self.observe("preview_link", async {
+            require_person(principal)?;
             let user = principal.user.id;
             self.limit(Bucket::WorkspaceLinkJoin, &user.to_string())
                 .await?;
@@ -248,6 +249,7 @@ impl WorkspaceService {
         token: &Secret,
     ) -> Result<Joined, WorkspaceError> {
         self.observe("join_with_link", async {
+            require_person(principal)?;
             let user = principal.user.id;
             self.limit(Bucket::WorkspaceLinkJoin, &user.to_string())
                 .await?;

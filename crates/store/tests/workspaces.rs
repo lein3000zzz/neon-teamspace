@@ -2,7 +2,7 @@
 //! one membership and one pending invitation per account, teamspace members who are in
 //! the workspace, and everything gone with its workspace.
 
-use neon_domain::auth::{Email, Role, User};
+use neon_domain::auth::{Email, Role, User, UserKind};
 use neon_domain::workspaces::{
     Invitation, InvitationState, InviteLink, Teamspace, TeamspaceAccess, TeamspaceRole, Workspace,
     WorkspaceRole,
@@ -17,9 +17,11 @@ fn now() -> OffsetDateTime {
 }
 
 async fn user(pool: &PgPool, email: &str) -> Uuid {
+    let address = Email::parse(email).expect("valid");
     let user = User {
         id: Uuid::now_v7(),
-        email: Email::parse(email).expect("valid"),
+        kind: UserKind::Human,
+        email: Some(address.clone()),
         display_name: "Someone".into(),
         role: Role::User,
         hue_override: Some(10),
@@ -27,8 +29,12 @@ async fn user(pool: &PgPool, email: &str) -> Uuid {
         disabled_at: None,
         created_at: now(),
         updated_at: now(),
+        workspace_id: None,
+        owner_id: None,
     };
-    users::insert(pool, &user, "hash").await.expect("saved");
+    users::insert(pool, &user, &address, "hash")
+        .await
+        .expect("saved");
     assert_eq!(
         users::by_id(pool, user.id)
             .await
@@ -47,6 +53,8 @@ fn workspace(slug: &str) -> Workspace {
         icon: None,
         hue_override: Some(359),
         members_can_create_teamspaces: true,
+        agents_enabled: true,
+        agent_creation: neon_domain::agents::AgentCreation::Members,
         created_by: None,
         created_at: now(),
         updated_at: now(),

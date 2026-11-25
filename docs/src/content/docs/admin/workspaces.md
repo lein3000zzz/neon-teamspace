@@ -15,8 +15,9 @@ it gets **Workspace not found**, as anyone outside would.
 - its owners, by name and address; a workspace whose owners' accounts are gone has none;
 - how many people are in it, guests included, and when it was made;
 - each limit with its usage: **Members**, **Storage** and **Agents**, as used of the limit,
-  and whether the limit is the workspace's own or the instance default. Storage and agents
-  count from 0 until attachments and agents exist, **planned**.
+  and whether the limit is the workspace's own or the instance default. Members are people,
+  guests included; agents are its agents and integrations together, deleted ones left out.
+  Storage counts from 0 until attachments exist, **planned**.
 
 ## Limits
 

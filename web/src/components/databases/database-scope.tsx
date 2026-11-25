@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { createContext, use, useCallback, useMemo, type ReactNode } from "react";
 import type { Database, Property } from "@/api/databases";
-import { membersQuery, type Person } from "@/api/workspaces";
+import { useWorkspacePeople } from "@/components/people/use-people";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { WIDE_QUERY, useMediaQuery } from "@/lib/media";
+import type { Someone } from "@/lib/people";
 import { edits } from "@/lib/page-rules";
 import { seesTeamspaces } from "@/lib/workspace-rules";
 
@@ -14,8 +14,11 @@ type Scope = {
   editsDatabase: boolean;
   /** Whether they may see and set people, which guests may not. */
   seesPeople: boolean;
-  /** The workspace's members by id, to name the people values hold. */
-  people: ReadonlyMap<string, Person>;
+  /**
+   * The workspace's members by id, agents among them, and its agents deleted
+   * since, to name the people values hold.
+   */
+  people: ReadonlyMap<string, Someone>;
   /** Says what went wrong with a change made in the database. */
   report: (error: unknown) => void;
   /** Shown inside another page: smaller, and without the page's own header. */
@@ -59,11 +62,7 @@ export function DatabaseScope({
 }: DatabaseScopeProps) {
   const workspace = useWorkspace();
   const seesPeople = seesTeamspaces(workspace.role);
-  const members = useQuery({ ...membersQuery(workspace.id), enabled: seesPeople });
-  const people = useMemo(
-    () => new Map((members.data ?? []).map((member) => [member.user.id, member.user])),
-    [members.data],
-  );
+  const people = useWorkspacePeople(workspace.id, seesPeople);
   const trashed = (database.page.trashed_at ?? null) !== null;
   const value = useMemo(
     () => ({

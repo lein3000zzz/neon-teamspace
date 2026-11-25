@@ -1,5 +1,7 @@
 //! `/api/v1/account`: the signed-in user's own account, and the invitations into
-//! workspaces waiting for them.
+//! workspaces waiting for them. A person's own: a token bound to a workspace, every agent's
+//! among them, is refused here. The favorites, which belong to each workspace, are apart:
+//! see [`favorites`](super::favorites).
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -20,7 +22,7 @@ use super::AppState;
 use super::dto::{Person, Scope, User, WorkspaceRole, nullable};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
-use super::principal::Authenticated;
+use super::principal::Account;
 use super::workspaces::WorkspaceSummary;
 
 /// How a request proved who it is.
@@ -50,12 +52,12 @@ pub struct Me {
     responses(
         (status = OK, description = "The user.", body = Me),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
-pub(super) async fn get_me(Authenticated(principal): Authenticated) -> Json<Me> {
+pub(super) async fn get_me(Account(principal): Account) -> Json<Me> {
     let credential = match principal.credential {
         Credential::Session { .. } => CredentialKind::Session,
         Credential::Token { .. } => CredentialKind::Token,
@@ -92,14 +94,14 @@ pub struct UpdateMe {
         (status = OK, description = "The user.", body = User),
         (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn update_me(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<UpdateMe>,
 ) -> Result<Json<User>, ApiError> {
     let update = ProfileUpdate {
@@ -166,14 +168,14 @@ pub struct ReceivedInvitationList {
     responses(
         (status = OK, description = "The invitations.", body = ReceivedInvitationList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn list_my_invitations(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<ReceivedInvitationList>, ApiError> {
     let received = state.workspaces.my_invitations(&principal).await?;
     Ok(Json(ReceivedInvitationList {
@@ -202,7 +204,7 @@ pub(super) async fn list_my_invitations(
     responses(
         (status = OK, description = "The workspace joined.", body = WorkspaceSummary),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such invitation waiting for the user.", body = ErrorBody),
         (status = CONFLICT, description = "already_member, or member_limit: the workspace is full; the invitation stays.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -211,7 +213,7 @@ pub(super) async fn list_my_invitations(
 )]
 pub(super) async fn accept_invitation(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspaceSummary>, ApiError> {
     let joined = state.workspaces.accept_invitation(&principal, id).await?;
@@ -228,7 +230,7 @@ pub(super) async fn accept_invitation(
     responses(
         (status = NO_CONTENT, description = "Declined."),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such invitation waiting for the user.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -236,7 +238,7 @@ pub(super) async fn accept_invitation(
 )]
 pub(super) async fn decline_invitation(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     state.workspaces.decline_invitation(&principal, id).await?;
@@ -272,7 +274,7 @@ pub struct ChangePassword {
 )]
 pub(super) async fn change_password(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
     state
@@ -319,14 +321,14 @@ pub struct SessionList {
     responses(
         (status = OK, description = "The sessions that have not expired.", body = SessionList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn list_sessions(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<SessionList>, ApiError> {
     let current = principal.session_id();
     let sessions = state.auth.list_sessions(&principal).await?;
@@ -370,7 +372,7 @@ pub struct Revoked {
 )]
 pub(super) async fn revoke_other_sessions(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<Revoked>, ApiError> {
     let revoked = state.auth.revoke_other_sessions(&principal).await?;
     Ok(Json(Revoked { revoked }))
@@ -395,7 +397,7 @@ pub(super) async fn revoke_other_sessions(
 )]
 pub(super) async fn revoke_session(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Path(id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
     state.auth.revoke_session(&principal, id).await?;
@@ -419,6 +421,9 @@ pub struct ApiToken {
     #[schema(example = "nw_AbCdEfG")]
     pub prefix: String,
     pub scopes: Vec<Scope>,
+    /// The one workspace it works in; absent for a token that works across the instance.
+    /// An agent's is always its workspace.
+    pub workspace_id: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     /// Absent for a token that never expires.
@@ -434,6 +439,7 @@ impl From<neon_domain::auth::ApiToken> for ApiToken {
             id: token.id,
             name: token.name,
             prefix: token.prefix,
+            workspace_id: token.workspace_id,
             scopes: token.scopes.into_iter().map(Scope::from).collect(),
             created_at: token.created_at,
             expires_at: token.expires_at,
@@ -457,14 +463,14 @@ pub struct ApiTokenList {
     responses(
         (status = OK, description = "The tokens.", body = ApiTokenList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn list_tokens(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<ApiTokenList>, ApiError> {
     let tokens = state.auth.list_api_tokens(&principal).await?;
     Ok(Json(ApiTokenList {
@@ -478,11 +484,19 @@ pub struct CreateApiToken {
     /// 1 to 64 characters.
     #[schema(example = "CI deploys")]
     pub name: String,
-    /// At least one; admin only for an admin.
+    /// At least one. Admin, for a token across the instance, only for an instance admin,
+    /// for its admin pages' work; for a token bound to a workspace, only for its owners and
+    /// admins, for that workspace's admin work alone.
     pub scopes: Vec<Scope>,
     /// After now; absent for a token that never expires.
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub expires_at: Option<OffsetDateTime>,
+    /// Binds the token to one workspace the caller is in: it works on that workspace's
+    /// routes and sockets alone, and on no other workspace, the caller's account but that
+    /// workspace's favorites, or the instance admins' routes. Absent, it works across the
+    /// instance.
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 /// A new token with its secret, shown this once.
@@ -500,26 +514,34 @@ pub struct CreatedApiToken {
     tag = "account",
     summary = "Create an API token",
     description = "Its secret is in this answer only; the server keeps its hash. A token never \
-                   does more than its owner's role allows. Only from a browser session.",
+                   does more than its owner's role allows, and one bound to a workspace works \
+                   there alone. Only from a browser session.",
     request_body = CreateApiToken,
     responses(
         (status = CREATED, description = "The token.", body = CreatedApiToken),
         (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: not a browser session, or the admin scope for a user who is no admin.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: not a browser session, or the admin scope for a user who is no admin, or of the workspace bound to.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: a workspace to bind to that the caller is not in.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []))
 )]
 pub(super) async fn create_token(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<CreateApiToken>,
 ) -> Result<(StatusCode, Json<CreatedApiToken>), ApiError> {
     let scopes: Vec<&str> = body.scopes.iter().map(|scope| scope.as_str()).collect();
     let (secret, token) = state
         .auth
-        .create_api_token(&principal, &body.name, body.expires_at, &scopes)
+        .create_api_token(
+            &principal,
+            &body.name,
+            body.expires_at,
+            &scopes,
+            body.workspace_id,
+        )
         .await?;
     Ok((
         StatusCode::CREATED,
@@ -548,7 +570,7 @@ pub(super) async fn create_token(
 )]
 pub(super) async fn revoke_token(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     state.auth.revoke_api_token(&principal, id).await?;
@@ -650,14 +672,14 @@ impl TryFrom<Preferences> for DomainPreferences {
     responses(
         (status = OK, description = "The preferences.", body = Preferences),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn get_preferences(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<Preferences>, ApiError> {
     Ok(Json(state.auth.preferences(&principal).await?.into()))
 }
@@ -673,14 +695,14 @@ pub(super) async fn get_preferences(
         (status = OK, description = "The preferences.", body = Preferences),
         (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn put_preferences(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<Preferences>,
 ) -> Result<Json<Preferences>, ApiError> {
     let saved = state

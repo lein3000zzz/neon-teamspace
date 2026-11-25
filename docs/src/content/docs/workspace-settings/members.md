@@ -3,7 +3,10 @@ title: Members
 description: Inviting accounts by address, invite links, the invitations waiting, and the members with their roles, removing them and transferring ownership.
 ---
 
-**Members**, at `/w/{slug}/settings/members`, lists everyone in the workspace, owners first.
+**Members**, at `/w/{slug}/settings/members`, lists everyone in the workspace, owners first,
+its [agents](/docs/guides/agents/) among the members with a badge, the person each acts for,
+and **Suspended** while it is. An agent's role is always member: its card offers no role,
+removal or transfer, as [Agents](/docs/workspace-settings/agents/) manages it.
 Owners and admins also get the three ways people come in: invitations by address, invite
 links, and the invitations still waiting. Members see the list alone, and guests do not get
 the tab.

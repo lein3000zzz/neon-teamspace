@@ -1,7 +1,7 @@
 //! Real-time sync over real WebSockets: clients with documents of their own converging, a
 //! viewer's change refused, the upgrade's checks, content kept across restarts and
-//! compaction, access changes, ended sessions and tokens and the trash's purge closing or
-//! limiting connections, and the limits.
+//! compaction, access changes, an agent's owner's among them, ended sessions and tokens and
+//! the trash's purge closing or limiting connections, and the limits.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -28,10 +28,11 @@ use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::Encode as _;
 use yrs::{Doc, ReadTxn as _, StateVector, Transact as _, Update, XmlFragmentRef};
 
+use super::agents_tests::{Bearer, agent, agent_token};
 use super::auth_tests::{admin, user};
 use super::pages_tests::{create, general, guest};
 use super::tests::state_for;
-use super::workspaces_tests::{Browser, Team, team};
+use super::workspaces_tests::{Browser, Team, id, team};
 use super::*;
 
 /// Long enough for any step here; reaching it means something never came.
@@ -914,6 +915,133 @@ async fn a_page_opened_by_a_bearer_token_follows_its_scope(pool: PgPool) {
         Some(StatusCode::UNAUTHORIZED)
     );
     finish(&state, [room.server], vec![agent, ada]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_s_connections_follow_its_owner_s_access(pool: PgPool) {
+    let state = state_of(pool, quick()).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let ws = &room.team.workspace;
+    let addr = room.server.addr;
+    let scout = agent(&room.team.dee, ws, "Scout").await;
+    let worker = Bearer::new(
+        &app,
+        agent_token(&room.team.dee, ws, &scout, &["write"]).await,
+    );
+
+    // In General, where both are, it edits.
+    let socket = open(addr, &room.page, &[("authorization", worker.header())])
+        .await
+        .expect("its token opens the page");
+    let mut scout_here = Peer::over(socket, "scout");
+    scout_here.sync().await;
+    scout_here.write("By Scout").await;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+    ada.until_text("By Scout").await;
+
+    // In Ops, which both joined, it edits until Dee leaves Ops: then it views.
+    let ops = room
+        .team
+        .cy
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces"),
+            json!({"name": "Ops", "access": "open"}),
+        )
+        .await;
+    assert_eq!(ops.status, StatusCode::CREATED, "{}", ops.body);
+    let ops = id(&ops);
+    let plan = create(&room.team.cy, ws, json!({"teamspace_id": ops}), "Plan").await;
+    for joined in [
+        room.team
+            .dee
+            .post(
+                &format!("/api/v1/workspaces/{ws}/teamspaces/{ops}/join"),
+                json!({}),
+            )
+            .await,
+        worker
+            .post(
+                &format!("/api/v1/workspaces/{ws}/teamspaces/{ops}/join"),
+                json!({}),
+            )
+            .await,
+    ] {
+        assert_eq!(joined.status, StatusCode::OK, "{}", joined.body);
+    }
+    let socket = open(addr, &plan, &[("authorization", worker.header())])
+        .await
+        .expect("its token opens the plan");
+    let mut scout_ops = Peer::over(socket, "scout-ops");
+    scout_ops.sync().await;
+    let left = room
+        .team
+        .dee
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces/{ops}/leave"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
+    scout_ops
+        .until("read-only", |_, event| {
+            *event == Event::Told(Some(READ_ONLY.to_owned()))
+        })
+        .await;
+
+    // Dee leaves the workspace: the agent is suspended, and its connections close.
+    let left = room
+        .team
+        .dee
+        .post(&format!("/api/v1/workspaces/{ws}/leave"), json!({}))
+        .await;
+    assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
+    assert_eq!(scout_here.closed().await, Some(4401));
+    assert_eq!(scout_ops.closed().await, Some(4401));
+    assert_eq!(
+        open(addr, &room.page, &[("authorization", worker.header())])
+            .await
+            .err(),
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    finish(&state, [room.server], vec![ada, scout_here, scout_ops]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn turning_agents_off_closes_their_connections(pool: PgPool) {
+    let state = state_of(pool, quick()).await;
+    admin(&state).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let ws = &room.team.workspace;
+    let addr = room.server.addr;
+    let scout = agent(&room.team.cy, ws, "Scout").await;
+    let worker = Bearer::new(
+        &app,
+        agent_token(&room.team.cy, ws, &scout, &["write"]).await,
+    );
+    let socket = open(addr, &room.page, &[("authorization", worker.header())])
+        .await
+        .expect("its token opens the page");
+    let mut scout = Peer::over(socket, "scout");
+    scout.sync().await;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+
+    let root = Browser::sign_in(&app, "admin@example.com").await;
+    let off = root
+        .send(
+            Method::PATCH,
+            "/api/v1/admin/settings",
+            Some(json!({"changes": {"mcp.identities": ["user"]}})),
+        )
+        .await;
+    assert_eq!(off.status, StatusCode::OK, "{}", off.body);
+    assert_eq!(scout.closed().await, Some(4401));
+    // People's connections stay.
+    ada.write("Still here").await;
+    let mut cy = Peer::join(addr, &room.page, room.team.cy.cookie(), "cy").await;
+    cy.until_text("Still here").await;
+    finish(&state, [room.server], vec![scout, ada, cy]).await;
 }
 
 /// The id of the account a browser is signed in to.

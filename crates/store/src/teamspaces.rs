@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::decode_error;
-use crate::users::{parse_hue, stored_hue};
+use crate::users::{PersonColumns, parse_hue, stored_hue};
 
 /// The constraint an insert breaks when the user is in the teamspace already.
 pub const ALREADY_MEMBER: &str = "teamspace_members_pkey";
@@ -348,33 +348,28 @@ pub async fn count_members(executor: impl PgExecutor<'_>, teamspace_id: Uuid) ->
     .await
 }
 
-/// A teamspace's members, owners first, then by name.
+/// A teamspace's members, owners first, then by name, agents and integrations with the
+/// people.
 pub async fn list_members(
     executor: impl PgExecutor<'_>,
     teamspace_id: Uuid,
 ) -> sqlx::Result<Vec<TeamspaceMember>> {
-    sqlx::query!(
-        "SELECT u.id, u.display_name, u.email, u.hue, m.role, m.joined_at
-         FROM teamspace_members m JOIN users u ON u.id = m.user_id
-         WHERE m.teamspace_id = $1
-         ORDER BY m.role <> 'owner', lower(u.display_name), u.id",
+    sqlx::query_as!(
+        MemberRow,
+        r#"SELECT u.id, u.kind, u.display_name, u.email, u.hue,
+                  o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
+                  m.role, m.joined_at
+           FROM teamspace_members m
+           JOIN users u ON u.id = m.user_id
+           LEFT JOIN users o ON o.id = u.owner_id
+           WHERE m.teamspace_id = $1
+           ORDER BY m.role <> 'owner', lower(u.display_name), u.id"#,
         teamspace_id,
     )
     .fetch_all(executor)
     .await?
     .into_iter()
-    .map(|row| {
-        Ok(TeamspaceMember {
-            person: Person {
-                id: row.id,
-                display_name: row.display_name,
-                email: row.email,
-                hue_override: parse_hue(row.hue)?,
-            },
-            role: parse_role(&row.role)?,
-            joined_at: row.joined_at,
-        })
-    })
+    .map(TeamspaceMember::try_from)
     .collect()
 }
 
@@ -384,26 +379,55 @@ pub async fn member(
     teamspace_id: Uuid,
     user_id: Uuid,
 ) -> sqlx::Result<Option<TeamspaceMember>> {
-    sqlx::query!(
-        "SELECT u.id, u.display_name, u.email, u.hue, m.role, m.joined_at
-         FROM teamspace_members m JOIN users u ON u.id = m.user_id
-         WHERE m.teamspace_id = $1 AND m.user_id = $2",
+    sqlx::query_as!(
+        MemberRow,
+        r#"SELECT u.id, u.kind, u.display_name, u.email, u.hue,
+                  o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
+                  m.role, m.joined_at
+           FROM teamspace_members m
+           JOIN users u ON u.id = m.user_id
+           LEFT JOIN users o ON o.id = u.owner_id
+           WHERE m.teamspace_id = $1 AND m.user_id = $2"#,
         teamspace_id,
         user_id,
     )
     .fetch_optional(executor)
     .await?
-    .map(|row| {
-        Ok(TeamspaceMember {
-            person: Person {
+    .map(TeamspaceMember::try_from)
+    .transpose()
+}
+
+/// A teamspace member's row, with their owner's, for an agent or integration.
+struct MemberRow {
+    id: Uuid,
+    kind: String,
+    display_name: String,
+    email: Option<String>,
+    hue: Option<i16>,
+    owner_id: Option<Uuid>,
+    owner_name: Option<String>,
+    owner_hue: Option<i16>,
+    role: String,
+    joined_at: OffsetDateTime,
+}
+
+impl TryFrom<MemberRow> for TeamspaceMember {
+    type Error = sqlx::Error;
+
+    fn try_from(row: MemberRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            person: Person::try_from(PersonColumns {
                 id: row.id,
+                kind: row.kind,
                 display_name: row.display_name,
                 email: row.email,
-                hue_override: parse_hue(row.hue)?,
-            },
+                hue: row.hue,
+                owner_id: row.owner_id,
+                owner_name: row.owner_name,
+                owner_hue: row.owner_hue,
+            })?,
             role: parse_role(&row.role)?,
             joined_at: row.joined_at,
         })
-    })
-    .transpose()
+    }
 }

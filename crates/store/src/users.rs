@@ -1,7 +1,10 @@
-//! Accounts.
+//! Accounts, and the agents and integrations that are users too. Everything here about
+//! signing in, addresses, passwords, verification and instance roles reads people alone.
 
-use neon_domain::auth::{Email, Role, User};
+use neon_domain::agents::AgentOwner;
+use neon_domain::auth::{Email, Role, User, UserKind};
 use neon_domain::hue::MAX_HUE;
+use neon_domain::workspaces::Person;
 use serde_json::Value as Json;
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
@@ -13,16 +16,19 @@ use crate::decode_error;
 pub const EMAIL_TAKEN: &str = "users_email_normalized_key";
 
 /// A `users` row without the password hash and the preferences.
-struct Row {
-    id: Uuid,
-    email: String,
-    display_name: String,
-    role: String,
-    hue: Option<i16>,
-    email_verified_at: Option<OffsetDateTime>,
-    disabled_at: Option<OffsetDateTime>,
-    created_at: OffsetDateTime,
-    updated_at: OffsetDateTime,
+pub(crate) struct Row {
+    pub(crate) id: Uuid,
+    pub(crate) kind: String,
+    pub(crate) email: Option<String>,
+    pub(crate) display_name: String,
+    pub(crate) role: String,
+    pub(crate) hue: Option<i16>,
+    pub(crate) email_verified_at: Option<OffsetDateTime>,
+    pub(crate) disabled_at: Option<OffsetDateTime>,
+    pub(crate) created_at: OffsetDateTime,
+    pub(crate) updated_at: OffsetDateTime,
+    pub(crate) workspace_id: Option<Uuid>,
+    pub(crate) owner_id: Option<Uuid>,
 }
 
 impl TryFrom<Row> for User {
@@ -31,7 +37,8 @@ impl TryFrom<Row> for User {
     fn try_from(row: Row) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.id,
-            email: Email::from_stored(row.email),
+            kind: parse_kind(&row.kind)?,
+            email: row.email.map(Email::from_stored),
             display_name: row.display_name,
             role: parse_role(&row.role)?,
             hue_override: parse_hue(row.hue)?,
@@ -39,12 +46,63 @@ impl TryFrom<Row> for User {
             disabled_at: row.disabled_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            workspace_id: row.workspace_id,
+            owner_id: row.owner_id,
         })
     }
 }
 
 pub(crate) fn parse_role(text: &str) -> sqlx::Result<Role> {
     Role::parse(text).ok_or_else(|| decode_error(format!("unknown role {text:?}")))
+}
+
+pub(crate) fn parse_kind(text: &str) -> sqlx::Result<UserKind> {
+    UserKind::parse(text).ok_or_else(|| decode_error(format!("unknown kind {text:?}")))
+}
+
+/// What lists read of an identity, with its owner's, for an agent or integration: select
+/// `u.id, u.kind, u.display_name, u.email, u.hue` and the owner's `o.id`, `o.display_name`
+/// and `o.hue`, joining `users o ON o.id = u.owner_id`.
+pub(crate) struct PersonColumns {
+    pub(crate) id: Uuid,
+    pub(crate) kind: String,
+    pub(crate) display_name: String,
+    pub(crate) email: Option<String>,
+    pub(crate) hue: Option<i16>,
+    pub(crate) owner_id: Option<Uuid>,
+    pub(crate) owner_name: Option<String>,
+    pub(crate) owner_hue: Option<i16>,
+}
+
+impl TryFrom<PersonColumns> for Person {
+    type Error = sqlx::Error;
+
+    fn try_from(columns: PersonColumns) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: columns.id,
+            kind: parse_kind(&columns.kind)?,
+            display_name: columns.display_name,
+            email: columns.email,
+            hue_override: parse_hue(columns.hue)?,
+            owner: owner(columns.owner_id, columns.owner_name, columns.owner_hue)?,
+        })
+    }
+}
+
+/// An agent's or integration's owner from an outer join's columns: none without one.
+pub(crate) fn owner(
+    id: Option<Uuid>,
+    name: Option<String>,
+    hue: Option<i16>,
+) -> sqlx::Result<Option<AgentOwner>> {
+    match (id, name) {
+        (Some(id), Some(display_name)) => Ok(Some(AgentOwner {
+            id,
+            display_name,
+            hue_override: parse_hue(hue)?,
+        })),
+        _ => Ok(None),
+    }
 }
 
 /// A pinned hue as stored: a check constraint keeps it within 0 to 359.
@@ -63,19 +121,21 @@ pub(crate) fn stored_hue(hue: Option<u16>) -> Option<i16> {
     hue.and_then(|hue| i16::try_from(hue).ok())
 }
 
-/// Saves a new account. Fails on [`EMAIL_TAKEN`] when an account has its address.
+/// Saves a new person's account. Fails on [`EMAIL_TAKEN`] when an account has its address.
+/// Agents and integrations are made with [`agents::insert`](crate::agents::insert).
 pub async fn insert(
     executor: impl PgExecutor<'_>,
     user: &User,
+    email: &Email,
     password_hash: &str,
 ) -> sqlx::Result<()> {
     sqlx::query!(
-        "INSERT INTO users (id, email, email_normalized, display_name, password_hash, role,
-                            hue, email_verified_at, disabled_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "INSERT INTO users (id, kind, email, email_normalized, display_name, password_hash,
+                            role, hue, email_verified_at, disabled_at, created_at, updated_at)
+         VALUES ($1, 'human', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         user.id,
-        user.email.as_str(),
-        user.email.normalized(),
+        email.as_str(),
+        email.normalized(),
         user.display_name,
         password_hash,
         user.role.as_str(),
@@ -90,15 +150,17 @@ pub async fn insert(
     Ok(())
 }
 
-/// The account of a normalized address, with its password hash.
+/// The person of a normalized address, with their password hash. Only people have
+/// addresses.
 pub async fn by_email(
     executor: impl PgExecutor<'_>,
     email_normalized: &str,
 ) -> sqlx::Result<Option<(User, String)>> {
     let row = sqlx::query!(
-        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
-                updated_at, password_hash
-         FROM users WHERE email_normalized = $1",
+        r#"SELECT id, kind, email, display_name, role, hue, email_verified_at, disabled_at,
+                  created_at, updated_at, workspace_id, owner_id,
+                  password_hash AS "password_hash!"
+           FROM users WHERE email_normalized = $1 AND kind = 'human'"#,
         email_normalized,
     )
     .fetch_optional(executor)
@@ -106,6 +168,7 @@ pub async fn by_email(
     row.map(|row| {
         let user = User::try_from(Row {
             id: row.id,
+            kind: row.kind,
             email: row.email,
             display_name: row.display_name,
             role: row.role,
@@ -114,18 +177,21 @@ pub async fn by_email(
             disabled_at: row.disabled_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            workspace_id: row.workspace_id,
+            owner_id: row.owner_id,
         })?;
         Ok((user, row.password_hash))
     })
     .transpose()
 }
 
+/// A person's account by id: never an agent or integration, which have none.
 pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
-                updated_at
-         FROM users WHERE id = $1",
+        "SELECT id, kind, email, display_name, role, hue, email_verified_at, disabled_at,
+                created_at, updated_at, workspace_id, owner_id
+         FROM users WHERE id = $1 AND kind = 'human'",
         id,
     )
     .fetch_optional(executor)
@@ -141,9 +207,9 @@ pub async fn by_id_for_update(
 ) -> sqlx::Result<Option<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
-                updated_at
-         FROM users WHERE id = $1 FOR UPDATE",
+        "SELECT id, kind, email, display_name, role, hue, email_verified_at, disabled_at,
+                created_at, updated_at, workspace_id, owner_id
+         FROM users WHERE id = $1 AND kind = 'human' FOR UPDATE",
         id,
     )
     .fetch_optional(executor)
@@ -152,7 +218,8 @@ pub async fn by_id_for_update(
     .transpose()
 }
 
-/// Accounts in id order, which is the order they were made in, starting after `after`.
+/// People's accounts in id order, which is the order they were made in, starting after
+/// `after`.
 pub async fn list(
     executor: impl PgExecutor<'_>,
     after: Option<Uuid>,
@@ -160,9 +227,9 @@ pub async fn list(
 ) -> sqlx::Result<Vec<User>> {
     sqlx::query_as!(
         Row,
-        "SELECT id, email, display_name, role, hue, email_verified_at, disabled_at, created_at,
-                updated_at
-         FROM users WHERE $1::uuid IS NULL OR id > $1
+        "SELECT id, kind, email, display_name, role, hue, email_verified_at, disabled_at,
+                created_at, updated_at, workspace_id, owner_id
+         FROM users WHERE kind = 'human' AND ($1::uuid IS NULL OR id > $1)
          ORDER BY id LIMIT $2",
         after,
         limit,
@@ -174,13 +241,17 @@ pub async fn list(
     .collect()
 }
 
+/// A person's password hash; `None` for anyone else.
 pub async fn password_hash(
     executor: impl PgExecutor<'_>,
     id: Uuid,
 ) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar!("SELECT password_hash FROM users WHERE id = $1", id)
-        .fetch_optional(executor)
-        .await
+    Ok(
+        sqlx::query_scalar!("SELECT password_hash FROM users WHERE id = $1", id)
+            .fetch_optional(executor)
+            .await?
+            .flatten(),
+    )
 }
 
 /// Replaces the password hash `old` with `new`, the same password hashed again, and says
@@ -236,7 +307,7 @@ pub async fn set_email_verified(
     Ok(())
 }
 
-/// Changes an account's name, its pinned hue, or both, and returns it as it is now: each
+/// Changes a person's name, their pinned hue, or both, and returns them as they are now: each
 /// part `None` stays as it is, and `Some(None)` unpins the hue. Only these and the time are
 /// written, so a change that started before an admin's change to the role or the disable
 /// cannot undo it. `None` when there is no such account.
@@ -253,9 +324,9 @@ pub async fn update_profile(
          SET display_name = COALESCE($2, display_name),
              hue = CASE WHEN $3 THEN $4 ELSE hue END,
              updated_at = $5
-         WHERE id = $1
-         RETURNING id, email, display_name, role, hue, email_verified_at, disabled_at,
-                   created_at, updated_at",
+         WHERE id = $1 AND kind = 'human'
+         RETURNING id, kind, email, display_name, role, hue, email_verified_at, disabled_at,
+                   created_at, updated_at, workspace_id, owner_id",
         id,
         display_name,
         hue.is_some(),
@@ -274,7 +345,7 @@ pub async fn update_profile(
 pub async fn update(executor: impl PgExecutor<'_>, user: &User) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE users SET display_name = $2, role = $3, disabled_at = $4, updated_at = $5
-         WHERE id = $1",
+         WHERE id = $1 AND kind = 'human'",
         user.id,
         user.display_name,
         user.role.as_str(),
@@ -291,7 +362,9 @@ pub async fn update(executor: impl PgExecutor<'_>, user: &User) -> sqlx::Result<
 /// one at a time and each sees the admins as the one before left them.
 pub async fn lock_active_admins(executor: impl PgExecutor<'_>) -> sqlx::Result<Vec<Uuid>> {
     sqlx::query_scalar!(
-        "SELECT id FROM users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id FOR UPDATE"
+        "SELECT id FROM users
+         WHERE role = 'admin' AND disabled_at IS NULL AND kind = 'human'
+         ORDER BY id FOR UPDATE"
     )
     .fetch_all(executor)
     .await
@@ -299,7 +372,8 @@ pub async fn lock_active_admins(executor: impl PgExecutor<'_>) -> sqlx::Result<V
 
 pub async fn count_active_admins(executor: impl PgExecutor<'_>) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!" FROM users WHERE role = 'admin' AND disabled_at IS NULL"#
+        r#"SELECT count(*) AS "count!" FROM users
+           WHERE role = 'admin' AND disabled_at IS NULL AND kind = 'human'"#
     )
     .fetch_one(executor)
     .await
@@ -308,16 +382,19 @@ pub async fn count_active_admins(executor: impl PgExecutor<'_>) -> sqlx::Result<
 /// The addresses of the admins who can sign in, for notices meant for them.
 pub async fn active_admin_emails(executor: impl PgExecutor<'_>) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar!(
-        "SELECT email FROM users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id"
+        r#"SELECT email AS "email!" FROM users
+           WHERE role = 'admin' AND disabled_at IS NULL AND kind = 'human'
+           ORDER BY id"#
     )
     .fetch_all(executor)
     .await
 }
 
-/// Deletes an account that never verified its address. False when there is none such.
+/// Deletes a person's account that never verified its address. False when there is none
+/// such.
 pub async fn delete_unverified(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
     let result = sqlx::query!(
-        "DELETE FROM users WHERE id = $1 AND email_verified_at IS NULL",
+        "DELETE FROM users WHERE id = $1 AND email_verified_at IS NULL AND kind = 'human'",
         id
     )
     .execute(executor)
@@ -325,13 +402,14 @@ pub async fn delete_unverified(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx:
     Ok(result.rows_affected() == 1)
 }
 
-/// Deletes the accounts made before `before` that never verified their address.
+/// Deletes the people's accounts made before `before` that never verified their address.
+/// Agents and integrations verify nothing, and stay.
 pub async fn prune_unverified(
     executor: impl PgExecutor<'_>,
     before: OffsetDateTime,
 ) -> sqlx::Result<u64> {
     let result = sqlx::query!(
-        "DELETE FROM users WHERE email_verified_at IS NULL AND created_at < $1",
+        "DELETE FROM users WHERE email_verified_at IS NULL AND created_at < $1 AND kind = 'human'",
         before
     )
     .execute(executor)

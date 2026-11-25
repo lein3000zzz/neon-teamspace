@@ -291,7 +291,7 @@ impl AuthService {
             to: Recipient::new(to.as_str(), None),
             message: Message::Invite {
                 inviter_name: actor.user.display_name.clone(),
-                inviter_email: actor.user.email.as_str().to_owned(),
+                inviter_email: actor.user.address().to_owned(),
                 code: created.code.clone(),
                 expires_at: created.invite.expires_at,
             },

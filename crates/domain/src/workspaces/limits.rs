@@ -14,6 +14,7 @@ pub struct LimitValues {
     /// People in the workspace, guests included.
     pub members: LimitValue,
     pub storage_bytes: LimitValue,
+    /// Agents and integrations together, deleted ones left out.
     pub agents: LimitValue,
 }
 
@@ -45,9 +46,17 @@ impl Limits {
 
     /// Whether one more person fits beside the `members` there are.
     pub fn admits_member(&self, members: i64) -> bool {
-        self.members
-            .is_none_or(|limit| u64::try_from(members).is_ok_and(|members| members < limit))
+        admits(self.members, members)
     }
+
+    /// Whether one more agent or integration fits beside the `agents` there are.
+    pub fn admits_agent(&self, agents: i64) -> bool {
+        admits(self.agents, agents)
+    }
+}
+
+fn admits(limit: Option<u64>, count: i64) -> bool {
+    limit.is_none_or(|limit| u64::try_from(count).is_ok_and(|count| count < limit))
 }
 
 fn cap(value: LimitValue) -> Option<u64> {
@@ -121,6 +130,23 @@ mod tests {
         assert!(!three.admits_member(3));
         assert!(!three.admits_member(4));
         assert!(Limits::default().admits_member(i64::MAX));
+    }
+
+    #[test]
+    fn an_agent_fits_below_its_own_limit_only() {
+        let two = Limits {
+            agents: Some(2),
+            members: Some(1),
+            ..Limits::default()
+        };
+
+        assert!(two.admits_agent(1));
+        assert!(!two.admits_agent(2));
+        assert!(
+            !two.admits_member(1),
+            "people count against their own limit"
+        );
+        assert!(Limits::default().admits_agent(i64::MAX));
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::ratelimit::Bucket;
 
 /// Who a mail to an account goes to.
 pub(super) fn recipient(user: &User) -> Recipient {
-    Recipient::new(user.email.as_str(), Some(user.display_name.clone()))
+    Recipient::new(user.address(), Some(user.display_name.clone()))
 }
 
 impl AuthService {
@@ -95,7 +95,7 @@ impl AuthService {
                 .ok_or(AuthError::InvalidLink)?;
             tx.commit().await?;
             info!(%user_id, "address verified");
-            Ok(user.email.as_str().to_owned())
+            Ok(user.address().to_owned())
         })
         .await
     }

@@ -12,7 +12,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::operations::{Target, in_workspace};
-use super::{Location, PageError, PageService, PageView, actor, is_guest};
+use super::{Location, PageError, PageService, PageView};
 
 /// A page to import, with the pages to import under it.
 #[derive(Debug, Clone, Default)]
@@ -72,8 +72,8 @@ impl PageService {
     ) -> Result<(), PageError> {
         self.observe("check_place", async {
             let mut conn = self.pool().acquire().await?;
-            let role = in_workspace(&mut conn, principal, workspace_id).await?;
-            self.target(&mut conn, principal, workspace_id, role, location)
+            let standing = in_workspace(&mut conn, principal, workspace_id).await?;
+            self.target(&mut conn, principal, workspace_id, &standing, location)
                 .await?;
             Ok(())
         })
@@ -97,15 +97,15 @@ impl PageService {
             let height = pages.iter().map(ImportedPage::height).max().unwrap_or(1);
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
-            let role = in_workspace(&mut tx, principal, workspace_id).await?;
-            let members_hidden = is_guest(actor(principal, role));
+            let standing = in_workspace(&mut tx, principal, workspace_id).await?;
+            let members_hidden = standing.members_hidden();
             repo::lock_tree(&mut *tx, workspace_id).await?;
             let Target {
                 space,
                 parent_id,
                 depth,
             } = self
-                .target(&mut tx, principal, workspace_id, role, location)
+                .target(&mut tx, principal, workspace_id, &standing, location)
                 .await?;
             if depth + height > MAX_DEPTH {
                 return Err(PageError::TooDeep);

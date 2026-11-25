@@ -37,6 +37,9 @@ pub enum AccessChange {
     /// ended, or their account was disabled or changed role. Whoever holds pages open for
     /// them checks that the session or token they opened them with still holds.
     Account { user_id: Uuid },
+    /// Every page, for every agent: whether agents work on the instance changed. Whoever
+    /// holds pages open for an agent checks that its token still holds.
+    Agents,
 }
 
 /// Hears of access changes, once each has committed. It runs on the use case's task, so it

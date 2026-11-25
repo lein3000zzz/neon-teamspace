@@ -1,6 +1,6 @@
 //! The shapes the routes share. Times are RFC 3339 strings, ids UUIDs.
 
-use neon_domain::{auth, workspaces};
+use neon_domain::{agents, auth, workspaces};
 use serde::{Deserialize, Deserializer, Serialize};
 use time::OffsetDateTime;
 use utoipa::ToSchema;
@@ -61,7 +61,26 @@ impl Scope {
     }
 }
 
-/// An account.
+/// What an identity is: a person, or an agent or integration acting for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UserKind {
+    Human,
+    Agent,
+    Integration,
+}
+
+impl From<auth::UserKind> for UserKind {
+    fn from(kind: auth::UserKind) -> Self {
+        match kind {
+            auth::UserKind::Human => Self::Human,
+            auth::UserKind::Agent => Self::Agent,
+            auth::UserKind::Integration => Self::Integration,
+        }
+    }
+}
+
+/// A person's account.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct User {
     pub id: Uuid,
@@ -94,7 +113,7 @@ impl From<auth::User> for User {
             hue: user.hue(),
             hue_override: user.hue_override,
             id: user.id,
-            email: user.email.as_str().to_owned(),
+            email: user.address().to_owned(),
             display_name: user.display_name,
             role: user.role.into(),
             email_verified_at: user.email_verified_at,
@@ -266,17 +285,44 @@ impl From<WorkspaceRole> for workspaces::WorkspaceRole {
     }
 }
 
-/// An account as the people it works with see it.
+/// A person as the people they work with see them, or an agent or integration with the
+/// person it acts for: shown as `Scout · via Ada Lovelace`.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Person {
     pub id: Uuid,
+    pub kind: UserKind,
+    /// A person's name, or an agent's or integration's.
     #[schema(example = "Ada Lovelace")]
     pub display_name: String,
+    /// A person's address; absent for an agent or integration, which has none.
     #[schema(example = "ada@example.com")]
-    pub email: String,
+    pub email: Option<String>,
     /// The hue they are drawn in, 0 to 359.
     #[schema(minimum = 0, maximum = 359, example = 250)]
     pub hue: u16,
+    /// An agent's or integration's owner, whom it acts for; absent for a person, and once
+    /// the owner's account is gone.
+    pub owner: Option<Owner>,
+}
+
+/// The person an agent or integration acts for.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Owner {
+    pub id: Uuid,
+    #[schema(example = "Ada Lovelace")]
+    pub display_name: String,
+    #[schema(minimum = 0, maximum = 359, example = 250)]
+    pub hue: u16,
+}
+
+impl From<agents::AgentOwner> for Owner {
+    fn from(owner: agents::AgentOwner) -> Self {
+        Self {
+            hue: owner.hue(),
+            id: owner.id,
+            display_name: owner.display_name,
+        }
+    }
 }
 
 impl From<workspaces::Person> for Person {
@@ -284,8 +330,10 @@ impl From<workspaces::Person> for Person {
         Self {
             hue: person.hue(),
             id: person.id,
+            kind: person.kind.into(),
             display_name: person.display_name,
             email: person.email,
+            owner: person.owner.map(Owner::from),
         }
     }
 }

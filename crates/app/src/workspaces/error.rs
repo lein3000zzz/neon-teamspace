@@ -26,6 +26,8 @@ pub enum WorkspaceError {
     AlreadyInvited,
     #[error("this workspace has reached its limit of {limit} members")]
     MemberLimit { limit: u64 },
+    #[error("this workspace has reached its limit of {limit} agents and integrations")]
+    AgentLimit { limit: u64 },
     #[error(transparent)]
     LastOwner(#[from] LastOwner),
     #[error(transparent)]
@@ -57,6 +59,7 @@ impl WorkspaceError {
             Self::AlreadyMember => "already_member",
             Self::AlreadyInvited => "already_invited",
             Self::MemberLimit { .. } => "member_limit",
+            Self::AgentLimit { .. } => "agent_limit",
             Self::LastOwner(_) => "last_owner",
             Self::LastTeamspaceOwner(_) => "last_teamspace_owner",
             Self::SlugTaken => "slug_taken",
@@ -119,6 +122,14 @@ mod tests {
         assert_eq!(
             WorkspaceError::MemberLimit { limit: 5 }.to_string(),
             "this workspace has reached its limit of 5 members"
+        );
+        assert_eq!(
+            WorkspaceError::AgentLimit { limit: 2 }.to_string(),
+            "this workspace has reached its limit of 2 agents and integrations"
+        );
+        assert_eq!(
+            WorkspaceError::AgentLimit { limit: 2 }.code(),
+            "agent_limit"
         );
         assert_eq!(WorkspaceError::from(LastOwner).code(), "last_owner");
         assert_eq!(

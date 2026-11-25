@@ -128,6 +128,11 @@ settings:
     # from_name:
     # Mail admins about each confirmed request to join.
     # notifications: true
+  mcp:
+    # Whom MCP clients may act as: the person who connects them (user), one of their
+    # agents (agent), or both. Without agent, nobody makes agents and agents' tokens are
+    # refused.
+    # identities: [user, agent]
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d

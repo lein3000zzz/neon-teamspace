@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
@@ -16,7 +16,7 @@
           "account"
         ],
         "summary": "List the caller's favorite pages",
-        "description": "Those they may see and that are out of the trash, in their order.",
+        "description": "Those they may see and that are out of the trash, in their order. For a token bound to a workspace, that workspace's alone.",
         "operationId": "list_favorites",
         "parameters": [
           {
@@ -378,7 +378,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -450,7 +450,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -535,7 +535,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -605,7 +605,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -683,7 +683,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -823,7 +823,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -901,7 +901,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -961,7 +961,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1148,7 +1148,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1182,7 +1182,7 @@
           "account"
         ],
         "summary": "Create an API token",
-        "description": "Its secret is in this answer only; the server keeps its hash. A token never does more than its owner's role allows. Only from a browser session.",
+        "description": "Its secret is in this answer only; the server keeps its hash. A token never does more than its owner's role allows, and one bound to a workspace works there alone. Only from a browser session.",
         "operationId": "create_token",
         "requestBody": {
           "content": {
@@ -1226,7 +1226,17 @@
             }
           },
           "403": {
-            "description": "forbidden: not a browser session, or the admin scope for a user who is no admin.",
+            "description": "forbidden: not a browser session, or the admin scope for a user who is no admin, or of the workspace bound to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: a workspace to bind to that the caller is not in.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6586,7 +6596,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "token_bound: a token bound to a workspace; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6686,7 +6696,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "token_bound: a token bound to a workspace; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6834,7 +6844,7 @@
             }
           },
           "403": {
-            "description": "forbidden: only instance admins create workspaces here; or insufficient_scope.",
+            "description": "token_bound: a token bound to a workspace; or forbidden: only instance admins create workspaces here; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7126,6 +7136,886 @@
           },
           "409": {
             "description": "slug_taken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/agents": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List a workspace's agents",
+        "description": "Its agents and integrations, deleted ones too, with their owners and whether they work. For everyone in the workspace but guests.",
+        "operationId": "list_agents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agents.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Make an agent",
+        "description": "Makes an agent that the caller owns, a member of the workspace and of its default teamspace. While agents are on, on the instance and in the workspace, for whom the workspace lets make them, never a guest or an agent, and within its agent limit.",
+        "operationId": "create_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: agents are off, or the caller may not make them; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "agent_limit: the workspace has as many agents and integrations as its limit allows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/agents/{agent_id}": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "An agent",
+        "description": "An agent or integration of the workspace, deleted or not. For everyone in the workspace but guests.",
+        "operationId": "get_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Delete an agent",
+        "description": "For its owner and the workspace's owners and admins. It leaves the workspace, its tokens are revoked and its open connections close; what it made still names it. Deleting one deleted already does nothing.",
+        "operationId": "delete_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Rename or recolour an agent",
+        "description": "Changes what the body names, for the agent's owner.",
+        "operationId": "update_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not its owner, or it is deleted; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/agents/{agent_id}/tokens": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List an agent's tokens",
+        "description": "Without their secrets. For its owner and the workspace's owners and admins.",
+        "operationId": "list_agent_tokens",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Make an agent's token",
+        "description": "A token that acts as the agent, for its owner, bound to the workspace: whatever it does, the agent may do and its owner may too. Its secret is in this answer only; the server keeps its hash. For the agent's owner, from a browser session, while the agent works.",
+        "operationId": "create_agent_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not its owner, not a browser session, the admin scope, or the agent does not work now; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/agents/{agent_id}/tokens/{token_id}": {
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Revoke an agent's token",
+        "description": "It stops working at once, and the connections it opened close. For the agent's owner and the workspace's owners and admins, from a browser session.",
+        "operationId": "revoke_agent_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "The token's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not its owner, an owner or an admin, or not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/agents/{agent_id}/transfer": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Hand an agent to someone else",
+        "description": "Makes another person of the workspace, not a guest and not disabled, its owner, for the workspace's owners and admins. It acts for them from then on, which resumes it if it was suspended; its tokens, which its former owner made, are revoked.",
+        "operationId": "transfer_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferAgent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: not a person, a guest, or a disabled account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not an owner or admin, or it is deleted; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such agent or member.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10282,6 +11172,117 @@
           }
         }
       },
+      "Agent": {
+        "type": "object",
+        "description": "An agent or integration of a workspace.",
+        "required": [
+          "id",
+          "kind",
+          "workspace_id",
+          "name",
+          "hue",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue it is drawn in, 0 to 359: the one pinned, or else its id's.",
+            "example": 160,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UserKind",
+            "description": "`agent` or `integration`."
+          },
+          "name": {
+            "type": "string",
+            "example": "Scout"
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Owner",
+                "description": "The person it acts for; absent once their account is gone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AgentCreation": {
+        "type": "string",
+        "description": "Who makes agents in a workspace: its owners and admins, or every member but guests.",
+        "enum": [
+          "admins",
+          "members"
+        ]
+      },
+      "AgentList": {
+        "type": "object",
+        "required": [
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            },
+            "description": "Those not deleted first, each group by name."
+          }
+        }
+      },
+      "AgentStatus": {
+        "type": "string",
+        "description": "Whether an agent or integration works now, and why not.",
+        "enum": [
+          "active",
+          "suspended",
+          "disabled",
+          "deleted"
+        ]
+      },
       "ApiToken": {
         "type": "object",
         "description": "An API token, without its secret.",
@@ -10330,6 +11331,14 @@
             "items": {
               "$ref": "#/components/schemas/Scope"
             }
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The one workspace it works in; absent for a token that works across the instance.\nAn agent's is always its workspace."
           }
         }
       },
@@ -10648,6 +11657,60 @@
           "dusk"
         ]
       },
+      "CreateAgent": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The hue to pin, 0 to 359; absent, its id's.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 100 characters.",
+            "example": "Scout"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateAgentToken": {
+        "type": "object",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "After now; absent for a token that never expires."
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 64 characters.",
+            "example": "Hermes on the build box"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "`read`, `write` or both; never `admin`."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateApiToken": {
         "type": "object",
         "required": [
@@ -10673,7 +11736,15 @@
             "items": {
               "$ref": "#/components/schemas/Scope"
             },
-            "description": "At least one; admin only for an admin."
+            "description": "At least one. Admin, for a token across the instance, only for an instance admin,\nfor its admin pages' work; for a token bound to a workspace, only for its owners and\nadmins, for that workspace's admin work alone."
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Binds the token to one workspace the caller is in: it works on that workspace's\nroutes and sockets alone, and on no other workspace, the caller's account but that\nworkspace's favorites, or the instance admins' routes. Absent, it works across the\ninstance."
           }
         },
         "additionalProperties": false
@@ -11263,6 +12334,7 @@
               "null"
             ],
             "format": "int64",
+            "description": "The most agents and integrations, together.",
             "minimum": 0
           },
           "members": {
@@ -12063,7 +13135,8 @@
         "required": [
           "user",
           "role",
-          "joined_at"
+          "joined_at",
+          "suspended"
         ],
         "properties": {
           "joined_at": {
@@ -12071,7 +13144,12 @@
             "format": "date-time"
           },
           "role": {
-            "$ref": "#/components/schemas/WorkspaceRole"
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "An agent's or integration's is always member."
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "An agent or integration whose owner is out of the workspace, a guest there or\ndisabled: its tokens are refused until that ends, or it is handed to someone else.\nNever a person."
           },
           "user": {
             "$ref": "#/components/schemas/Person"
@@ -12289,6 +13367,32 @@
         },
         "additionalProperties": false
       },
+      "Owner": {
+        "type": "object",
+        "description": "The person an agent or integration acts for.",
+        "required": [
+          "id",
+          "display_name",
+          "hue"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "example": "Ada Lovelace"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Page": {
         "type": "object",
         "description": "A page, without its content, and what the caller may do with it.",
@@ -12498,20 +13602,25 @@
       },
       "Person": {
         "type": "object",
-        "description": "An account as the people it works with see it.",
+        "description": "A person as the people they work with see them, or an agent or integration with the\nperson it acts for: shown as `Scout · via Ada Lovelace`.",
         "required": [
           "id",
+          "kind",
           "display_name",
-          "email",
           "hue"
         ],
         "properties": {
           "display_name": {
             "type": "string",
+            "description": "A person's name, or an agent's or integration's.",
             "example": "Ada Lovelace"
           },
           "email": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A person's address; absent for an agent or integration, which has none.",
             "example": "ada@example.com"
           },
           "hue": {
@@ -12525,6 +13634,20 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UserKind"
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Owner",
+                "description": "An agent's or integration's owner, whom it acts for; absent for a person, and once\nthe owner's account is gone."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -13315,7 +14438,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "`bool`, `integer`, `string`, `enum`, `duration` or `secret`.",
+            "description": "`bool`, `integer`, `string`, `enum`, `duration`, `set` or `secret`.",
             "example": "enum"
           },
           "options": {
@@ -13326,7 +14449,7 @@
             "items": {
               "type": "string"
             },
-            "description": "An enum's options."
+            "description": "An enum's options, or those a set picks from."
           },
           "pinned": {
             "type": "boolean",
@@ -13785,6 +14908,20 @@
         },
         "additionalProperties": false
       },
+      "TransferAgent": {
+        "type": "object",
+        "required": [
+          "owner_id"
+        ],
+        "properties": {
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The person of the workspace, not a guest, who owns it from now on."
+          }
+        },
+        "additionalProperties": false
+      },
       "TransferOwnership": {
         "type": "object",
         "required": [
@@ -13890,6 +15027,30 @@
           "mono"
         ]
       },
+      "UpdateAgent": {
+        "type": "object",
+        "properties": {
+          "hue_override": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "0 to 359; null goes back to the id's hue.",
+            "maximum": 359,
+            "minimum": 0
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 100 characters.",
+            "example": "Scout"
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateMe": {
         "type": "object",
         "properties": {
@@ -13955,7 +15116,7 @@
         "properties": {
           "changes": {
             "type": "object",
-            "description": "By key: the new value, as JSON of the setting's type, or null to go back to the\ndefault."
+            "description": "By key: the new value, as JSON of the setting's type, a list of options for a set,\nor null to go back to the default."
           }
         },
         "additionalProperties": false
@@ -14033,6 +15194,24 @@
       "UpdateWorkspace": {
         "type": "object",
         "properties": {
+          "agent_creation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AgentCreation",
+                "description": "Who makes agents in it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agents_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Turns the workspace's agents on or off. Off, none is made and every agent's tokens\nare refused, its open connections closed."
+          },
           "hue_override": {
             "type": [
               "integer",
@@ -14074,7 +15253,7 @@
       },
       "User": {
         "type": "object",
-        "description": "An account.",
+        "description": "A person's account.",
         "required": [
           "id",
           "email",
@@ -14143,6 +15322,15 @@
             "format": "date-time"
           }
         }
+      },
+      "UserKind": {
+        "type": "string",
+        "description": "What an identity is: a person, or an agent or integration acting for one.",
+        "enum": [
+          "human",
+          "agent",
+          "integration"
+        ]
       },
       "UserPage": {
         "type": "object",
@@ -14284,10 +15472,14 @@
             "type": "object",
             "required": [
               "members_can_create_teamspaces",
+              "agents",
               "limits",
               "updated_at"
             ],
             "properties": {
+              "agents": {
+                "$ref": "#/components/schemas/WorkspaceAgents"
+              },
               "limits": {
                 "$ref": "#/components/schemas/EffectiveLimits"
               },
@@ -14297,7 +15489,7 @@
                   "null"
                 ],
                 "format": "int64",
-                "description": "How many people are in it, guests included. Absent for a guest, who knows of no\nmember but themselves."
+                "description": "How many people are in it, guests included, agents and integrations left out.\nAbsent for a guest, who knows of no member but themselves."
               },
               "members_can_create_teamspaces": {
                 "type": "boolean",
@@ -14311,6 +15503,36 @@
           }
         ],
         "description": "A workspace the caller is in."
+      },
+      "WorkspaceAgents": {
+        "type": "object",
+        "description": "A workspace's agents as a whole: whether they work, and who makes them.",
+        "required": [
+          "available",
+          "enabled",
+          "creation"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether the instance has agents at all, as the setting `mcp.identities` says. Off,\nnone is made and their tokens are refused, whatever the workspace says."
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "How many agents and integrations it has, deleted ones left out. Absent for a\nguest."
+          },
+          "creation": {
+            "$ref": "#/components/schemas/AgentCreation"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the workspace has its agents on. Off, none is made and their tokens are\nrefused."
+          }
+        }
       },
       "WorkspaceLimits": {
         "type": "object",
@@ -14479,6 +15701,10 @@
     {
       "name": "workspaces",
       "description": "Workspaces, their members, invitations and invite links."
+    },
+    {
+      "name": "agents",
+      "description": "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."
     },
     {
       "name": "teamspaces",

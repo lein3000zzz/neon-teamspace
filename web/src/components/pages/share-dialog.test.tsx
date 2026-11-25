@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Share } from "@/api/pages";
 import { renderApp } from "@/test/render-app";
 import { fakePages, PAGE_IDS } from "@/test/pages";
-import { fakeWorkspaces, people } from "@/test/workspaces";
+import { asPerson, fakeWorkspaces, people, scout } from "@/test/workspaces";
 
 const CREATED = "2026-11-20T09:00:00Z";
 
@@ -46,6 +46,30 @@ describe("sharing a page", () => {
     expect(cy.getByText("Can edit · From Roadmap", { exact: false })).toBeInTheDocument();
     expect(cy.queryByRole("button")).toBeNull();
     expect(cy.queryByText("Guest")).toBeNull();
+  });
+
+  it("names an agent with its badge and the person it acts for, and shares with it", async () => {
+    fakeWorkspaces({ agents: [scout] });
+    const api = fakePages({
+      shares: { [PAGE_IDS.roadmap]: [share(asPerson(scout), "can_edit", PAGE_IDS.roadmap)] },
+    });
+    const { user, dialog } = await openShares();
+
+    const list = within(await dialog.findByRole("region", { name: "People with a share" }));
+    const shared = (await list.findByText("Scout")).closest("li");
+    expect(shared).toHaveTextContent("ScoutAgent· via Ada");
+    const form = within(dialog.getByRole("form", { name: "Share with someone" }));
+    const person = form.getByLabelText("Person");
+    expect(within(person).getByRole("option", { name: "Scout · via Ada" })).toBeInTheDocument();
+    await user.selectOptions(person, scout.id);
+    await user.click(form.getByRole("button", { name: "Share" }));
+
+    expect(await dialog.findByText("Shared with Scout.")).toBeInTheDocument();
+    expect(api.changes.at(-1)).toEqual({
+      method: "POST",
+      path: `/api/v1/pages/${PAGE_IDS.q1}/shares`,
+      body: { user_id: scout.id, access: "can_view" },
+    });
   });
 
   it("shares with someone in the workspace, to view", async () => {

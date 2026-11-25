@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET display_name = $2, role = $3, disabled_at = $4, updated_at = $5\n         WHERE id = $1 AND kind = 'human'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "026f5b80400412b6ebcd3a36b269e3843a8222f0ba6828c9d13364d5999038e2"
+}

@@ -147,11 +147,13 @@ document, to the `XmlFragment` named `document-store` that
   cookie goes with the upgrade and the Content-Security-Policy's `connect-src 'self'` covers
   it.
 - The y-sync protocol carries the document, and awareness carries each person's cursor and
-  presence: their name, their id, and their hue, which the server writes into each state
-  itself. The app still cleans every state it gets before the editor reads it
-  (`cleanState` in `cursor.ts`): it keeps the name, the id, the hue and the cursor's two
-  positions, checked, and makes the selection's colour from the hue, as y-prosemirror
-  writes that colour into a style attribute as it finds it.
+  presence: their name, their id, their hue and their kind, and for an agent the name of
+  the person it acts for, which the server writes into each state itself. The app still
+  cleans every state it gets before the editor reads it (`cleanState` in `cursor.ts`): it
+  keeps the name, the id, the hue, an agent's or integration's kind and owner, and the
+  cursor's two positions, checked, and makes the selection's colour from the hue, as
+  y-prosemirror writes that colour into a style attribute as it finds it. An agent's cursor
+  and its place among who is here read `Scout · via Ada`.
 - Tabs do not sync with each other through a `BroadcastChannel`, as the provider can, so
   every change goes through the server and its checks.
 - Nothing can be typed until the server sent the document once, nor once it ended the
@@ -291,8 +293,8 @@ lightness would glare across the top of the page.
 
 ### Hues of things
 
-Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
-agents, integrations and databases will too, **planned**, as they arrive:
+Users, workspaces, teamspaces, agents and integrations each have a hue of their own, worked
+out from their ID; databases will too, **planned**, as they arrive:
 
 1. Take the UUID's 16 bytes, in order. Only the canonical form, 8-4-4-4-12 hex digits in
    any case, counts as a UUID; any other ID is hashed as its UTF-8 text.
@@ -306,8 +308,8 @@ app's `hueFor` and the server's `hue_for` share the test vectors in
 the ID: lightness and chroma come from the palette and mode, as for the accent, so the
 contrast holds whatever hue an ID lands on.
 
-A user, workspace or teamspace can pin a hue of its own instead. The API sends both: `hue`,
-the one to draw, and `hue_override`, the pinned one when there is one.
+A user, workspace, teamspace, agent or integration can pin a hue of its own instead. The API
+sends both: `hue`, the one to draw, and `hue_override`, the pinned one when there is one.
 
 ## Fonts
 

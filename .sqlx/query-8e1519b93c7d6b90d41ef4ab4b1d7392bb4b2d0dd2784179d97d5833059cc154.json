@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM users WHERE email_verified_at IS NULL AND created_at < $1 AND kind = 'human'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e1519b93c7d6b90d41ef4ab4b1d7392bb4b2d0dd2784179d97d5833059cc154"
+}

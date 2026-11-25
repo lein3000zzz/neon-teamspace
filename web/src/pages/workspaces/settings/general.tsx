@@ -8,6 +8,7 @@ import {
   useLeaveWorkspace,
   useUpdateWorkspace,
   workspaceQuery,
+  type AgentCreation,
   type Workspace,
 } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
@@ -20,6 +21,7 @@ import { PageSection } from "@/components/settings/page-section";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { HueControl } from "@/components/workspaces/hue-control";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { formatDate } from "@/lib/format";
@@ -58,6 +60,7 @@ export function GeneralSettingsPage() {
         <WorkspaceFacts workspace={details.data} />
       )}
       {canEdit && <HueSection workspace={details.data} />}
+      {canEdit && <AgentsSection workspace={details.data} />}
       <LimitsSection workspace={details.data} />
       <LeaveSection workspace={details.data} />
       {details.data.role === "owner" && <DangerSection workspace={details.data} />}
@@ -246,6 +249,71 @@ function HueSection({ workspace }: { workspace: Workspace }) {
           {update.isSuccess ? hue.saved : ""}
         </output>
       </div>
+    </PageSection>
+  );
+}
+
+/**
+ * Whether the workspace's agents work, and who makes them. Off, none is made
+ * and every agent's tokens are refused; the instance may have them off anyway.
+ */
+function AgentsSection({ workspace }: { workspace: Workspace }) {
+  const update = useUpdateWorkspace(workspace.id);
+  const [enabled, setEnabled] = useState(workspace.agents.enabled);
+  const [creation, setCreation] = useState<AgentCreation>(workspace.agents.creation);
+  const agents = strings.workspaces.agents;
+  return (
+    <PageSection title={agents.settings} hint={agents.settingsHint}>
+      {!workspace.agents.available && (
+        <p className="text-sm text-muted-foreground">{agents.unavailable}</p>
+      )}
+      <form
+        noValidate
+        aria-label={agents.settings}
+        className="grid max-w-md gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          update.mutate({ agents_enabled: enabled, agent_creation: creation });
+        }}
+      >
+        {update.isError && <ErrorNotice error={update.error} />}
+        <CheckboxField
+          label={agents.enabled}
+          hint={agents.enabledHint}
+          checked={enabled}
+          onCheckedChange={(on) => {
+            update.reset();
+            setEnabled(on);
+          }}
+        />
+        <Field label={agents.creation}>
+          {(control) => (
+            <NativeSelect
+              {...control}
+              name="agent_creation"
+              value={creation}
+              onChange={(event) => {
+                update.reset();
+                setCreation(event.target.value === "admins" ? "admins" : "members");
+              }}
+            >
+              {(["members", "admins"] as const).map((option) => (
+                <option key={option} value={option}>
+                  {agents.creations[option]}
+                </option>
+              ))}
+            </NativeSelect>
+          )}
+        </Field>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" variant="outline" disabled={update.isPending}>
+            {update.isPending ? copy.saving : copy.save}
+          </Button>
+          <output className="block text-sm text-muted-foreground">
+            {update.isSuccess ? copy.saved : ""}
+          </output>
+        </div>
+      </form>
     </PageSection>
   );
 }

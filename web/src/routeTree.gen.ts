@@ -42,6 +42,7 @@ import { Route as AppWSlugSettingsRouteImport } from './routes/_app/w/$slug/sett
 import { Route as AppWSlugTrashRouteImport } from './routes/_app/w/$slug/trash'
 import { Route as AppWSlugPPageIdRouteImport } from './routes/_app/w/$slug/p/$pageId'
 import { Route as AppWSlugSettingsIndexRouteImport } from './routes/_app/w/$slug/settings/index'
+import { Route as AppWSlugSettingsAgentsRouteImport } from './routes/_app/w/$slug/settings/agents'
 import { Route as AppWSlugSettingsMembersRouteImport } from './routes/_app/w/$slug/settings/members'
 import { Route as AppWSlugSettingsTeamspacesRouteImport } from './routes/_app/w/$slug/settings/teamspaces'
 import { Route as AppWSlugTeamspacesIndexRouteImport } from './routes/_app/w/$slug/teamspaces/index'
@@ -212,6 +213,11 @@ const AppWSlugSettingsIndexRoute = AppWSlugSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppWSlugSettingsRoute,
 } as any)
+const AppWSlugSettingsAgentsRoute = AppWSlugSettingsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => AppWSlugSettingsRoute,
+} as any)
 const AppWSlugSettingsMembersRoute = AppWSlugSettingsMembersRouteImport.update({
   id: '/members',
   path: '/members',
@@ -266,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug/': typeof AppWSlugIndexRoute
   '/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
+  '/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -299,6 +306,7 @@ export interface FileRoutesByTo {
   '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug': typeof AppWSlugIndexRoute
   '/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
+  '/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -339,6 +347,7 @@ export interface FileRoutesById {
   '/_app/w/$slug/trash': typeof AppWSlugTrashRoute
   '/_app/w/$slug/': typeof AppWSlugIndexRoute
   '/_app/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
+  '/_app/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/_app/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/_app/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
   '/_app/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
@@ -378,6 +387,7 @@ export interface FileRouteTypes {
     | '/w/$slug/trash'
     | '/w/$slug/'
     | '/w/$slug/p/$pageId'
+    | '/w/$slug/settings/agents'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
     | '/w/$slug/teamspaces/$teamspaceId'
@@ -411,6 +421,7 @@ export interface FileRouteTypes {
     | '/w/$slug/trash'
     | '/w/$slug'
     | '/w/$slug/p/$pageId'
+    | '/w/$slug/settings/agents'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
     | '/w/$slug/teamspaces/$teamspaceId'
@@ -450,6 +461,7 @@ export interface FileRouteTypes {
     | '/_app/w/$slug/trash'
     | '/_app/w/$slug/'
     | '/_app/w/$slug/p/$pageId'
+    | '/_app/w/$slug/settings/agents'
     | '/_app/w/$slug/settings/members'
     | '/_app/w/$slug/settings/teamspaces'
     | '/_app/w/$slug/teamspaces/$teamspaceId'
@@ -695,6 +707,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWSlugSettingsIndexRouteImport
       parentRoute: typeof AppWSlugSettingsRoute
     }
+    '/_app/w/$slug/settings/agents': {
+      id: '/_app/w/$slug/settings/agents'
+      path: '/agents'
+      fullPath: '/w/$slug/settings/agents'
+      preLoaderRoute: typeof AppWSlugSettingsAgentsRouteImport
+      parentRoute: typeof AppWSlugSettingsRoute
+    }
     '/_app/w/$slug/settings/members': {
       id: '/_app/w/$slug/settings/members'
       path: '/members'
@@ -767,12 +786,14 @@ const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
 )
 
 interface AppWSlugSettingsRouteChildren {
+  AppWSlugSettingsAgentsRoute: typeof AppWSlugSettingsAgentsRoute
   AppWSlugSettingsMembersRoute: typeof AppWSlugSettingsMembersRoute
   AppWSlugSettingsTeamspacesRoute: typeof AppWSlugSettingsTeamspacesRoute
   AppWSlugSettingsIndexRoute: typeof AppWSlugSettingsIndexRoute
 }
 
 const AppWSlugSettingsRouteChildren: AppWSlugSettingsRouteChildren = {
+  AppWSlugSettingsAgentsRoute: AppWSlugSettingsAgentsRoute,
   AppWSlugSettingsMembersRoute: AppWSlugSettingsMembersRoute,
   AppWSlugSettingsTeamspacesRoute: AppWSlugSettingsTeamspacesRoute,
   AppWSlugSettingsIndexRoute: AppWSlugSettingsIndexRoute,

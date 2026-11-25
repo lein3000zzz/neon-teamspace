@@ -1,8 +1,16 @@
 import { hueFor } from "@/lib/hue";
 import { oklchToHex } from "@/lib/oklch";
+import { strings } from "@/lib/strings";
+
+/** An agent or an integration, as the server marks one's presence. */
+export type Delegate = {
+  kind: "agent" | "integration";
+  /** The display name of the person it acts for, unless their account is gone. */
+  owner?: string;
+};
 
 /** Who is editing, as the page's other editors see them. */
-export type Collaborator = {
+export type Collaborator = Partial<Delegate> & {
   /** The account's id, so two tabs of one person count once. */
   id: string;
   name: string;
@@ -24,7 +32,34 @@ const NAME_LIMIT = 100;
 const ID_LIMIT = 36;
 
 export function collaborator(id: string, name: string, hue: number): Collaborator {
-  return { id, name, hue, color: oklchToHex(TINT.lightness, TINT.chroma, hue) };
+  return tinted({ id, name, hue });
+}
+
+/** Someone with the colour of their selection's tint, made from their hue. */
+function tinted(who: Omit<Collaborator, "color">): Collaborator {
+  return { ...who, color: oklchToHex(TINT.lightness, TINT.chroma, who.hue) };
+}
+
+/**
+ * How a cursor and the list of who is here name someone: a person by their
+ * name, an agent or integration with the person it acts for, "Scout · via Ada".
+ */
+export function collaboratorLabel(who: Pick<Collaborator, "name" | "kind" | "owner">): string {
+  return who.kind !== undefined && who.owner !== undefined
+    ? strings.people.via(who.name, who.owner)
+    : who.name;
+}
+
+/** Of an awareness state's user, whether it is an agent or integration, and whose. */
+function delegateOf(user: Record<string, unknown>): Delegate | undefined {
+  const kind = user["kind"];
+  if (kind !== "agent" && kind !== "integration") {
+    return undefined;
+  }
+  const owner = user["owner"];
+  return typeof owner === "string" && owner !== ""
+    ? { kind, owner: [...owner].slice(0, NAME_LIMIT).join("") }
+    : { kind };
 }
 
 /** What someone else's awareness state says of them, whatever it holds. */
@@ -41,7 +76,7 @@ export function collaboratorOf(user: unknown): Omit<Collaborator, "color"> | und
     typeof user["hue"] === "number" && Number.isInteger(user["hue"])
       ? ((user["hue"] % 360) + 360) % 360
       : hueFor(id);
-  return { id, name: [...name].slice(0, NAME_LIMIT).join(""), hue };
+  return { id, name: [...name].slice(0, NAME_LIMIT).join(""), hue, ...delegateOf(user) };
 }
 
 /**
@@ -62,7 +97,7 @@ export function cleanState(state: unknown): Record<string, unknown> | null {
   const clean: Record<string, unknown> = {};
   const who = collaboratorOf(state["user"]);
   if (who !== undefined) {
-    clean["user"] = collaborator(who.id, who.name, who.hue);
+    clean["user"] = tinted(who);
   }
   const cursor = state["cursor"];
   if (cursor === null) {
@@ -128,10 +163,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Someone else's cursor: a caret and the name it carries, both in their hue.
- * It has the structure and classes of BlockNote's own, so BlockNote shows the
- * name while they type and hides it after, but its colour comes from the
- * theme (editor.css) through data-hue rather than from a fixed colour.
+ * Someone else's cursor: a caret and the name it carries, both in their hue,
+ * an agent's with the person it acts for. It has the structure and classes of
+ * BlockNote's own, so BlockNote shows the name while they type and hides it
+ * after, but its colour comes from the theme (editor.css) through data-hue
+ * rather than from a fixed colour.
  */
 export function renderCursor(user: { name: string; [key: string]: unknown }): HTMLElement {
   const who = collaboratorOf(user);
@@ -146,7 +182,7 @@ export function renderCursor(user: { name: string; [key: string]: unknown }): HT
 
   const label = document.createElement("span");
   label.classList.add("bn-collaboration-cursor__label");
-  label.textContent = who?.name ?? user.name;
+  label.textContent = who === undefined ? user.name : collaboratorLabel(who);
 
   caret.append(label);
   // Word joiners on both sides keep the caret from breaking a line on its own.
