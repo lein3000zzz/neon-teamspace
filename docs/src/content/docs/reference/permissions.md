@@ -254,6 +254,10 @@ are **hidden**. Without the `admin` scope, it acts as a member at most: a bound 
 owner or admin manages nothing. With it, it does the workspace's admin work its holder's
 role allows, and never an instance admin's.
 
+The [MCP server](/docs/guides/agents-over-mcp/) takes bound tokens alone, and its tools and
+resources ask these same rules as the API's routes do, with the token's scopes. Whatever
+changes something needs `write`.
+
 ## The instance
 
 | Action | Instance admin | Anyone else |

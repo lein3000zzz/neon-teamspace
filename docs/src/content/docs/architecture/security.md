@@ -92,6 +92,23 @@ where one goes, such as `mail.host`. A leaked admin token therefore cannot make 
 its holder signs in to at a browser, nor make an admin of one it got through an invite, nor
 demote or disable any admin, its owner included.
 
+## The MCP server
+
+`/mcp` authenticates every request by its bearer token alone, as the API does for bearer
+requests, and takes no cookie, so a web page a person visits cannot use their session
+there. The token must be bound to one workspace, and the server refuses one across the
+instance with `token_not_bound`. A request without a working token answers `401` with a
+`WWW-Authenticate` header that names the resource's metadata, as RFC 9728 has it. Against
+DNS rebinding, the server refuses with `403` a request whose `Origin` is not its own.
+
+Each session belongs to the identity and workspace that opened it, and another identity's
+request on it finds no session. The server checks the token on every request. It ends a
+session as soon as an access change shows its token stopped working, its agent is
+suspended, or its identity left the workspace. Every five minutes it also looks again at
+every session, for what no change tells of, such as an expiry. Sessions have bounds
+overall and per identity, and end when idle. The
+[MCP guide](/docs/guides/agents-over-mcp/#what-a-connection-is) lists the bounds.
+
 ## Cross-site requests
 
 A request with a method other than `GET`, `HEAD` or `OPTIONS` and no `Authorization` header
@@ -147,8 +164,9 @@ attempts, then one more every 30 seconds:
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
-cannot lock the owner out from one place. A request over a limit gets `429` with the code
-`rate_limited` and a `Retry-After` header.
+cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
+agent to the MCP server, 200 at once, then four a second, since agents work in bursts. A
+request over a limit gets `429` with the code `rate_limited` and a `Retry-After` header.
 
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.

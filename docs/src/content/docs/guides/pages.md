@@ -59,6 +59,7 @@ The rest is optional:
 | `cover` | One of the covers below. |
 | `style` | `font`, `default`, `serif` or `mono`; `small_text` and `full_width`, both off unless set. |
 | `placement` | Where among its siblings; see [Order](#order). Last unless set. |
+| `markdown` | Its content, as [markdown](/docs/architecture/documents/#markdown); empty unless set. |
 
 A cover is drawn from the theme's tokens, at a lightness and chroma set for covers in the
 reader's palette and mode: the accent's in light modes, and deeper in dark modes, where the
@@ -73,6 +74,18 @@ are gradients between two of them. Image covers come with attachments.
 body names, for those who edit the page; `null` removes the icon or the cover. `parent_id`
 is left out when the caller may not see the page above, and a guest, who knows no other
 member, is not told who made, changed, trashed or owns the page.
+
+## Content as markdown
+
+`GET /api/v1/pages/{id}/markdown` reads a page's blocks as markdown, each block's id on a
+line `<!-- block <id> -->` before it, and for a row its properties with their values, as
+[Agents over MCP](/docs/guides/agents-over-mcp/#block-ids) shows. `PATCH` on the same path
+edits them by those ids, through the page's live document, so whoever has the page open sees
+the change at once, and what they type meanwhile stays. Its `operations` append blocks,
+insert them after a block, replace a range of blocks, find and replace text, or replace the
+whole body, in order, all or none. The
+[editing section](/docs/guides/agents-over-mcp/#editing-a-page) of that guide lists them. A
+refused operation answers `400 edit_refused`, naming it, and changes nothing.
 
 ## Order
 
@@ -167,6 +180,12 @@ of pages under it out of the trash, and `access`.
 A tree comes whole up to 1000 pages. A larger one comes in parts: an answer with `next` has
 more, and passing that value back as `after` gets the next part. `limit` asks for smaller
 parts, from 1 to 1000. The trash list takes `after` and `limit` the same way.
+
+## Recently changed
+
+`GET /api/v1/workspaces/{id}/recent-pages` lists the pages and databases of a workspace the
+caller sees, out of the trash, rows left out, the most recently changed first: their title,
+icon, cover, style or place, or their content. `limit` takes 1 to 50, 50 unless set.
 
 ## Favorites
 

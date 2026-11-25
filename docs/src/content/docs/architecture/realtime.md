@@ -169,6 +169,18 @@ through the same queue, so it holds every update applied before it, saved or not
 of a page nobody has open reads the snapshot and the updates logged after it, and loads no
 live document.
 
+### Edits from the server
+
+The server edits a page's document itself for the [markdown API](/docs/guides/pages/#content-as-markdown)
+and the [MCP tools](/docs/guides/agents-over-mcp/#editing-a-page). Such an edit goes through
+the page's live document, which opens for it if nobody has the page open, and through the
+same queue as clients' messages. The document task first makes the edit on a copy, so an
+edit of several parts makes all or none, and the size limit applies before the document
+grows. Then it makes the edit on the document in one transaction. The update goes to every
+connection at once and the log records it as the editor's, like a client's. A document
+opened for an edit alone stays open its while, as one whose last connection left does, then
+saves and unloads.
+
 ## Saving
 
 An update the server applies waits a quarter of a second, or until 256 KiB of them wait, and
@@ -329,6 +341,15 @@ when the server stops, `1013`, `4401`, `4404`, `4408` and `4429`. A client shoul
 Its metrics are `neon_databases_open_connections`, a gauge of the open feeds,
 `neon_databases_disconnects_total`, a counter by `cause` as for documents, and
 `neon_databases_events_total`, the changes told, by `type`.
+
+## Following on the server
+
+The broadcaster's rooms have listeners on the server too. The MCP server's
+[subscriptions](/docs/guides/agents-over-mcp/#resources) join a page's room, which hears
+every update, and a database's guests' room, which leaves people's details out. Every change
+to the rows and schema of a workspace's databases also goes to the workspace's own room, as
+members read it. No client joins that room. A subscription to someone's tasks hears there of
+the rows that name them. None of it asks the database again until a change comes.
 
 ## One process
 

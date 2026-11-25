@@ -157,6 +157,25 @@ given again, even once its row is deleted. A unique id property shows it after i
 that is how people and agents name a task. The prefix may be written in any case, or left
 out: `nw-42` and `42` find the same row.
 
+`PATCH /api/v1/databases/{id}/rows/NW-42` changes a row by its unique id, as
+`PATCH /api/v1/rows/{id}` does.
+
+### Claiming rows
+
+A row is a task, and its assignees are whom its person properties name.
+`POST /api/v1/rows/{id}/claim`, or `POST /api/v1/databases/{id}/rows/NW-42/claim`, takes a
+row nobody holds, in one transaction that holds the row. While the database's first person
+property, or the one `?person_property=` names, names nobody, the claim names the caller
+there. It also moves the row to the first option in progress of the database's first status
+property. Otherwise it changes nothing and answers `409 already_claimed`, naming who holds
+the row with their ids. Of claims of one row at once, exactly one wins. A database without a
+person property, or without a status with an option in progress, answers
+`400 invalid_input`.
+
+`GET /api/v1/workspaces/{id}/tasks` lists the rows assigned to the caller: those of the
+workspace's databases that a person property names them in, out of the trash, that they see,
+the most recently changed first, at most 100, each with its database's title and its status.
+
 ### Moving rows
 
 `POST /api/v1/rows/{id}/move` moves a row in one request: `placement` places it among the
