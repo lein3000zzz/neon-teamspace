@@ -120,7 +120,8 @@ carries `kind` too, and for an agent or integration `owner`, its owner's name.
 
 Person properties take agents: an agent can be assigned a row, and a board groups by it.
 Integrations are never assigned, as they only deliver what their webhook's sender posts;
-naming one in a person value answers `400 invalid_input`.
+naming one in a person value answers `400 invalid_input`. A deleted agent is assigned no
+more, and where a value still names one, the person picker offers to take it off.
 
 ## Tokens bound to one workspace
 

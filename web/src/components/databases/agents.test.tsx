@@ -117,6 +117,44 @@ describe("agents in a database", () => {
     );
   });
 
+  it("takes a deleted agent off a value, though it is offered no more", async () => {
+    fakeWorkspaces({ agents: [scout, hook, former] });
+    fakePages({ pages: databasePages(samplePages()) });
+    const db = fakeDatabase({
+      rows: [
+        row(
+          {
+            id: DB.docs,
+            number: 1,
+            title: "Write docs",
+            values: { [DB.owner]: [former.id, scout.id] },
+          },
+          "a0",
+        ),
+      ],
+    });
+    fakeFeed();
+    const { user } = renderApp(DATABASE_PATH);
+    const view = await database();
+    const table = within(await view.findByRole("table", { name: "Table" }, FIRST_SHOWN));
+
+    await user.click(await table.findByRole("button", { name: /^Owner of Write docs/ }));
+    const list = within(await screen.findByRole("list", { name: "Owner of Write docs" }));
+    const courier = list.getByRole("button", { name: /Courier/ });
+    expect(courier).toHaveTextContent("CourierAgent· via Bob(deleted)");
+    expect(courier).toHaveAttribute("aria-pressed", "true");
+    await user.click(courier);
+    await waitFor(() =>
+      expect(
+        db.changes
+          .filter(
+            (change) => change.method === "PATCH" && change.path === `/api/v1/rows/${DB.docs}`,
+          )
+          .map((change) => change.body),
+      ).toEqual([{ values: { [DB.owner]: [scout.id] } }]),
+    );
+  });
+
   it("groups a board by an agent, named with whom it acts for", async () => {
     const byOwner = views().map((view) =>
       view.id === DB.board
