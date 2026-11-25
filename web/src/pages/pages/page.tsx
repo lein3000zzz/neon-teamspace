@@ -237,6 +237,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
             key={`${page.id}:${generation}`}
             pageId={page.id}
             editable={editable}
+            holdsDatabases={page.kind === "page"}
             user={{ id: me.id, name: me.display_name, hue: me.hue }}
             onConnection={setConnection}
             onAccessChanged={onAccessChanged}

@@ -1097,10 +1097,11 @@ export const strings = {
     editor: {
       label: "Page content",
       loading: "Loading the editor…",
-      database: {
-        label: "Database",
-        none: "none chosen yet",
+      slashDatabase: {
+        title: "Database",
+        subtext: "A table, board or list of pages, inside this page",
       },
+      databaseFailed: "The database could not be made.",
       states: {
         connecting: "Connecting",
         connected: "Connected",
@@ -1424,6 +1425,15 @@ export const strings = {
       lastEdited: "Last edited",
       noDatabase:
         "Its database is not shared with you, so the database's own properties do not show here.",
+    },
+    block: {
+      title: "Database title",
+      none: "No database chosen yet.",
+      create: "Make a database here",
+      creating: "Making the database…",
+      missing: "This database is not available here.",
+      missingLede: "It may be deleted, in the trash, or not shared with you.",
+      openFull: "Open as full page",
     },
     live: {
       states: {

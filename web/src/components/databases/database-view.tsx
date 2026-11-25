@@ -48,6 +48,8 @@ type DatabaseViewProps = {
   onViewChange: (viewId: string) => void;
   /** Inside another page: smaller, the feed's state a dot. */
   compact?: boolean;
+  /** What goes above the views, inside the database's region: an inline one's title. */
+  header?: ReactNode;
 };
 
 /**
@@ -62,6 +64,7 @@ export function DatabaseView({
   viewId,
   onViewChange,
   compact = false,
+  header,
 }: DatabaseViewProps) {
   const workspace = useWorkspace();
   const feed = useDatabaseFeed(workspace.id, database.page.id);
@@ -81,6 +84,7 @@ export function DatabaseView({
   return (
     <DatabaseScope database={database} report={report} compact={compact} startFilter={startFilter}>
       <section aria-label={copy.label(titleOf(database.page))} className="grid min-w-0 gap-2">
+        {header}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border pb-1">
           <ViewTabs view={view} panelId={panelId} onSelect={onViewChange} />
           <Toolbar
