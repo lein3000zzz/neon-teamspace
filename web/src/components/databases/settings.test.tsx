@@ -1,7 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Recorded } from "@/test/workspaces";
-import { DATABASE_PATH, databasePages, DB, fakeDatabase, fakeFeed } from "@/test/databases";
+import {
+  DATABASE_PATH,
+  databasePages,
+  DB,
+  fakeDatabase,
+  fakeFeed,
+  FIRST_SHOWN,
+} from "@/test/databases";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { fakeWorkspaces, people } from "@/test/workspaces";
@@ -15,8 +22,8 @@ function openDatabase(view: string = DB.table) {
 }
 
 async function database() {
-  const view = within(await screen.findByRole("region", { name: "Database Tasks" }));
-  await view.findByText("3 rows");
+  const view = within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
+  await view.findByText("3 rows", undefined, FIRST_SHOWN);
   return view;
 }
 

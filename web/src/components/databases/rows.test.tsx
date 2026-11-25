@@ -6,6 +6,7 @@ import {
   DB,
   fakeDatabase,
   fakeFeed,
+  FIRST_SHOWN,
   rowPage,
   sampleRows,
 } from "@/test/databases";
@@ -37,7 +38,9 @@ function wideScreen() {
 describe("a row's page", () => {
   it("shows its id and properties above its content, editable as in the views", async () => {
     const { user, db } = setUp(ROW_PATH);
-    const properties = within(await screen.findByRole("region", { name: "Properties" }));
+    const properties = within(
+      await screen.findByRole("region", { name: "Properties" }, FIRST_SHOWN),
+    );
 
     expect(await properties.findByText("NW-1")).toBeInTheDocument();
     expect(properties.getByRole("button", { name: /^Status of Write docs/ })).toHaveTextContent(
@@ -71,7 +74,9 @@ describe("a row's page", () => {
 
   it("orders and edits the database's properties from their names", async () => {
     const { user, db } = setUp(ROW_PATH);
-    const properties = within(await screen.findByRole("region", { name: "Properties" }));
+    const properties = within(
+      await screen.findByRole("region", { name: "Properties" }, FIRST_SHOWN),
+    );
 
     await user.click(await properties.findByRole("button", { name: "Points, property menu" }));
     await user.click(await screen.findByRole("menuitem", { name: "Move Points up" }));
@@ -99,7 +104,9 @@ describe("a row's page", () => {
     fakeDatabase({ rows: [{ ...docs, database_id: null }, ...others] });
     renderApp(ROW_PATH);
 
-    const properties = within(await screen.findByRole("region", { name: "Properties" }));
+    const properties = within(
+      await screen.findByRole("region", { name: "Properties" }, FIRST_SHOWN),
+    );
     expect(await properties.findByText("NW-1")).toBeInTheDocument();
     expect(properties.getByText("Created")).toBeInTheDocument();
     expect(properties.getByText("Last edited")).toBeInTheDocument();
@@ -122,7 +129,9 @@ describe("opening a row", () => {
 
     await user.click(await table.findByRole("button", { name: "Open Write docs" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(ROW_PATH));
-    expect(await screen.findByRole("region", { name: "Properties" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("region", { name: "Properties" }, FIRST_SHOWN),
+    ).toBeInTheDocument();
   });
 
   it("opens it beside the database on a wide screen, with the way to its own page", async () => {
@@ -135,7 +144,9 @@ describe("opening a row", () => {
       await screen.findByRole("dialog", { name: "Fix login, beside the database" }),
     );
     expect(router.state.location.search).toEqual({ peek: DB.login });
-    expect(await peek.findByRole("region", { name: "Properties" })).toBeInTheDocument();
+    expect(
+      await peek.findByRole("region", { name: "Properties" }, FIRST_SHOWN),
+    ).toBeInTheDocument();
     expect(peek.getByRole("link", { name: "Open as full page" })).toHaveAttribute(
       "href",
       `/w/design/p/${DB.login}`,
@@ -148,7 +159,7 @@ describe("opening a row", () => {
 
   it("finds a row by its unique id, in any case", async () => {
     const { user, router } = setUp(DATABASE_PATH);
-    const view = within(await screen.findByRole("region", { name: "Database Tasks" }));
+    const view = within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
     await view.findByText("3 rows");
 
     await user.click(view.getByRole("button", { name: "Find a row by its ID" }));

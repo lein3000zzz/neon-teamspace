@@ -2,7 +2,14 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Recorded } from "@/test/workspaces";
-import { DATABASE_PATH, databasePages, DB, fakeDatabase, fakeFeed } from "@/test/databases";
+import {
+  DATABASE_PATH,
+  databasePages,
+  DB,
+  fakeDatabase,
+  fakeFeed,
+  FIRST_SHOWN,
+} from "@/test/databases";
 import { apiError } from "@/test/fixtures";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
@@ -29,13 +36,13 @@ async function feedState(word: string) {
 
 /** The database's views, once they show. */
 async function database() {
-  return within(await screen.findByRole("region", { name: "Database Tasks" }));
+  return within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
 }
 
 /** The table, once its rows came. */
 async function table() {
   const view = await database();
-  await view.findByRole("rowheader", { name: /Write docs/ });
+  await view.findByRole("rowheader", { name: /Write docs/ }, FIRST_SHOWN);
   return within(view.getByRole("table", { name: "Table" }));
 }
 

@@ -7,6 +7,7 @@ import {
   DB,
   fakeDatabase,
   fakeFeed,
+  FIRST_SHOWN,
   sampleRows,
 } from "@/test/databases";
 import { apiError } from "@/test/fixtures";
@@ -24,8 +25,8 @@ function openDatabase(path = DATABASE_PATH) {
 }
 
 async function database() {
-  const view = within(await screen.findByRole("region", { name: "Database Tasks" }));
-  await view.findByText("3 rows");
+  const view = within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
+  await view.findByText("3 rows", undefined, FIRST_SHOWN);
   return view;
 }
 

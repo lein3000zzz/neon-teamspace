@@ -1,6 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DATABASE_PATH, databasePages, DB, fakeDatabase, fakeFeed } from "@/test/databases";
+import {
+  DATABASE_PATH,
+  databasePages,
+  DB,
+  fakeDatabase,
+  fakeFeed,
+  FIRST_SHOWN,
+} from "@/test/databases";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { fakeWorkspaces, people } from "@/test/workspaces";
@@ -15,7 +22,7 @@ function openView(view: string) {
 }
 
 async function database() {
-  return within(await screen.findByRole("region", { name: "Database Tasks" }));
+  return within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
 }
 
 /** A column of the board, by its group's name. */

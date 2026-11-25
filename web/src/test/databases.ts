@@ -683,3 +683,11 @@ export function fakeFeed({ access = "edit", ready = true }: FeedOptions = {}) {
 
 /** The database's own page. */
 export const DATABASE_PATH = `/w/design/p/${DB.tasks}`;
+
+/**
+ * What a test gives a database's page, or a row's, to first show: the page,
+ * the database and the view's rows are read one after the other, as the
+ * page's module loads, which takes a slow machine longer than the second a
+ * wait gives by default.
+ */
+export const FIRST_SHOWN = { timeout: 5000 };
