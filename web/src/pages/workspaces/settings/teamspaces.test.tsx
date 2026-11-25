@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import { design, fakeWorkspaces, people, TEAMSPACE_IDS, teamspaces } from "@/test/workspaces";
+import {
+  design,
+  fakeWorkspaces,
+  people,
+  scout,
+  TEAMSPACE_IDS,
+  teamspaces,
+} from "@/test/workspaces";
 
 const base = `/api/v1/workspaces/${design().id}/teamspaces`;
 
@@ -191,6 +198,40 @@ describe("a workspace's teamspaces", () => {
         ["PATCH", `${base}/${TEAMSPACE_IDS.open}/members/${people.cy.id}`, { role: "owner" }],
       ]),
     );
+  });
+
+  it("adds an agent as a member alone, named with the person it acts for", async () => {
+    const api = fakeWorkspaces({ agents: [scout] });
+    const { user } = renderApp("/w/design/settings/teamspaces");
+
+    const open = await card("Open studio");
+    await user.click(open.getByRole("button", { name: "Members of Open studio" }));
+    const form = within(await open.findByRole("form", { name: "Add a member" }));
+    const person = form.getByLabelText("Person");
+    const role = form.getByLabelText("Role");
+    expect(within(person).getByRole("option", { name: "Scout · via Ada" })).toBeInTheDocument();
+    // Owner chosen for someone first, then the agent: the role goes back to member.
+    await user.selectOptions(person, people.cy.id);
+    await user.selectOptions(role, "owner");
+    await user.selectOptions(person, scout.id);
+    expect(
+      within(role)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Member"]);
+    expect(role).toHaveValue("member");
+    await user.click(form.getByRole("button", { name: "Add" }));
+
+    expect(await open.findByText("Scout is added.")).toBeInTheDocument();
+    const added = await open.findByRole("combobox", { name: "Teamspace role of Scout" });
+    expect(
+      within(added)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Member"]);
+    expect(api.changes.map((change) => [change.method, change.path, change.body])).toEqual([
+      ["POST", `${base}/${TEAMSPACE_IDS.open}/members`, { user_id: scout.id, role: "member" }],
+    ]);
   });
 
   it("explains a teamspace's last owner staying one", async () => {

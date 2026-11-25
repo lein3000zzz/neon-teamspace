@@ -10,7 +10,7 @@ import {
   type TeamspaceMember,
   type TeamspaceRole,
 } from "@/api/teamspaces";
-import { membersQuery, type Member } from "@/api/workspaces";
+import { membersQuery, type Person } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Field } from "@/components/forms/field";
@@ -146,14 +146,14 @@ function MemberRow({
               value={member.role}
               disabled={busy}
               onChange={(event) => {
-                const role = TEAMSPACE_ROLES.find((option) => option === event.target.value);
+                const role = rolesFor(user).find((option) => option === event.target.value);
                 if (role !== undefined && role !== member.role) {
                   remove.reset();
                   change.mutate({ userId: user.id, role });
                 }
               }}
             >
-              {TEAMSPACE_ROLES.map((role) => (
+              {rolesFor(user).map((role) => (
                 <option key={role} value={role}>
                   {strings.teamspaceRoles[role]}
                 </option>
@@ -198,8 +198,8 @@ type AddMemberFormProps = {
 };
 
 /** The teamspace roles someone may have: an agent's or integration's is member alone. */
-function rolesFor(member: Member | undefined): readonly TeamspaceRole[] {
-  return member !== undefined && actsForOwner(member.user) ? ["member"] : TEAMSPACE_ROLES;
+function rolesFor(person: Pick<Person, "kind"> | undefined): readonly TeamspaceRole[] {
+  return person !== undefined && actsForOwner(person) ? ["member"] : TEAMSPACE_ROLES;
 }
 
 /** Someone from the workspace who is not a guest and not in the teamspace yet. */
@@ -270,7 +270,15 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
             {...control}
             name="user_id"
             value={userId}
-            onChange={(event) => setUserId(event.target.value)}
+            onChange={(event) => {
+              const chosen = candidates.find(
+                (candidate) => candidate.user.id === event.target.value,
+              );
+              setUserId(event.target.value);
+              if (!rolesFor(chosen?.user).includes(role)) {
+                setRole("member");
+              }
+            }}
           >
             <option value="">{copy.choose}</option>
             {candidates.map((person) => (
@@ -291,7 +299,7 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
             value={role}
             onChange={(event) => setRole(event.target.value === "owner" ? "owner" : "member")}
           >
-            {rolesFor(candidates.find((candidate) => candidate.user.id === userId)).map(
+            {rolesFor(candidates.find((candidate) => candidate.user.id === userId)?.user).map(
               (option) => (
                 <option key={option} value={option}>
                   {strings.teamspaceRoles[option]}
