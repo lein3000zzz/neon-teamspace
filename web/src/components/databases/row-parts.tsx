@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "cn";
 import { Maximize2, MoreHorizontal, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { dropRow, refreshRows, useChangeRow, type Row } from "@/api/databases";
 import { useTrashPage } from "@/api/pages";
 import { Button } from "@/components/ui/button";
@@ -23,36 +23,38 @@ const copy = strings.databases.rows;
 
 type TitleFieldProps = {
   row: Row;
-  /** Told once it ends, saved or not. */
-  onDone: () => void;
+  /** Told once it ends, saved or not, and whether Enter or Escape ended it rather than leaving it. */
+  onDone: (fromKeyboard: boolean) => void;
   className?: string;
 };
 
 /**
  * A row's title in place, as a new row opens or its title is clicked: Enter
- * or leaving it saves, Escape keeps the old one.
+ * or leaving it saves what was typed, Escape keeps the title as it is. A
+ * title changed elsewhere meanwhile stays unless something was typed.
  */
 export function TitleField({ row, onDone, className }: TitleFieldProps) {
   const workspace = useWorkspace();
   const { database, report } = useDatabaseScope();
   const change = useChangeRow(workspace.id, database, row.id);
   const [title, setTitle] = useState(row.title);
+  const [opened] = useState(row.title);
   const field = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
   const titleId = titleProperty(database)?.id;
 
   useEffect(() => field.current?.focus(), []);
 
-  const finish = (save: boolean) => {
+  const finish = (save: boolean, fromKeyboard: boolean) => {
     if (finished.current) {
       return;
     }
     finished.current = true;
     const next = title.replaceAll(/[\r\n]+/g, " ");
-    if (save && titleId !== undefined && next !== row.title) {
+    if (save && titleId !== undefined && next !== opened) {
       change.mutate({ [titleId]: next }, { onError: report });
     }
-    onDone();
+    onDone(fromKeyboard);
   };
 
   return (
@@ -66,19 +68,40 @@ export function TitleField({ row, onDone, className }: TitleFieldProps) {
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing) {
           event.preventDefault();
-          finish(true);
+          finish(true, true);
         } else if (event.key === "Escape") {
           event.preventDefault();
-          finish(false);
+          finish(false, true);
         }
       }}
-      onBlur={() => finish(true)}
+      onBlur={() => finish(true, false)}
       className={cn(
         "h-(--tap-sm) w-full min-w-0 rounded-sm border border-primary bg-background px-2 text-base font-medium md:text-sm",
         className,
       )}
     />
   );
+}
+
+/**
+ * Puts the focus back on what a field in place of it came from, once the
+ * field ends from the keyboard, as Enter and Escape end it; a click elsewhere
+ * leaves the focus where it went. `target` goes on that element, and
+ * `ended` is told how the field ended.
+ */
+export function useRefocus<T extends HTMLElement>(editing: boolean) {
+  const target = useRef<T>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!editing && refocus.current) {
+      refocus.current = false;
+      target.current?.focus();
+    }
+  }, [editing]);
+  const ended = useCallback((fromKeyboard: boolean) => {
+    refocus.current = fromKeyboard;
+  }, []);
+  return { target, ended };
 }
 
 /** A row's icon, or nothing: rows without one show their title alone. */

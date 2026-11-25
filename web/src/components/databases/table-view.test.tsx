@@ -352,6 +352,49 @@ describe("a database's table", () => {
     expect(await (await table()).findByRole("rowheader", { name: /Ship it/ })).toBeInTheDocument();
   });
 
+  it("renames a row in place, giving the focus back once the keyboard ends it", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    rows.getByRole("button", { name: "Rename Write docs" }).focus();
+    await user.keyboard("{Enter}");
+    const field = await rows.findByRole("textbox", { name: "Title of Write docs" });
+    await user.clear(field);
+    await user.type(field, "Write the guide{Enter}");
+
+    await waitFor(() =>
+      expect(rows.getByRole("button", { name: "Rename Write the guide" })).toHaveFocus(),
+    );
+    expect(rowChanges(db.changes, DB.docs)).toEqual([{ [DB.name]: "Write the guide" }]);
+  });
+
+  it("leaves a row's title changed elsewhere when its field closes with nothing typed", async () => {
+    const { user, db, feed } = openDatabase();
+    const rows = await table();
+    await user.click(rows.getByRole("button", { name: "Rename Write docs" }));
+    await rows.findByRole("textbox", { name: "Title of Write docs" });
+
+    const docs = db.state.rows.find((entry) => entry.id === DB.docs);
+    if (docs === undefined) {
+      throw new Error("the sample has Write docs");
+    }
+    docs.title = "Write the docs";
+    docs.values[DB.name] = "Write the docs";
+    feed.send({
+      type: "row_updated",
+      database_id: DB.tasks,
+      row_id: DB.docs,
+      values: { [DB.name]: "Write the docs" },
+      title: "Write the docs",
+      last_edited_at: "2026-11-22T09:00:00Z",
+    });
+    await rows.findByRole("textbox", { name: "Title of Write the docs" });
+    await user.click(document.body);
+
+    expect(await rows.findByRole("button", { name: "Rename Write the docs" })).toBeInTheDocument();
+    expect(rowChanges(db.changes, DB.docs)).toEqual([]);
+  });
+
   it("sorts, hides and adds beside a column from its heading's menu", async () => {
     const { user, db } = openDatabase();
     const rows = await table();

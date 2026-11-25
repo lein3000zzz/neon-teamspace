@@ -65,6 +65,8 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
   const create = useCreateView(workspace.id, database.page.id);
   const [renaming, setRenaming] = useState<string | null>(null);
   const tabs = useRef(new Map<string, HTMLButtonElement>());
+  // The tab a rename ended from the keyboard, to have the focus back.
+  const refocus = useRef<string | null>(null);
   const views = database.views;
   const groupable = database.properties.find((property) => groups(property.type));
 
@@ -84,6 +86,14 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
       tabs.current.get(target.id)?.focus();
     }
   };
+
+  useEffect(() => {
+    const back = refocus.current;
+    if (renaming === null && back !== null) {
+      refocus.current = null;
+      document.getElementById(`${panelId}-${back}`)?.focus();
+    }
+  }, [renaming, panelId]);
 
   const add = (layout: Layout) => {
     const name = freshViewName(views, copy.layouts[layout]);
@@ -108,7 +118,16 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
           const Icon = LAYOUT_ICONS[view.layout];
           const selected = view.id === active.id;
           if (renaming === view.id) {
-            return <RenameView key={view.id} view={view} onDone={() => setRenaming(null)} />;
+            return (
+              <RenameView
+                key={view.id}
+                view={view}
+                onDone={(fromKeyboard) => {
+                  refocus.current = fromKeyboard ? view.id : null;
+                  setRenaming(null);
+                }}
+              />
+            );
           }
           return (
             <span key={view.id} className="flex shrink-0 items-center">
@@ -320,12 +339,24 @@ function ViewMenu({ view, index, onRename, onSelect }: ViewMenuProps) {
   );
 }
 
-/** A view's name in place of its tab: Enter or leaving it saves, Escape keeps the old one. */
-function RenameView({ view, onDone }: { view: View; onDone: () => void }) {
+/**
+ * A view's name in place of its tab: Enter or leaving it saves what was
+ * typed, Escape keeps the name as it is. A name changed elsewhere meanwhile
+ * stays unless something was typed.
+ */
+function RenameView({
+  view,
+  onDone,
+}: {
+  view: View;
+  /** Told once it ends, and whether Enter or Escape ended it rather than leaving it. */
+  onDone: (fromKeyboard: boolean) => void;
+}) {
   const workspace = useWorkspace();
   const { database, report } = useDatabaseScope();
   const change = useChangeView(workspace.id, database.page.id);
   const [name, setName] = useState(view.name);
+  const [opened] = useState(view.name);
   const field = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
 
@@ -334,16 +365,16 @@ function RenameView({ view, onDone }: { view: View; onDone: () => void }) {
     field.current?.select();
   }, []);
 
-  const finish = (save: boolean) => {
+  const finish = (save: boolean, fromKeyboard: boolean) => {
     if (finished.current) {
       return;
     }
     finished.current = true;
     const next = name.trim();
-    if (save && next !== "" && next !== view.name) {
+    if (save && next !== "" && next !== opened.trim()) {
       change.mutate({ viewId: view.id, name: next }, { onError: report });
     }
-    onDone();
+    onDone(fromKeyboard);
   };
 
   return (
@@ -354,15 +385,15 @@ function RenameView({ view, onDone }: { view: View; onDone: () => void }) {
       value={name}
       onChange={(event) => setName(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Enter") {
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
           event.preventDefault();
-          finish(true);
+          finish(true, true);
         } else if (event.key === "Escape") {
           event.preventDefault();
-          finish(false);
+          finish(false, true);
         }
       }}
-      onBlur={() => finish(true)}
+      onBlur={() => finish(true, false)}
       className="h-(--tap-sm) w-40 shrink-0 rounded-md border border-primary bg-background px-2 text-base md:text-sm"
     />
   );

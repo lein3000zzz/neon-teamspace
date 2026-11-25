@@ -6,7 +6,7 @@ import { strings } from "@/lib/strings";
 import { CellValue } from "./cell-value";
 import { useDatabaseScope, useOpenRow } from "./database-scope";
 import { GroupLabel } from "./group-label";
-import { RowIcon, RowMenu, TitleField } from "./row-parts";
+import { RowIcon, RowMenu, TitleField, useRefocus } from "./row-parts";
 import type { ViewBodyProps } from "./view-body";
 
 const copy = strings.databases;
@@ -70,15 +70,23 @@ type ListLineProps = {
 function ListLine({ row, columns, editingTitle, onEditingTitle }: ListLineProps) {
   const { people } = useDatabaseScope();
   const openRow = useOpenRow();
+  const { target: titleButton, ended: titleEnded } = useRefocus<HTMLButtonElement>(editingTitle);
   const title = titleOf(row);
   return (
     <li data-row="" className="flex min-h-(--tap) flex-wrap items-center gap-x-3 gap-y-1 py-1">
       {editingTitle ? (
         <span className="min-w-40 flex-1">
-          <TitleField row={row} onDone={() => onEditingTitle(null)} />
+          <TitleField
+            row={row}
+            onDone={(fromKeyboard) => {
+              titleEnded(fromKeyboard);
+              onEditingTitle(null);
+            }}
+          />
         </span>
       ) : (
         <button
+          ref={titleButton}
           type="button"
           onClick={() => openRow(row.id)}
           className="flex min-h-(--tap-sm) min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left text-sm font-medium outline-offset-[-2px] hover:underline"

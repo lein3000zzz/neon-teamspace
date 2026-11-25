@@ -55,7 +55,7 @@ import { startDrag, underPoint } from "./drag";
 import { GroupLabel } from "./group-label";
 import { PropertyDialog } from "./property-dialog";
 import { PropertyIcon } from "./property-icon";
-import { RowIcon, RowMenu, TitleField } from "./row-parts";
+import { RowIcon, RowMenu, TitleField, useRefocus } from "./row-parts";
 import type { ViewBodyProps } from "./view-body";
 
 const copy = strings.databases;
@@ -204,6 +204,7 @@ type TableRowProps = {
 function TableRow({ row, columns, editingTitle, onEditingTitle, extra }: TableRowProps) {
   const { database } = useDatabaseScope();
   const openRow = useOpenRow();
+  const { target: renameButton, ended: titleEnded } = useRefocus<HTMLButtonElement>(editingTitle);
   const title = titleOf(row);
   const trashed = (database.page.trashed_at ?? null) !== null;
   return (
@@ -216,10 +217,17 @@ function TableRow({ row, columns, editingTitle, onEditingTitle, extra }: TableRo
             className="sticky left-0 z-[1] border-r border-b border-border bg-background p-0 text-left font-medium"
           >
             {editingTitle ? (
-              <TitleField row={row} onDone={() => onEditingTitle(null)} />
+              <TitleField
+                row={row}
+                onDone={(fromKeyboard) => {
+                  titleEnded(fromKeyboard);
+                  onEditingTitle(null);
+                }}
+              />
             ) : (
               <span className="flex min-h-(--tap-sm) min-w-0 items-center gap-0.5 pr-0.5">
                 <button
+                  ref={renameButton}
                   type="button"
                   disabled={!edits(row.access) || trashed}
                   onClick={() => onEditingTitle(row.id)}

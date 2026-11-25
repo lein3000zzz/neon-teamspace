@@ -525,6 +525,32 @@ describe("a database's views", () => {
     ]);
   });
 
+  it("keeps a name given elsewhere while a rename has nothing typed, and gives the focus back", async () => {
+    const { user, db, feed } = openDatabase();
+    const view = await database();
+
+    view.getByRole("button", { name: "More for the view Table" }).focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(view.getByRole("tab", { name: "Table" })).toHaveFocus());
+
+    await user.click(view.getByRole("button", { name: "More for the view Table" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    const name = view.getByRole("textbox", { name: "Rename Table" });
+    const table = db.state.views.find((entry) => entry.id === DB.table);
+    if (table === undefined) {
+      throw new Error("the sample has Table");
+    }
+    table.name = "Everything";
+    feed.send({ type: "view_changed", database_id: DB.tasks, view_id: DB.table, deleted: false });
+    await waitFor(() => expect(name).toHaveAccessibleName("Rename Everything"));
+    await user.click(document.body);
+
+    expect(await view.findByRole("tab", { name: "Everything" })).toBeInTheDocument();
+    expect(bodies(db.changes, `/views/${DB.table}`)).toEqual([]);
+  });
+
   it("shows a view as another layout, a board grouping by the first property it can", async () => {
     const { user, db } = openDatabase(DB.list);
     const view = await database();

@@ -50,7 +50,7 @@ import { useDatabaseScope, useOpenRow } from "./database-scope";
 import { scrollNearEdge, startDrag, underPoint, type Point } from "./drag";
 import { groupHue, GroupLabel, groupName } from "./group-label";
 import { ListView } from "./list-view";
-import { RowIcon, RowMenu, TitleField } from "./row-parts";
+import { RowIcon, RowMenu, TitleField, useRefocus } from "./row-parts";
 import type { ViewBodyProps } from "./view-body";
 
 const copy = strings.databases;
@@ -469,6 +469,7 @@ function Card({
 }: CardProps) {
   const { people } = useDatabaseScope();
   const openRow = useOpenRow();
+  const { target: titleButton, ended: titleEnded } = useRefocus<HTMLButtonElement>(editingTitle);
   const title = titleOf(row);
   const movable = edits(row.access);
   const movesOffered =
@@ -487,9 +488,16 @@ function Card({
     >
       <div className="flex items-start gap-1">
         {editingTitle ? (
-          <TitleField row={row} onDone={() => onEditingTitle(null)} />
+          <TitleField
+            row={row}
+            onDone={(fromKeyboard) => {
+              titleEnded(fromKeyboard);
+              onEditingTitle(null);
+            }}
+          />
         ) : (
           <button
+            ref={titleButton}
             type="button"
             onClick={() => openRow(row.id)}
             className="flex min-h-(--tap-sm) min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-left font-medium outline-offset-[-2px] hover:underline"
