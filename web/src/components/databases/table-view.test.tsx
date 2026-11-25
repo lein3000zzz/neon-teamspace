@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { keys } from "@/api/keys";
 import type { Page } from "@/api/pages";
 import type { Recorded } from "@/test/workspaces";
@@ -497,6 +497,73 @@ describe("a database's table", () => {
     expect(
       db.changes.find((change) => change.path === `/api/v1/databases/${DB.tasks}/properties`)?.body,
     ).toEqual({ name: "Estimate", type: "text", placement: { after: DB.points } });
+  });
+
+  it("moves a column from its heading's menu, the title staying first", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: "Status, property menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Move left" })).toBeNull();
+    await user.click(await screen.findByRole("menuitem", { name: "Move right" }));
+    await waitFor(() =>
+      expect(rows.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Name",
+        "Points",
+        "Status",
+        "Owner",
+        "Due",
+        "Tags",
+        "Shipped",
+        "Link",
+        "ID",
+        "",
+      ]),
+    );
+    await user.click(rows.getByRole("button", { name: "ID, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move left" }));
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(2));
+    const orders = (viewChanges(db.changes) as { properties: { property: string }[] }[]).map(
+      (change) => change.properties.map((entry) => entry.property),
+    );
+    expect(orders).toEqual([
+      [DB.name, DB.points, DB.status, DB.owner, DB.due, DB.tags, DB.done, DB.link, DB.ticket],
+      [DB.name, DB.points, DB.status, DB.owner, DB.due, DB.tags, DB.done, DB.ticket, DB.link],
+    ]);
+  });
+
+  it("moves a column by dragging its heading beside another", async () => {
+    const { db } = openDatabase();
+    const rows = await table();
+    const tags = rows.getByRole("button", { name: "Tags, property menu" });
+    const status = rows.getAllByRole("columnheader")[1];
+    if (status === undefined) {
+      throw new Error("the table has a Status column");
+    }
+    // jsdom lays nothing out: the point lands on Status's heading, in its left half.
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([status]);
+    vi.spyOn(status, "getBoundingClientRect").mockReturnValue(new DOMRect(200, 0, 180, 36));
+
+    fireEvent.pointerDown(tags, { button: 0, pointerId: 4, pointerType: "mouse", clientX: 900 });
+    fireEvent.pointerMove(window, { pointerId: 4, pointerType: "mouse", clientX: 220 });
+    expect(status).toHaveClass("shadow-[inset_2px_0_0_var(--primary)]");
+    fireEvent.pointerUp(window, { pointerId: 4, pointerType: "mouse", clientX: 220 });
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(1));
+    const [change] = viewChanges(db.changes) as { properties: { property: string }[] }[];
+    expect(change?.properties.map((entry) => entry.property)).toEqual([
+      DB.name,
+      DB.tags,
+      DB.status,
+      DB.points,
+      DB.owner,
+      DB.due,
+      DB.done,
+      DB.link,
+      DB.ticket,
+    ]);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("resizes a column from the keyboard, saving its width once it settles", async () => {
