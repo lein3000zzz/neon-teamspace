@@ -16,6 +16,7 @@ database's changes.
 | React, TypeScript, Vite | The app and its build. |
 | TanStack Router | Routes, typed: a link to a route that does not exist, or with the wrong parameters, is a type error. |
 | TanStack Query | Server state: what the API returned, cached, shared between the components that need it, and refetched when it goes stale. |
+| TanStack Virtual | Long lists drawn in part: a database's table, list and board columns draw only the rows near the screen. |
 | shadcn/ui on Radix | Components. Radix brings their behaviour, focus and keyboard handling; shadcn's code is copied into the app, so it is the app's own to change. |
 | Tailwind v4 | Styles, with every colour a CSS variable, so a theme is a set of variables and switching it restyles the app without a reload. |
 | `openapi-typescript`, `openapi-fetch` | The typed API client; see below. |
@@ -197,6 +198,9 @@ workspace's key:
   Shortly after, every view's rows are read again, once for a burst of changes, so each row
   settles where the server's filter, sorts and groups put it. A refused change reads them
   again at once.
+- A table, a list and each column of a board draw only the rows near the screen as the page
+  scrolls (`windowed.ts`), the rest kept as space, and a row is drawn again only when it
+  changes; so a view of the 10,000 rows a database holds is as quick as one of a few.
 - `web/src/lib/database-rules.ts` repeats the server's rules for what the app offers: the
   operators of each type, the columns a view shows, how values read, how a card's move
   changes a row. The server checks everything again.

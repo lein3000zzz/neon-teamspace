@@ -10,7 +10,7 @@ import {
   MoreHorizontal,
   Plus,
 } from "lucide-react";
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   useMoveRow,
@@ -52,6 +52,7 @@ import { groupHue, GroupLabel, groupName } from "./group-label";
 import { ListView } from "./list-view";
 import { RowIcon, RowMenu, TitleField, useRefocus } from "./row-parts";
 import type { ViewBodyProps } from "./view-body";
+import { useWindowed } from "./windowed";
 
 const copy = strings.databases;
 
@@ -110,7 +111,20 @@ function Board({
   const hidden = groups.filter((group) => group.hidden);
   const preview = shownColumns(database, view).filter((column) => column.property.type !== "title");
   const sorted = view.sorts.length > 0;
-  const rowsOf = (key: GroupKey) => answer.rows.filter((row) => (row.group ?? null) === key);
+  const byGroup = useMemo(() => {
+    const map = new Map<GroupKey, Row[]>();
+    for (const row of answer.rows) {
+      const key = row.group ?? null;
+      const rows = map.get(key);
+      if (rows === undefined) {
+        map.set(key, [row]);
+      } else {
+        rows.push(row);
+      }
+    }
+    return map;
+  }, [answer.rows]);
+  const rowsOf = (key: GroupKey): Row[] => byGroup.get(key) ?? NO_CARDS;
 
   /** Moves a card, shown at once, then saved: its group, and its place among the rows. */
   const commit = (row: Row, cardMove: CardMove) => {
@@ -277,9 +291,12 @@ function Board({
                 />
               )}
             </header>
-            <ol className="grid gap-2">
-              {cards.map((row, at) => (
-                <li key={row.id} className="grid gap-2">
+            <ColumnCards
+              cards={cards}
+              editingTitle={editingTitle}
+              end={target !== null && target.before === null}
+              renderCard={(row, at) => (
+                <>
                   {target?.before === row.id && <DropLine />}
                   <Card
                     row={row}
@@ -302,14 +319,9 @@ function Board({
                       onMove: (to, before) => commit(row, { rowId: row.id, from: key, to, before }),
                     }}
                   />
-                </li>
-              ))}
-              {target !== null && target.before === null && (
-                <li>
-                  <DropLine />
-                </li>
+                </>
               )}
-            </ol>
+            />
             {editsDatabase && (mayRegroup || key === null) && (
               <Button
                 variant="ghost"
@@ -394,6 +406,57 @@ function reorderTo(
   order.splice(from, 1);
   order.splice(to, 0, key);
   onChangeView({ group: { ...view.group, order } });
+}
+
+/** A column's cards before they are measured: a title and a line of values. */
+const CARD_ESTIMATE = 72;
+
+const NO_CARDS: Row[] = [];
+
+type ColumnCardsProps = {
+  cards: readonly Row[];
+  editingTitle: string | null;
+  /** Whether a dragged card would land after the last. */
+  end: boolean;
+  renderCard: (row: Row, at: number) => ReactNode;
+};
+
+/**
+ * A column's cards, only those near the screen drawn, so a column of
+ * thousands stays quick; a card whose title is to be typed, as a new one, is
+ * drawn wherever it is.
+ */
+function ColumnCards({ cards, editingTitle, end, renderCard }: ColumnCardsProps) {
+  const keys = useMemo(() => cards.map((row) => row.id), [cards]);
+  const { list, items, before, after, measure, scrollTo } = useWindowed<HTMLOListElement>(
+    keys,
+    CARD_ESTIMATE,
+  );
+  useEffect(() => {
+    const at = editingTitle === null ? -1 : keys.indexOf(editingTitle);
+    if (at >= 0) {
+      scrollTo(at);
+    }
+  }, [editingTitle, keys, scrollTo]);
+  return (
+    <ol ref={list} className="grid">
+      {before > 0 && <li aria-hidden style={{ height: before }} />}
+      {items.map((item) => {
+        const row = cards[item.index];
+        return row === undefined ? null : (
+          <li key={item.key} ref={measure} data-index={item.index} className="grid gap-2 pb-2">
+            {renderCard(row, item.index)}
+          </li>
+        );
+      })}
+      {after > 0 && <li aria-hidden style={{ height: after }} />}
+      {end && (
+        <li className="pb-2">
+          <DropLine />
+        </li>
+      )}
+    </ol>
+  );
 }
 
 function DropLine() {

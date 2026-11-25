@@ -13,7 +13,7 @@ import {
   Shapes,
   Trash2,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useDeleteProperty,
   type ChangeView,
@@ -56,18 +56,23 @@ import { GroupLabel } from "./group-label";
 import { PropertyDialog } from "./property-dialog";
 import { PropertyIcon } from "./property-icon";
 import { RowIcon, RowMenu, TitleField, useRefocus } from "./row-parts";
-import type { ViewBodyProps } from "./view-body";
+import { entriesOf, entryKey, entryOfRow, type ViewBodyProps } from "./view-body";
+import { useWindowed } from "./windowed";
 
 const copy = strings.databases;
 
 /** The column after the last, which holds the way to add a property. */
 const ADD_WIDTH = 48;
 
+/** A table's row before it is measured: a cell's height and its border. */
+const ROW_ESTIMATE = 37;
+
 /**
  * A view as a table: a column per property it shows, the title first and
  * held in place as the rest scroll sideways; each cell edits in place.
  * Columns reorder by dragging their heading, or from its menu, and resize
- * from their edge with the pointer or the arrow keys.
+ * from their edge with the pointer or the arrow keys. Only the rows near the
+ * screen are drawn, so thousands stay quick.
  */
 export function TableView({
   view,
@@ -77,7 +82,7 @@ export function TableView({
   onChangeView,
 }: ViewBodyProps) {
   const { database, editsDatabase, people } = useDatabaseScope();
-  const columns = shownColumns(database, view);
+  const columns = useMemo(() => shownColumns(database, view), [database, view]);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [moving, setMoving] = useState<{
     id: string;
@@ -86,17 +91,23 @@ export function TableView({
   } | null>(null);
   const grouping = view.group ? propertyOf(database, view.group.property) : undefined;
   const width = (column: Column) => widths[column.property.id] ?? widthOf(column);
-  const sections =
-    grouping !== undefined && answer.groups !== null
-      ? answer.groups
-          .filter((group) => !group.hidden)
-          .map((group) => ({
-            key: group.key ?? null,
-            count: group.count,
-            rows: answer.rows.filter((row) => (row.group ?? null) === (group.key ?? null)),
-          }))
-      : [{ key: undefined, count: answer.rows.length, rows: answer.rows }];
+  const entries = useMemo(() => entriesOf(answer, grouping !== undefined), [answer, grouping]);
+  const keys = useMemo(() => entries.map(entryKey), [entries]);
+  const { list, items, before, after, measure, scrollTo } = useWindowed<HTMLTableSectionElement>(
+    keys,
+    ROW_ESTIMATE,
+  );
   const span = columns.length + (editsDatabase ? 1 : 0);
+
+  // A row whose title is to be typed, as a new one, is drawn wherever it is.
+  useEffect(() => {
+    if (editingTitle !== null) {
+      const at = entryOfRow(entries, editingTitle);
+      if (at >= 0) {
+        scrollTo(at);
+      }
+    }
+  }, [editingTitle, entries, scrollTo]);
 
   const saveColumns = (next: Column[]) => onChangeView({ properties: viewProperties(next) });
 
@@ -115,6 +126,7 @@ export function TableView({
     <div className="relative overflow-x-auto overscroll-x-contain">
       <table
         aria-label={view.name}
+        aria-rowcount={entries.length + 1}
         className="w-max min-w-full table-fixed border-separate border-spacing-0 text-sm"
       >
         <colgroup>
@@ -124,7 +136,7 @@ export function TableView({
           {editsDatabase && <col style={{ width: ADD_WIDTH }} />}
         </colgroup>
         <thead>
-          <tr>
+          <tr aria-rowindex={1}>
             {columns.map((column, index) => (
               <ColumnHeader
                 key={column.property.id}
@@ -157,42 +169,69 @@ export function TableView({
             )}
           </tr>
         </thead>
-        {sections.map((section) => (
-          <tbody key={section.key === undefined ? "all" : (section.key ?? "none")}>
-            {grouping !== undefined && section.key !== undefined && (
-              <tr>
+        <tbody ref={list}>
+          {before > 0 && <Space height={before} span={span} />}
+          {items.map((item) => {
+            const entry = entries[item.index];
+            if (entry === undefined) {
+              return null;
+            }
+            return entry.kind === "group" ? (
+              <tr
+                key={item.key}
+                ref={measure}
+                data-index={item.index}
+                aria-rowindex={item.index + 2}
+              >
                 <th
                   scope="colgroup"
                   colSpan={span}
                   className="border-b border-border bg-background px-2 pt-4 pb-1.5 text-left font-normal"
                 >
-                  <span className="sticky left-2 inline-flex items-center gap-2">
-                    <GroupLabel property={grouping} groupKey={section.key} people={people} />
-                    <span className="text-xs text-muted-foreground">
-                      {copy.group.count(section.count)}
+                  {grouping !== undefined && (
+                    <span className="sticky left-2 inline-flex items-center gap-2">
+                      <GroupLabel property={grouping} groupKey={entry.key} people={people} />
+                      <span className="text-xs text-muted-foreground">
+                        {copy.group.count(entry.count)}
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </th>
               </tr>
-            )}
-            {section.rows.map((row) => (
+            ) : (
               <TableRow
-                key={`${row.id}:${row.group ?? ""}`}
-                row={row}
+                key={item.key}
+                index={item.index}
+                measure={measure}
+                row={entry.row}
                 columns={columns}
-                editingTitle={editingTitle === row.id}
+                editingTitle={editingTitle === entry.row.id}
                 onEditingTitle={onEditingTitle}
                 extra={editsDatabase}
               />
-            ))}
-          </tbody>
-        ))}
+            );
+          })}
+          {after > 0 && <Space height={after} span={span} />}
+        </tbody>
       </table>
     </div>
   );
 }
 
+/** The height of rows not drawn, above or below those that are. */
+function Space({ height, span }: { height: number; span: number }) {
+  return (
+    <tr aria-hidden>
+      <td aria-hidden colSpan={span} style={{ height, padding: 0, border: 0 }} />
+    </tr>
+  );
+}
+
 type TableRowProps = {
+  /** Its place among the lines of the table's body. */
+  index: number;
+  /** Measures it as it is drawn. */
+  measure: (element: Element | null) => void;
   row: Row;
   columns: readonly Column[];
   editingTitle: boolean;
@@ -201,16 +240,31 @@ type TableRowProps = {
   extra: boolean;
 };
 
-function TableRow({ row, columns, editingTitle, onEditingTitle, extra }: TableRowProps) {
+/** A row of the table, drawn again only when it, or what the table shows of it, changes. */
+const TableRow = memo(function TableRow({
+  index,
+  measure,
+  row,
+  columns,
+  editingTitle,
+  onEditingTitle,
+  extra,
+}: TableRowProps) {
   const { database } = useDatabaseScope();
   const openRow = useOpenRow();
   const { target: renameButton, ended: titleEnded } = useRefocus<HTMLButtonElement>(editingTitle);
   const title = titleOf(row);
   const trashed = (database.page.trashed_at ?? null) !== null;
   return (
-    <tr data-row="" className="group/row">
-      {columns.map((column, index) =>
-        index === 0 ? (
+    <tr
+      ref={measure}
+      data-index={index}
+      aria-rowindex={index + 2}
+      data-row=""
+      className="group/row"
+    >
+      {columns.map((column, at) =>
+        at === 0 ? (
           <th
             key={column.property.id}
             scope="row"
@@ -262,7 +316,7 @@ function TableRow({ row, columns, editingTitle, onEditingTitle, extra }: TableRo
       {extra && <td aria-hidden className="border-b border-border" />}
     </tr>
   );
-}
+});
 
 type ColumnHeaderProps = {
   view: View;

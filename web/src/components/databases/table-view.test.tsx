@@ -11,6 +11,7 @@ import {
   fakeDatabase,
   fakeFeed,
   FIRST_SHOWN,
+  row,
   views,
 } from "@/test/databases";
 import { apiError } from "@/test/fixtures";
@@ -656,6 +657,46 @@ describe("a database's table", () => {
     expect(view.queryByRole("button", { name: "Filter" })).toBeNull();
     expect(view.queryByRole("button", { name: "Add a view" })).toBeNull();
     expect(rows.getByRole("columnheader", { name: "Points" })).toBeInTheDocument();
+  });
+});
+
+describe("a long table", () => {
+  it("draws only the rows near the screen, and counts them all", async () => {
+    // jsdom lays nothing out: each row measures as a row does on a screen.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(37);
+    const many = Array.from({ length: 2000 }, (_, index) =>
+      row(
+        {
+          id: `0193a5b2-0000-7000-8000-${String(index + 1).padStart(12, "0")}`,
+          number: index + 1,
+          title: `Task ${index + 1}`,
+        },
+        `a${index}`,
+      ),
+    );
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const db = fakeDatabase({ rows: many });
+    fakeFeed();
+    const { user } = renderApp(DATABASE_PATH);
+    const view = await database();
+    const rows = within(await view.findByRole("table", { name: "Table" }, FIRST_SHOWN));
+    await rows.findByRole("rowheader", { name: /^Task 1$/ }, FIRST_SHOWN);
+
+    expect(view.getByText("2000 rows")).toBeInTheDocument();
+    expect(view.getByRole("table", { name: "Table" })).toHaveAttribute("aria-rowcount", "2001");
+    const drawn = rows.getAllByRole("rowheader");
+    expect(drawn.length).toBeGreaterThan(10);
+    expect(drawn.length).toBeLessThan(60);
+    expect(rows.queryByRole("rowheader", { name: /^Task 2000$/ })).toBeNull();
+
+    await user.click(rows.getByRole("checkbox", { name: "Shipped of Task 2" }));
+    await waitFor(() =>
+      expect(rowChanges(db.changes, "0193a5b2-0000-7000-8000-000000000002")).toEqual([
+        { [DB.done]: true },
+      ]),
+    );
+    expect(rows.getByRole("checkbox", { name: "Shipped of Task 2" })).toBeChecked();
   });
 });
 

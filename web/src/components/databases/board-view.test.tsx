@@ -7,6 +7,7 @@ import {
   fakeDatabase,
   fakeFeed,
   FIRST_SHOWN,
+  row,
   views,
 } from "@/test/databases";
 import { fakePages, samplePages } from "@/test/pages";
@@ -262,13 +263,44 @@ describe("a database's board", () => {
   });
 });
 
+describe("a long board", () => {
+  it("draws only the cards near the screen in each column, and counts them all", async () => {
+    // jsdom lays nothing out: each card measures as a card does on a screen.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(72);
+    const many = Array.from({ length: 500 }, (_, index) =>
+      row(
+        {
+          id: `0193a5b2-0000-7000-8000-${String(index + 1).padStart(12, "0")}`,
+          number: index + 1,
+          title: `Task ${index + 1}`,
+          values: { [DB.status]: DB.inProgress },
+        },
+        `a${index}`,
+      ),
+    );
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    fakeDatabase({ rows: many });
+    fakeFeed();
+    renderApp(`${DATABASE_PATH}?view=${DB.board}`);
+    const progress = await column("In progress");
+    await progress.findByRole("article", { name: "Task 1" }, FIRST_SHOWN);
+
+    expect(progress.getByText("500")).toBeInTheDocument();
+    const drawn = progress.getAllByRole("article");
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(drawn.length).toBeLessThan(40);
+    expect(progress.queryByRole("article", { name: "Task 500" })).toBeNull();
+  });
+});
+
 describe("a database's list", () => {
   it("lists each row with the values the view picks, and opens one as its page", async () => {
     const { user, router } = openView(DB.list);
     const view = await database();
     const rows = await view.findAllByRole("listitem");
 
-    expect(rows.map((row) => within(row).getAllByRole("button")[0]?.textContent)).toEqual([
+    expect(rows.map((line) => within(line).getAllByRole("button")[0]?.textContent)).toEqual([
       "Write docs",
       "Fix login",
       "Launch",
