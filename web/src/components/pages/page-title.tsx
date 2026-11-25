@@ -54,11 +54,16 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
   /** The title last sent, so leaving the field does not send it again. */
   const sent = useRef(page.title);
   const save = useRef(update.mutate);
+  const saving = useRef(false);
   const emptyAtOpen = useRef(page.title === "");
 
   useEffect(() => {
     save.current = update.mutate;
   }, [update.mutate]);
+
+  useEffect(() => {
+    saving.current = update.isPending;
+  }, [update.isPending]);
 
   useEffect(() => {
     if (emptyAtOpen.current) {
@@ -91,13 +96,21 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
     [],
   );
 
-  // A title changed elsewhere shows here, unless it is being typed.
+  // A title changed elsewhere shows here, unless it is being typed or saved. Then what is
+  // typed goes on showing everywhere, even once a read of the page from before it lands,
+  // as one a database's live feed asks for on connecting does.
   useEffect(() => {
-    if (document.activeElement !== field.current && timer.current === undefined) {
+    const typed = field.current?.value;
+    if (typed === undefined || page.title === typed) {
+      return;
+    }
+    if (document.activeElement === field.current || timer.current !== undefined || saving.current) {
+      showPage(queryClient, workspaceId, page.id, { title: typed });
+    } else {
       setValue(page.title);
       sent.current = page.title;
     }
-  }, [page.title]);
+  }, [page.title, page.id, queryClient, workspaceId]);
 
   // The field grows with the title, which wraps rather than scrolls.
   useLayoutEffect(() => {

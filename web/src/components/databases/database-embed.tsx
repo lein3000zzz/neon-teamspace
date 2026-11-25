@@ -138,7 +138,7 @@ function Embedded({ databaseId, viewId, onViewChange }: EmbeddedProps) {
  * The database's title over its views, typed in place by those who edit it:
  * the sidebar shows it as it is typed, as for a page's title; Enter or leaving
  * it saves, and a refusal says why below it. A title changed elsewhere shows
- * here unless it is being typed.
+ * here unless it is being typed or saved.
  */
 function EmbedTitle({
   database,
@@ -154,14 +154,26 @@ function EmbedTitle({
   const [title, setTitle] = useState(page.title);
   const sent = useRef(page.title);
   const field = useRef<HTMLInputElement>(null);
+  const saving = useRef(false);
   const icon = page.icon ? <span aria-hidden>{page.icon}</span> : null;
 
   useEffect(() => {
-    if (document.activeElement !== field.current) {
+    saving.current = update.isPending;
+  }, [update.isPending]);
+
+  // As a page's title: what is typed, or being saved, stays shown when an older read lands.
+  useEffect(() => {
+    const typed = field.current?.value;
+    if (typed === undefined || page.title === typed) {
+      return;
+    }
+    if (document.activeElement === field.current || saving.current) {
+      showPage(queryClient, workspace.id, page.id, { title: typed });
+    } else {
       setTitle(page.title);
       sent.current = page.title;
     }
-  }, [page.title]);
+  }, [page.title, page.id, queryClient, workspace.id]);
 
   if (!edits(page.access) || (page.trashed_at ?? null) !== null) {
     return (

@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
 import { describe, expect, it } from "vitest";
+import { keys } from "@/api/keys";
 import type { Recorded } from "@/test/workspaces";
 import {
   DATABASE_PATH,
@@ -14,17 +15,17 @@ import { apiError } from "@/test/fixtures";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import { fakeWorkspaces, people } from "@/test/workspaces";
+import { design, fakeWorkspaces, people } from "@/test/workspaces";
 
 type Setup = { access?: "edit" | "view"; ready?: boolean };
 
 /** The database's page, with the workspace, the pages and the database behind it. */
 function openDatabase({ access = "edit", ready = true }: Setup = {}) {
   fakeWorkspaces();
-  fakePages({ pages: databasePages(samplePages(), access) });
+  const pages = fakePages({ pages: databasePages(samplePages(), access) });
   const db = fakeDatabase({ access });
   const feed = fakeFeed({ access, ready });
-  return { ...renderApp(DATABASE_PATH), db, feed };
+  return { ...renderApp(DATABASE_PATH), db, feed, pages };
 }
 
 /** The live feed's state, as the view says it. */
@@ -429,6 +430,34 @@ describe("the table's live changes", () => {
     feed.ready();
     await waitFor(() => expect(points()).toHaveTextContent("34"));
     expect(await feedState("Live")).toBeInTheDocument();
+  });
+
+  it("keeps a title typed while the feed connects and reads the page afresh", async () => {
+    const { feed, user, pages, queryClient } = openDatabase({ ready: false });
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    await user.clear(title);
+    await user.type(title, "Sprint");
+    const page = () => queryClient.getQueryState(keys.page(design().id, DB.tasks));
+    const before = page()?.dataUpdateCount ?? 0;
+
+    // Ready before the title is saved, the feed reads the page again, with its old title.
+    feed.ready();
+    await waitFor(() => expect(page()?.dataUpdateCount).toBeGreaterThan(before));
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(pages.changes.at(-1)).toEqual({
+        method: "PATCH",
+        path: `/api/v1/pages/${DB.tasks}`,
+        body: { title: "Sprint" },
+      }),
+    );
+    await waitFor(() => expect(page()?.data).toEqual(expect.objectContaining({ title: "Sprint" })));
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByRole("link", { name: "Sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    expect(title).toHaveValue("Sprint");
   });
 
   it("stops, and says why, once the server ends it for good", async () => {
