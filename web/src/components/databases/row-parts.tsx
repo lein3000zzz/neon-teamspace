@@ -35,7 +35,7 @@ type TitleFieldProps = {
 export function TitleField({ row, onDone, className }: TitleFieldProps) {
   const workspace = useWorkspace();
   const { database, report } = useDatabaseScope();
-  const change = useChangeRow(workspace.id, database);
+  const change = useChangeRow(workspace.id, database, row.id);
   const [title, setTitle] = useState(row.title);
   const field = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
@@ -50,7 +50,7 @@ export function TitleField({ row, onDone, className }: TitleFieldProps) {
     finished.current = true;
     const next = title.replaceAll(/[\r\n]+/g, " ");
     if (save && titleId !== undefined && next !== row.title) {
-      change.mutate({ rowId: row.id, values: { [titleId]: next } }, { onError: report });
+      change.mutate({ [titleId]: next }, { onError: report });
     }
     onDone();
   };

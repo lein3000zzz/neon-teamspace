@@ -441,7 +441,7 @@ describe("a property's settings", () => {
     }
     await user.click(view.getByRole("button", { name: /^Due of Launch/ }));
     await user.type(await screen.findByLabelText("Start"), "2026-12-01");
-    await user.keyboard("{Escape}");
+    await user.keyboard("{Enter}");
     await waitFor(() =>
       expect(view.getByRole("button", { name: /^Due of Launch/ })).toHaveTextContent("2026"),
     );

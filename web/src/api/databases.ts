@@ -572,16 +572,23 @@ export function useCreateRow(workspaceId: string, database: Database) {
   });
 }
 
+/** The key of the changes to one row's values, which go to the server one after another. */
+const rowChangeKey = (rowId: string) => ["rows", rowId, "values"];
+
 /**
  * Changes a row's values: those named, null clearing one. Shown at once, the
- * last write winning on the server; a refusal reads the rows again.
+ * last write winning on the server; a refusal reads the rows again. Changes
+ * to one row are sent one after another, in the order they were made, and
+ * the answer to one shows only once no later one waits.
  */
-export function useChangeRow(workspaceId: string, database: Database) {
+export function useChangeRow(workspaceId: string, database: Database, rowId: string) {
   const queryClient = useQueryClient();
   const databaseId = database.page.id;
   const titleId = database.properties.find((property) => property.type === "title")?.id;
   return useMutation({
-    mutationFn: async ({ rowId, values }: { rowId: string; values: Values }) =>
+    mutationKey: rowChangeKey(rowId),
+    scope: { id: `rows/${rowId}` },
+    mutationFn: async (values: Values) =>
       asRow(
         await call(
           api.PATCH("/api/v1/rows/{id}", {
@@ -590,20 +597,23 @@ export function useChangeRow(workspaceId: string, database: Database) {
           }),
         ),
       ),
-    onMutate: ({ rowId, values }) =>
+    onMutate: (values) =>
       patchRow(queryClient, workspaceId, databaseId, rowId, (row) =>
         withValues(row, values, titleId),
       ),
-    onError: (_, { rowId }) => {
+    onError: () => {
       void queryClient.invalidateQueries({ queryKey: keys.row(workspaceId, rowId) });
       void queryClient.invalidateQueries({ queryKey: keys.databaseRows(workspaceId, databaseId) });
     },
     onSuccess: (answer) => {
-      patchRow(queryClient, workspaceId, databaseId, answer.id, (row) => ({
-        ...answer,
-        ...(row.group === undefined ? {} : { group: row.group }),
-      }));
-      showRowTitle(queryClient, workspaceId, answer);
+      // This one counts while it settles: another means a later change waits to be sent.
+      if (queryClient.isMutating({ mutationKey: rowChangeKey(rowId) }) <= 1) {
+        patchRow(queryClient, workspaceId, databaseId, answer.id, (row) => ({
+          ...answer,
+          ...(row.group === undefined ? {} : { group: row.group }),
+        }));
+        showRowTitle(queryClient, workspaceId, answer);
+      }
       refreshRows(queryClient, workspaceId, databaseId);
     },
   });

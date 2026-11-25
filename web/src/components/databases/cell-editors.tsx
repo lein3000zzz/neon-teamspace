@@ -420,45 +420,63 @@ const atMidnight = (day: string) => fromLocalInput(`${day}T00:00`) ?? day;
 /**
  * A date, with the browser's own date fields, which every platform makes
  * accessible and phones open their native picker for: a day, or a moment with
- * a time, and an end when asked for. Each change saves at once.
+ * a time, and an end when asked for. It is saved once it is entered, with
+ * Enter or as the popover closes, not as each part is typed: a field fills a
+ * year a digit at a time, each a date of its own.
  */
-export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
+export function DateEditor({ value, label, onSave, onClose, commitRef }: EditorProps) {
   const current: DateValue | null = isDateValue(value) ? value : null;
   const [start, setStart] = useState(current?.start ?? "");
   const [end, setEnd] = useState<string | null>(current?.end ?? null);
   const [withTime, setWithTime] = useState(current !== null && !isDay(current.start));
-  const [backwards, setBackwards] = useState(false);
   const ids = { start: useId(), end: useId(), time: useId(), range: useId(), error: useId() };
+  const sent = useRef(false);
+  const backwards = end !== null && end !== "" && start !== "" && new Date(end) < new Date(start);
 
   /** Saves the date as the fields hold it, once it has a start and its end is not before it. */
-  const save = (nextStart: string, nextEnd: string | null) => {
-    setStart(nextStart);
-    setEnd(nextEnd);
-    const reversed =
-      nextEnd !== null &&
-      nextEnd !== "" &&
-      nextStart !== "" &&
-      new Date(nextEnd) < new Date(nextStart);
-    setBackwards(reversed);
-    if (nextStart === "" || reversed) {
-      return;
+  const save = (): boolean => {
+    if (sent.current) {
+      return true;
     }
-    onSave(
-      nextEnd === null || nextEnd === ""
-        ? { start: nextStart }
-        : { start: nextStart, end: nextEnd },
-    );
+    if (start === "" || backwards) {
+      return false;
+    }
+    sent.current = true;
+    const next = end === null || end === "" ? { start } : { start, end };
+    if (
+      current === null ||
+      current.start !== next.start ||
+      (current.end ?? null) !== (next.end ?? null)
+    ) {
+      onSave(next);
+    }
+    return true;
   };
+  useCommit(commitRef, () => void save());
 
   const read = (text: string) => (withTime ? (fromLocalInput(text) ?? "") : text);
   const show = (text: string) => (text === "" ? "" : withTime ? localInput(text) : dayOf(text));
   const kind = withTime ? "datetime-local" : "date";
+  const keys = (event: KeyboardEvent) =>
+    fieldKeys(
+      event,
+      () => {
+        if (save()) {
+          onClose();
+        }
+      },
+      () => {
+        sent.current = true;
+        onClose();
+      },
+    );
 
   const switchTime = (on: boolean) => {
     setWithTime(on);
     const convert = (text: string) =>
       text === "" ? "" : on ? atMidnight(dayOf(text)) : dayOf(text);
-    save(convert(start), end === null ? null : convert(end));
+    setStart(convert(start));
+    setEnd(end === null ? null : convert(end));
   };
 
   return (
@@ -471,8 +489,8 @@ export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
           id={ids.start}
           type={kind}
           value={show(start)}
-          onChange={(event) => save(read(event.target.value), end)}
-          onKeyDown={(event) => event.key === "Enter" && onClose()}
+          onChange={(event) => setStart(read(event.target.value))}
+          onKeyDown={keys}
           className={`${fieldStyles} h-(--tap)`}
         />
       </div>
@@ -488,8 +506,8 @@ export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
             min={show(start)}
             aria-invalid={backwards}
             {...(backwards ? { "aria-describedby": ids.error } : {})}
-            onChange={(event) => save(start, read(event.target.value))}
-            onKeyDown={(event) => event.key === "Enter" && onClose()}
+            onChange={(event) => setEnd(read(event.target.value))}
+            onKeyDown={keys}
             className={`${fieldStyles} h-(--tap)`}
           />
           {backwards && (
@@ -504,7 +522,7 @@ export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
           <Checkbox
             id={ids.range}
             checked={end !== null}
-            onCheckedChange={(checked) => save(start, checked === true ? start || today() : null)}
+            onCheckedChange={(checked) => setEnd(checked === true ? start || today() : null)}
           />
           {copy.withEnd}
         </label>
@@ -517,13 +535,27 @@ export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
           {copy.withTime}
         </label>
       </div>
-      {current !== null && (
-        <div>
+      <div className="flex flex-wrap gap-1">
+        <Button
+          type="button"
+          size="sm"
+          disabled={start === "" || backwards}
+          onClick={() => {
+            if (save()) {
+              onClose();
+            }
+          }}
+        >
+          <Check aria-hidden />
+          {copy.setDate}
+        </Button>
+        {current !== null && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => {
+              sent.current = true;
               onSave(null);
               onClose();
             }}
@@ -531,8 +563,8 @@ export function DateEditor({ value, label, onSave, onClose }: EditorProps) {
             <X aria-hidden />
             {copy.clear}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </fieldset>
   );
 }

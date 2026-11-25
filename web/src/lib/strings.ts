@@ -1209,6 +1209,7 @@ export const strings = {
       withEnd: "End date",
       endBeforeStart: "The end cannot come before the start.",
       withTime: "Include time",
+      setDate: "Set date",
     },
     properties: {
       types: {

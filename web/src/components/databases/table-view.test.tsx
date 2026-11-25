@@ -195,24 +195,84 @@ describe("a database's table", () => {
     await waitFor(() => expect(rowChanges(db.changes, DB.login)).toEqual([{ [DB.done]: null }]));
   });
 
-  it("sets a date with the browser's date field, then gives it an end", async () => {
+  it("saves a date once it is entered, not each date its field passes through", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
+    const start = await screen.findByLabelText("Start");
+    // A browser's date field fills a year a digit at a time, each digit making a date.
+    for (const value of ["0002-12-01", "0020-12-01", "0202-12-01", "2026-12-01"]) {
+      fireEvent.change(start, { target: { value } });
+    }
+    await user.click(screen.getByRole("checkbox", { name: "End date" }));
+    const end = screen.getByLabelText("End");
+    fireEvent.change(end, { target: { value: "2026-11-30" } });
+    expect(screen.getByText("The end cannot come before the start.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set date" })).toBeDisabled();
+    end.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("End")).toBeInTheDocument();
+    fireEvent.change(end, { target: { value: "2026-12-03" } });
+    expect(rowChanges(db.changes, DB.launch)).toEqual([]);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([
+        { [DB.due]: { start: "2026-12-01", end: "2026-12-03" } },
+      ]),
+    );
+    await waitFor(() => expect(screen.queryByLabelText("Start")).toBeNull());
+  });
+
+  it("saves a date as its popover closes, and leaves it on Escape", async () => {
     const { user, db } = openDatabase();
     const rows = await table();
 
     await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
     fireEvent.change(await screen.findByLabelText("Start"), { target: { value: "2026-12-01" } });
-    await user.click(screen.getByRole("checkbox", { name: "End date" }));
-    fireEvent.change(screen.getByLabelText("End"), { target: { value: "2026-11-30" } });
-    expect(screen.getByText("The end cannot come before the start.")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("End"), { target: { value: "2026-12-03" } });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByLabelText("Start")).toBeNull());
+    expect(rowChanges(db.changes, DB.launch)).toEqual([]);
+
+    await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
+    fireEvent.change(await screen.findByLabelText("Start"), { target: { value: "2026-12-02" } });
+    await user.click(document.body);
 
     await waitFor(() =>
-      expect(rowChanges(db.changes, DB.launch)).toEqual([
-        { [DB.due]: { start: "2026-12-01" } },
-        { [DB.due]: { start: "2026-12-01", end: "2026-12-01" } },
-        { [DB.due]: { start: "2026-12-01", end: "2026-12-03" } },
-      ]),
+      expect(rowChanges(db.changes, DB.launch)).toEqual([{ [DB.due]: { start: "2026-12-02" } }]),
     );
+  });
+
+  it("sends one row's changes one after another, in the order they were made", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+    const gate: { open?: () => void } = {};
+    const answered = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    let first = true;
+    server.use(
+      http.patch("/api/v1/rows/:id", async () => {
+        if (first) {
+          first = false;
+          await answered;
+        }
+        return undefined;
+      }),
+    );
+    const shipped = rows.getByRole("checkbox", { name: "Shipped of Write docs" });
+
+    await user.click(shipped);
+    await user.click(shipped);
+    expect(shipped).not.toBeChecked();
+    expect(rowChanges(db.changes, DB.docs)).toEqual([]);
+    gate.open?.();
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.docs)).toEqual([{ [DB.done]: true }, { [DB.done]: null }]),
+    );
+    expect(shipped).not.toBeChecked();
   });
 
   it("picks people from the workspace's members", async () => {

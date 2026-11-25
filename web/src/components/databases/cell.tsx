@@ -37,7 +37,7 @@ type CellProps = {
 export function Cell({ property, row, variant }: CellProps) {
   const workspace = useWorkspace();
   const { database, people, seesPeople, report } = useDatabaseScope();
-  const change = useChangeRow(workspace.id, database);
+  const change = useChangeRow(workspace.id, database, row.id);
   const value = valueOf(row, property);
   const label = copy.edit(property.name, titleOf(row));
   const trashed = (database.page.trashed_at ?? null) !== null;
@@ -46,8 +46,7 @@ export function Cell({ property, row, variant }: CellProps) {
     !trashed &&
     !isComputed(property.type) &&
     (seesPeople || !namesPeople(property.type));
-  const save = (next: unknown) =>
-    change.mutate({ rowId: row.id, values: { [property.id]: next } }, { onError: report });
+  const save = (next: unknown) => change.mutate({ [property.id]: next }, { onError: report });
   const inline = variant === "table";
   const shown = <CellValue property={property} value={value} people={people} inline={inline} />;
 
