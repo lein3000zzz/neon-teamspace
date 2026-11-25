@@ -1,7 +1,23 @@
 use neon_domain::databases::filter::InvalidFilter;
 use neon_domain::databases::{InvalidUniqueId, InvalidValue, InvalidView, SchemaError};
 
+use super::Holder;
 use crate::pages::PageError;
+
+/// Who holds a row, as a claim refused tells it: names, else ids.
+fn holders(holders: &[Holder]) -> String {
+    holders
+        .iter()
+        .map(|holder| {
+            if holder.name.is_empty() {
+                holder.id.to_string()
+            } else {
+                format!("{} ({})", holder.name, holder.id)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// Why a database use case refused, or failed.
 ///
@@ -29,6 +45,9 @@ pub enum DatabaseError {
     /// Past one of the bounds of a database: its rows, properties or views.
     #[error("{0}")]
     TooMany(String),
+    /// A row someone claimed already: whom its person property names.
+    #[error("already claimed by {}: a claim takes a row nobody holds", holders(.0))]
+    AlreadyClaimed(Vec<Holder>),
     /// A refusal or failure of the pages the database and its rows are.
     #[error(transparent)]
     Page(#[from] PageError),
@@ -48,6 +67,7 @@ impl DatabaseError {
             Self::NameTaken(_) => "name_taken",
             Self::LossyChange { .. } => "lossy_change",
             Self::TooMany(_) => "limit_reached",
+            Self::AlreadyClaimed(_) => "already_claimed",
             Self::Page(error) => error.code(),
             Self::Database(_) | Self::Internal(_) => "internal",
         }

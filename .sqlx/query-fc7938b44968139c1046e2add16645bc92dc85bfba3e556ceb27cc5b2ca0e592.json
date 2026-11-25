@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH assigned AS (\n               SELECT DISTINCT r.page_id\n               FROM databases d\n               JOIN database_properties prop\n                 ON prop.database_id = d.page_id AND prop.type = 'person'\n               JOIN database_rows r\n                 ON r.database_id = d.page_id\n                AND r.cells @> jsonb_build_object(prop.id::text, jsonb_build_array($2::text))\n               WHERE d.workspace_id = $1\n           )\n           SELECT p.id\n           FROM assigned a JOIN pages p ON p.id = a.page_id\n           WHERE p.trashed_at IS NULL\n           ORDER BY GREATEST(p.updated_at, p.content_updated_at) DESC, p.id\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fc7938b44968139c1046e2add16645bc92dc85bfba3e556ceb27cc5b2ca0e592"
+}

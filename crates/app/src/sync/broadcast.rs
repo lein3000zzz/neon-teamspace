@@ -196,6 +196,9 @@ pub enum Room {
     /// The clients that follow a database's changes. Guests, who know no other member,
     /// hear the changes without the people they name, in a room of their own.
     Database { id: Uuid, members_hidden: bool },
+    /// What follows, on the server, every change to the rows and schemas of a workspace's
+    /// databases, as members read them: whom rows are assigned to. No client is in it.
+    Workspace(Uuid),
 }
 
 /// Hands messages to the clients in a room. It never waits: a client that cannot take a

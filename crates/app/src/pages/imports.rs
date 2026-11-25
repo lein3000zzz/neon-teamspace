@@ -2,16 +2,18 @@
 //! its document, under a page, at the top of a teamspace or among the caller's private
 //! pages.
 
+use neon_blocks::Document;
 use neon_domain::auth::Principal;
 use neon_domain::pages::{
     MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, check_title, position,
 };
-use neon_store::documents::{self, NewSnapshot};
 use neon_store::pages::{self as repo, Siblings};
 use tracing::info;
 use uuid::Uuid;
+use yrs::updates::encoder::Encode as _;
+use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
-use super::operations::{Target, in_workspace};
+use super::operations::{Target, in_workspace, save_content};
 use super::{Location, PageError, PageService, PageView};
 
 /// A page to import, with the pages to import under it.
@@ -49,6 +51,26 @@ pub struct ImportedContent {
     pub state_vector: Vec<u8>,
     /// Its plain text, for search.
     pub text: String,
+}
+
+impl ImportedContent {
+    /// The blocks written into a Yjs document as the editor would, each given a fresh id;
+    /// `None` for no blocks, which a page without a snapshot has already.
+    pub fn of(document: &Document) -> Option<Self> {
+        if document.is_empty() {
+            return None;
+        }
+        let doc = Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        let mut txn = doc.transact_mut();
+        let mut ids = || Uuid::now_v7().to_string();
+        neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
+        Some(Self {
+            state: txn.encode_state_as_update_v1(&StateVector::default()),
+            state_vector: txn.state_vector().encode_v1(),
+            text: document.plain_text(),
+        })
+    }
 }
 
 /// What an import made.
@@ -155,18 +177,7 @@ impl PageService {
                 };
                 repo::insert(&mut *tx, &page).await?;
                 if let Some(content) = &imported.content {
-                    documents::save_snapshot(
-                        &mut *tx,
-                        page.id,
-                        NewSnapshot {
-                            state: &content.state,
-                            state_vector: &content.state_vector,
-                            last_seq: 0,
-                            at: now,
-                        },
-                    )
-                    .await?;
-                    documents::set_content(&mut *tx, page.id, Some(&content.text), None).await?;
+                    save_content(&mut tx, page.id, content, now).await?;
                 }
                 count += 1;
                 let keys = position::sequence(imported.children.len());

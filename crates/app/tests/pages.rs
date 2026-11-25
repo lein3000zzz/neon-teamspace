@@ -1039,6 +1039,7 @@ async fn a_page_s_title_icon_cover_and_style_change(pool: PgPool) {
                         small_text: true,
                         full_width: false,
                     },
+                    content: None,
                 },
             )
             .await
@@ -1609,4 +1610,61 @@ async fn refusals_count_as_ok_and_failures_as_errors(pool: PgPool) {
     let failed = t.access(&t.cy, page).await;
     assert!(matches!(failed, Err(PageError::Database(_))), "{failed:?}");
     assert_eq!(count(&snapshotter, "get_page", "error"), 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn recent_pages_are_those_the_caller_sees_the_latest_first(pool: PgPool) {
+    let t = team(pool).await;
+    let older = t
+        .page(&t.ada, Location::Teamspace(t.general), "Older")
+        .await;
+    t.h.time.advance(Duration::from_secs(1));
+    let secret = t
+        .page(&t.cy, Location::Teamspace(t.secret), "Secret plan")
+        .await;
+    t.h.time.advance(Duration::from_secs(1));
+    let newer = t
+        .page(&t.ada, Location::Teamspace(t.general), "Newer")
+        .await;
+    t.h.time.advance(Duration::from_secs(1));
+    let mine = t.page(&t.dee, Location::Private, "Dee's own").await;
+
+    let ids = |list: Vec<PageView>| {
+        list.into_iter()
+            .map(|view| view.page.id)
+            .collect::<Vec<_>>()
+    };
+    let recent =
+        t.h.pages
+            .recent_pages(&t.dee, t.id, 10)
+            .await
+            .expect("listed");
+    assert_eq!(ids(recent), [mine, newer, older]);
+    let cy =
+        t.h.pages
+            .recent_pages(&t.cy, t.id, 2)
+            .await
+            .expect("listed");
+    assert_eq!(ids(cy), [newer, secret]);
+    // Changed again, a page comes first; trashed, it goes.
+    t.h.time.advance(Duration::from_secs(1));
+    t.h.pages
+        .update_page(
+            &t.ada,
+            older,
+            PageUpdate {
+                title: Some("Older, renamed".to_owned()),
+                ..PageUpdate::default()
+            },
+        )
+        .await
+        .expect("renamed");
+    t.h.pages.trash_page(&t.ada, newer).await.expect("trashed");
+    let recent =
+        t.h.pages
+            .recent_pages(&t.dee, t.id, 10)
+            .await
+            .expect("listed");
+    assert_eq!(ids(recent), [older, mine]);
+    assert_not_found(t.h.pages.recent_pages(&t.eve, t.id, 10).await);
 }

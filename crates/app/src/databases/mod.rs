@@ -31,6 +31,7 @@ mod export;
 mod live;
 mod rows;
 mod schema;
+mod tasks;
 mod views;
 
 use std::collections::HashMap;
@@ -59,6 +60,7 @@ pub use export::{ExportRow, ExportTable};
 pub use live::{Admission, Follow, LiveDatabases, LiveDatabasesBuilder, LiveLimits};
 pub use rows::{GroupMove, NewRow, QueryInput, QueryResult, RowMove};
 pub use schema::{NewDatabase, NewProperty, PropertyChange, PropertySpec};
+pub use tasks::{Holder, MAX_TASKS, Task, TaskStatus};
 pub use views::{NewView, ViewChange};
 
 /// RED subsystem of the database use cases.

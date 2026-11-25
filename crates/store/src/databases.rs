@@ -344,6 +344,17 @@ pub async fn row(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<O
     .await
 }
 
+/// The data of each of `ids` that is a row.
+pub async fn rows_of(executor: impl PgExecutor<'_>, ids: &[Uuid]) -> sqlx::Result<Vec<RowData>> {
+    sqlx::query_as!(
+        RowData,
+        "SELECT page_id, database_id, number, cells FROM database_rows WHERE page_id = ANY($1)",
+        ids,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// A row's own data, locked until the transaction ends, so a change to its values reads
 /// them as they are when it writes.
 pub async fn lock_row(
@@ -595,6 +606,38 @@ pub async fn members_among(
     .into_iter()
     .map(|row| Ok((row.user_id, parse_kind(&row.kind)?)))
     .collect()
+}
+
+/// The rows of a workspace's databases, out of the trash, that a person property names
+/// `user_id` in, most recently changed first, at most `limit`.
+pub async fn assigned_rows(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        r#"WITH assigned AS (
+               SELECT DISTINCT r.page_id
+               FROM databases d
+               JOIN database_properties prop
+                 ON prop.database_id = d.page_id AND prop.type = 'person'
+               JOIN database_rows r
+                 ON r.database_id = d.page_id
+                AND r.cells @> jsonb_build_object(prop.id::text, jsonb_build_array($2::text))
+               WHERE d.workspace_id = $1
+           )
+           SELECT p.id
+           FROM assigned a JOIN pages p ON p.id = a.page_id
+           WHERE p.trashed_at IS NULL
+           ORDER BY GREATEST(p.updated_at, p.content_updated_at) DESC, p.id
+           LIMIT $3"#,
+        workspace_id,
+        user_id.to_string(),
+        limit,
+    )
+    .fetch_all(executor)
+    .await
 }
 
 /// How a workspace's content names whom it names, by id: its members, people by their

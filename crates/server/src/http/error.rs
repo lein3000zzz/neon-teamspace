@@ -264,7 +264,8 @@ impl From<DatabaseError> for ApiError {
                     DatabaseError::NotFound(_) => StatusCode::NOT_FOUND,
                     DatabaseError::NameTaken(_)
                     | DatabaseError::LossyChange { .. }
-                    | DatabaseError::TooMany(_) => StatusCode::CONFLICT,
+                    | DatabaseError::TooMany(_)
+                    | DatabaseError::AlreadyClaimed(_) => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, expected.code(), expected.to_string())

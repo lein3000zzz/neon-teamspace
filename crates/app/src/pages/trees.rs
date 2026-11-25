@@ -64,7 +64,40 @@ pub struct TrashList {
     pub next: Option<String>,
 }
 
+/// The most pages a list of the recently changed holds.
+pub const MAX_RECENT: usize = 50;
+
+/// How many of a workspace's latest pages are read to find those the caller may see.
+const RECENT_CANDIDATES: i64 = 500;
+
 impl PageService {
+    /// The pages and databases of a workspace that the caller may see, out of the trash,
+    /// the most recently changed first, rows left out: at most `limit`, up to
+    /// [`MAX_RECENT`].
+    pub async fn recent_pages(
+        &self,
+        principal: &Principal,
+        workspace_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<PageView>, PageError> {
+        self.observe("recent_pages", async {
+            let mut conn = self.pool().acquire().await?;
+            in_workspace(&mut conn, principal, workspace_id).await?;
+            let ids = repo::recent(&mut *conn, workspace_id, RECENT_CANDIDATES).await?;
+            let mut seen = Facts::read(&mut conn, principal, &ids)
+                .await?
+                .seen(principal)?;
+            let mut list: Vec<PageView> = ids
+                .iter()
+                .filter_map(|id| seen.remove(id).flatten())
+                .take(limit.min(MAX_RECENT))
+                .collect();
+            hide_parents(&mut conn, principal, &mut list).await?;
+            Ok(list)
+        })
+        .await
+    }
+
     /// A teamspace's pages out of the trash, for everyone who may see the teamspace in
     /// full: a private one's for its members only.
     pub async fn teamspace_tree(

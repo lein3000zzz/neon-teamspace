@@ -254,7 +254,13 @@ impl DatabaseService {
                 kind = %property.kind(),
                 "database property added"
             );
-            self.publish(database_id, &Event::SchemaChanged).await;
+            self.publish(
+                database_id,
+                &Event::SchemaChanged {
+                    workspace_id: opened.database.workspace_id,
+                },
+            )
+            .await;
             Ok(property)
         })
         .await
@@ -348,7 +354,13 @@ impl DatabaseService {
                 views = refit,
                 "database property changed"
             );
-            self.publish(database_id, &Event::SchemaChanged).await;
+            self.publish(
+                database_id,
+                &Event::SchemaChanged {
+                    workspace_id: opened.database.workspace_id,
+                },
+            )
+            .await;
             Ok(property)
         })
         .await
@@ -380,7 +392,13 @@ impl DatabaseService {
                 property_id = %property_id,
                 "database property moved"
             );
-            self.publish(database_id, &Event::SchemaChanged).await;
+            self.publish(
+                database_id,
+                &Event::SchemaChanged {
+                    workspace_id: opened.database.workspace_id,
+                },
+            )
+            .await;
             Ok(property)
         })
         .await
@@ -415,7 +433,13 @@ impl DatabaseService {
                 views = refit,
                 "database property deleted"
             );
-            self.publish(database_id, &Event::SchemaChanged).await;
+            self.publish(
+                database_id,
+                &Event::SchemaChanged {
+                    workspace_id: opened.database.workspace_id,
+                },
+            )
+            .await;
             Ok(())
         })
         .await

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_blocks::edit::{self, Applied, Edit, EditError};
 use neon_domain::auth::UserKind;
 use neon_domain::pages::PageAccess;
 use neon_store::documents::{self, Edited, LoggedUpdate, NewSnapshot, NewUpdate, Snapshot};
@@ -24,7 +25,7 @@ use yrs::block::ClientID;
 use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
+use yrs::{Doc, Options, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
 
 use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
@@ -64,6 +65,23 @@ pub(crate) enum Command {
     Read {
         done: oneshot::Sender<neon_blocks::Lenient>,
     },
+    /// Edits of the document's blocks, made by `author` from the server, all or none.
+    Edit {
+        author: Uuid,
+        edits: Vec<Edit>,
+        done: oneshot::Sender<Result<Vec<Applied>, Unedited>>,
+    },
+}
+
+/// Why a live document made none of an edit's parts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unedited {
+    /// The part at this index, counted from 0, cannot be made.
+    Refused(usize, EditError),
+    /// The document would grow larger than the server keeps.
+    TooLarge,
+    /// The page was deleted.
+    Gone,
 }
 
 /// A connection opening the document.
@@ -381,7 +399,107 @@ impl Document {
                 let txn = self.awareness.doc().transact();
                 let _ = done.send(neon_blocks::read_lenient(&txn, &self.fragment));
             }
+            Command::Edit {
+                author,
+                edits,
+                done,
+            } => {
+                let edited = self.edit(author, &edits).await;
+                let _ = done.send(edited);
+            }
         }
+    }
+
+    /// Makes edits of the server's, as one change everyone connected gets at once and the
+    /// log keeps as `author`'s. They are tried on a copy first, so that either every part
+    /// is made or none, and the document's growth is known before it grows.
+    async fn edit(&mut self, author: Uuid, edits: &[Edit]) -> Result<Vec<Applied>, Unedited> {
+        if self.gone {
+            return Err(Unedited::Gone);
+        }
+        let growth = self.trial(edits)?;
+        let max = self.inner.limits.max_document;
+        if self.storage.size() + growth > max {
+            // The estimate errs large; a snapshot tells the size for sure.
+            if self.storage.needs_snapshot() {
+                self.compact().await;
+            }
+            if self.gone {
+                return Err(Unedited::Gone);
+            }
+            if self.storage.size() + growth > max {
+                return Err(Unedited::TooLarge);
+            }
+        }
+        let (made, changed) = {
+            let mut txn = self.awareness.doc().transact_mut();
+            let mut ids = new_block_id;
+            let mut made = Vec::with_capacity(edits.len());
+            let mut refused = None;
+            for (index, part) in edits.iter().enumerate() {
+                match edit::apply(&mut txn, &self.fragment, part, &mut ids) {
+                    Ok(applied) => made.push(applied),
+                    Err(error) => {
+                        refused = Some(Unedited::Refused(index, error));
+                        break;
+                    }
+                }
+            }
+            let made = match refused {
+                None => Ok(made),
+                Some(refused) => Err(refused),
+            };
+            (made, txn.encode_update_v1())
+        };
+        // A part the trial made and this did not still leaves the parts before it, which
+        // the others and the log must have too.
+        if changed.as_slice() != Update::EMPTY_V1 {
+            let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
+            self.inner
+                .broadcaster
+                .broadcast(Room::Page(self.page_id), message, None);
+            self.queue(changed, author);
+        }
+        if let Err(Unedited::Refused(index, error)) = &made {
+            error!(index, %error, "an edit refused on the document after its trial passed");
+        }
+        if self.clients.is_empty() {
+            // Opened for the edit alone: it stays a while for the next.
+            self.idle_since = Some(Instant::now());
+        }
+        made
+    }
+
+    /// Makes the edits on a copy of the document, and says how large their update is.
+    fn trial(&self, edits: &[Edit]) -> Result<usize, Unedited> {
+        let doc = self.awareness.doc();
+        let (state, before) = {
+            let txn = doc.transact();
+            (
+                txn.encode_state_as_update_v1(&StateVector::default()),
+                txn.state_vector(),
+            )
+        };
+        let copy = Doc::with_options(Options {
+            offset_kind: doc.offset_kind(),
+            ..Options::default()
+        });
+        let fragment = neon_blocks::fragment(&copy);
+        let mut txn = copy.transact_mut();
+        let loaded = Update::decode_v1(&state)
+            .ok()
+            .and_then(|update| txn.apply_update(update).ok());
+        if loaded.is_none() {
+            // The document's own state always loads; should it not, the edit is made on the
+            // document itself, whose size check then counts the rest.
+            return Ok(0);
+        }
+        let mut ids = new_block_id;
+        for (index, part) in edits.iter().enumerate() {
+            edit::apply(&mut txn, &fragment, part, &mut ids)
+                .map_err(|error| Unedited::Refused(index, error))?;
+        }
+        Ok(txn.encode_state_as_update_v1(&before).len())
     }
 
     /// Takes a connection in, and starts the sync: the server's state vector, which the
@@ -882,6 +1000,11 @@ impl Document {
             self.flush().await;
         }
     }
+}
+
+/// The id of a block the server adds.
+fn new_block_id() -> String {
+    Uuid::now_v7().to_string()
 }
 
 /// A page's document from its snapshot and the updates logged after it. What of them needs

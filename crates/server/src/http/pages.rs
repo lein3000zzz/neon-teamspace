@@ -379,6 +379,7 @@ pub(super) async fn create_page(
             small_text: body.style.small_text.unwrap_or(defaults.small_text),
             full_width: body.style.full_width.unwrap_or(defaults.full_width),
         },
+        content: None,
     };
     let placement = body.placement.map(Into::into).unwrap_or_default();
     let created = state

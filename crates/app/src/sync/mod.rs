@@ -41,6 +41,7 @@
 mod access;
 mod broadcast;
 mod close;
+mod content;
 mod document;
 mod limits;
 mod protocol;
@@ -74,6 +75,7 @@ pub(crate) use limits::Bucket;
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
+pub use content::{ContentError, Edited, MAX_EDITS, changes_document};
 pub use document::{LoadError, READ_ONLY};
 pub use limits::Limits;
 
@@ -487,28 +489,58 @@ impl SyncService {
             return Err(CloseReason::TooManyConnections);
         }
         *registry.users.entry(user_id).or_default() += 1;
-        let slot = match registry.docs.entry(admission.page_id) {
-            Entry::Occupied(slot) => slot.into_mut(),
-            Entry::Vacant(vacant) => {
-                static GENERATION: AtomicU64 = AtomicU64::new(1);
-                let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
-                let (commands, received) = mpsc::channel(COMMAND_QUEUE);
-                self.inner.tasks.spawn(document::run(
-                    Arc::clone(&self.inner),
-                    admission.page_id,
-                    generation,
-                    received,
-                ));
-                vacant.insert(Slot {
-                    generation,
-                    workspace_id: admission.workspace_id,
-                    commands,
-                    connections: HashMap::new(),
-                })
-            }
-        };
+        let slot = open(
+            &self.inner,
+            &mut registry,
+            admission.page_id,
+            admission.workspace_id,
+        );
         slot.connections.insert(client, admission.principal.clone());
         Ok((slot.commands.clone(), slot.generation))
+    }
+
+    /// The page's live document, started if there is none, for the server's own use.
+    fn document(
+        &self,
+        page_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<mpsc::Sender<Command>, CloseReason> {
+        let mut registry = self.inner.registry();
+        if self.inner.stop.is_cancelled() {
+            return Err(CloseReason::Restarting);
+        }
+        Ok(open(&self.inner, &mut registry, page_id, workspace_id)
+            .commands
+            .clone())
+    }
+}
+
+/// The slot of a page's live document, its task started if there is none.
+fn open<'r>(
+    inner: &Arc<Inner>,
+    registry: &'r mut Registry,
+    page_id: Uuid,
+    workspace_id: Uuid,
+) -> &'r mut Slot {
+    match registry.docs.entry(page_id) {
+        Entry::Occupied(slot) => slot.into_mut(),
+        Entry::Vacant(vacant) => {
+            static GENERATION: AtomicU64 = AtomicU64::new(1);
+            let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+            let (commands, received) = mpsc::channel(COMMAND_QUEUE);
+            inner.tasks.spawn(document::run(
+                Arc::clone(inner),
+                page_id,
+                generation,
+                received,
+            ));
+            vacant.insert(Slot {
+                generation,
+                workspace_id,
+                commands,
+                connections: HashMap::new(),
+            })
+        }
     }
 }
 
