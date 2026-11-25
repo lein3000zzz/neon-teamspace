@@ -22,6 +22,7 @@ mod sync;
 mod teamspaces;
 mod transfer;
 mod web;
+mod webhooks;
 mod workspaces;
 
 use std::sync::Arc;
@@ -41,6 +42,7 @@ use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
+use neon_app::webhooks::WebhookService;
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
 use neon_observability::http::HttpLayer;
@@ -71,6 +73,7 @@ pub struct AppState {
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub transfer: TransferService,
+    pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
 }
 
@@ -158,6 +161,15 @@ fn api() -> OpenApiRouter<AppState> {
             agents::create_agent_token
         ))
         .routes(routes!(agents::revoke_agent_token))
+        .routes(routes!(webhooks::list_webhooks, webhooks::create_webhook))
+        .routes(routes!(
+            webhooks::get_webhook,
+            webhooks::update_webhook,
+            webhooks::delete_webhook
+        ))
+        .routes(routes!(webhooks::rotate_webhook_secret))
+        .routes(routes!(webhooks::webhook_deliveries))
+        .routes(routes!(webhooks::test_webhook))
         .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
@@ -357,5 +369,7 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(test)]
+mod webhooks_tests;
 #[cfg(test)]
 mod workspaces_tests;

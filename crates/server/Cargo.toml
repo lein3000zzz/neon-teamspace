@@ -20,9 +20,11 @@ neon-store.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum = { workspace = true, features = ["multipart", "ws"] }
+bytes.workspace = true
 clap.workspace = true
 figment.workspace = true
-hyper.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client"] }
 hyper-util.workspace = true
 ipnet = { workspace = true, features = ["serde"] }
 lettre.workspace = true
@@ -35,6 +37,9 @@ sqlx.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["serde", "formatting", "parsing"] }
 tokio.workspace = true
+# TLS for outgoing webhooks, on ring as the rest of the server, with the web PKI's roots
+# bundled so it works in minimal images.
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-util.workspace = true
 tower.workspace = true
 tower-http.workspace = true
@@ -43,13 +48,13 @@ url = { workspace = true, features = ["serde"] }
 utoipa = { workspace = true, features = ["time", "uuid"] }
 utoipa-axum.workspace = true
 uuid = { workspace = true, features = ["serde"] }
+webpki-roots = "1.0.12"
 
 [dev-dependencies]
 neon-blocks.workspace = true
 base64.workspace = true
 figment = { workspace = true, features = ["test"] }
 futures-util = { workspace = true, features = ["sink"] }
-http-body-util.workspace = true
 metrics-util.workspace = true
 # A self-signed certificate and a TLS listener, for the SMTP adapter's tests.
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }

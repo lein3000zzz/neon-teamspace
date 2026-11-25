@@ -808,7 +808,7 @@ async fn admins_make_invites_and_copy_their_codes(pool: PgPool) {
     );
 }
 
-fn keyed() -> Envelope {
+pub(super) fn keyed() -> Envelope {
     let key = format!("k1:{}", STANDARD.encode([9u8; 32]));
     Envelope::new(Keyring::parse(&[key]).expect("a key"))
 }

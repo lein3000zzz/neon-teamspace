@@ -21,6 +21,7 @@ base64.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 governor.workspace = true
+hmac.workspace = true
 metrics.workspace = true
 rand.workspace = true
 serde.workspace = true

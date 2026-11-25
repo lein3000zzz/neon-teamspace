@@ -27,6 +27,7 @@ use super::{
     domain_row, fitted_views, names_people, not_found, row_view,
 };
 use crate::pages::{Context, PageError, access_of};
+use crate::webhooks::events::{self as webhooks, RowChange};
 
 /// The most rows a query answers with at once, and how many unless told fewer.
 pub const MAX_PAGE: usize = 1000;
@@ -394,6 +395,20 @@ impl DatabaseService {
             let cells = Json::Object(changes.set);
             let bytes = repo::insert_row(&mut *tx, page.id, database_id, number, &cells).await?;
             check_size(bytes)?;
+            webhooks::queue(
+                &mut tx,
+                RowChange {
+                    workspace_id: page.workspace_id,
+                    database_id,
+                    row_id: page.id,
+                    actor: user,
+                    schema: &opened.schema,
+                    before: None,
+                    after: &cells,
+                    at: now,
+                },
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %user,
@@ -491,7 +506,18 @@ impl DatabaseService {
                     repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
                 }
             }
-            let cells = patch(&mut tx, row_id, &changes).await?;
+            let cells = patch(
+                &mut tx,
+                Written {
+                    page: &page,
+                    database_id: data.database_id,
+                    actor: principal.user.id,
+                    schema: &schema,
+                    before: &data.cells,
+                },
+                &changes,
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -576,7 +602,18 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            let cells = patch(&mut tx, row_id, &changes).await?;
+            let cells = patch(
+                &mut tx,
+                Written {
+                    page: &page,
+                    database_id,
+                    actor: principal.user.id,
+                    schema: &schema,
+                    before: &data.cells,
+                },
+                &changes,
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -761,13 +798,26 @@ async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData,
     Ok(data)
 }
 
-/// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], and answers them as they are
-/// then.
+/// A row whose values a change writes, as it was before the change, and who makes it.
+struct Written<'a> {
+    /// The row's page, as the change leaves it.
+    page: &'a Page,
+    database_id: Uuid,
+    actor: Uuid,
+    schema: &'a Schema,
+    before: &'a Json,
+}
+
+/// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], queues on the same
+/// transaction the webhook deliveries it makes, and answers the cells as they are then.
+/// Every change to the values of a row that exists goes through here, so every writer's
+/// changes reach webhooks.
 async fn patch(
     conn: &mut PgConnection,
-    row_id: Uuid,
+    row: Written<'_>,
     changes: &Changes,
 ) -> Result<Json, DatabaseError> {
+    let row_id = row.page.id;
     let patched = repo::patch_cells(
         &mut *conn,
         row_id,
@@ -777,6 +827,20 @@ async fn patch(
     .await?
     .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
     check_size(patched.bytes)?;
+    webhooks::queue(
+        &mut *conn,
+        RowChange {
+            workspace_id: row.page.workspace_id,
+            database_id: row.database_id,
+            row_id,
+            actor: row.actor,
+            schema: row.schema,
+            before: Some(row.before),
+            after: &patched.cells,
+            at: row.page.updated_at,
+        },
+    )
+    .await?;
     Ok(patched.cells)
 }
 

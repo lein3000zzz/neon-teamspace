@@ -29,6 +29,8 @@ clap = { version = "4.6.9", features = ["derive"] }
 figment = { version = "0.10.19", features = ["env"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 governor = { version = "0.10.4", default-features = false, features = ["std", "dashmap", "quanta"] }
+# HMAC-SHA256, which signs webhooks both ways.
+hmac = "0.13.0"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "service"] }

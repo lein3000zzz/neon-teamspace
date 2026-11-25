@@ -1966,6 +1966,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List outgoing webhooks
+         * @description The workspace's outgoing webhooks the caller may manage, oldest first: every one for its owners and admins, for everyone else their own and their agents' and integrations'.
+         */
+        get: operations["list_webhooks"];
+        put?: never;
+        /**
+         * Register an outgoing webhook
+         * @description Registers a webhook that delivers an identity's events: for the workspace's owners and admins, anyone in it; for everyone else but guests, themselves and their own agents and integrations. Its signing secret is in this answer only. Needs secrets.keys on the server.
+         */
+        post: operations["create_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An outgoing webhook */
+        get: operations["get_webhook"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an outgoing webhook
+         * @description With its log. Deliveries still queued for it are dropped.
+         */
+        delete: operations["delete_webhook"];
+        options?: never;
+        head?: never;
+        /**
+         * Change an outgoing webhook
+         * @description Changes what the body names: its URL, checked as when it was registered, its events, whether it hears the identity's own changes, and whether it is on. Turning it on clears its failures and why it was off.
+         */
+        patch: operations["update_webhook"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/webhooks/{webhook_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A webhook's delivery log
+         * @description Its last 50 attempts, newest first: how each went, the receiver's status, how long it took and the start of its answer, never what was sent.
+         */
+        get: operations["webhook_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/webhooks/{webhook_id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate a webhook's secret
+         * @description Makes a new signing secret, in this answer only. For 24 hours deliveries are signed with the one before too, a second `v1=` in `Neon-Webhook-Signature`, so a receiver can move to the new one; one rotated earlier stops at once.
+         */
+        post: operations["rotate_webhook_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/webhooks/{webhook_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test event
+         * @description Sends a `webhook.test` event now, signed as deliveries are, whether the webhook is on or off, and answers how it went. It is not retried and counts for nothing toward turning the webhook off; the log keeps it.
+         */
+        post: operations["test_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2098,6 +2207,11 @@ export interface components {
             /** @description Oldest first. */
             tokens: components["schemas"]["ApiToken"][];
         };
+        /**
+         * @description How an attempt went.
+         * @enum {string}
+         */
+        AttemptOutcome: "delivered" | "retrying" | "failed" | "skipped";
         /** @description Which sign-in and sign-up forms are on, and what a password needs. */
         AuthConfig: {
             /** @example 12 */
@@ -2371,6 +2485,23 @@ export interface components {
             /** @description At most 10. */
             sorts?: components["schemas"]["Sort"][];
         };
+        CreateWebhook: {
+            /** @description At least one. */
+            events: components["schemas"]["WebhookEvent"][];
+            /** @description Told of the identity's own changes too. False unless set. */
+            include_own?: boolean;
+            /**
+             * @description `http` or `https`, at most 2048 bytes, without a user name or password. Its host must
+             *     resolve to addresses webhooks may reach.
+             * @example https://hooks.example.com/neon
+             */
+            url: string;
+            /**
+             * Format: uuid
+             * @description The member whose events it delivers: a person, an agent or an integration.
+             */
+            user_id: string;
+        };
         CreateWorkspace: {
             /**
              * Format: int64
@@ -2454,6 +2585,51 @@ export interface components {
              * @example Design
              */
             confirm_name: string;
+        };
+        /** @description How one attempt at a delivery went. */
+        DeliveryAttempt: {
+            /** Format: date-time */
+            at: string;
+            /**
+             * Format: int32
+             * @description 1 for the first try.
+             */
+            attempt: number;
+            /**
+             * Format: uuid
+             * @description The delivery, the same over its attempts; absent for a test event.
+             */
+            delivery_id?: string | null;
+            /**
+             * @description Why it failed or was skipped: `unresolvable`, `address_refused`, `connect`, `tls`,
+             *     `timeout`, `protocol`, `redirect`, `http_status`; for a skipped one `no_access`, the
+             *     identity no longer seeing the row, or `disabled`.
+             * @example http_status
+             */
+            error_kind?: string | null;
+            /**
+             * Format: uuid
+             * @description The event's id, as its payload says.
+             */
+            event_id: string;
+            /** @example row.assigned */
+            event_type: string;
+            /** @description The start of the answer's body, at most 256 bytes. */
+            excerpt?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            latency_ms?: number | null;
+            outcome: components["schemas"]["AttemptOutcome"];
+            /**
+             * Format: int32
+             * @description The receiver's HTTP status, when it answered.
+             */
+            status_code?: number | null;
+        };
+        DeliveryLog: {
+            /** @description The last 50, newest first. */
+            attempts: components["schemas"]["DeliveryAttempt"][];
         };
         /** @enum {string} */
         Direction: "ascending" | "descending";
@@ -3638,6 +3814,14 @@ export interface components {
             email_verified?: boolean | null;
             role?: components["schemas"]["Role"] | null;
         };
+        UpdateWebhook: {
+            /** @description True turns it on and clears its failures; false turns it off. */
+            enabled?: boolean | null;
+            events?: components["schemas"]["WebhookEvent"][] | null;
+            include_own?: boolean | null;
+            /** @example https://hooks.example.com/neon */
+            url?: string | null;
+        };
         UpdateWorkspace: {
             agent_creation?: components["schemas"]["AgentCreation"] | null;
             /**
@@ -3739,6 +3923,70 @@ export interface components {
              * @description Its column's width in pixels, 40 to 2000, once resized.
              */
             width?: number | null;
+        };
+        /** @description An outgoing webhook, without its secret. */
+        Webhook: {
+            /** Format: date-time */
+            created_at: string;
+            created_by?: components["schemas"]["WebhookCreator"] | null;
+            /** Format: date-time */
+            disabled_at?: string | null;
+            /**
+             * @description Why it is off.
+             * @example turned off after 5 deliveries in a row failed; the last: the receiver answered 500
+             */
+            disabled_reason?: string | null;
+            /** @description False while it is off: turned off by hand, or after deliveries kept failing. */
+            enabled: boolean;
+            events: components["schemas"]["WebhookEvent"][];
+            /**
+             * Format: int32
+             * @description Deliveries given up on in a row since the last one that went through.
+             */
+            failures: number;
+            /** Format: uuid */
+            id: string;
+            /** @description The identity whose events it delivers, without their address. */
+            identity: components["schemas"]["Person"];
+            /** @description Whether it is told of the identity's own changes too. */
+            include_own: boolean;
+            /**
+             * Format: date-time
+             * @description Until when the secret before the last rotation signs deliveries too.
+             */
+            previous_secret_expires_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** @example https://hooks.example.com/neon */
+            url: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** @description Who made a webhook. */
+        WebhookCreator: {
+            /** @example Ada Lovelace */
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+        };
+        /**
+         * @description What an outgoing webhook may be told of. Receivers ignore types they do not know: more
+         *     come later.
+         * @enum {string}
+         */
+        WebhookEvent: "row.assigned" | "row.status_changed";
+        WebhookList: {
+            /** @description Oldest first. */
+            webhooks: components["schemas"]["Webhook"][];
+        };
+        /** @description A webhook with its signing secret, shown this once. */
+        WebhookWithSecret: {
+            /**
+             * @description `whsec_` and 43 characters. The server keeps it encrypted and never shows it again.
+             * @example whsec_...
+             */
+            secret: string;
+            webhook: components["schemas"]["Webhook"];
         };
         /** @description A workspace the caller is in. */
         Workspace: components["schemas"]["WorkspaceSummary"] & {
@@ -11825,6 +12073,535 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_webhooks: {
+        parameters: {
+            query?: {
+                /** @description Only the webhooks of this identity. */
+                user_id?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhooks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhook"];
+            };
+        };
+        responses: {
+            /** @description The webhook, with its secret. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookWithSecret"];
+                };
+            };
+            /** @description invalid_input, invalid_url, or address_refused: the URL's host does not resolve, or resolves to an address webhooks may not reach. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not for this identity; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace or member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no_secret_key: secrets.keys is not set. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhook"];
+            };
+        };
+        responses: {
+            /** @description The webhook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            /** @description invalid_input, invalid_url or address_refused. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    webhook_deliveries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryLog"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rotate_webhook_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook, with its new secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookWithSecret"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no_secret_key: secrets.keys is not set. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    test_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryAttempt"];
                 };
             };
             /** @description unauthenticated. */

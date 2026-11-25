@@ -9,3 +9,4 @@ pub mod http;
 pub mod mail;
 pub mod runtime;
 mod telemetry;
+pub mod webhooks;

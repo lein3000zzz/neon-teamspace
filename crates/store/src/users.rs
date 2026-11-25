@@ -1,7 +1,7 @@
 //! Accounts, and the agents and integrations that are users too. Everything here about
 //! signing in, addresses, passwords, verification and instance roles reads people alone.
 
-use neon_domain::agents::AgentOwner;
+use neon_domain::agents::{AgentOwner, Standing};
 use neon_domain::auth::{Email, Role, User, UserKind};
 use neon_domain::hue::MAX_HUE;
 use neon_domain::workspaces::Person;
@@ -198,6 +198,55 @@ pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Opti
     .await?
     .map(User::try_from)
     .transpose()
+}
+
+/// An identity of any kind by its id: a person, or an agent or integration with what
+/// decides whether it works, as [`Standing`] reads it. A person's standing is always one
+/// that works; whether their account is disabled is on the user.
+pub async fn identity(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+) -> sqlx::Result<Option<(User, Standing)>> {
+    let Some(row) = sqlx::query!(
+        r#"SELECT u.id, u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,
+                  u.disabled_at, u.created_at, u.updated_at, u.workspace_id, u.owner_id,
+                  u.deleted_at IS NOT NULL AS "deleted!",
+                  (u.kind = 'human' OR EXISTS (
+                      SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id
+                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id
+                        AND m.role <> 'guest' AND o.disabled_at IS NULL
+                  )) AS "owner_active!",
+                  COALESCE(w.agents_enabled, true) AS "workspace_agents_on!"
+           FROM users u
+           LEFT JOIN workspaces w ON w.id = u.workspace_id
+           WHERE u.id = $1"#,
+        id,
+    )
+    .fetch_optional(executor)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let user = User::try_from(Row {
+        id: row.id,
+        kind: row.kind,
+        email: row.email,
+        display_name: row.display_name,
+        role: row.role,
+        hue: row.hue,
+        email_verified_at: row.email_verified_at,
+        disabled_at: row.disabled_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        workspace_id: row.workspace_id,
+        owner_id: row.owner_id,
+    })?;
+    let standing = Standing {
+        deleted: row.deleted,
+        owner_active: row.owner_active,
+        workspace_agents_on: row.workspace_agents_on,
+    };
+    Ok(Some((user, standing)))
 }
 
 /// Like [`by_id`], locking the row until the transaction ends.

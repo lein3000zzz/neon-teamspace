@@ -35,6 +35,7 @@ use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
+use neon_app::webhooks::{DeliveryJob, WebhookService};
 use neon_app::workspaces::{AgentService, Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
@@ -54,6 +55,7 @@ use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
 use crate::mail::SmtpMailer;
 use crate::telemetry;
+use crate::webhooks::HttpTransport;
 
 /// How long stopping waits for open requests before closing their connections.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -254,7 +256,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .await
         .context("starting the auth service")?;
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
-        .envelope(envelope)
+        .envelope(envelope.clone())
         .limiter(Arc::clone(&limiter))
         .access_changes(Arc::clone(&access))
         .build();
@@ -271,6 +273,15 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
         .limiter(limiter)
         .build();
+    let webhooks = WebhookService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        workspaces.clone(),
+        pages.clone(),
+        Arc::new(HttpTransport::default()),
+    )
+    .envelope(envelope)
+    .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
@@ -282,6 +293,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let mailer = SmtpMailer::new(Arc::clone(&settings), public_url);
     let worker = Worker::new(pool.clone(), WorkerConfig::default())
         .handler(MailJob::new(mail, Arc::new(mailer)))
+        .handler(DeliveryJob::new(webhooks.clone()))
         .span(jobs::run_span)
         .hook(jobs::RedHook::new());
     let web = WebConfig::new(
@@ -299,6 +311,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             databases,
             live: feeds,
             transfer,
+            webhooks,
             web: Arc::new(web),
         },
         config.observability.tracing.trust_incoming,

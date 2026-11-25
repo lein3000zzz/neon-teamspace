@@ -20,6 +20,7 @@ pub mod sessions;
 pub mod settings;
 pub mod teamspaces;
 pub mod users;
+pub mod webhooks;
 pub mod workspace_invites;
 pub mod workspaces;
 

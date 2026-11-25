@@ -1,0 +1,161 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, webhook_id, delivery_id, event_id, event_type, attempt, outcome, status_code,\n                latency_ms, error_kind, excerpt, at\n         FROM webhook_attempts WHERE webhook_id = $1\n         ORDER BY at DESC, id DESC\n         LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "webhook_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "webhook_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "delivery_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "delivery_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "event_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "event_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "event_type"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "attempt",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "attempt"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "outcome",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "outcome"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "status_code",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "status_code"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "latency_ms",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "latency_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "error_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "excerpt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "excerpt"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "webhook_attempts",
+            "name": "at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "628c8aa724f6dab042aaf084c75b0621f4584163ff1d5fe447d087f983d68297"
+}

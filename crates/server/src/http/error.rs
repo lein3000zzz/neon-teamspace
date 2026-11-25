@@ -14,6 +14,7 @@ use neon_app::databases::DatabaseError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
 use neon_app::transfer::TransferError;
+use neon_app::webhooks::WebhookError;
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
@@ -299,6 +300,26 @@ impl From<TransferError> for ApiError {
         let mut api = Self::new(status, code, message);
         api.retry_after = retry_after;
         api
+    }
+}
+
+impl From<WebhookError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret or a URL.
+    /// Others are logged with their cause, and answer as internal errors.
+    fn from(error: WebhookError) -> Self {
+        let status = match &error {
+            WebhookError::InvalidInput(_)
+            | WebhookError::InvalidUrl(_)
+            | WebhookError::AddressRefused(_) => StatusCode::BAD_REQUEST,
+            WebhookError::Forbidden(_) => StatusCode::FORBIDDEN,
+            WebhookError::NotFound(_) => StatusCode::NOT_FOUND,
+            WebhookError::NoSecretKey => StatusCode::CONFLICT,
+            WebhookError::Database(_) | WebhookError::Internal(_) => {
+                tracing::error!(error = %error, "a webhook use case failed");
+                return Self::internal();
+            }
+        };
+        Self::new(status, error.code(), error.to_string())
     }
 }
 
