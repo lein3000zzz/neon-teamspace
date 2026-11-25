@@ -81,6 +81,10 @@ request, so the number of label sets stays small. These subsystems record them:
 | `databases`, the database use cases | The use case, such as `create_row`, `query`, `update_property` or `follow`, the check of a live feed's access. | A failure of the server. A refusal of the rules, an invalid value or filter, or a type change that would lose values is `ok`. | 5 ms to 5 s |
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
+| `webhooks`, webhooks' use cases, deliveries and requests | The use case, such as `create_webhook`, `test_webhook` or `create_incoming`; `deliver`, an attempt at a delivery; `receive`, a request to an incoming webhook. | A failure of the server. A refusal, a receiver that fails or times out, and a request refused for its signature, payload or rate are `ok`. | 5 ms to 10 s |
+
+Deliveries are jobs of the kind `webhooks.deliver`, so the `jobs` subsystem counts their runs
+too: a run that the receiver fails is retried and `ok`, the last failed one `error`.
 
 **Planned:** the same metrics for MCP tools.
 
@@ -157,8 +161,11 @@ flowchart LR
   The worker runs it in a span named `job <kind>`, such as `job mail.send`, whose parent
   comes from the row, so the run continues the request's trace minutes or hours later. A job
   queued outside any span has no `traceparent`, and its run starts a new trace.
-- **Outgoing webhooks**, **planned**, carry `traceparent`, so a receiver that traces can join
-  the trace too.
+- **Outgoing webhooks.** A delivery is a job, queued in the transaction of the change that
+  caused it, so its run, in a span named `job webhooks.deliver` with a child
+  `webhooks deliver`, continues that change's trace. Its request carries the run's
+  `traceparent`, so a receiver that traces joins the trace too. A request to an incoming
+  webhook, in a span named `webhooks receive`, starts a trace of its own as any request does.
 
 ### Expected and unexpected errors
 

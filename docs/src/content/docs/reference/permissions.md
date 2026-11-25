@@ -244,6 +244,30 @@ tokens are refused, so it may do nothing at all, and its connections close. A gu
 agent, so an owner made a guest no longer sees theirs; the workspace's owners and admins
 hand it to someone else or delete it.
 
+## Webhooks
+
+Outgoing webhooks, by the role of whoever acts, for whose events the webhook delivers:
+
+| Action | Owner | Admin | Member | Guest |
+|---|---|---|---|---|
+| Register one for themselves, or one of their own agents or integrations | yes | yes | yes | no |
+| Register one for anyone else in the workspace | yes | yes | no | hidden |
+| See, change, test, rotate the secret of, delete, and read the log of their own, or their agents' | yes | yes | yes | hidden |
+| The same with anyone else's | yes | yes | hidden | hidden |
+
+Incoming webhooks, which act as an integration on a database or page:
+
+| Action | Owner | Admin | Member | Guest |
+|---|---|---|---|---|
+| List, make, rename, turn off, give a new URL or secret, delete, and read the requests of | yes | yes | no | no |
+
+Making one also needs edit access to its target, to share it with the webhook's
+integration; a row is no target. Agents and integrations register and manage no webhook,
+their own included: that answers `403 forbidden`. A delivery goes only to an identity that
+still sees the row then, as the page tables say; an incoming webhook's integration edits its
+target alone, through its share, and no more than its owner may. See
+[Webhooks](/docs/guides/webhooks/).
+
 ## Tokens bound to a workspace
 
 A token bound to one workspace, every agent's among them, works in that workspace alone:

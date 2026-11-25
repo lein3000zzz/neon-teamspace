@@ -19,10 +19,13 @@ the same features from the side of the people using them.
 | Mailed links | SHA-256 of the link's token. |
 | Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
+| Outgoing webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated is kept until it stops signing, a day later. |
+| Incoming webhooks' URL tokens | SHA-256 of the token. |
+| Incoming webhooks' signing secrets | Sealed with the instance's key, bound to the webhook. |
 
-Session tokens, API tokens, made invite codes, invite links and mailed links are 32 random
-bytes from a
-CSPRNG, written in base64url. A fast hash is enough for values that random, so they need no
+Session tokens, API tokens, made invite codes, invite links, mailed links, incoming webhooks'
+URL tokens and webhooks' signing secrets are 32 random bytes from a CSPRNG, written in
+base64url. A fast hash is enough for values that random, so they need no
 salt and no stretching. Someone who reads the database learns no token that works.
 
 ## Passwords
@@ -100,7 +103,10 @@ match `server.public_url`. When that is unset, it must match the `Host` the requ
 to. Anything else gets `403`, and the server logs the origin it refused.
 
 Bearer requests are exempt because browsers never add an `Authorization` header on their
-own. A request with neither header passes. Browsers send `Origin` on every cross-site
+own. So are posts to an incoming webhook's URL, under `/hooks/in/`: that path takes no cookie
+and no `Authorization` header, only the token in it, so a page elsewhere gains nothing by a
+visitor's browser posting there. Nothing else is exempt there: its rate limits, body limit
+and time limit hold. A request with neither header passes. Browsers send `Origin` on every cross-site
 request that changes something, and `SameSite=Lax` keeps the session cookie off cross-site
 posts besides.
 
@@ -144,6 +150,8 @@ attempts, then one more every 30 seconds:
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
+| `hook-in:ip:` | Requests to incoming webhooks from one IP, before their URL is looked up: 120, then two a second. |
+| `hook-in:hook:` | Requests to one incoming webhook, from anyone: 60, then one a second. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -169,7 +177,7 @@ master key wraps. The sealed value names its master key, so keys rotate: put a n
 and keep the old ones listed until nothing sealed with them is left.
 
 Each sealed value is bound to where it belongs by its associated data, `invite:<id>`,
-`workspace-invite-link:<id>` or `setting:<key>`. A sealed value copied to another row does not open there. A value that does
+`workspace-invite-link:<id>`, `setting:<key>`, `webhook:<id>` or `incoming-webhook:<id>`. A sealed value copied to another row does not open there. A value that does
 not open is skipped with a warning naming its row, never its contents.
 
 [Configuration](/docs/self-hosting/configuration/#secret-keys) shows how to make keys.
@@ -204,6 +212,34 @@ only to this host. The mail password, and the settings that say where it goes, c
 from a browser session, so an API token that leaked cannot point the password, or the reset
 links, at another server. Errors carry the relay's answer, never the password, and logs
 name a mail by its kind, never its recipient or link. See [Mail](/docs/self-hosting/mail/).
+
+## Webhooks
+
+Outgoing webhooks connect from inside the server's network to a URL someone chose, so where
+they may go is checked, at registration and again before every delivery, never only once.
+The server resolves the URL's host itself, checks every address against the ranges the
+[Webhooks](/docs/guides/webhooks/#where-webhooks-may-go) guide lists, refusing them all if
+one is refused, and connects to an address it checked, without resolving again: DNS
+rebinding cannot swap in another address between the check and the connection. IPv4 hosts
+in every form a browser reads, and IPv6 addresses that carry an IPv4 one, are checked as the
+address they are. Redirects are never followed. Connecting may take 5 seconds, the whole
+exchange 10, and at most 64 KiB of an answer is read. Private ranges open only with
+`webhooks.allow_private`, which changes only from a browser session; metadata services and
+reserved ranges never do.
+
+Deliveries are signed with HMAC-SHA256 over a timestamp and the body, with a secret per
+webhook that the server makes, shows once and keeps sealed; receivers refuse timestamps more
+than 5 minutes off, which stops replays. A delivery goes out only if its identity may still
+see the row, as the rules say when it is sent; otherwise nothing about the row is sent. No
+log line or span holds a secret, a URL, a payload or an answer's body; the delivery log
+keeps the first 256 bytes of an answer and nothing of what was sent.
+
+An incoming webhook is reached by a 256-bit token in its URL, kept as its SHA-256, and may
+check signatures in the same scheme. Its body is read only after the client's and the
+webhook's rate limits, up to 256 KiB, and only while the webhook is on and its integration
+works. Its integration joins no teamspace and gets its target shared with it, so it edits
+its target alone, and the rules bound it by its owner's access as every agent's. Its log
+keeps the client's address and the outcome of each request, never its body.
 
 ## The last admin
 
