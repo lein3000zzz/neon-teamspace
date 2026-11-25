@@ -10,6 +10,7 @@ import {
   Plus,
   Star,
   StarOff,
+  Table2,
   Trash2,
   Upload,
   UserPlus,
@@ -22,6 +23,7 @@ import {
   useRemoveFavorite,
   useTrashPage,
   type PageAccess,
+  type PageKind,
 } from "@/api/pages";
 import type { WorkspaceSummary } from "@/api/workspaces";
 import { Button } from "@/components/ui/button";
@@ -39,12 +41,13 @@ import { ImportDialog } from "./import-dialog";
 import { MoveDialog, type MovedPage } from "./move-dialog";
 import { usePageNav } from "./page-nav-state";
 import { ShareDialog } from "./share-dialog";
+import { useNewDatabase } from "./use-new-database";
 
 const copy = strings.pages.menu;
 
 type PageMenuProps = {
   workspace: WorkspaceSummary;
-  page: MovedPage & { access: PageAccess };
+  page: MovedPage & { access: PageAccess; kind: PageKind };
   /** For the trigger's look beside the tree row or the page's title. */
   className?: string;
   /** Present where the title can be renamed in place, as in the tree. */
@@ -58,10 +61,11 @@ type PageMenuProps = {
 };
 
 /**
- * Everything to do with a page from one button: rename, add a page inside,
- * import markdown into it, export it, move it, favorite it, share it, or move
- * it to the trash. Each shows only to those it can work for: a viewer gets the
- * favorite and the exports.
+ * Everything to do with a page from one button: rename, add a page or a
+ * database inside, import markdown into it, export it, move it, favorite it,
+ * share it, or move it to the trash. Each shows only to those it can work
+ * for: a viewer gets the favorite and the exports. Only a page takes pages
+ * under it, and a row stays in its database.
  */
 export function PageMenu({
   workspace,
@@ -80,9 +84,11 @@ export function PageMenu({
   const trash = useTrashPage(workspace.id);
   const report = (error: unknown) => nav.setNotice({ tone: "error", error });
   const exporter = useExportPage({ onSaved: () => nav.setNotice(null), onFailed: report });
+  const newDatabase = useNewDatabase(workspace, onNavigate);
   const [dialog, setDialog] = useState<"move" | "share" | "import" | null>(null);
   const title = titleOf(page);
   const editor = edits(page.access);
+  const holds = editor && page.kind === "page";
   const favorite = favorites.data?.some((entry) => entry.id === page.id) ?? false;
   const exportAs = (children: boolean) => {
     nav.setNotice({ tone: "info", text: strings.pages.transfer.exporting(title) });
@@ -109,10 +115,19 @@ export function PageMenu({
               {copy.rename}
             </DropdownMenuItem>
           )}
-          {editor && onAddInside && (
+          {holds && onAddInside && (
             <DropdownMenuItem onSelect={onAddInside}>
               <Plus aria-hidden />
               {copy.addInside}
+            </DropdownMenuItem>
+          )}
+          {holds && onAddInside && (
+            <DropdownMenuItem
+              disabled={newDatabase.pending}
+              onSelect={() => newDatabase.start({ parent_id: page.id })}
+            >
+              <Table2 aria-hidden />
+              {strings.databases.create.addInside}
             </DropdownMenuItem>
           )}
           {favorite ? (
@@ -133,7 +148,7 @@ export function PageMenu({
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          {editor && (
+          {holds && (
             <DropdownMenuItem onSelect={() => setDialog("import")}>
               <Upload aria-hidden />
               {strings.pages.transfer.importInto}
@@ -150,10 +165,12 @@ export function PageMenu({
           {editor && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setDialog("move")}>
-                <FolderInput aria-hidden />
-                {copy.moveTo}
-              </DropdownMenuItem>
+              {page.kind !== "row" && (
+                <DropdownMenuItem onSelect={() => setDialog("move")}>
+                  <FolderInput aria-hidden />
+                  {copy.moveTo}
+                </DropdownMenuItem>
+              )}
               {onMoveUp && (
                 <DropdownMenuItem onSelect={onMoveUp}>
                   <ArrowUp aria-hidden />

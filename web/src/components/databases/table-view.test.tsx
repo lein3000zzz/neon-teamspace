@@ -1,0 +1,886 @@
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import { describe, expect, it, vi } from "vitest";
+import { keys } from "@/api/keys";
+import type { Page } from "@/api/pages";
+import type { Recorded } from "@/test/workspaces";
+import {
+  DATABASE_PATH,
+  databasePages,
+  DB,
+  fakeDatabase,
+  fakeFeed,
+  FIRST_SHOWN,
+  row,
+  views,
+} from "@/test/databases";
+import { apiError } from "@/test/fixtures";
+import { fakePages, samplePages } from "@/test/pages";
+import { renderApp } from "@/test/render-app";
+import { server } from "@/test/server";
+import { design, fakeWorkspaces, people } from "@/test/workspaces";
+
+type Setup = { access?: "edit" | "view"; ready?: boolean };
+
+/** The database's page, with the workspace, the pages and the database behind it. */
+function openDatabase({ access = "edit", ready = true }: Setup = {}) {
+  fakeWorkspaces();
+  const pages = fakePages({ pages: databasePages(samplePages(), access) });
+  const db = fakeDatabase({ access });
+  const feed = fakeFeed({ access, ready });
+  return { ...renderApp(DATABASE_PATH), db, feed, pages };
+}
+
+/** The live feed's state, as the view says it. */
+async function feedState(word: string) {
+  return (await database()).findByText(
+    (_, element) => element?.tagName === "OUTPUT" && (element.textContent ?? "").startsWith(word),
+  );
+}
+
+/** The database's views, once they show. */
+async function database() {
+  return within(await screen.findByRole("region", { name: "Database Tasks" }, FIRST_SHOWN));
+}
+
+/** The table, once its rows came. */
+async function table() {
+  const view = await database();
+  await view.findByRole("rowheader", { name: /Write docs/ }, FIRST_SHOWN);
+  return within(view.getByRole("table", { name: "Table" }));
+}
+
+/** The changes made to a row, by their values. */
+const rowChanges = (changes: Recorded[], rowId: string) =>
+  changes
+    .filter((change) => change.method === "PATCH" && change.path === `/api/v1/rows/${rowId}`)
+    .map((change) => (change.body as { values: unknown }).values);
+
+const viewChanges = (changes: Recorded[]) =>
+  changes
+    .filter((change) => change.method === "PATCH" && change.path.includes("/views/"))
+    .map((change) => change.body);
+
+describe("a database's table", () => {
+  it("shows each row with its values, the title first, and counts them", async () => {
+    openDatabase();
+    const rows = await table();
+
+    expect(rows.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Name",
+      "Status",
+      "Points",
+      "Owner",
+      "Due",
+      "Tags",
+      "Shipped",
+      "Link",
+      "ID",
+      "",
+    ]);
+    expect(rows.getAllByRole("rowheader").map((header) => header.textContent)).toEqual([
+      "Write docs",
+      "Fix login",
+      "Launch",
+    ]);
+    expect(rows.getByRole("button", { name: /^Status of Write docs/ })).toHaveTextContent(
+      "In progress",
+    );
+    expect(rows.getByRole("button", { name: /^Owner of Write docs/ })).toHaveTextContent("Ada");
+    expect(rows.getByRole("button", { name: /^Tags of Fix login/ })).toHaveTextContent("Bug");
+    expect(rows.getByRole("checkbox", { name: "Shipped of Fix login" })).toBeChecked();
+    expect(rows.getAllByText("NW-2")).toHaveLength(1);
+    expect((await database()).getByText("3 rows")).toBeInTheDocument();
+    expect(await feedState("Live")).toBeInTheDocument();
+  });
+
+  it("edits a number in place and saves it, refusing what is not one", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Points of Fix login/ }));
+    const field = await screen.findByRole("textbox", { name: "Points of Fix login" });
+    await user.type(field, "lots{Enter}");
+    expect(screen.getByText("Enter a number, such as 3 or 2.5.")).toBeInTheDocument();
+    expect(rowChanges(db.changes, DB.login)).toEqual([]);
+
+    await user.clear(field);
+    await user.type(field, "1,250.5{Enter}");
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.login)).toEqual([{ [DB.points]: 1250.5 }]),
+    );
+    expect(rows.getByRole("button", { name: /^Points of Fix login/ })).toHaveTextContent(
+      /1.?250\.5/,
+    );
+  });
+
+  it("picks a status, toggles tags and makes a new one from what is typed", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Status of Fix login/ }));
+    await user.click(
+      within(await screen.findByRole("list", { name: "Status of Fix login" })).getByRole("button", {
+        name: "Done",
+      }),
+    );
+    await waitFor(() =>
+      expect(rows.getByRole("button", { name: /^Status of Fix login/ })).toHaveTextContent("Done"),
+    );
+
+    await user.click(rows.getByRole("button", { name: /^Tags of Fix login/ }));
+    const tags = within(await screen.findByRole("list", { name: "Tags of Fix login" }));
+    await user.click(tags.getByRole("button", { name: "Idea" }));
+    await user.type(screen.getByRole("textbox", { name: "Find or create an option" }), "Chore");
+    await user.click(screen.getByRole("button", { name: "Create “Chore”" }));
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.login)).toEqual([
+        { [DB.status]: DB.finished },
+        { [DB.tags]: [DB.bug, DB.idea] },
+        { [DB.tags]: [DB.bug, DB.idea, "0193a5b2-0000-7000-8000-000000000101"] },
+      ]),
+    );
+    const made = db.changes.find((change) => change.path.endsWith(`/properties/${DB.tags}`));
+    expect(made?.body).toEqual({
+      options: [
+        { id: DB.bug, name: "Bug", hue: 30 },
+        { id: DB.idea, name: "Idea", hue: 270 },
+        { name: "Chore", hue: 0 },
+      ],
+    });
+  });
+
+  it("makes an option beside those the server has, even one added elsewhere not yet shown", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+    const tags = db.state.properties.find((property) => property.id === DB.tags);
+    if (tags === undefined) {
+      throw new Error("the sample has Tags");
+    }
+    tags.options = [...(tags.options ?? []), { id: DB.chore, name: "Chore", hue: 60 }];
+
+    await user.click(rows.getByRole("button", { name: /^Tags of Launch/ }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Find or create an option" }),
+      "Spike",
+    );
+    await user.click(screen.getByRole("button", { name: "Create “Spike”" }));
+
+    await waitFor(() =>
+      expect(
+        db.changes.find((change) => change.path.endsWith(`/properties/${DB.tags}`))?.body,
+      ).toEqual({
+        options: [
+          { id: DB.bug, name: "Bug", hue: 30 },
+          { id: DB.idea, name: "Idea", hue: 270 },
+          { id: DB.chore, name: "Chore", hue: 60 },
+          { name: "Spike", hue: 0 },
+        ],
+      }),
+    );
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([
+        { [DB.tags]: ["0193a5b2-0000-7000-8000-000000000101"] },
+      ]),
+    );
+  });
+
+  it("checks a checkbox in place, and unchecking clears it", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("checkbox", { name: "Shipped of Write docs" }));
+    await user.click(rows.getByRole("checkbox", { name: "Shipped of Fix login" }));
+
+    await waitFor(() => expect(rowChanges(db.changes, DB.docs)).toEqual([{ [DB.done]: true }]));
+    await waitFor(() => expect(rowChanges(db.changes, DB.login)).toEqual([{ [DB.done]: null }]));
+  });
+
+  it("saves a date once it is entered, not each date its field passes through", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
+    const start = await screen.findByLabelText("Start");
+    // A browser's date field fills a year a digit at a time, each digit making a date.
+    for (const value of ["0002-12-01", "0020-12-01", "0202-12-01", "2026-12-01"]) {
+      fireEvent.change(start, { target: { value } });
+    }
+    await user.click(screen.getByRole("checkbox", { name: "End date" }));
+    const end = screen.getByLabelText("End");
+    fireEvent.change(end, { target: { value: "2026-11-30" } });
+    expect(screen.getByText("The end cannot come before the start.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set date" })).toBeDisabled();
+    end.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("End")).toBeInTheDocument();
+    fireEvent.change(end, { target: { value: "2026-12-03" } });
+    expect(rowChanges(db.changes, DB.launch)).toEqual([]);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([
+        { [DB.due]: { start: "2026-12-01", end: "2026-12-03" } },
+      ]),
+    );
+    await waitFor(() => expect(screen.queryByLabelText("Start")).toBeNull());
+  });
+
+  it("saves a date as its popover closes, and leaves it on Escape", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
+    fireEvent.change(await screen.findByLabelText("Start"), { target: { value: "2026-12-01" } });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByLabelText("Start")).toBeNull());
+    expect(rowChanges(db.changes, DB.launch)).toEqual([]);
+
+    await user.click(rows.getByRole("button", { name: /^Due of Launch/ }));
+    fireEvent.change(await screen.findByLabelText("Start"), { target: { value: "2026-12-02" } });
+    await user.click(document.body);
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([{ [DB.due]: { start: "2026-12-02" } }]),
+    );
+  });
+
+  it("sends one row's changes one after another, in the order they were made", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+    const gate: { open?: () => void } = {};
+    const answered = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    let first = true;
+    server.use(
+      http.patch("/api/v1/rows/:id", async () => {
+        if (first) {
+          first = false;
+          await answered;
+        }
+        return undefined;
+      }),
+    );
+    const shipped = rows.getByRole("checkbox", { name: "Shipped of Write docs" });
+
+    await user.click(shipped);
+    await user.click(shipped);
+    expect(shipped).not.toBeChecked();
+    expect(rowChanges(db.changes, DB.docs)).toEqual([]);
+    gate.open?.();
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.docs)).toEqual([{ [DB.done]: true }, { [DB.done]: null }]),
+    );
+    expect(shipped).not.toBeChecked();
+  });
+
+  it("picks people from the workspace's members", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Owner of Fix login/ }));
+    const list = within(await screen.findByRole("list", { name: "Owner of Fix login" }));
+    expect(list.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Ada",
+      "Bob",
+      "Cy",
+      "Gus",
+    ]);
+    await user.click(list.getByRole("button", { name: "Bob" }));
+    await user.click(list.getByRole("button", { name: "Cy" }));
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.login)).toEqual([
+        { [DB.owner]: [people.bob.id] },
+        { [DB.owner]: [people.bob.id, people.cy.id] },
+      ]),
+    );
+  });
+
+  it("takes a link with a scheme the server keeps, and saves text as the popover closes", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Link of Launch/ }));
+    const link = await screen.findByRole("textbox", { name: "Link of Launch" });
+    await user.type(link, "javascript:alert(1){Enter}");
+    expect(
+      screen.getByText("Enter a link starting with http:, https:, mailto: or tel:."),
+    ).toBeInTheDocument();
+    await user.clear(link);
+    await user.type(link, "https://example.com/launch{Enter}");
+
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([
+        { [DB.link]: "https://example.com/launch" },
+      ]),
+    );
+  });
+
+  it("leaves a value as it was when its editor closes with Escape", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: /^Link of Launch/ }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Link of Launch" }),
+      "https://x.example",
+    );
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Link of Launch" })).toBeNull(),
+    );
+    expect(rowChanges(db.changes, DB.launch)).toEqual([]);
+  });
+
+  it("adds a row with its title typed in place", async () => {
+    const { user, db } = openDatabase();
+    await table();
+
+    await user.click((await database()).getByRole("button", { name: "Add a row" }));
+    const title = await screen.findByRole("textbox", { name: "Title of Untitled" });
+    await waitFor(() => expect(title).toHaveFocus());
+    await user.type(title, "Ship it{Enter}");
+
+    const made = "0193a5b2-0000-7000-8000-000000000101";
+    expect(db.changes.filter((change) => change.method === "POST")).toEqual([
+      { method: "POST", path: `/api/v1/databases/${DB.tasks}/rows`, body: {} },
+    ]);
+    await waitFor(() => expect(rowChanges(db.changes, made)).toEqual([{ [DB.name]: "Ship it" }]));
+    expect(await (await table()).findByRole("rowheader", { name: /Ship it/ })).toBeInTheDocument();
+  });
+
+  it("renames a row in place, giving the focus back once the keyboard ends it", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    rows.getByRole("button", { name: "Rename Write docs" }).focus();
+    await user.keyboard("{Enter}");
+    const field = await rows.findByRole("textbox", { name: "Title of Write docs" });
+    await user.clear(field);
+    await user.type(field, "Write the guide{Enter}");
+
+    await waitFor(() =>
+      expect(rows.getByRole("button", { name: "Rename Write the guide" })).toHaveFocus(),
+    );
+    expect(rowChanges(db.changes, DB.docs)).toEqual([{ [DB.name]: "Write the guide" }]);
+  });
+
+  it("leaves a row's title changed elsewhere when its field closes with nothing typed", async () => {
+    const { user, db, feed } = openDatabase();
+    const rows = await table();
+    await user.click(rows.getByRole("button", { name: "Rename Write docs" }));
+    await rows.findByRole("textbox", { name: "Title of Write docs" });
+
+    const docs = db.state.rows.find((entry) => entry.id === DB.docs);
+    if (docs === undefined) {
+      throw new Error("the sample has Write docs");
+    }
+    docs.title = "Write the docs";
+    docs.values[DB.name] = "Write the docs";
+    feed.send({
+      type: "row_updated",
+      database_id: DB.tasks,
+      row_id: DB.docs,
+      values: { [DB.name]: "Write the docs" },
+      title: "Write the docs",
+      last_edited_at: "2026-11-22T09:00:00Z",
+    });
+    await rows.findByRole("textbox", { name: "Title of Write the docs" });
+    await user.click(document.body);
+
+    expect(await rows.findByRole("button", { name: "Rename Write the docs" })).toBeInTheDocument();
+    expect(rowChanges(db.changes, DB.docs)).toEqual([]);
+  });
+
+  it("adds a row to a filtered view with the values its filter asks for, so it shows there", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const tasks = views();
+    const [first] = tasks;
+    if (first === undefined) {
+      throw new Error("the sample has a table");
+    }
+    first.filter = {
+      and: [
+        { property: DB.status, operator: "is", value: DB.finished },
+        { property: DB.owner, operator: "contains", value: "me" },
+        { property: DB.points, operator: "greater_than", value: 2 },
+        { or: [{ property: DB.done, operator: "is", value: true }] },
+      ],
+    };
+    const db = fakeDatabase({ views: tasks });
+    fakeFeed();
+    const { user } = renderApp(DATABASE_PATH);
+    await table();
+
+    await user.click((await database()).getByRole("button", { name: "Add a row" }));
+
+    expect(await screen.findByRole("textbox", { name: "Title of Untitled" })).toBeInTheDocument();
+    expect(db.changes.filter((change) => change.method === "POST")).toEqual([
+      {
+        method: "POST",
+        path: `/api/v1/databases/${DB.tasks}/rows`,
+        body: { values: { [DB.status]: DB.finished, [DB.owner]: [people.ada.id], [DB.points]: 3 } },
+      },
+    ]);
+  });
+
+  it("opens a row added to a view whose filter leaves it out nonetheless", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const tasks = views();
+    const [first] = tasks;
+    if (first === undefined) {
+      throw new Error("the sample has a table");
+    }
+    first.filter = {
+      or: [
+        { property: DB.status, operator: "is", value: DB.finished },
+        { property: DB.done, operator: "is", value: true },
+      ],
+    };
+    const db = fakeDatabase({ views: tasks });
+    fakeFeed();
+    // The server applies the filter: a row with neither is not among the view's rows.
+    server.use(
+      http.post(`/api/v1/databases/${DB.tasks}/query`, () =>
+        HttpResponse.json({
+          rows: db.state.rows.filter((entry) => entry.values[DB.done] === true),
+          groups: null,
+          total: 1,
+        }),
+      ),
+    );
+    const { user, router } = renderApp(DATABASE_PATH);
+    const view = await database();
+    await view.findByRole("rowheader", { name: /Fix login/ }, FIRST_SHOWN);
+
+    await user.click(view.getByRole("button", { name: "Add a row" }));
+
+    const made = "0193a5b2-0000-7000-8000-000000000101";
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/w/design/p/${made}`));
+    expect(
+      db.changes.filter((change) => change.method === "POST").map((change) => change.body),
+    ).toEqual([{}]);
+  });
+
+  it("sorts, hides and adds beside a column from its heading's menu", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: "Points, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Sort descending" }));
+    await user.click(rows.getByRole("button", { name: "Due, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Hide in this view" }));
+    await waitFor(() => expect(rows.queryByRole("columnheader", { name: /^Due/ })).toBeNull());
+
+    await user.click(rows.getByRole("button", { name: "Points, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Insert right" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New property" }));
+    await user.clear(dialog.getByLabelText("Name"));
+    await user.type(dialog.getByLabelText("Name"), "Estimate");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(3));
+    const [sorted, hidden, inserted] = viewChanges(db.changes) as {
+      sorts?: unknown;
+      properties?: { property: string; visible: boolean }[];
+    }[];
+    expect(sorted).toEqual({ sorts: [{ property: DB.points, direction: "descending" }] });
+    expect(hidden?.properties?.find((entry) => entry.property === DB.due)?.visible).toBe(false);
+    const order = inserted?.properties?.map((entry) => entry.property) ?? [];
+    expect(order.slice(2, 4)).toEqual([DB.points, "0193a5b2-0000-7000-8000-000000000101"]);
+    expect(
+      db.changes.find((change) => change.path === `/api/v1/databases/${DB.tasks}/properties`)?.body,
+    ).toEqual({ name: "Estimate", type: "text", placement: { after: DB.points } });
+  });
+
+  it("moves a column from its heading's menu, the title staying first", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: "Status, property menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Move left" })).toBeNull();
+    await user.click(await screen.findByRole("menuitem", { name: "Move right" }));
+    await waitFor(() =>
+      expect(rows.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Name",
+        "Points",
+        "Status",
+        "Owner",
+        "Due",
+        "Tags",
+        "Shipped",
+        "Link",
+        "ID",
+        "",
+      ]),
+    );
+    await user.click(rows.getByRole("button", { name: "ID, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move left" }));
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(2));
+    const orders = (viewChanges(db.changes) as { properties: { property: string }[] }[]).map(
+      (change) => change.properties.map((entry) => entry.property),
+    );
+    expect(orders).toEqual([
+      [DB.name, DB.points, DB.status, DB.owner, DB.due, DB.tags, DB.done, DB.link, DB.ticket],
+      [DB.name, DB.points, DB.status, DB.owner, DB.due, DB.tags, DB.done, DB.ticket, DB.link],
+    ]);
+  });
+
+  it("moves a column by dragging its heading beside another", async () => {
+    const { db } = openDatabase();
+    const rows = await table();
+    const tags = rows.getByRole("button", { name: "Tags, property menu" });
+    const status = rows.getAllByRole("columnheader")[1];
+    if (status === undefined) {
+      throw new Error("the table has a Status column");
+    }
+    // jsdom lays nothing out: the point lands on Status's heading, in its left half.
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([status]);
+    vi.spyOn(status, "getBoundingClientRect").mockReturnValue(new DOMRect(200, 0, 180, 36));
+
+    fireEvent.pointerDown(tags, { button: 0, pointerId: 4, pointerType: "mouse", clientX: 900 });
+    fireEvent.pointerMove(window, { pointerId: 4, pointerType: "mouse", clientX: 220 });
+    expect(status).toHaveClass("shadow-[inset_2px_0_0_var(--primary)]");
+    fireEvent.pointerUp(window, { pointerId: 4, pointerType: "mouse", clientX: 220 });
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(1));
+    const [change] = viewChanges(db.changes) as { properties: { property: string }[] }[];
+    expect(change?.properties.map((entry) => entry.property)).toEqual([
+      DB.name,
+      DB.tags,
+      DB.status,
+      DB.points,
+      DB.owner,
+      DB.due,
+      DB.done,
+      DB.link,
+      DB.ticket,
+    ]);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("resizes a column from the keyboard, saving its width once it settles", async () => {
+    const { db } = openDatabase();
+    const rows = await table();
+
+    const width = rows.getByRole("slider", { name: "Width of Points" });
+    expect(width).toHaveValue("180");
+    fireEvent.change(width, { target: { value: "240" } });
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(1));
+    const [change] = viewChanges(db.changes) as {
+      properties: { property: string; width?: number }[];
+    }[];
+    expect(change?.properties.find((entry) => entry.property === DB.points)?.width).toBe(240);
+  });
+
+  it("changes a property's type, asking first when values would be lost", async () => {
+    const { user, db } = openDatabase();
+    let asked = false;
+    server.use(
+      http.patch("/api/v1/databases/:id/properties/:property_id", async ({ request }) => {
+        const body = (await request.clone().json()) as { confirm?: boolean };
+        if (body.confirm !== true) {
+          asked = true;
+          return apiError(409, "lossy_change", "2 rows would lose their value");
+        }
+        return undefined;
+      }),
+    );
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: "Tags, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Change type…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit Tags" }));
+    await waitFor(() => expect(dialog.getByLabelText("Type")).toHaveFocus());
+    await user.selectOptions(dialog.getByLabelText("Type"), "number");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+
+    const confirm = within(
+      await screen.findByRole("alertdialog", { name: "Some values would be lost" }),
+    );
+    expect(confirm.getByText("2 rows would lose their value.")).toBeInTheDocument();
+    await user.click(confirm.getByRole("button", { name: "Change anyway" }));
+
+    await waitFor(() =>
+      expect(
+        db.changes
+          .filter((change) => change.path.endsWith(`/properties/${DB.tags}`))
+          .map((change) => change.body),
+      ).toEqual([{ type: "number", number_format: "plain", confirm: true }]),
+    );
+    expect(asked).toBe(true);
+  });
+
+  it("deletes a property after asking, but never the title", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+
+    await user.click(rows.getByRole("button", { name: "Name, property menu" }));
+    expect(await screen.findByRole("menuitem", { name: "Rename…" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete property" })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    await user.click(rows.getByRole("button", { name: "Link, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete property" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Delete property",
+      }),
+    );
+    await waitFor(() =>
+      expect(db.changes.at(-1)).toEqual({
+        method: "DELETE",
+        path: `/api/v1/databases/${DB.tasks}/properties/${DB.link}`,
+        body: undefined,
+      }),
+    );
+    await waitFor(() => expect(rows.queryByRole("columnheader", { name: /^Link/ })).toBeNull());
+  });
+
+  it("shows a viewer the values without the ways to change them", async () => {
+    openDatabase({ access: "view" });
+    const view = await database();
+    const rows = await table();
+
+    expect(rows.queryByRole("button", { name: /^Points of/ })).toBeNull();
+    expect(rows.getByRole("checkbox", { name: "Shipped of Fix login" })).toBeDisabled();
+    expect(view.queryByRole("button", { name: "Add a row" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Filter" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Add a view" })).toBeNull();
+    expect(rows.getByRole("columnheader", { name: "Points" })).toBeInTheDocument();
+  });
+});
+
+describe("a long table", () => {
+  it("draws only the rows near the screen, and counts them all", async () => {
+    // jsdom lays nothing out: each row measures as a row does on a screen.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(37);
+    const many = Array.from({ length: 2000 }, (_, index) =>
+      row(
+        {
+          id: `0193a5b2-0000-7000-8000-${String(index + 1).padStart(12, "0")}`,
+          number: index + 1,
+          title: `Task ${index + 1}`,
+        },
+        `a${index}`,
+      ),
+    );
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const db = fakeDatabase({ rows: many });
+    fakeFeed();
+    const { user } = renderApp(DATABASE_PATH);
+    const view = await database();
+    const rows = within(await view.findByRole("table", { name: "Table" }, FIRST_SHOWN));
+    await rows.findByRole("rowheader", { name: /^Task 1$/ }, FIRST_SHOWN);
+
+    expect(view.getByText("2000 rows")).toBeInTheDocument();
+    expect(view.getByRole("table", { name: "Table" })).toHaveAttribute("aria-rowcount", "2001");
+    const drawn = rows.getAllByRole("rowheader");
+    expect(drawn.length).toBeGreaterThan(10);
+    expect(drawn.length).toBeLessThan(60);
+    expect(rows.queryByRole("rowheader", { name: /^Task 2000$/ })).toBeNull();
+
+    await user.click(rows.getByRole("checkbox", { name: "Shipped of Task 2" }));
+    await waitFor(() =>
+      expect(rowChanges(db.changes, "0193a5b2-0000-7000-8000-000000000002")).toEqual([
+        { [DB.done]: true },
+      ]),
+    );
+    expect(rows.getByRole("checkbox", { name: "Shipped of Task 2" })).toBeChecked();
+  });
+});
+
+describe("the table's live changes", () => {
+  it("show what others change as the server tells of it", async () => {
+    const { db, feed } = openDatabase();
+    const rows = await table();
+    await waitFor(() => expect(feed.urls).toHaveLength(1));
+    expect(feed.urls[0]).toBe(`ws://localhost:3000/ws/databases/${DB.tasks}`);
+
+    const login = db.state.rows.find((entry) => entry.id === DB.login);
+    if (login) {
+      login.values[DB.points] = 13;
+    }
+    feed.send({
+      type: "row_updated",
+      database_id: DB.tasks,
+      row_id: DB.login,
+      values: { [DB.points]: 13 },
+      last_edited_at: "2026-11-22T12:00:00Z",
+      last_edited_by: people.bob.id,
+    });
+
+    await waitFor(() =>
+      expect(rows.getByRole("button", { name: /^Points of Fix login/ })).toHaveTextContent("13"),
+    );
+  });
+
+  it("reads everything afresh once it is ready, and again once it reconnects", async () => {
+    const { feed, db } = openDatabase({ ready: false });
+    const rows = await table();
+    const points = () => rows.getByRole("button", { name: /^Points of Write docs/ });
+    expect(points()).toHaveTextContent("3");
+    expect(await feedState("Connecting")).toBeInTheDocument();
+    const docs = db.state.rows.find((entry) => entry.id === DB.docs);
+    if (docs === undefined) {
+      throw new Error("the sample has Write docs");
+    }
+
+    // Changed before the feed heard every change: read again once it is ready.
+    docs.values[DB.points] = 21;
+    feed.ready();
+    await waitFor(() => expect(points()).toHaveTextContent("21"));
+    expect(await feedState("Live")).toBeInTheDocument();
+
+    // Changed while it was away: read again once it is back and ready.
+    feed.close(1012);
+    expect(await feedState("Reconnecting")).toBeInTheDocument();
+    docs.values[DB.points] = 34;
+    await waitFor(() => expect(feed.urls).toHaveLength(2), { timeout: 3000 });
+    feed.ready();
+    await waitFor(() => expect(points()).toHaveTextContent("34"));
+    expect(await feedState("Live")).toBeInTheDocument();
+  });
+
+  it("keeps a title typed while the feed connects and reads the page afresh", async () => {
+    const { feed, user, pages, queryClient } = openDatabase({ ready: false });
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    await user.clear(title);
+    await user.type(title, "Sprint");
+    const page = () => queryClient.getQueryState(keys.page(design().id, DB.tasks));
+    const before = page()?.dataUpdateCount ?? 0;
+
+    // Ready before the title is saved, the feed reads the page again, with its old title.
+    feed.ready();
+    await waitFor(() => expect(page()?.dataUpdateCount).toBeGreaterThan(before));
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(pages.changes.at(-1)).toEqual({
+        method: "PATCH",
+        path: `/api/v1/pages/${DB.tasks}`,
+        body: { title: "Sprint" },
+      }),
+    );
+    await waitFor(() => expect(page()?.data).toEqual(expect.objectContaining({ title: "Sprint" })));
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByRole("link", { name: "Sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    expect(title).toHaveValue("Sprint");
+  });
+
+  it("keeps a typed title when a read of the page lands in the same moment as the keystroke", async () => {
+    const { user, pages, queryClient } = openDatabase();
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    const key = keys.page(design().id, DB.tasks);
+    const stale = queryClient.getQueryData<Page>(key);
+    const query = queryClient.getQueryCache().find<Page>({ queryKey: key, exact: true });
+    if (stale === undefined || query === undefined) {
+      throw new Error("the database's page is read");
+    }
+
+    // The keystroke and a read begun before it, with the old title, are shown in one render.
+    act(() => {
+      fireEvent.change(title, { target: { value: "Sprint" } });
+      query.setData({ ...stale });
+    });
+    expect(await screen.findByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    await user.click(title);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(pages.changes.at(-1)).toEqual({
+        method: "PATCH",
+        path: `/api/v1/pages/${DB.tasks}`,
+        body: { title: "Sprint" },
+      }),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryData(key)).toEqual(expect.objectContaining({ title: "Sprint" })),
+    );
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByRole("link", { name: "Sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Where this page is" })).getByText("Sprint"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a title changed elsewhere even while the title has the cursor, when nothing was typed", async () => {
+    const { user, pages, feed, queryClient } = openDatabase();
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    await user.click(title);
+    await waitFor(() => expect(feed.urls).toHaveLength(1));
+
+    // Someone renames the database; this tab reads its page again as its feed reconnects.
+    const entry = pages.state.pages.find((page) => page.id === DB.tasks);
+    if (entry === undefined) {
+      throw new Error("the sample has Tasks");
+    }
+    entry.title = "Backlog";
+    feed.close(1012);
+    await waitFor(() => expect(feed.urls).toHaveLength(2), { timeout: 3000 });
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(keys.page(design().id, DB.tasks))).toEqual(
+        expect.objectContaining({ title: "Backlog" }),
+      ),
+    );
+    expect(await screen.findByRole("region", { name: "Database Backlog" })).toBeInTheDocument();
+    expect(title).toHaveValue("Backlog");
+    await user.tab();
+    expect(pages.changes.filter((change) => change.method === "PATCH")).toEqual([]);
+  });
+
+  it("stops, and says why, once the server ends it for good", async () => {
+    const { feed, user } = openDatabase();
+    await table();
+    await waitFor(() => expect(feed.urls).toHaveLength(1));
+
+    feed.close(4404);
+    expect(
+      await screen.findByText(
+        "You can no longer see this database, so its changes stopped showing.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(feed.urls).toHaveLength(2));
+  });
+
+  it("opens afresh once the database shows again, after the server ended it", async () => {
+    const { feed, router } = openDatabase();
+    await table();
+    await waitFor(() => expect(feed.urls).toHaveLength(1));
+    feed.close(4404);
+    expect(
+      await screen.findByText(
+        "You can no longer see this database, so its changes stopped showing.",
+      ),
+    ).toBeInTheDocument();
+
+    await router.navigate({ to: "/account" });
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Database Tasks" })).toBeNull(),
+    );
+    await router.navigate({
+      to: "/w/$slug/p/$pageId",
+      params: { slug: "design", pageId: DB.tasks },
+    });
+
+    await waitFor(() => expect(feed.urls).toHaveLength(2));
+    expect(await feedState("Live")).toBeInTheDocument();
+  });
+});

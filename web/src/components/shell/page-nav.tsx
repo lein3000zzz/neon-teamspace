@@ -43,7 +43,7 @@ export function FavoritesNav({ workspace, onNavigate }: SectionProps) {
                 onClick={onNavigate}
                 className={`${treeLink} pl-2.5`}
               >
-                <PageGlyph icon={page.icon} />
+                <PageGlyph icon={page.icon} kind={page.kind} />
                 <span className="min-w-0 flex-1 truncate">{titleOf(page)}</span>
               </Link>
               <div data-row-actions="" className="flex shrink-0 items-center">

@@ -1,26 +1,33 @@
 import { createReactBlockSpec } from "@blocknote/react";
-import { Database } from "lucide-react";
-import { strings } from "@/lib/strings";
+import { DatabaseEmbed } from "@/components/databases/database-embed";
 import { databaseBlockConfig } from "./custom-blocks";
-
-const copy = strings.pages.editor.database;
+import { useEditorPage } from "./editor-page";
 
 /**
- * The database block as the editor draws it: a placeholder that names the
- * database the block shows, by its id.
+ * The database block as the editor draws it: the database it names, shown in
+ * its views inside the page, or, while it names none, the way to make one.
+ * The view it shows is kept in the block, for everyone, when the user edits
+ * the page.
  */
 export const databaseBlock = createReactBlockSpec(databaseBlockConfig, {
-  render: ({ block }) => <DatabasePlaceholder databaseId={block.props.databaseId} />,
+  render: function DatabaseBlock({ block, editor }) {
+    const page = useEditorPage();
+    return (
+      <DatabaseEmbed
+        databaseId={block.props.databaseId}
+        viewId={block.props.viewId}
+        creating={page.creating.has(block.id)}
+        onCreate={page.editable && page.holdsDatabases ? () => page.createIn(block.id) : undefined}
+        onViewChange={
+          page.editable
+            ? (viewId) => {
+                if (editor.getBlock(block.id) !== undefined) {
+                  editor.updateBlock(block.id, { props: { viewId } });
+                }
+              }
+            : undefined
+        }
+      />
+    );
+  },
 });
-
-function DatabasePlaceholder({ databaseId }: { databaseId: string }) {
-  return (
-    <div className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border px-3 py-2">
-      <Database aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-      <span>{copy.label}</span>
-      <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-        {databaseId === "" ? copy.none : databaseId}
-      </span>
-    </div>
-  );
-}

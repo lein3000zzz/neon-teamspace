@@ -14,11 +14,13 @@ const FACES = { default: "font-default", serif: "font-serif", mono: "font-mono" 
 type StyleMenuProps = {
   style: PageStyle;
   disabled: boolean;
+  /** Whether the page's width is the reader's to set: a database's views always take the full width. */
+  widthChoice?: boolean;
   onChange: (change: StyleChange) => void;
 };
 
 /** How the page is set, as in Notion: its font, small text, and full width. */
-export function StyleMenu({ style, disabled, onChange }: StyleMenuProps) {
+export function StyleMenu({ style, disabled, widthChoice = true, onChange }: StyleMenuProps) {
   const fontId = useId();
   return (
     <Popover>
@@ -67,12 +69,14 @@ export function StyleMenu({ style, disabled, onChange }: StyleMenuProps) {
           disabled={disabled}
           onCheckedChange={(small_text) => onChange({ small_text })}
         />
-        <CheckboxField
-          label={copy.fullWidth}
-          checked={style.full_width}
-          disabled={disabled}
-          onCheckedChange={(full_width) => onChange({ full_width })}
-        />
+        {widthChoice && (
+          <CheckboxField
+            label={copy.fullWidth}
+            checked={style.full_width}
+            disabled={disabled}
+            onCheckedChange={(full_width) => onChange({ full_width })}
+          />
+        )}
       </PopoverContent>
     </Popover>
   );

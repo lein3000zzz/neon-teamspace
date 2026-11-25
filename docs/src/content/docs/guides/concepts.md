@@ -13,8 +13,10 @@ the live editor, as [Pages](/docs/guides/pages/) and
 [Editing pages](/docs/guides/editing-pages/) have it. Their documents sync live over
 WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it, and markdown imports as
 pages and pages export as markdown, as [Import and export](/docs/guides/import-export/) has
-it. The rest is **planned**: it describes the design the code is being built toward, so the
-details may still change.
+it. Databases work in the API and the web app: their rows, properties and views, the table,
+the board and the list, as [Databases](/docs/guides/databases/) and
+[Databases and boards](/docs/guides/databases-and-boards/) have it. The rest is **planned**:
+it describes the design the code is being built toward, so the details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -98,9 +100,9 @@ rules.
 
 A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
 tables. Everyone on a page edits the same live document: each sees the others' cursors, and
-their edits merge. Markdown is the way in and out. Markdown shortcuts work while typing.
-**Planned:** callouts, mentions and embedded views of a database, agents editing beside
-people, and pasted markdown becoming blocks.
+their edits merge. Markdown is the way in and out. Markdown shortcuts work while typing. A
+database can sit inside a page, its views shown where it was placed. **Planned:** callouts,
+mentions, agents editing beside people, and pasted markdown becoming blocks.
 
 `.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
 zip of markdown files, in the web app and through the API; see
@@ -117,8 +119,10 @@ around it changes. Mentions land in the inbox of the person mentioned.
 
 ## Databases and views
 
-**Planned.** A database is a page that holds rows. It is either a page of its own or inline,
-inside another page. Each row is a page with **properties** and a body of blocks.
+A database is a page that holds rows. It is either a page of its own or inline, inside
+another page. Each row is a page with **properties** and a body of blocks.
+[Databases and boards](/docs/guides/databases-and-boards/) shows them in the web app, and
+[Databases](/docs/guides/databases/) has their rules and API.
 
 Properties have a type:
 

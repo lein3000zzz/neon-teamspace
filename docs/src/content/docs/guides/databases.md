@@ -11,9 +11,9 @@ its own. This page covers the rules and the API; the
 [databases reference](/docs/reference/databases/) lists every property type, its values, the
 operators of filters and the conversions between types.
 
-:::note[What is built]
-Everything here works through the API. The web app shows a database as a page for now; its
-table, board and list come next.
+:::note[In the web app]
+[Databases and boards](/docs/guides/databases-and-boards/) describes the web app's views,
+editors and settings for all of this.
 :::
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`

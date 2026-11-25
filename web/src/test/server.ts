@@ -8,11 +8,15 @@ export const testMeta: Schemas["Meta"] = { name: "Test instance", version: "0.1.
 /** Every page's live connection, as the editor opens it; fakeSync() answers on it. */
 export const syncLink = ws.link(/\/ws\/pages\/[^/?]+$/);
 
+/** Every database's live feed, as its views open it; fakeFeed() answers on it. */
+export const feedLink = ws.link(/\/ws\/databases\/[^/?]+$/);
+
 /**
  * The API as tests see it by default: Ada signed in, the server's default
  * auth settings, her look left at the defaults, and no workspace,
- * invitation, page or favorite yet. A page's live connection is taken and
- * never answered. A test overrides a route with server.use().
+ * invitation, page or favorite yet. A page's live connection, and a
+ * database's feed, are taken and never answered. A test overrides a route
+ * with server.use().
  */
 export const server = setupServer(
   http.get("/api/v1/meta", () => HttpResponse.json(testMeta)),
@@ -29,4 +33,5 @@ export const server = setupServer(
   http.get("/api/v1/workspaces/:id/shared-pages", () => HttpResponse.json({ pages: [] })),
   http.get("/api/v1/account/favorites", () => HttpResponse.json({ pages: [] })),
   syncLink.addEventListener("connection", () => {}),
+  feedLink.addEventListener("connection", () => {}),
 );
