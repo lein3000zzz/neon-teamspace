@@ -12,6 +12,7 @@ import {
   formatNumber,
   freshName,
   kindsFor,
+  mergedOptions,
   movedCard,
   movedColumn,
   nextHue,
@@ -239,5 +240,26 @@ describe("new things' names and hues", () => {
 
   it("picks a hue the options do not use yet", () => {
     expect(nextHue([{ hue: 0 }, { hue: 30 }])).toBe(60);
+  });
+});
+
+describe("a property's options as a change sends them", () => {
+  it("keep those added elsewhere meanwhile, and drop those deleted elsewhere", () => {
+    const known = new Set([DB.bug, DB.idea]);
+    const edited = [
+      { id: DB.bug, name: "Defect", hue: 30 },
+      { id: DB.idea, name: "Idea", hue: 270 },
+      { name: "Spike", hue: 90 },
+    ];
+    // Idea was deleted and Chore added by someone else while these were edited.
+    const live = [
+      { id: DB.bug, name: "Bug", hue: 30 },
+      { id: DB.chore, name: "Chore", hue: 60 },
+    ];
+    expect(mergedOptions(edited, known, live)).toEqual([
+      { id: DB.bug, name: "Defect", hue: 30 },
+      { name: "Spike", hue: 90 },
+      { id: DB.chore, name: "Chore", hue: 60 },
+    ]);
   });
 });

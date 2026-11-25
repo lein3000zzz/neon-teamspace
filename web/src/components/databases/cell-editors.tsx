@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
-import { useChangeProperty, type OptionChange, type Property } from "@/api/databases";
+import { useChangeProperty, type Property, type PropertyOption } from "@/api/databases";
 import type { Person } from "@/api/workspaces";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,6 +20,7 @@ import {
   idsOf,
   isDateValue,
   isDay,
+  keptOption,
   localInput,
   nextHue,
   today,
@@ -316,15 +317,19 @@ export function OptionEditor({ property, value, label, onSave, onClose }: Editor
     }
   };
 
+  /**
+   * Adds an option of what was typed to those the server has as it is sent,
+   * so none added elsewhere meanwhile is left out; one of that name made
+   * elsewhere meanwhile is picked as it is.
+   */
   const create = () => {
     const name = query.trim();
-    const kept: OptionChange[] = options.map((option) => ({
-      id: option.id,
-      name: option.name,
-      ...(option.hue === undefined ? {} : { hue: option.hue }),
-    }));
+    const withNew = (live: readonly PropertyOption[]) =>
+      live.some((option) => option.name.toLowerCase() === name.toLowerCase())
+        ? live.map(keptOption)
+        : [...live.map(keptOption), { name, hue: nextHue(live) }];
     change.mutate(
-      { propertyId: property.id, options: [...kept, { name, hue: nextHue(options) }] },
+      { propertyId: property.id, options: withNew },
       {
         onSuccess: (changed) => {
           const made = changed.options?.find(

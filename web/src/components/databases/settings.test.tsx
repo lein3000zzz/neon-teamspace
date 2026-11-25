@@ -1,5 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { Database } from "@/api/databases";
+import { keys } from "@/api/keys";
 import type { Recorded } from "@/test/workspaces";
 import {
   DATABASE_PATH,
@@ -11,14 +13,24 @@ import {
 } from "@/test/databases";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
-import { fakeWorkspaces, people } from "@/test/workspaces";
+import { design, fakeWorkspaces, people } from "@/test/workspaces";
 
 function openDatabase(view: string = DB.table) {
   fakeWorkspaces();
   fakePages({ pages: databasePages(samplePages()) });
   const db = fakeDatabase();
-  fakeFeed();
-  return { ...renderApp(`${DATABASE_PATH}?view=${view}`), db };
+  const feed = fakeFeed();
+  return { ...renderApp(`${DATABASE_PATH}?view=${view}`), db, feed };
+}
+
+/** Adds Chore to Tags on the server, as someone else does. */
+function addChore(db: ReturnType<typeof fakeDatabase>) {
+  const tags = db.state.properties.find((property) => property.id === DB.tags);
+  if (tags === undefined) {
+    throw new Error("the sample has Tags");
+  }
+  tags.options = [...(tags.options ?? []), { id: DB.chore, name: "Chore", hue: 60 }];
+  return tags;
 }
 
 async function database() {
@@ -273,6 +285,59 @@ describe("a property's settings", () => {
           options: [
             { name: "Chore", hue: 180 },
             { id: DB.idea, name: "Idea", hue: 270 },
+          ],
+        },
+      ]),
+    );
+  });
+
+  it("leaves the options out of a rename, so one added elsewhere meanwhile stays", async () => {
+    const { user, db, feed, queryClient } = openDatabase();
+    const view = await database();
+    await user.click(view.getByRole("button", { name: "Tags, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit Tags" }));
+
+    const tags = addChore(db);
+    feed.send({ type: "schema_changed", database_id: DB.tasks });
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<Database>(keys.database(design().id, DB.tasks))
+          ?.properties.find((property) => property.id === DB.tags)?.options,
+      ).toHaveLength(3),
+    );
+    await user.clear(dialog.getByLabelText("Name"));
+    await user.type(dialog.getByLabelText("Name"), "Labels");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(bodies(db.changes, `/properties/${DB.tags}`)).toEqual([{ name: "Labels" }]),
+    );
+    expect(tags.options?.map((option) => option.name)).toEqual(["Bug", "Idea", "Chore"]);
+  });
+
+  it("keeps an option added elsewhere while the options were edited", async () => {
+    const { user, db } = openDatabase();
+    const view = await database();
+    await user.click(view.getByRole("button", { name: "Tags, property menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit Tags" }));
+
+    // Not yet told of: the options sent are made from those the server has as they go.
+    addChore(db);
+    const bug = dialog.getByRole("textbox", { name: "Name of option 1" });
+    await user.clear(bug);
+    await user.type(bug, "Defect");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(bodies(db.changes, `/properties/${DB.tags}`)).toEqual([
+        {
+          options: [
+            { id: DB.bug, name: "Defect", hue: 30 },
+            { id: DB.idea, name: "Idea", hue: 270 },
+            { id: DB.chore, name: "Chore", hue: 60 },
           ],
         },
       ]),

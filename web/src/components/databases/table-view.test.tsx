@@ -149,6 +149,41 @@ describe("a database's table", () => {
     });
   });
 
+  it("makes an option beside those the server has, even one added elsewhere not yet shown", async () => {
+    const { user, db } = openDatabase();
+    const rows = await table();
+    const tags = db.state.properties.find((property) => property.id === DB.tags);
+    if (tags === undefined) {
+      throw new Error("the sample has Tags");
+    }
+    tags.options = [...(tags.options ?? []), { id: DB.chore, name: "Chore", hue: 60 }];
+
+    await user.click(rows.getByRole("button", { name: /^Tags of Launch/ }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Find or create an option" }),
+      "Spike",
+    );
+    await user.click(screen.getByRole("button", { name: "Create “Spike”" }));
+
+    await waitFor(() =>
+      expect(
+        db.changes.find((change) => change.path.endsWith(`/properties/${DB.tags}`))?.body,
+      ).toEqual({
+        options: [
+          { id: DB.bug, name: "Bug", hue: 30 },
+          { id: DB.idea, name: "Idea", hue: 270 },
+          { id: DB.chore, name: "Chore", hue: 60 },
+          { name: "Spike", hue: 0 },
+        ],
+      }),
+    );
+    await waitFor(() =>
+      expect(rowChanges(db.changes, DB.launch)).toEqual([
+        { [DB.tags]: ["0193a5b2-0000-7000-8000-000000000101"] },
+      ]),
+    );
+  });
+
   it("checks a checkbox in place, and unchecking clears it", async () => {
     const { user, db } = openDatabase();
     const rows = await table();

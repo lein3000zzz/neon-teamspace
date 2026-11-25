@@ -5,10 +5,11 @@ import {
   useChangeProperty,
   useDeleteProperty,
   type AddProperty,
-  type ChangeProperty,
   type NumberFormat,
   type OptionChange,
+  type OptionsFrom,
   type Property,
+  type PropertyChange,
   type PropertyKind,
   type StatusGroup,
 } from "@/api/databases";
@@ -34,6 +35,7 @@ import {
   hasOptions,
   isComputed,
   kindsFor,
+  mergedOptions,
   nextHue,
   retypes,
   type DateFormat,
@@ -91,9 +93,6 @@ function changesOf(drafts: readonly OptionDraft[], kind: PropertyKind): OptionCh
   }));
 }
 
-const sameOptions = (a: readonly OptionChange[], b: readonly OptionChange[]) =>
-  JSON.stringify(a) === JSON.stringify(b);
-
 type PropertyDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -133,7 +132,13 @@ export function PropertyDialog({
   const [currency, setCurrency] = useState(property?.currency ?? "EUR");
   const [prefix, setPrefix] = useState(property?.prefix ?? "");
   const [options, setOptions] = useState<OptionDraft[]>(() => draftsOf(property));
-  const [lossy, setLossy] = useState<{ body: ChangeProperty; message: string } | null>(null);
+  // The options the dialog opened with, and whether they were edited: only an edit sends them.
+  const [known] = useState(() => new Set((property?.options ?? []).map((option) => option.id)));
+  const [optionsEdited, setOptionsEdited] = useState(false);
+  const [lossy, setLossy] = useState<{
+    body: Omit<PropertyChange, "propertyId">;
+    message: string;
+  } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const shownFormat = useDateFormat(property?.id ?? "");
   const [dateFormat, setDateFormat] = useState<DateFormat>(shownFormat);
@@ -172,7 +177,7 @@ export function PropertyDialog({
         (format === "currency" && currency.trim() !== (property?.currency ?? "")))) ||
     (kind === "unique_id" && prefix.trim() !== (property?.prefix ?? ""));
 
-  const sendChange = (body: ChangeProperty) => {
+  const sendChange = (body: Omit<PropertyChange, "propertyId">) => {
     if (property === undefined) {
       return;
     }
@@ -215,16 +220,13 @@ export function PropertyDialog({
     if (kind === "date") {
       rememberDateFormat(property.id, dateFormat);
     }
-    const body: ChangeProperty = {
+    const edited = changesOf(options, kind);
+    const merged: OptionsFrom = (live) => mergedOptions(edited, known, live);
+    const body: Omit<PropertyChange, "propertyId"> = {
       ...(trimmed !== property.name ? { name: trimmed } : {}),
       ...(retyped || settingsChanged() ? { type: kind, ...settings() } : {}),
+      ...(!retyped && hasOptions(kind) && optionsEdited ? { options: merged } : {}),
     };
-    if (!retyped && hasOptions(kind)) {
-      const next = changesOf(options, kind);
-      if (!sameOptions(next, changesOf(draftsOf(property), kind))) {
-        body.options = next;
-      }
-    }
     if (Object.keys(body).length === 0) {
       close();
       return;
@@ -232,12 +234,17 @@ export function PropertyDialog({
     sendChange(body);
   };
 
+  /** Changes the options as drafted, which the change then sends. */
+  const editOptions = (edit: (current: OptionDraft[]) => OptionDraft[]) => {
+    setOptionsEdited(true);
+    setOptions(edit);
+  };
   const editOption = (key: string, patch: Partial<OptionDraft>) =>
-    setOptions((current) =>
+    editOptions((current) =>
       current.map((option) => (option.key === key ? { ...option, ...patch } : option)),
     );
   const moveOption = (index: number, by: -1 | 1) =>
-    setOptions((current) => {
+    editOptions((current) => {
       const next = [...current];
       const [moved] = next.splice(index, 1);
       if (moved !== undefined) {
@@ -436,7 +443,7 @@ export function PropertyDialog({
                           size="icon-sm"
                           aria-label={copy.removeOption(label)}
                           onClick={() =>
-                            setOptions((current) =>
+                            editOptions((current) =>
                               current.filter((entry) => entry.key !== option.key),
                             )
                           }
@@ -454,7 +461,7 @@ export function PropertyDialog({
                     size="sm"
                     disabled={options.length >= 200}
                     onClick={() =>
-                      setOptions((current) => [
+                      editOptions((current) => [
                         ...current,
                         {
                           key: optionKey(),

@@ -338,20 +338,43 @@ export function useAddProperty(workspaceId: string, databaseId: string) {
 }
 
 /**
+ * A property's options as a change sends them, made from those the server
+ * has as the change is sent, which are read afresh for it.
+ */
+export type OptionsFrom = (live: readonly PropertyOption[]) => OptionChange[];
+
+export type PropertyChange = Omit<ChangeProperty, "options"> & {
+  propertyId: string;
+  options?: OptionsFrom;
+};
+
+/**
  * Renames a property, changes its type or settings, or its options. A change
- * that would lose values answers `409 lossy_change` until it is sent again
- * with `confirm`.
+ * sends every option, and the server clears the values of those left out, so
+ * the options sent are made from the property as it is read just before,
+ * keeping any added elsewhere meanwhile. A change that would lose values
+ * answers `409 lossy_change` until it is sent again with `confirm`.
  */
 export function useChangeProperty(workspaceId: string, databaseId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ propertyId, ...body }: ChangeProperty & { propertyId: string }) =>
-      call(
+    mutationFn: async ({ propertyId, options, ...rest }: PropertyChange) => {
+      let body: ChangeProperty = rest;
+      if (options !== undefined) {
+        const database = await queryClient.fetchQuery({
+          ...databaseQuery(workspaceId, databaseId),
+          staleTime: 0,
+        });
+        const live = database.properties.find((property) => property.id === propertyId);
+        body = { ...rest, options: options(live?.options ?? []) };
+      }
+      return call(
         api.PATCH("/api/v1/databases/{id}/properties/{property_id}", {
           params: { path: { id: databaseId, property_id: propertyId } },
           body,
         }),
-      ),
+      );
+    },
     onSuccess: () => refreshAll(queryClient, workspaceId, databaseId),
   });
 }

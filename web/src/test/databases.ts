@@ -38,6 +38,8 @@ export const DB = {
   finished: "0193a5b2-0000-7000-8000-0000000000f3",
   bug: "0193a5b2-0000-7000-8000-0000000000f4",
   idea: "0193a5b2-0000-7000-8000-0000000000f5",
+  /** An option no sample property has, which tests add as someone else would. */
+  chore: "0193a5b2-0000-7000-8000-0000000000f6",
   table: "0193a5b2-0000-7000-8000-0000000000c1",
   board: "0193a5b2-0000-7000-8000-0000000000c2",
   list: "0193a5b2-0000-7000-8000-0000000000c3",

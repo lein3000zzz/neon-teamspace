@@ -10,6 +10,7 @@ import type {
   GroupKey,
   NumberFormat,
   Operator,
+  OptionChange,
   Property,
   PropertyKind,
   PropertyOption,
@@ -405,6 +406,37 @@ export const OPTION_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 33
 export function nextHue(options: readonly { hue?: number | null }[]): number {
   const used = new Set(options.map((option) => option.hue));
   return OPTION_HUES.find((hue) => !used.has(hue)) ?? OPTION_HUES[options.length % 12] ?? 0;
+}
+
+/** An option as a change keeps it: by its id, with its name, hue and group. */
+export function keptOption(option: PropertyOption): OptionChange {
+  return {
+    id: option.id,
+    name: option.name,
+    ...(option.hue === undefined || option.hue === null ? {} : { hue: option.hue }),
+    ...(option.group === undefined || option.group === null ? {} : { group: option.group }),
+  };
+}
+
+/**
+ * The options to send for a property whose options were edited from those
+ * whose ids are `known`, against the options the server has now, `live`: a
+ * change sends every option, and the server clears the values of any left
+ * out. So the edited ones go, but for those deleted elsewhere meanwhile, and
+ * then those added elsewhere meanwhile, which the edit never had.
+ */
+export function mergedOptions(
+  edited: readonly OptionChange[],
+  known: ReadonlySet<string>,
+  live: readonly PropertyOption[],
+): OptionChange[] {
+  const there = new Set(live.map((option) => option.id));
+  const kept = edited.filter((option) => {
+    const id = option.id ?? null;
+    return id === null || there.has(id);
+  });
+  const added = live.filter((option) => !known.has(option.id)).map(keptOption);
+  return [...kept, ...added];
 }
 
 /** A name for a new property that no other has, ignoring case: "Property", "Property 2". */
