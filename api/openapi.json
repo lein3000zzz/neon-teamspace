@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
@@ -10,6 +10,138 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/account/connected-apps": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "List the connected apps",
+        "description": "The clients the person connected over OAuth, as themselves or as their agents, each in one workspace with its scopes. Needs a session or an API token across the instance with the read scope.",
+        "operationId": "list_connected_apps",
+        "responses": {
+          "200": {
+            "description": "The connected apps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectedAppList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope, or token_bound.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/connected-apps/{id}": {
+      "delete": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Disconnect an app",
+        "description": "Revokes one of the person's grants: every token of it stops working at once. From a browser session alone.",
+        "operationId": "disconnect_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The connected app's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/account/favorites": {
       "get": {
         "tags": [
@@ -4905,6 +5037,504 @@
         }
       }
     },
+    "/api/v1/oauth/authorize": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Start an authorization",
+        "description": "The authorization endpoint, the code flow with PKCE (S256 alone). Checks the client, the redirect URI, the response type, the PKCE challenge, the scopes, the state and the resource, then sends the browser to the web app's consent page with them, where the person signs in if they have not, and chooses. A request that does not hold sends the browser to the consent page with `error`, its problem, which the page shows; it is never sent to the client's redirect URI on its own, as anyone may register one.",
+        "operationId": "authorize",
+        "parameters": [
+          {
+            "name": "response_type",
+            "in": "query",
+            "description": "`code`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "One the client registered, exactly, but for the port of a loopback address.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "description": "The PKCE challenge: the verifier's SHA-256, in base64url without padding.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code_challenge_method",
+            "in": "query",
+            "description": "`S256`; `plain` is refused.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Sent back as it is; at most 1024 printable ASCII characters.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "query",
+            "description": "The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or\n`<public URL>/api/v1`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "To the consent page, with the request or `error`."
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/consent": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "What a client asks to be allowed",
+        "description": "Checks an authorization request again, from the consent page's address, and says what the page offers: the client, where the browser goes back to, and each of the person's workspaces with whom the client may act as there, the person or one of their agents that works, and with which scopes. Only reads. From a browser session alone.",
+        "operationId": "read_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the page offers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem: duplicate_parameter, missing_client_id, unknown_client, missing_redirect_uri, redirect_uri_mismatch, unsupported_response_type, pkce_required, invalid_code_challenge, invalid_scope, invalid_state or invalid_target.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/consent/approve": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Allow a client",
+        "description": "Grants the client what the person chose, from a browser session alone: the workspace, whom it acts as, the person or one of their agents that works there, and scopes among those offered. Consenting again to the same client, workspace and identity replaces the grant's scopes. Answers where to send the browser: the client's redirect URI with a code that works once, within a minute, with the request's PKCE verifier.",
+        "operationId": "approve_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveConsent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where the browser goes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem, as for /oauth/consent, or invalid_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, or identity_unavailable: acting as that identity is off, or the agent does not work.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace or agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/consent/deny": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Deny a client",
+        "description": "Answers where to send the browser when the person denies the client, from a browser session alone: its redirect URI with `error=access_denied`.",
+        "operationId": "deny_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DenyConsent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where the browser goes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem, as for /oauth/consent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/register": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Register an OAuth client",
+        "description": "Dynamic client registration (RFC 7591), open to anyone while `oauth.registration` is on, a few at a time from one address. Every client is public, with no secret: it proves itself with PKCE. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "register_client",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredClient"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_redirect_uri or invalid_client_metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "registration_off.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "temporarily_unavailable: too many clients wait unconnected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/revoke": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Revoke an OAuth token",
+        "description": "Token revocation (RFC 7009): revokes the grant of an access or refresh token, every token of it, as a client does when it signs out. A token that is unknown, or another client's, changes nothing, and the answer is the same. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "revoke_oauth_token",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Revoked, or nothing to revoke."
+          },
+          "400": {
+            "description": "invalid_request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/token": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Exchange a code or a refresh token",
+        "description": "The token endpoint. `authorization_code` exchanges a code, within its minute and once, with its redirect URI and PKCE verifier; `refresh_token` exchanges a refresh token, once. Each gives an access token, an hour by default, and a new refresh token, 30 days by default. A code or refresh token used a second time revokes its grant and every token of it. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "issue_tokens",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, invalid_grant, invalid_scope, invalid_target or unsupported_grant_type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pages/{id}": {
       "get": {
         "tags": [
@@ -8016,6 +8646,173 @@
           },
           "404": {
             "description": "not_found: no such agent or member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/connected-apps": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "List the apps acting as agents",
+        "description": "The clients connected over OAuth that act as the workspace's agents: every agent's for the workspace's owners and admins, their own agents' for other members, none for guests.",
+        "operationId": "list_workspace_apps",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connected apps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectedAppList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/connected-apps/{app_id}": {
+      "delete": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Disconnect an app acting as an agent",
+        "description": "Revokes a grant that acts as one of the workspace's agents: every token of it stops working at once. For the agent's owner and the workspace's owners and admins, from a browser session.",
+        "operationId": "disconnect_workspace_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "app_id",
+            "in": "path",
+            "description": "The connected app's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11357,6 +12154,64 @@
           }
         }
       },
+      "AppWorkspace": {
+        "type": "object",
+        "description": "A workspace a connected app acts in.",
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
+          }
+        }
+      },
+      "ApproveConsent": {
+        "type": "object",
+        "description": "The person's answer: the request, and what they chose.",
+        "required": [
+          "request",
+          "workspace_id",
+          "scopes"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "One of the person's agents there that the client acts as; absent, it acts as the\nperson."
+          },
+          "request": {
+            "$ref": "#/components/schemas/AuthorizationParams"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Some of the scopes offered for that identity."
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The workspace the client acts in."
+          }
+        },
+        "additionalProperties": false
+      },
       "AuthConfig": {
         "type": "object",
         "description": "Which sign-in and sign-up forms are on, and what a password needs.",
@@ -11387,6 +12242,67 @@
           "verify_email": {
             "type": "boolean",
             "description": "Self sign-ups verify their address by a mailed link before they sign in."
+          }
+        }
+      },
+      "AuthorizationParams": {
+        "type": "object",
+        "description": "The parameters of an authorization request, as the client sends the browser with them.\nEach at most once; others are ignored.",
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The PKCE challenge: the verifier's SHA-256, in base64url without padding."
+          },
+          "code_challenge_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`S256`; `plain` is refused."
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One the client registered, exactly, but for the port of a loopback address."
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or\n`<public URL>/api/v1`."
+          },
+          "response_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`code`."
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sent back as it is; at most 1024 printable ASCII characters."
           }
         }
       },
@@ -11593,6 +12509,57 @@
         },
         "additionalProperties": false
       },
+      "ClientRegistration": {
+        "type": "object",
+        "description": "What a client says of itself to register (RFC 7591). Metadata this server does not use\nis ignored.",
+        "properties": {
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown on the consent page as the client's own word; at most 100 characters kept.",
+            "example": "Claude Code"
+          },
+          "grant_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "`authorization_code`, and `refresh_token`, when given."
+          },
+          "redirect_uris": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any\nport, or a scheme of a native app's own."
+          },
+          "response_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "`code`, when given."
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`none`: every client here is public. Another is replaced by it."
+          }
+        }
+      },
       "CodeRequest": {
         "type": "object",
         "description": "The body of routes that take an invite code. It goes in the body, out of URLs and\ntheir logs.",
@@ -11636,6 +12603,249 @@
           }
         },
         "additionalProperties": false
+      },
+      "ConnectedAppInfo": {
+        "type": "object",
+        "description": "A client a person connected: one workspace, one identity, some scopes.",
+        "required": [
+          "id",
+          "client",
+          "workspace",
+          "identity",
+          "connected_by",
+          "scopes",
+          "resource",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ConsentClient"
+          },
+          "connected_by": {
+            "$ref": "#/components/schemas/ConnectedBy"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was first connected."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The grant's id, to revoke it by."
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Person",
+            "description": "Whom it acts as: the person, or one of their agents."
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When its tokens were last issued or used."
+          },
+          "resource": {
+            "$ref": "#/components/schemas/OAuthResource"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was last consented to."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/AppWorkspace"
+          }
+        }
+      },
+      "ConnectedAppList": {
+        "type": "object",
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectedAppInfo"
+            },
+            "description": "Last used first."
+          }
+        }
+      },
+      "ConnectedBy": {
+        "type": "object",
+        "description": "Who connected an app.",
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "example": "Ada Lovelace"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ConsentClient": {
+        "type": "object",
+        "description": "A registered client, as the consent page names it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "What it calls itself: its own word, not checked.",
+            "example": "Claude Code"
+          }
+        }
+      },
+      "ConsentDecision": {
+        "type": "object",
+        "description": "Where to send the browser next.",
+        "required": [
+          "redirect_to"
+        ],
+        "properties": {
+          "redirect_to": {
+            "type": "string",
+            "description": "The client's redirect URI, with `code` or `error`, the state, and `iss`."
+          }
+        }
+      },
+      "ConsentInfo": {
+        "type": "object",
+        "description": "What the consent page shows.",
+        "required": [
+          "client",
+          "redirect_uri",
+          "redirect_host",
+          "requested_scopes",
+          "resource",
+          "workspaces"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ConsentClient"
+          },
+          "redirect_host": {
+            "type": "string",
+            "description": "Its scheme, host and port, a host in other alphabets written in ASCII.",
+            "example": "http://127.0.0.1:51004"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "Where the browser goes back to."
+          },
+          "requested_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes the client asked for; empty when it named none."
+          },
+          "resource": {
+            "$ref": "#/components/schemas/OAuthResource"
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentOption"
+            },
+            "description": "The person's workspaces, by name."
+          }
+        }
+      },
+      "ConsentOption": {
+        "type": "object",
+        "description": "A workspace the consent page offers, with whom the client may act as there.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "hue",
+          "role",
+          "agents_on",
+          "agents",
+          "agent_scopes"
+        ],
+        "properties": {
+          "agent_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes it may have acting as one of them: read and write."
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            },
+            "description": "The person's agents here that work, which it may act as."
+          },
+          "agents_on": {
+            "type": "boolean",
+            "description": "Whether it may act as an agent here: `mcp.identities` and the workspace's agent\nswitch allow it, and the person is no guest."
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "person_scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes the client may have acting as the person; absent while `mcp.identities`\nleaves acting as the person out."
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "The person's role there."
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
+          }
+        }
       },
       "Cover": {
         "type": "string",
@@ -12300,6 +13510,19 @@
             "type": "string",
             "description": "The workspace's name, typed to confirm.",
             "example": "Design"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DenyConsent": {
+        "type": "object",
+        "description": "The person's refusal: the request.",
+        "required": [
+          "request"
+        ],
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/AuthorizationParams"
           }
         },
         "additionalProperties": false
@@ -13300,6 +14523,34 @@
           "currency"
         ]
       },
+      "OAuthErrorBody": {
+        "type": "object",
+        "description": "An error as OAuth's endpoints answer it (RFC 6749, section 5.2).",
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Such as `invalid_grant` or `invalid_redirect_uri`.",
+            "example": "invalid_grant"
+          },
+          "error_description": {
+            "type": "string",
+            "description": "What went wrong, for whoever reads the client's logs.",
+            "example": "the code expired"
+          }
+        }
+      },
+      "OAuthResource": {
+        "type": "string",
+        "description": "What the resource a client asked for is.",
+        "enum": [
+          "mcp",
+          "api"
+        ]
+      },
       "Operator": {
         "type": "string",
         "description": "How a condition compares a row's value with its own; which a property takes depends on\nits type, as the databases reference lists.",
@@ -14095,6 +15346,54 @@
           }
         }
       },
+      "RegisteredClient": {
+        "type": "object",
+        "description": "A registered client.",
+        "required": [
+          "client_id",
+          "client_id_issued_at",
+          "client_name",
+          "redirect_uris",
+          "grant_types",
+          "response_types",
+          "token_endpoint_auth_method"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_id_issued_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it registered, in seconds since 1970."
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "description": "Always `none`."
+          }
+        }
+      },
       "Registration": {
         "type": "string",
         "description": "Who may create an account.",
@@ -14121,6 +15420,30 @@
           }
         },
         "additionalProperties": false
+      },
+      "RevokeForm": {
+        "type": "object",
+        "description": "A request to revoke a token, a form (RFC 7009). A `token_type_hint` may come along;\nthe token is looked up whatever it says.",
+        "required": [
+          "token",
+          "client_id"
+        ],
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The client the token was issued to."
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An access token or a refresh token."
+          }
+        }
       },
       "Revoked": {
         "type": "object",
@@ -14894,6 +16217,72 @@
         },
         "additionalProperties": false
       },
+      "TokenForm": {
+        "type": "object",
+        "description": "A request to the token endpoint, a form.",
+        "required": [
+          "grant_type",
+          "client_id"
+        ],
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The client, which public clients name to identify themselves."
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the code."
+          },
+          "code_verifier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the PKCE verifier."
+          },
+          "grant_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`authorization_code` or `refresh_token`."
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the redirect URI the code was given to."
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `refresh_token`: the refresh token, which works once."
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource the tokens are for (RFC 8707): the one the authorization asked for."
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `refresh_token`: fewer scopes than the refresh token had."
+          }
+        }
+      },
       "TokenRequest": {
         "type": "object",
         "description": "The body of routes that take a token from a mailed link.",
@@ -14907,6 +16296,42 @@
           }
         },
         "additionalProperties": false
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "What the token endpoint gives.",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "refresh_token",
+          "scope"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "`nwo_` and 43 characters: send it as `Authorization: Bearer`."
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds until the access token stops working.",
+            "minimum": 0
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "`nwr_` and 43 characters: works once, for a new access token and refresh token."
+          },
+          "scope": {
+            "type": "string",
+            "description": "The scopes granted, space-separated.",
+            "example": "read write"
+          },
+          "token_type": {
+            "type": "string",
+            "description": "`Bearer`."
+          }
+        }
       },
       "TransferAgent": {
         "type": "object",
@@ -15675,7 +17100,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token, nw_ and 43 characters, made under /api/v1/account/tokens."
+        "description": "An API token, nw_ and 43 characters, made under /api/v1/account/tokens, or an OAuth access token, nwo_ and 43 characters, from /api/v1/oauth/token."
       },
       "session_cookie": {
         "type": "apiKey",
@@ -15705,6 +17130,10 @@
     {
       "name": "agents",
       "description": "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."
+    },
+    {
+      "name": "oauth",
+      "description": "The OAuth 2.1 authorization server MCP clients and other programs connect through: client registration, the authorization code flow with PKCE, tokens, revocation, the consent page's requests, and connected apps. Its metadata is at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, which the docs describe."
     },
     {
       "name": "teamspaces",

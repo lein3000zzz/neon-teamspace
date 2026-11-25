@@ -1,8 +1,10 @@
 //! Who a request acts as.
 //!
-//! A request proves it with `Authorization: Bearer nw_…`, an API token, or with the session
-//! cookie. A bearer header that does not authenticate is refused outright, without falling
-//! back to the cookie. A token's scopes decide what it may do: reading needs `read`, every
+//! A request proves it with `Authorization: Bearer nw_…`, an API token, `Bearer nwo_…`, an
+//! OAuth access token, or with the session cookie. An OAuth access token stands for the same
+//! principal as an API token bound to its grant's workspace, acting as the person who
+//! consented or the agent they chose. A bearer header that does not authenticate is refused
+//! outright, without falling back to the cookie. A token's scopes decide what it may do: reading needs `read`, every
 //! other method `write`, but for the few `POST`s that only read, and the admin routes
 //! `admin`. A token bound to one workspace, every agent's among them, works on that
 //! workspace's routes alone, which the use cases check, and is refused on the account's
