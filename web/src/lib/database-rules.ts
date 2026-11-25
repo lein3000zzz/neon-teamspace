@@ -453,6 +453,56 @@ export function freshName(database: Database, base: string): string {
   }
 }
 
+/** The decimal separator of this browser's locale, as numbers are shown in it. */
+export function localeDecimal(): "," | "." {
+  const part = new Intl.NumberFormat().formatToParts(1.5).find((entry) => entry.type === "decimal");
+  return part?.value === "," ? "," : ".";
+}
+
+/** Whether a number's whole part is grouped in threes by `separator`, as 1,250 or 12.345.678. */
+function grouped(whole: string, separator: "," | "."): boolean {
+  const [first = "", ...rest] = whole.split(separator);
+  return /^\d{1,3}$/.test(first) && rest.length > 0 && rest.every((group) => /^\d{3}$/.test(group));
+}
+
+/**
+ * Reads a number as it is typed, in decimal digits: a sign, a fraction and an
+ * exponent allowed, and the digits grouped by spaces, commas or dots. Where
+ * both a comma and a dot come, the last is the decimal separator. One alone
+ * groups when it comes more than once, or once before exactly three digits
+ * in a locale whose decimal separator is the other; else it is the decimal
+ * separator: 3,75 is 3.75 anywhere, and 1,250 is 1250 where the decimal
+ * separator is a dot. Undefined for anything else, hex and binary included.
+ */
+export function readNumber(text: string, decimal: "," | "." = localeDecimal()): number | undefined {
+  const plain = text.trim().replaceAll(/(?<=\d)[\s\u00a0\u202f'](?=\d)/g, "");
+  const match = /^([+-]?)([\d.,]+)(?:e([+-]?\d+))?$/i.exec(plain);
+  const [, sign = "", mantissa = "", exponent] = match ?? [];
+  if (!/\d/.test(mantissa)) {
+    return undefined;
+  }
+  const commas = mantissa.split(",").length - 1;
+  const dots = mantissa.split(".").length - 1;
+  let point: "," | "." | null = null;
+  let grouping: "," | "." = commas > 0 ? "," : ".";
+  if (commas > 0 && dots > 0) {
+    point = mantissa.lastIndexOf(",") > mantissa.lastIndexOf(".") ? "," : ".";
+    grouping = point === "," ? "." : ",";
+  } else if (commas + dots === 1 && !(grouping !== decimal && grouped(mantissa, grouping))) {
+    point = grouping;
+  }
+  const [whole = "", fraction, ...more] = point === null ? [mantissa] : mantissa.split(point);
+  if (more.length > 0 || (whole.includes(grouping) && !grouped(whole, grouping))) {
+    return undefined;
+  }
+  const number = Number(
+    `${sign}${whole.replaceAll(grouping, "")}${fraction === undefined ? "" : `.${fraction}`}${
+      exponent === undefined ? "" : `e${exponent}`
+    }`,
+  );
+  return Number.isFinite(number) ? number : undefined;
+}
+
 const numberFormats = {
   plain: new Intl.NumberFormat(undefined, { maximumFractionDigits: 10 }),
   integer: new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }),

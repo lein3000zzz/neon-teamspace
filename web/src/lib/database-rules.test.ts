@@ -17,6 +17,7 @@ import {
   movedColumn,
   nextHue,
   operatorsFor,
+  readNumber,
   shownColumns,
   startingValue,
   valueOf,
@@ -261,5 +262,47 @@ describe("a property's options as a change sends them", () => {
       { name: "Spike", hue: 90 },
       { id: DB.chore, name: "Chore", hue: 60 },
     ]);
+  });
+});
+
+describe("a number as it is typed", () => {
+  it("reads signs, fractions and groups of digits", () => {
+    expect(readNumber("-3", ".")).toBe(-3);
+    expect(readNumber("+2.5", ".")).toBe(2.5);
+    expect(readNumber("2.", ".")).toBe(2);
+    expect(readNumber(".5", ".")).toBe(0.5);
+    expect(readNumber("1e3", ".")).toBe(1000);
+    expect(readNumber("1 250 000", ".")).toBe(1250000);
+    expect(readNumber("1,250.5", ".")).toBe(1250.5);
+    expect(readNumber("1.250,5", ".")).toBe(1250.5);
+    expect(readNumber("12,345,678", ".")).toBe(12345678);
+    expect(readNumber("1.234.567", ",")).toBe(1234567);
+  });
+
+  it("takes a lone comma for the decimal separator unless it groups three digits", () => {
+    expect(readNumber("3,75", ".")).toBe(3.75);
+    expect(readNumber("1,5", ".")).toBe(1.5);
+    expect(readNumber("1234,5", ".")).toBe(1234.5);
+    expect(readNumber("1,250", ".")).toBe(1250);
+    expect(readNumber("1,250", ",")).toBe(1.25);
+    expect(readNumber("1.250", ",")).toBe(1250);
+    expect(readNumber("1.250", ".")).toBe(1.25);
+  });
+
+  it("refuses what is not a decimal number", () => {
+    for (const text of [
+      "",
+      "-",
+      ".",
+      "lots",
+      "0x1F",
+      "0b101",
+      "1,2,3",
+      "1.2.3",
+      "1,5.5,5",
+      "1e999",
+    ]) {
+      expect(readNumber(text, ".")).toBeUndefined();
+    }
   });
 });

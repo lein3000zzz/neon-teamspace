@@ -23,6 +23,7 @@ import {
   keptOption,
   localInput,
   nextHue,
+  readNumber,
   today,
   type DateValue,
 } from "@/lib/database-rules";
@@ -133,17 +134,10 @@ export function TextEditor({ property, value, label, onSave, onClose, commitRef 
   );
 }
 
-/** Reads a number as typed, commas between digits allowed; undefined for anything else. */
-export function readNumber(text: string): number | undefined {
-  const plain = text.trim().replaceAll(/(?<=\d)[,\s](?=\d)/g, "");
-  if (plain === "") {
-    return undefined;
-  }
-  const number = Number(plain);
-  return Number.isFinite(number) ? number : undefined;
-}
-
-/** A number, typed as text so any locale's keyboard works; empty clears it. */
+/**
+ * A number, typed as text so any locale's keyboard works, read with this
+ * browser's decimal separator; empty clears it.
+ */
 export function NumberEditor({ value, label, onSave, onClose, commitRef }: EditorProps) {
   const start = typeof value === "number" ? String(value) : "";
   const [text, setText] = useState(start);
