@@ -12,6 +12,7 @@ import { ApiError } from "./errors";
 import { keys } from "./keys";
 
 export type Page = Schemas["Page"];
+export type PageKind = Schemas["PageKind"];
 export type TreePage = Schemas["TreePage"];
 export type PageTree = Schemas["PageTree"];
 export type PageAccess = Schemas["PageAccess"];
@@ -183,8 +184,8 @@ type Shown = { title?: string; icon?: string | null };
 
 /**
  * Writes a page's new title or icon into every list that shows it: the trees,
- * the favorites, the ways down to pages and the page itself. The title shows
- * there as it is typed, before it is saved.
+ * the favorites, the ways down to pages, the page itself, and the database it
+ * is, for a database. The title shows there as it is typed, before it is saved.
  */
 export function showPage(queryClient: QueryClient, workspaceId: string, id: string, shown: Shown) {
   const apply = <T extends { id: string; title: string; icon?: string | null }>(entry: T): T =>
@@ -201,6 +202,10 @@ export function showPage(queryClient: QueryClient, workspaceId: string, id: stri
     (crumbs) => crumbs?.map(apply),
   );
   queryClient.setQueryData<Page>(keys.page(workspaceId, id), (page) => page && apply(page));
+  queryClient.setQueryData<{ page: Page }>(
+    keys.database(workspaceId, id),
+    (database) => database && { ...database, page: apply(database.page) },
+  );
 }
 
 /**
@@ -245,13 +250,26 @@ export function useUpdatePage(
     ...(onFailed === undefined ? {} : { onError: onFailed }),
     mutationFn: (body: UpdatePage) =>
       call(api.PATCH("/api/v1/pages/{id}", { ...pagePath(pageId), body })),
-    onSuccess: (page, body) => {
+    onSuccess: async (page, body) => {
+      // A read of the page begun before the change was saved, as a database's live feed
+      // asks for on connecting, would put back what it replaced.
+      await queryClient.cancelQueries({ queryKey: keys.page(workspaceId, page.id), exact: true });
       const shown = queryClient.getQueryData<Page>(keys.page(workspaceId, page.id));
       const typedSince =
         typeof body.title === "string" && shown !== undefined && shown.title !== body.title;
       const next = typedSince ? { ...page, title: shown.title } : page;
       queryClient.setQueryData(keys.page(workspaceId, page.id), next);
       showPage(queryClient, workspaceId, page.id, { title: next.title, icon: next.icon ?? null });
+      // So would a read of the trees begun before it, as one is once a page is made.
+      if (queryClient.isFetching({ queryKey: keys.pageTrees(workspaceId) }) > 0) {
+        void queryClient.invalidateQueries({ queryKey: keys.pageTrees(workspaceId) });
+      }
+      if (page.kind === "database") {
+        void queryClient.invalidateQueries({
+          queryKey: keys.database(workspaceId, page.id),
+          exact: true,
+        });
+      }
     },
   });
 }

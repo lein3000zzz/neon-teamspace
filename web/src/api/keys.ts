@@ -54,6 +54,27 @@ export const keys = {
   sharedPages: (id: string) => ["workspaces", id, "page-trees", "shared"],
   trash: (id: string) => ["workspaces", id, "trash"],
   favorites: (id: string) => ["workspaces", id, "favorites"],
+  /** A database's schema and views, with the rows each view lists under it. */
+  database: (id: string, databaseId: string) => ["workspaces", id, "databases", databaseId],
+  /** Every view's rows of a database, which a change to any row reads again. */
+  databaseRows: (id: string, databaseId: string) => [
+    "workspaces",
+    id,
+    "databases",
+    databaseId,
+    "rows",
+  ],
+  viewRows: (id: string, databaseId: string, viewId: string) => [
+    "workspaces",
+    id,
+    "databases",
+    databaseId,
+    "rows",
+    viewId,
+  ],
+  /** One row with its values, as a row's page shows them. */
+  rows: (id: string) => ["workspaces", id, "rows"],
+  row: (id: string, rowId: string) => ["workspaces", id, "rows", rowId],
 } as const;
 
 /** The roots of the signed-in user's data. */
