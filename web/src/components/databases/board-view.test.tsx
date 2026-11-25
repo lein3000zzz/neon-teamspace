@@ -7,6 +7,7 @@ import {
   fakeDatabase,
   fakeFeed,
   FIRST_SHOWN,
+  views,
 } from "@/test/databases";
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
@@ -111,6 +112,41 @@ describe("a database's board", () => {
         },
       ]),
     );
+  });
+
+  it("offers no place within a card's own column when the view sorts", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const sorted = views();
+    for (const entry of sorted) {
+      if (entry.id === DB.board) {
+        entry.sorts = [{ property: DB.points, direction: "ascending" }];
+      }
+    }
+    fakeDatabase({ views: sorted });
+    fakeFeed();
+    renderApp(`${DATABASE_PATH}?view=${DB.board}`);
+    const view = await database();
+    const card = await view.findByRole("article", { name: "Write docs" });
+    const own = view.getByRole("region", { name: "In progress" });
+    const other = view.getByRole("region", { name: "Done" });
+    const over = vi.spyOn(document, "elementsFromPoint").mockReturnValue([own]);
+
+    fireEvent.pointerDown(card, {
+      button: 0,
+      pointerId: 5,
+      pointerType: "mouse",
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.pointerMove(window, { pointerId: 5, pointerType: "mouse", clientX: 20, clientY: 40 });
+    expect(await screen.findByText("Moving Write docs")).toBeInTheDocument();
+    expect(own).not.toHaveClass("outline-primary");
+
+    over.mockReturnValue([other]);
+    fireEvent.pointerMove(window, { pointerId: 5, pointerType: "mouse", clientX: 30, clientY: 40 });
+    await waitFor(() => expect(other).toHaveClass("outline-primary"));
+    fireEvent.keyDown(window, { key: "Escape" });
   });
 
   it("leaves a card where it was when a drag is called off with Escape", async () => {

@@ -151,14 +151,21 @@ function Board({
     );
   };
 
+  /**
+   * Where a card dragged to a point would land: a column, and the card it
+   * would go before. Its own column takes it only where it may be placed
+   * among the cards, which a view that sorts, or a user who does not edit
+   * the database, does not allow; nor does a column of people for a guest.
+   */
   const targetAt = (point: Point, rowId: string, from: GroupKey): Target | null => {
     const column = underPoint(point, "boardColumn");
     const index = Number(column?.dataset["boardColumn"]);
     const group = shown[index];
+    const own = (group?.key ?? null) === from;
     if (
       column === undefined ||
       group === undefined ||
-      (!mayRegroup && (group.key ?? null) !== from)
+      (own ? sorted || !editsDatabase : !mayRegroup)
     ) {
       return null;
     }
