@@ -116,24 +116,28 @@ closes the connection with `4403`.
 
 ## When access changes
 
-The page, workspace and auth services tell the sync service whose access may have changed,
-once each change commits: a page moved to another place, trashed, restored, deleted or
-purged from the trash, a share added, changed or removed, someone joining or leaving a
-teamspace or getting another role there, a teamspace's new access or its deletion, a
-member's new role, leaving or removal, a workspace's deletion, and a person signing out,
-having a session or API token revoked, changing or resetting their password, or having
-their account disabled or given another role. A page placed elsewhere among the same
-siblings changes nobody's access, and tells nothing.
+The page, workspace, agent and auth services tell the sync service whose access may have
+changed, once each change commits: a page moved to another place, trashed, restored,
+deleted or purged from the trash, a share added, changed or removed, someone joining or
+leaving a teamspace or getting another role there, a teamspace's new access or its
+deletion, a member's new role, leaving or removal, a workspace's deletion or its agents
+turned off or on, the setting `mcp.identities` changing, an agent handed to someone else or
+deleted, a person signing out, having a session or API token revoked, changing or resetting
+their password, or having their account disabled or given another role, and an agent's
+token revoked. A page placed elsewhere among the same siblings changes nobody's access, and
+tells nothing.
 
 The sync service then looks again, at once, at every open connection the change may
-concern: the person's, or everyone's, in the change's workspace, and for a change to a page,
-those on that page, a page under it, or a page that is gone. It looks at 8 at a time. For
-each, it reads the session or API token the connection opened with again, then asks the
-rules what its person may do now:
+concern: the person's and their agents' and integrations', whose access theirs bounds, or
+everyone's, in the change's workspace; every agent's and integration's for the setting; and
+for a change to a page, those on that page, a page under it, or a page that is gone. It
+looks at 8 at a time. For each, it reads the session or API token the connection opened
+with again, then asks the rules what its person may do now, an agent's with its owner's
+access:
 
 | The person may now | The connection |
 |---|---|
-| Not use the session or token any more: it ended or expired, or the account was disabled | Closes with `4401`. |
+| Not use the session or token any more: it ended or expired, the account was disabled, or the token is an agent's that is suspended, deleted or turned off | Closes with `4401`. |
 | Not see the page | Closes with `4404`. |
 | Only view it, having edited it | Stays open, read-only. The server sends an auth message, permission denied with the reason `read-only`. |
 | Edit it, having only viewed it | Stays open and may edit. The server sends an auth message, permission granted. |
@@ -222,7 +226,7 @@ awareness echo keeps that from happening while the page is open.
 | `1011` | The server could not load or save the document. |
 | `1012` | The server is restarting. Reconnect. |
 | `1013` | The person or the page has as many connections open as the server takes. |
-| `4401` | The session or API token the connection opened with ended, or its account was disabled. |
+| `4401` | The session or API token the connection opened with ended, or its account was disabled; for an agent's token, also the agent suspended, deleted, or agents turned off. |
 | `4403` | A change from a connection that may only view the page. |
 | `4404` | The person may no longer see the page. |
 | `4408` | The client fell behind on what the server sent. |

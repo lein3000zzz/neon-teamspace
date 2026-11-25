@@ -105,7 +105,8 @@ are revoked: its former owner made them, and they would otherwise act for the ne
 Its owner renames it and changes its hue with `PATCH /api/v1/workspaces/{id}/agents/{agent_id}`.
 Its owner, or the workspace's owners and admins, delete it with `DELETE` on the same path.
 A deleted agent leaves the workspace and its teamspaces, its shares and favorites go, and
-its tokens are revoked; its identity stays, so what it made still names it, as deleted.
+its tokens are revoked, the connections they opened closing at once; its identity stays, so
+what it made still names it, as deleted.
 
 ## How agents are named
 

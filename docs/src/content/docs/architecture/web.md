@@ -293,8 +293,8 @@ lightness would glare across the top of the page.
 
 ### Hues of things
 
-Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
-agents, integrations and databases will too, **planned**, as they arrive:
+Users, workspaces, teamspaces, agents and integrations each have a hue of their own, worked
+out from their ID; databases will too, **planned**, as they arrive:
 
 1. Take the UUID's 16 bytes, in order. Only the canonical form, 8-4-4-4-12 hex digits in
    any case, counts as a UUID; any other ID is hashed as its UTF-8 text.
@@ -308,8 +308,8 @@ app's `hueFor` and the server's `hue_for` share the test vectors in
 the ID: lightness and chroma come from the palette and mode, as for the accent, so the
 contrast holds whatever hue an ID lands on.
 
-A user, workspace or teamspace can pin a hue of its own instead. The API sends both: `hue`,
-the one to draw, and `hue_override`, the pinned one when there is one.
+A user, workspace, teamspace, agent or integration can pin a hue of its own instead. The API
+sends both: `hue`, the one to draw, and `hue_override`, the pinned one when there is one.
 
 ## Fonts
 
