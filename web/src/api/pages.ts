@@ -4,7 +4,10 @@ import {
   useMutation,
   useQueryClient,
   type QueryClient,
+  type QueryFilters,
+  type QueryKey,
 } from "@tanstack/react-query";
+import { useCallback, useEffect } from "react";
 import { saveFile } from "@/lib/download";
 import { call, send } from "./call";
 import { api, type Schemas } from "./client";
@@ -12,6 +15,7 @@ import { ApiError } from "./errors";
 import { keys } from "./keys";
 
 export type Page = Schemas["Page"];
+export type PageKind = Schemas["PageKind"];
 export type TreePage = Schemas["TreePage"];
 export type PageTree = Schemas["PageTree"];
 export type PageAccess = Schemas["PageAccess"];
@@ -183,8 +187,8 @@ type Shown = { title?: string; icon?: string | null };
 
 /**
  * Writes a page's new title or icon into every list that shows it: the trees,
- * the favorites, the ways down to pages and the page itself. The title shows
- * there as it is typed, before it is saved.
+ * the favorites, the ways down to pages, the page itself, and the database it
+ * is, for a database. The title shows there as it is typed, before it is saved.
  */
 export function showPage(queryClient: QueryClient, workspaceId: string, id: string, shown: Shown) {
   const apply = <T extends { id: string; title: string; icon?: string | null }>(entry: T): T =>
@@ -201,6 +205,10 @@ export function showPage(queryClient: QueryClient, workspaceId: string, id: stri
     (crumbs) => crumbs?.map(apply),
   );
   queryClient.setQueryData<Page>(keys.page(workspaceId, id), (page) => page && apply(page));
+  queryClient.setQueryData<{ page: Page }>(
+    keys.database(workspaceId, id),
+    (database) => database && { ...database, page: apply(database.page) },
+  );
 }
 
 /**
@@ -229,11 +237,114 @@ export function useCreatePage(workspaceId: string) {
 }
 
 /**
+ * Titles typed in this tab and not saved yet, by workspace and page: what the
+ * title fields hold, which every list shows over what reads and saves bring.
+ */
+const heldTitles = new WeakMap<QueryClient, Map<string, string>>();
+
+function heldOf(queryClient: QueryClient): Map<string, string> {
+  let held = heldTitles.get(queryClient);
+  if (held === undefined) {
+    held = new Map();
+    heldTitles.set(queryClient, held);
+  }
+  return held;
+}
+
+const heldKey = (workspaceId: string, id: string) => `${workspaceId}:${id}`;
+
+/** The title typed for a page and not saved yet, if one is. */
+function heldTitle(queryClient: QueryClient, workspaceId: string, id: string): string | undefined {
+  return heldTitles.get(queryClient)?.get(heldKey(workspaceId, id));
+}
+
+function letGo(queryClient: QueryClient, workspaceId: string, id: string) {
+  heldTitles.get(queryClient)?.delete(heldKey(workspaceId, id));
+}
+
+/** Whether a query's data shows pages' titles, as `showPage` writes them. */
+function showsTitles(key: QueryKey, workspaceId: string): boolean {
+  if (key[0] !== "workspaces" || key[1] !== workspaceId) {
+    return false;
+  }
+  const kind = key[2];
+  return (
+    kind === "pages" ||
+    kind === "page-trees" ||
+    kind === "favorites" ||
+    (kind === "databases" && key.length === 4)
+  );
+}
+
+/**
+ * Holds the title being typed in a page's title field until a save of it
+ * lands: a read that lands meanwhile, of the page, a tree, a way down or the
+ * database it is, began before the save and carries the title it replaced,
+ * so the held one is written back over it; and a save of an earlier title
+ * writes the held one rather than its own. `hold` takes the title as it is
+ * typed; `release` lets it go once it needs no saving, and the field going
+ * lets it go too.
+ */
+export function useHeldTitle(workspaceId: string, pageId: string) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || event.action.type !== "success" || event.action.manual) {
+        return;
+      }
+      const title = heldTitle(queryClient, workspaceId, pageId);
+      if (title !== undefined && showsTitles(event.query.queryKey, workspaceId)) {
+        showPage(queryClient, workspaceId, pageId, { title });
+      }
+    });
+    return () => {
+      unsubscribe();
+      letGo(queryClient, workspaceId, pageId);
+    };
+  }, [queryClient, workspaceId, pageId]);
+  const hold = useCallback(
+    (title: string) => heldOf(queryClient).set(heldKey(workspaceId, pageId), title),
+    [queryClient, workspaceId, pageId],
+  );
+  const release = useCallback(
+    () => letGo(queryClient, workspaceId, pageId),
+    [queryClient, workspaceId, pageId],
+  );
+  return { hold, release };
+}
+
+/** Whether a title typed for a page in this tab waits to be saved. */
+export function holdsTitle(queryClient: QueryClient, workspaceId: string, id: string): boolean {
+  return heldTitle(queryClient, workspaceId, id) !== undefined;
+}
+
+/**
+ * Reads begun before a save, of what shows a page's title, would put back the
+ * title it replaced: those of the page are called off, the others begun again.
+ */
+async function settleReads(queryClient: QueryClient, workspaceId: string, id: string) {
+  await queryClient.cancelQueries({ queryKey: keys.page(workspaceId, id), exact: true });
+  const others: QueryFilters[] = [
+    { queryKey: keys.pageTrees(workspaceId) },
+    { queryKey: keys.favorites(workspaceId), exact: true },
+    {
+      queryKey: keys.pages(workspaceId),
+      predicate: (query) => query.queryKey[4] === "breadcrumbs",
+    },
+  ];
+  for (const filters of others) {
+    if (queryClient.isFetching(filters) > 0) {
+      void queryClient.invalidateQueries(filters);
+    }
+  }
+}
+
+/**
  * Changes a page's title, icon, cover or style. What it shows in lists is
  * written there as soon as the server answers, without reading them again. A
- * title typed further while the save was on its way stays: the next save
- * sends it. `onFailed` runs when the server refuses, even once the component
- * that asked is gone, as a field that sends on leaving it is.
+ * title typed further while the save was on its way stays, as its field holds
+ * it: the next save sends it. `onFailed` runs when the server refuses, even
+ * once the component that asked is gone, as a field that sends on leaving it is.
  */
 export function useUpdatePage(
   workspaceId: string,
@@ -245,13 +356,21 @@ export function useUpdatePage(
     ...(onFailed === undefined ? {} : { onError: onFailed }),
     mutationFn: (body: UpdatePage) =>
       call(api.PATCH("/api/v1/pages/{id}", { ...pagePath(pageId), body })),
-    onSuccess: (page, body) => {
-      const shown = queryClient.getQueryData<Page>(keys.page(workspaceId, page.id));
-      const typedSince =
-        typeof body.title === "string" && shown !== undefined && shown.title !== body.title;
-      const next = typedSince ? { ...page, title: shown.title } : page;
+    onSuccess: async (page, body) => {
+      await settleReads(queryClient, workspaceId, page.id);
+      const typed = heldTitle(queryClient, workspaceId, page.id);
+      if (typed !== undefined && typed === body.title) {
+        letGo(queryClient, workspaceId, page.id);
+      }
+      const next = typed === undefined || typed === body.title ? page : { ...page, title: typed };
       queryClient.setQueryData(keys.page(workspaceId, page.id), next);
       showPage(queryClient, workspaceId, page.id, { title: next.title, icon: next.icon ?? null });
+      if (page.kind === "database") {
+        void queryClient.invalidateQueries({
+          queryKey: keys.database(workspaceId, page.id),
+          exact: true,
+        });
+      }
     },
   });
 }

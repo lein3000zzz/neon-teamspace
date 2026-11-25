@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT page_id FROM database_rows WHERE database_id = $1 AND number = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "page_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "24b49289f5b4239587c9cfe68bb13860a167faa2564cca5e7c172ca753bba3ac"
+}

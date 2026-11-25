@@ -1,9 +1,9 @@
 use super::{from_markdown, to_markdown};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
-    Block, BlockKind, CheckListItemProps, CodeBlockProps, Document, FileProps, HeadingProps,
-    ImageProps, Inline, Link, NumberedListItemProps, StyledText, Styles, TableCell, TableCellProps,
-    TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    Block, BlockKind, CheckListItemProps, CodeBlockProps, DatabaseProps, Document, FileProps,
+    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, StyledText, Styles, TableCell,
+    TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
 };
 
 fn text(text: &str) -> Vec<Inline> {
@@ -438,6 +438,68 @@ fn images_and_files() {
         "![a diagram](https://example.com/d.png \"The \\\"parts\\\"\")\n\n\
          :::video [demo.mp4](https://example.com/demo.mp4)\n\n\
          :::file [report \\[final\\].pdf](https://example.com/r.pdf \"Q3\")\n",
+    );
+}
+
+fn database(database_id: &str, view_id: Option<&str>) -> Block {
+    Block::new(BlockKind::Database {
+        props: DatabaseProps {
+            database_id: database_id.to_owned(),
+            view_id: view_id.map(str::to_owned),
+        },
+    })
+}
+
+#[test]
+fn databases() {
+    const DATABASE: &str = "0193a5b2-0000-7000-8000-0000000000d1";
+    const VIEW: &str = "0193a5b2-0000-7000-8000-0000000000e1";
+    let document = doc(vec![
+        database(DATABASE, Some(VIEW)),
+        database(DATABASE, None),
+        database("", None),
+        database("", Some(VIEW)),
+        database("", Some("")),
+        bullet("in a list").with_children(vec![database(DATABASE, None)]),
+    ]);
+    both_ways(
+        &document,
+        ":::database 0193a5b2-0000-7000-8000-0000000000d1 view=0193a5b2-0000-7000-8000-0000000000e1\n\n\
+         :::database 0193a5b2-0000-7000-8000-0000000000d1\n\n\
+         :::database\n\n\
+         :::database view=0193a5b2-0000-7000-8000-0000000000e1\n\n\
+         :::database view=\n\n\
+         - in a list\n\n  :::database 0193a5b2-0000-7000-8000-0000000000d1\n",
+    );
+}
+
+#[test]
+fn database_ids_are_percent_encoded_where_markdown_would_read_them_otherwise() {
+    let document = doc(vec![database("view=a b\\%\n*é", Some("<one> two\\"))]);
+    both_ways(
+        &document,
+        ":::database view%3Da%20b%5C%25%0A%2A%C3%A9 view=%3Cone%3E%20two%5C\n",
+    );
+}
+
+#[test]
+fn database_lines_that_do_not_parse_are_text() {
+    assert_eq!(
+        from_markdown(":::database one two\n\n:::database one view=a extra\n\n:::databases x"),
+        doc(vec![
+            paragraph(text(":::database one two")),
+            paragraph(text(":::database one view=a extra")),
+            paragraph(text(":::databases x")),
+        ])
+    );
+    // A `%` that starts no escape is itself, and bytes that are not UTF-8 are replaced.
+    assert_eq!(
+        from_markdown(":::database 50%25%off view=%FF%zz"),
+        doc(vec![database("50%%off", Some("\u{FFFD}%zz"))])
+    );
+    assert_eq!(
+        to_markdown(&doc(vec![paragraph(text(":::database not a block"))])),
+        "\\:::database not a block\n"
     );
 }
 

@@ -21,9 +21,9 @@ mod ydoc;
 pub use ids::{IdSource, SequentialIds};
 pub use model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_COLOR,
-    DEFAULT_LANGUAGE, Document, FileProps, HeadingProps, ImageProps, Inline, Link, NoProps,
-    NumberedListItemProps, QuoteProps, StyledText, Styles, TableCell, TableCellProps, TableContent,
-    TableProps, TableRow, TextAlignment, TextProps,
+    DEFAULT_LANGUAGE, DatabaseProps, Document, FileProps, HeadingProps, ImageProps, Inline, Link,
+    NoProps, NumberedListItemProps, QuoteProps, StyledText, Styles, TableCell, TableCellProps,
+    TableContent, TableProps, TableRow, TextAlignment, TextProps,
 };
 pub use ydoc::{
     FRAGMENT, Lenient, NotADocument, ReadError, append, fragment, read, read_doc, read_lenient,

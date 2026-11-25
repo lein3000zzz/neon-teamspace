@@ -27,12 +27,13 @@ use hyper_util::service::TowerToHyperService;
 use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
 use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
+use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
-use neon_app::pages::{AccessChanges, PageService};
+use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
-use neon_app::sync::{self, SyncService};
+use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
 use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
@@ -235,11 +236,15 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     report_mail(&mail, &settings);
     // One set of buckets for every use case, so each key is counted once.
     let limiter: Arc<dyn RateLimiter> = Arc::new(MemoryLimiter::new());
-    // These services tell the live documents whose access to pages may have changed, and
-    // whose sessions or tokens ended, so they close or limit the connections of those who
-    // lost it.
-    let (listener, feed) = sync::access_feed();
-    let access: Arc<dyn AccessChanges> = listener;
+    // These services tell the live documents and the database feeds whose access to pages
+    // may have changed, and whose sessions or tokens ended, so they close or limit the
+    // connections of those who lost it.
+    let (documents_listener, feed) = sync::access_feed();
+    let (databases_listener, databases_feed) = sync::access_feed();
+    let access: Arc<dyn AccessChanges> =
+        Arc::new(Fanout::new(vec![documents_listener, databases_listener]));
+    // One broadcaster for the live documents and the database feeds, in rooms of their own.
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope.clone())
         .limiter(Arc::clone(&limiter))
@@ -255,15 +260,21 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
+        .broadcaster(Arc::clone(&broadcaster))
         .build();
-    let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed).build();
-    let transfer = TransferService::builder(pages.clone(), live.clone())
+    let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
+        .broadcaster(broadcaster)
+        .build();
+    let databases = DatabaseService::builder(pages.clone()).build();
+    let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
+    let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
         .limiter(limiter)
         .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
     save_on_shutdown(shutdown, &live);
+    close_feeds_on_shutdown(shutdown, &feeds);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
@@ -283,6 +294,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             workspaces,
             pages,
             sync: live,
+            databases,
+            live: feeds,
             transfer,
             web: Arc::new(web),
         },
@@ -388,6 +401,18 @@ fn save_on_shutdown(shutdown: &Shutdown, live: &SyncService) {
                 warn!("live documents were not all saved in time");
             }
         },
+    );
+}
+
+/// Closes the database feeds when stopping, after the HTTP server stopped taking new ones
+/// and before the pool closes, so their clients reconnect to the next server.
+fn close_feeds_on_shutdown(shutdown: &Shutdown, feeds: &LiveDatabases) {
+    let feeds = feeds.clone();
+    on_stop(
+        shutdown,
+        "database feeds",
+        DEFAULT_HOOK_TIMEOUT,
+        async move { feeds.shutdown().await },
     );
 }
 

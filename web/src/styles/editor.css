@@ -247,3 +247,16 @@ html .bn-editor .bn-collaboration-cursor__base .bn-collaboration-cursor__label {
 html .bn-editor .bn-collaboration-cursor__base[data-active] .bn-collaboration-cursor__label {
   color: var(--accent-ink);
 }
+
+/*
+ * A database inside a page is drawn by the app rather than the editor, in the
+ * app's own type: BlockNote's sizing of the page's icons stays out of it, and
+ * it is set in the interface's font, whatever the page's.
+ */
+html .bn-shadcn [data-database-embed] svg:not([class*="size-"]) {
+  width: 1rem;
+  height: 1rem;
+}
+html .bn-root [data-database-embed] {
+  font-family: var(--font-ui);
+}

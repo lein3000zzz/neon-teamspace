@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
-import { ChevronRight, FileText, Plus } from "lucide-react";
+import { ChevronRight, FileText, Plus, Table2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   showPage,
   useMovePage,
   useUpdatePage,
+  type PageKind,
   type PagePlace,
   type Placement,
   type TreePage,
@@ -51,10 +52,11 @@ type PageTreeProps = {
  * A tree of pages: each with the way to open and close the pages under it, to
  * add one there, and its menu. Pages the user edits drag onto, before or after
  * another, and their menu moves them up, down or anywhere for the keyboard and
- * for touch screens, where dragging is not offered.
+ * for touch screens, where dragging is not offered. A database stands for its
+ * rows, which its views show rather than the tree, and takes no pages under it.
  */
 export function PageTree({ workspace, space, pages, label, onNavigate, depth = 0 }: PageTreeProps) {
-  const forest = useMemo(() => forestOf(pages), [pages]);
+  const forest = useMemo(() => forestOf(pages.filter((page) => page.kind !== "row")), [pages]);
   return (
     <ul aria-label={label} className="grid gap-px">
       {forest.roots.map((page) => (
@@ -95,6 +97,8 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
   const expandable = children.length > 0;
   const open = expandable && nav.isOpen(page.id);
   const editor = edits(page.access);
+  // Only a page takes pages under it: a database holds rows, added in its views.
+  const holds = editor && page.kind === "page";
   const beside = besideOf(space, page, forest);
   const siblings = siblingsOf(forest, page);
   const index = siblings.findIndex((sibling) => sibling.id === page.id);
@@ -125,7 +129,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
     if (beside !== undefined && at > 0.75) {
       return "after";
     }
-    if (editor) {
+    if (holds) {
       return "inside";
     }
     return beside === undefined ? null : at < 0.5 ? "before" : "after";
@@ -207,7 +211,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             draggable={false}
             className={treeLink}
           >
-            <PageGlyph icon={page.icon} />
+            <PageGlyph icon={page.icon} kind={page.kind} />
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </Link>
         )}
@@ -216,7 +220,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             workspace={workspace}
             page={page}
             onRename={() => setRenaming(true)}
-            onAddInside={() => newPage.start({ parent_id: page.id })}
+            onAddInside={holds ? () => newPage.start({ parent_id: page.id }) : undefined}
             onMoveUp={
               beside !== undefined && before !== undefined
                 ? () => moveTo(beside, { before: before.id })
@@ -229,7 +233,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             }
             onNavigate={onNavigate}
           />
-          {editor && (
+          {holds && (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -287,11 +291,14 @@ export function Disclosure({ expandable, open, title, onToggle }: DisclosureProp
   );
 }
 
-/** A page's icon in a list, or a page glyph without one. */
-export function PageGlyph({ icon }: { icon?: string | null | undefined }) {
+type PageGlyphProps = { icon?: string | null | undefined; kind?: PageKind | undefined };
+
+/** A page's icon in a list, or without one, a page's glyph, or a database's. */
+export function PageGlyph({ icon, kind }: PageGlyphProps) {
   const text = icon?.trim() ?? "";
   if (text === "") {
-    return <FileText aria-hidden className="size-4 shrink-0" />;
+    const Glyph = kind === "database" ? Table2 : FileText;
+    return <Glyph aria-hidden className="size-4 shrink-0" />;
   }
   return (
     <span aria-hidden className="grid w-4 shrink-0 place-items-center overflow-hidden leading-none">

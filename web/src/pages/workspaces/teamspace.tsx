@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Download, Lock, LogOut, Plus, Settings, Upload } from "lucide-react";
+import { Download, Lock, LogOut, Plus, Settings, Table2, Upload } from "lucide-react";
 import { useState } from "react";
 import { hasCode } from "@/api/errors";
 import { teamspacePagesQuery, useExportTeamspace } from "@/api/pages";
@@ -11,6 +11,7 @@ import { Chip, ChipList } from "@/components/nodes/chip";
 import { EntityMark } from "@/components/nodes/entity-mark";
 import { ImportDialog } from "@/components/pages/import-dialog";
 import { PageCards } from "@/components/pages/page-cards";
+import { useNewDatabase } from "@/components/pages/use-new-database";
 import { useNewPage } from "@/components/pages/use-new-page";
 import { PageSection } from "@/components/settings/page-section";
 import { PageHeader } from "@/components/shell/page-header";
@@ -118,13 +119,15 @@ function TeamspaceView({ teamspace }: { teamspace: Teamspace }) {
 }
 
 /**
- * The pages at the teamspace's top, and, for its members, the ways to add one
- * and to import markdown; for everyone who sees them, the way to export them.
+ * The pages at the teamspace's top, and, for its members, the ways to add a
+ * page or a database and to import markdown; for everyone who sees them, the
+ * way to export them.
  */
 function TeamspacePages({ teamspace }: { teamspace: Teamspace }) {
   const workspace = useWorkspace();
   const pages = useQuery(teamspacePagesQuery(workspace.id, teamspace.id));
   const newPage = useNewPage(workspace);
+  const newDatabase = useNewDatabase(workspace);
   const exporter = useExportTeamspace();
   const [importing, setImporting] = useState(false);
   const top = pages.data === undefined ? [] : forestOf(pages.data).roots;
@@ -144,6 +147,17 @@ function TeamspacePages({ teamspace }: { teamspace: Teamspace }) {
               >
                 <Plus aria-hidden />
                 {newPage.pending ? strings.pages.creating : copy.newPage}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={newDatabase.pending}
+                onClick={() => newDatabase.start({ teamspace_id: teamspace.id })}
+              >
+                <Table2 aria-hidden />
+                {newDatabase.pending
+                  ? strings.databases.create.creating
+                  : strings.databases.create.newDatabase}
               </Button>
               <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
                 <Upload aria-hidden />

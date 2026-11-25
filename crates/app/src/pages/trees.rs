@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use neon_domain::auth::Principal;
-use neon_domain::pages::{PageAccess, Space};
+use neon_domain::pages::{PageAccess, PageKind, Space};
 use neon_domain::workspaces::{Action, Actor, PageSpace};
 use neon_store::pages::{self as repo, PageFacts, TreeNode};
 use neon_store::{teamspaces, workspaces};
@@ -32,15 +32,16 @@ const TRASH_ROUNDS: usize = 10;
 /// The longest cursor taken.
 const MAX_CURSOR: usize = 8192;
 
-/// A page in a tree, as a sidebar shows it.
+/// A page in a tree, as a sidebar shows it. Rows are not in trees: their database is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreePage {
     pub id: Uuid,
+    pub kind: PageKind,
     pub parent_id: Option<Uuid>,
     pub space: Space,
     pub title: String,
     pub icon: Option<String>,
-    /// How many pages are under it, out of the trash.
+    /// How many pages are under it, out of the trash, rows left out.
     pub child_count: i64,
     pub access: PageAccess,
     /// The caller is a guest, who knows no other member: whose private page it is stays
@@ -247,6 +248,7 @@ fn tree(
             let access = access_of(actor, space_of(node.space)?, node.shared)?;
             Some(TreePage {
                 id: node.id,
+                kind: node.kind,
                 parent_id: node.parent_id,
                 space: node.space,
                 title: node.title,

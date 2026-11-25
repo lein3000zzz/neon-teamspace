@@ -7,6 +7,7 @@
 mod text_enum;
 
 pub mod auth;
+pub mod databases;
 pub mod duration;
 pub mod hue;
 pub mod jobs;

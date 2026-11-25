@@ -14,11 +14,13 @@ use base64::engine::general_purpose::STANDARD;
 use neon_app::auth::{AuthService, LoginInput, ProfileUpdate};
 use neon_app::clock::ManualTime;
 use neon_app::crypto::{Argon2Params, Envelope, Keyring, PasswordHasher};
+use neon_app::databases::DatabaseService;
 use neon_app::jobs::Job;
 use neon_app::mail::{KIND, Mail, MailQueue, Message};
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
+use neon_app::sync::{Broadcaster, LocalBroadcaster};
 use neon_app::workspaces::{NewWorkspace, WorkspaceDetails, WorkspaceService};
 use neon_domain::auth::{Email, Principal, Role, User};
 use neon_domain::settings::{Pinned, Secret};
@@ -134,9 +136,12 @@ pub struct Harness {
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
     pub pages: PageService,
+    pub databases: DatabaseService,
     pub mail: MailQueue,
     pub limiter: Arc<ScriptedLimiter>,
     pub changes: Arc<ToldChanges>,
+    /// Where the changes of databases go, for tests to join its rooms.
+    pub broadcaster: Arc<LocalBroadcaster>,
     pub time: ManualTime,
 }
 
@@ -202,10 +207,13 @@ impl Harness {
             .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
             .clock(time.clock())
             .build();
+        let broadcaster = Arc::new(LocalBroadcaster::new());
         let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
             .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
+            .broadcaster(Arc::clone(&broadcaster) as Arc<dyn Broadcaster>)
             .clock(time.clock())
             .build();
+        let databases = DatabaseService::builder(pages.clone()).build();
         let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
             .password_params(options.params)
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
@@ -222,9 +230,11 @@ impl Harness {
             auth,
             workspaces,
             pages,
+            databases,
             mail,
             limiter,
             changes,
+            broadcaster,
             time,
         }
     }

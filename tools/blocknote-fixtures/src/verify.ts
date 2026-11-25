@@ -11,8 +11,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
-import type { PartialBlock } from "@blocknote/core";
-import { FIXTURES, decode, encode, equalBytes, fixtureNames, structure } from "./blocknote.ts";
+import {
+  FIXTURES,
+  decode,
+  encode,
+  equalBytes,
+  fixtureNames,
+  structure,
+  type PartialBlock,
+} from "./blocknote.ts";
 import { blockNoteFixtures } from "./fixtures.ts";
 
 const problems: string[] = [];

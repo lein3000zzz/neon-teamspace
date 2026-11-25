@@ -1,6 +1,6 @@
 ---
 title: Permissions
-description: Who may do what in a workspace, its teamspaces and its pages, and what instance admins may do with workspaces.
+description: Who may do what in a workspace, its teamspaces, its pages and databases, and what instance admins may do with workspaces.
 ---
 
 These tables are the rules the server enforces. They live in one function in `neon-domain`,
@@ -157,6 +157,40 @@ out which page that is when the caller may not see it.
 | Add a private page, import private pages, or move one into their private pages | yes | no |
 
 Nobody lists or adds to another member's private pages: they are hidden.
+
+## Databases and rows
+
+A database is a page, and its rows are pages under it, so the access each gives is the one
+[above](#pages): from its space, and from shares on it or on a page above it. A row takes its
+access from its database, as any subpage does, with what a share on the row itself adds.
+[Databases](/docs/guides/databases/) explains each action.
+
+| Action | Edit | View | Nothing |
+|---|---|---|---|
+| See the database's schema and views, query its rows, follow its changes live, and find a row by its unique id | yes | yes | hidden |
+| Add, change, place and delete its properties, options and views | yes | no | hidden |
+| Add rows | yes | no | hidden |
+| Place a row among the others by hand | yes, with edit access to the row too | no | hidden |
+
+With the access a row gives:
+
+| Action | Edit | View | Nothing |
+|---|---|---|---|
+| See the row and its values | yes | yes | hidden |
+| Change its values, or move it to another group of a view | yes | no | hidden |
+| Trash it, restore it and delete it for good | as any page | as any page | hidden |
+
+A database in the trash shows, with its schema, views and the rows that went there with it,
+only to those who could edit it, who change nothing in it until it is back: as for any page,
+that answers `403 forbidden`. A row in the trash comes back only to its database, and while
+the database is in the trash too, restoring the row alone answers `403 forbidden`.
+
+Guests see neither the people that person properties name nor who made and last changed a
+row, in answers, in the live feed and in exports, nor the people a view's filter or person
+grouping names. Setting or clearing a row's person value, and changing a person property's
+type, whose values would become names, answer them `403 forbidden`. Someone who sees a row
+only through its own share reads it without its database's id. An API token changes a
+database only with the `write` scope; a query, which is a `POST`, needs only `read`.
 
 ## The instance
 

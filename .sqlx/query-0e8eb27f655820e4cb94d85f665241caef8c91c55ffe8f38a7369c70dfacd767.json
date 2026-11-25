@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT page_id, cells -> $2 AS \"cell!\" FROM database_rows\n           WHERE database_id = $1 AND cells ? $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "database_rows",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cell!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "0e8eb27f655820e4cb94d85f665241caef8c91c55ffe8f38a7369c70dfacd767"
+}

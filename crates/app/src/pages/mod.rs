@@ -9,6 +9,11 @@
 //! tree or of a share happens in one transaction, and once it commits, the
 //! [`AccessChanges`] port hears whose access it may have changed.
 //!
+//! Databases and their rows are pages too, of their own kinds. A database's subpages are its
+//! rows, which only the database service adds and moves; no other page goes under a
+//! database or a row. Rows are left out of trees, and once a row is trashed, restored or
+//! renamed, those following its database hear of it.
+//!
 //! Every public use case runs in a span named `pages <operation>` and is measured as RED
 //! metrics of [`SUBSYSTEM`]. An expected error, such as a refusal of the rules, is recorded
 //! on the span without failing it and counts as `ok`; only failures of the server count as
@@ -28,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use neon_domain::auth::Principal;
-use neon_domain::pages::{Page, PageAccess, Placement, position};
+use neon_domain::pages::{Page, PageAccess, PageKind, Placement, position};
 use neon_domain::workspaces::{Action, Actor, PageSpace, Resource, WorkspaceRole, authorize};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
@@ -40,11 +45,13 @@ use uuid::Uuid;
 
 use crate::clock::Clock;
 use crate::settings::{SettingsService, pages as keys};
+use crate::sync::{Broadcaster, LocalBroadcaster};
 
-pub use access::{AccessChange, AccessChanges, NoListener};
+pub use access::{AccessChange, AccessChanges, Fanout, NoListener};
 pub use error::PageError;
 pub use imports::{Imported, ImportedContent, ImportedPage};
 pub use operations::{Location, NewPage, PageUpdate};
+pub(crate) use operations::{Target, in_workspace};
 pub use outlines::{OutlinePage, TeamspaceOutline};
 pub use shares::ListedShare;
 pub use trees::{MAX_LIST, TrashList, Tree, TreePage};
@@ -77,16 +84,18 @@ struct Inner {
     pool: PgPool,
     settings: Arc<SettingsService>,
     access: Arc<dyn AccessChanges>,
+    broadcaster: Arc<dyn Broadcaster>,
     clock: Clock,
     red: Red,
 }
 
 /// Puts a [`PageService`] together. Without being told otherwise it tells nobody of access
-/// changes and reads the system clock.
+/// changes, tells changes to rows to a broadcaster of its own, and reads the system clock.
 pub struct PageServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
     access: Arc<dyn AccessChanges>,
+    broadcaster: Arc<dyn Broadcaster>,
     clock: Clock,
 }
 
@@ -94,6 +103,13 @@ impl PageServiceBuilder {
     /// Who hears of access changes, as the workspace service's changes tell it too.
     pub fn access_changes(mut self, access: Arc<dyn AccessChanges>) -> Self {
         self.access = access;
+        self
+    }
+
+    /// Where changes to databases and their rows go, to those following them: the
+    /// broadcaster the database feeds listen on.
+    pub fn broadcaster(mut self, broadcaster: Arc<dyn Broadcaster>) -> Self {
+        self.broadcaster = broadcaster;
         self
     }
 
@@ -109,6 +125,7 @@ impl PageServiceBuilder {
                 pool: self.pool,
                 settings: self.settings,
                 access: self.access,
+                broadcaster: self.broadcaster,
                 clock: self.clock,
                 red: Red::new(SUBSYSTEM),
             }),
@@ -122,16 +139,22 @@ impl PageService {
             pool,
             settings,
             access: Arc::new(NoListener),
+            broadcaster: Arc::new(LocalBroadcaster::new()),
             clock: Clock::system(),
         }
     }
 
-    fn now(&self) -> time::OffsetDateTime {
+    pub(crate) fn now(&self) -> time::OffsetDateTime {
         self.inner.clock.now()
     }
 
-    fn pool(&self) -> &PgPool {
+    pub(crate) fn pool(&self) -> &PgPool {
         &self.inner.pool
+    }
+
+    /// The broadcaster that changes to databases and their rows go to.
+    pub(crate) fn broadcaster(&self) -> &Arc<dyn Broadcaster> {
+        &self.inner.broadcaster
     }
 
     fn trash_retention(&self) -> Duration {
@@ -194,7 +217,7 @@ impl PageService {
     /// Reads a page, the pages above it and what the rules need to know of them for the
     /// principal. Answers [`NO_PAGE`] when there is no such page; whether the principal may
     /// know of it is for the caller to ask.
-    async fn context(
+    pub(crate) async fn context(
         &self,
         conn: &mut PgConnection,
         principal: &Principal,
@@ -228,7 +251,7 @@ impl PageService {
 
     /// The position for a page placed among `siblings` but for `except`, which moves. When
     /// the key would grow past [`position::MAX_LEN`], the siblings get fresh keys first.
-    async fn position(
+    pub(crate) async fn position(
         &self,
         conn: &mut PgConnection,
         siblings: Siblings,
@@ -248,12 +271,12 @@ impl PageService {
 }
 
 /// Whether an actor is a guest, who knows no other member.
-fn is_guest(actor: Actor) -> bool {
+pub(crate) fn is_guest(actor: Actor) -> bool {
     actor.role.is_some_and(|role| !role.joins_teamspaces())
 }
 
 /// The principal as the rules see them in a workspace where their role is `role`.
-fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
+pub(crate) fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
     Actor {
         instance_admin: principal.is_admin(),
         via_session: principal.via_session(),
@@ -285,7 +308,11 @@ async fn page_space(
 
 /// What a page gives an actor, as the rules say: edit, view or nothing. Asked as for a page
 /// out of the trash, so it is the same in the trash, where only editors see it.
-fn access_of(actor: Actor, space: PageSpace, shared: Option<PageAccess>) -> Option<PageAccess> {
+pub(crate) fn access_of(
+    actor: Actor,
+    space: PageSpace,
+    shared: Option<PageAccess>,
+) -> Option<PageAccess> {
     let allowed = |action| {
         let page = Resource::Page {
             space,
@@ -382,22 +409,32 @@ fn check_space(
 
 /// A page above or at the one a context is for, with the most it or a page above it is
 /// shared with the principal for.
-struct Link {
-    page: Page,
-    shared: Option<PageAccess>,
+pub(crate) struct Link {
+    pub(crate) page: Page,
+    pub(crate) shared: Option<PageAccess>,
 }
 
 /// A page, the pages above it, and what the rules need to know of them.
-struct Context {
-    actor: Actor,
-    space: PageSpace,
+pub(crate) struct Context {
+    pub(crate) actor: Actor,
+    pub(crate) space: PageSpace,
     /// The page first, then each page above it.
-    chain: Vec<Link>,
+    pub(crate) chain: Vec<Link>,
 }
 
 impl Context {
-    fn page(&self) -> &Page {
+    pub(crate) fn page(&self) -> &Page {
         &self.chain[0].page
+    }
+
+    /// What the page gives the principal: edit, view or nothing.
+    pub(crate) fn access(&self) -> Option<PageAccess> {
+        access_of(self.actor, self.space, self.chain[0].shared)
+    }
+
+    /// The principal is a guest, who knows no other member.
+    pub(crate) fn members_hidden(&self) -> bool {
+        is_guest(self.actor)
     }
 
     fn resource(&self, link: &Link) -> Resource {
@@ -409,7 +446,7 @@ impl Context {
     }
 
     /// Asks the rules about an action on the page.
-    fn check(&self, action: Action) -> Result<(), PageError> {
+    pub(crate) fn check(&self, action: Action) -> Result<(), PageError> {
         authorize(self.actor, action, self.resource(&self.chain[0]))
             .map_err(|denied| PageError::denied(denied, NO_PAGE))
     }
@@ -421,10 +458,10 @@ impl Context {
 
     /// The page as the principal sees it, without the page above it when they may not see
     /// that one. Ask the rules first.
-    fn view(self) -> Result<PageView, PageError> {
+    pub(crate) fn view(self) -> Result<PageView, PageError> {
         let access = access_of(self.actor, self.space, self.chain[0].shared)
             .ok_or(PageError::NotFound(NO_PAGE))?;
-        let parent_seen = self.chain.get(1).is_some_and(|parent| self.sees(parent));
+        let parent_seen = self.parent_seen();
         let members_hidden = is_guest(self.actor);
         let mut page = self
             .chain
@@ -440,6 +477,12 @@ impl Context {
             access,
             members_hidden,
         })
+    }
+
+    /// Whether the principal may see the page above the page, which its view names only
+    /// then.
+    pub(crate) fn parent_seen(&self) -> bool {
+        self.chain.get(1).is_some_and(|parent| self.sees(parent))
     }
 
     /// Whether the principal may see a page of the chain.
@@ -460,18 +503,42 @@ impl Context {
     }
 }
 
+/// Refuses to put a page under `parent` unless it is a page of blocks: a database's
+/// subpages are its rows, added as rows, and a row has none.
+pub(crate) fn check_parent(parent: &Page) -> Result<(), PageError> {
+    match parent.kind {
+        PageKind::Page => Ok(()),
+        PageKind::Database => Err(PageError::InvalidInput(
+            "a database's subpages are its rows: add a row to it instead".to_owned(),
+        )),
+        PageKind::Row => Err(PageError::InvalidInput(
+            "a database's row has no subpages".to_owned(),
+        )),
+    }
+}
+
 /// The key for an entry of `list`, a list of ids and keys in order, placed by
 /// `placement`; `None` when it would be longer than [`position::MAX_LEN`], and the list
 /// wants fresh keys first.
 fn key_in(list: &[(Uuid, String)], placement: Placement) -> Result<Option<String>, PageError> {
+    key_among(
+        list,
+        placement,
+        "the page to place it beside is not among its new neighbours",
+    )
+}
+
+/// The key for an entry of `list` placed by `placement`, as [`key_in`] has it; `missing`
+/// says what is wrong when the placement names an entry the list lacks.
+pub(crate) fn key_among(
+    list: &[(Uuid, String)],
+    placement: Placement,
+    missing: &'static str,
+) -> Result<Option<String>, PageError> {
     let index_of = |id: Uuid| {
         list.iter()
             .position(|(entry, _)| *entry == id)
-            .ok_or_else(|| {
-                PageError::InvalidInput(
-                    "the page to place it beside is not among its new neighbours".to_owned(),
-                )
-            })
+            .ok_or_else(|| PageError::InvalidInput(missing.to_owned()))
     };
     let key = |i: usize| list.get(i).map(|(_, key)| key.as_str());
     let (before, after) = match placement {
@@ -491,7 +558,7 @@ fn key_in(list: &[(Uuid, String)], placement: Placement) -> Result<Option<String
 }
 
 /// The same entries with fresh keys, in the same order.
-fn renumbered(list: &[(Uuid, String)]) -> Vec<(Uuid, String)> {
+pub(crate) fn renumbered(list: &[(Uuid, String)]) -> Vec<(Uuid, String)> {
     list.iter()
         .map(|(id, _)| *id)
         .zip(position::sequence(list.len()))

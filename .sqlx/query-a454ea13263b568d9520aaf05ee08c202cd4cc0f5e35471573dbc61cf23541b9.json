@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT page_id, workspace_id, inline, next_number FROM databases WHERE page_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "databases",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "databases",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "inline",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "databases",
+            "name": "inline"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "next_number",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "databases",
+            "name": "next_number"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a454ea13263b568d9520aaf05ee08c202cd4cc0f5e35471573dbc61cf23541b9"
+}

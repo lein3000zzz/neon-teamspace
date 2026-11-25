@@ -1,0 +1,97 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A database in a page, in one of its views:",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "database",
+    "props": {
+      "databaseId": "0193a5b2-0000-7000-8000-0000000000d1",
+      "viewId": "0193a5b2-0000-7000-8000-0000000000e1"
+    },
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "database",
+    "props": {
+      "databaseId": "0193a5b2-0000-7000-8000-0000000000d2"
+    },
+    "children": [
+      {
+        "id": "block-4",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A child of a database block.",
+            "styles": {}
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "block-5",
+    "type": "database",
+    "props": {
+      "databaseId": ""
+    },
+    "children": []
+  },
+  {
+    "id": "block-6",
+    "type": "bulletListItem",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A list item that holds one",
+        "styles": {}
+      }
+    ],
+    "children": [
+      {
+        "id": "block-7",
+        "type": "database",
+        "props": {
+          "databaseId": "0193a5b2-0000-7000-8000-0000000000d3"
+        },
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "block-8",
+    "type": "database",
+    "props": {
+      "databaseId": "not a UUID: 50% & more",
+      "viewId": ""
+    },
+    "children": []
+  }
+]

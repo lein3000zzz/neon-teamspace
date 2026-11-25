@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE database_rows SET cells = cells - $2 WHERE database_id = $1 AND cells ? $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18033ce59a317959eba52c54d5db78f28babc540c6374c4630371bd3f0f82f98"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE databases SET inline = $2 WHERE page_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "394ce24a4f174d096b19cb782d71a93221b006bf94af9fd2e9f37b7fafdd3d11"
+}

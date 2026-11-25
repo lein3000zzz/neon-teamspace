@@ -10,6 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use metrics_util::MetricKind;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::pages::{Location, NewPage, PageError, Tree};
 use neon_app::ratelimit::{Bucket, RateLimiter};
 use neon_app::sync::{Connection, Limits as SyncLimits, Next, SyncService, access_feed};
@@ -20,6 +23,7 @@ use neon_app::transfer::{
 use neon_app::workspaces::NewTeamspace;
 use neon_blocks::{Block, SequentialIds};
 use neon_domain::auth::Principal;
+use neon_domain::databases::PropertyKind;
 use neon_domain::pages::{MAX_DEPTH, PageAccess, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, WorkspaceRole};
 use sqlx::PgPool;
@@ -85,7 +89,7 @@ async fn team_with(pool: PgPool, limits: Limits) -> Team {
             ..SyncLimits::default()
         })
         .build();
-    let transfer = TransferService::builder(h.pages.clone(), sync.clone())
+    let transfer = TransferService::builder(h.pages.clone(), sync.clone(), h.databases.clone())
         .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
         .limits(limits)
         .build();
@@ -491,7 +495,7 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
         .expect("a turn came free");
 
     // The server's places are taken once the upload is in, not while it comes.
-    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             parallel: 0,
             ..Limits::default()
@@ -535,7 +539,7 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
     assert!(t.h.limiter.seen().contains(&key));
 
     // Past its time, an import stops and makes nothing.
-    let slow = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let slow = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             time_limit: Duration::ZERO,
             ..Limits::default()
@@ -658,6 +662,109 @@ async fn exports_hold_a_page_and_the_pages_under_it(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_database_exports_as_a_table_of_its_rows_and_a_file_per_row(pool: PgPool) {
+    let t = team(pool).await;
+    let tasks =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewDatabase {
+                    title: "Tasks".to_owned(),
+                    ..NewDatabase::default()
+                },
+            )
+            .await
+            .expect("made");
+    let db = tasks.page.page.id;
+    for (name, kind) in [
+        ("Owner", PropertyKind::Person),
+        ("Notes", PropertyKind::Text),
+    ] {
+        t.h.databases
+            .add_property(
+                &t.ada,
+                db,
+                NewProperty {
+                    name: name.to_owned(),
+                    spec: PropertySpec {
+                        kind,
+                        number_format: None,
+                        currency: None,
+                        prefix: None,
+                    },
+                    options: None,
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("added");
+    }
+    for values in [
+        serde_json::json!({"Name": "Fix | login", "Status": "Done", "Owner": [t.dee.user.id.to_string()]}),
+        serde_json::json!({"Name": "Write docs", "Notes": "For agents"}),
+    ] {
+        t.h.databases
+            .create_row(
+                &t.ada,
+                db,
+                NewRow {
+                    values: values.as_object().cloned().expect("an object"),
+                    ..NewRow::default()
+                },
+            )
+            .await
+            .expect("a row");
+    }
+    // The table holds the title and what the first view shows.
+    let alone = t.export(db, false).await;
+    assert_eq!(alone.name, "Tasks.md");
+    assert_eq!(
+        String::from_utf8(alone.bytes).expect("text"),
+        "# Tasks\n\n| Name | Status | Owner | Notes |\n| --- | --- | --- | --- |\n\
+         | Fix \\| login | Done | dee |  |\n| Write docs |  |  | For agents |\n"
+    );
+    let zipped = t.export(db, true).await;
+    let files = unzipped(&zipped.bytes);
+    assert_eq!(
+        names(&files),
+        ["Tasks.md", "Tasks/Fix login.md", "Tasks/Write docs.md"]
+    );
+    assert_eq!(
+        files["Tasks/Fix login.md"],
+        "# Fix | login\n\n- Status: Done\n- Owner: dee\n"
+    );
+    assert_eq!(
+        files["Tasks/Write docs.md"],
+        "# Write docs\n\n- Notes: For agents\n"
+    );
+    // A teamspace's export holds them too; a guest it is shared with sees no people.
+    let general = t
+        .transfer
+        .export_teamspace(&t.dee, t.general)
+        .await
+        .expect("exported");
+    assert!(names(&unzipped(&general.bytes)).contains(&"Tasks/Fix login.md"));
+    t.h.pages
+        .share_page(&t.ada, db, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    let guest = t
+        .transfer
+        .export_page(&t.gus, db, true)
+        .await
+        .expect("exported");
+    let files = unzipped(&guest.bytes);
+    assert_eq!(
+        files["Tasks/Fix login.md"],
+        "# Fix | login\n\n- Status: Done\n"
+    );
+    assert!(files["Tasks.md"].contains("| Fix \\| login | Done |  |  |"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn teamspaces_export_for_those_who_list_them(pool: PgPool) {
     let t = team(pool).await;
     t.roadmap().await;
@@ -731,7 +838,7 @@ async fn exports_keep_to_their_limits(pool: PgPool) {
         .await
         .expect("three pages fit");
 
-    let small = TransferService::builder(t.h.pages.clone(), t.sync.clone())
+    let small = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
         .limits(Limits {
             max_export_bytes: 40,
             ..Limits::default()
@@ -895,4 +1002,115 @@ async fn exports_read_what_is_live_and_round_trip(pool: PgPool) {
         .await
         .expect("exported");
     assert_eq!(unzipped(&second.bytes), unzipped(&first.bytes));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn rows_count_apart_from_the_pages_an_export_holds(pool: PgPool) {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _metrics = metrics::set_default_local_recorder(&recorder);
+    let t = team_with(
+        pool,
+        Limits {
+            max_export_pages: 2,
+            max_export_rows: 3,
+            export_rows_at_once: 2,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let tasks =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewDatabase {
+                    title: "Tasks".to_owned(),
+                    ..NewDatabase::default()
+                },
+            )
+            .await
+            .expect("made");
+    let db = tasks.page.page.id;
+    let mut rows = Vec::new();
+    for title in ["One", "Two", "Three", "Four"] {
+        let values = serde_json::json!({"Name": title, "Status": "Done"});
+        let row =
+            t.h.databases
+                .create_row(
+                    &t.ada,
+                    db,
+                    NewRow {
+                        values: values.as_object().cloned().expect("an object"),
+                        ..NewRow::default()
+                    },
+                )
+                .await
+                .expect("a row");
+        rows.push(row.id);
+    }
+    // Four rows are more than an export holds besides its one page.
+    let many = t.transfer.export_page(&t.ada, db, true).await;
+    assert!(
+        matches!(&many, Err(TransferError::TooLarge(message)) if message.contains("3 rows")),
+        "{:?}",
+        many.err()
+    );
+    t.h.pages
+        .trash_page(&t.ada, rows[3])
+        .await
+        .expect("trashed");
+    // Three are not, however few pages it holds. The table is read once, and the rows
+    // whole two at a time, rather than one by one or all at once: each has its properties.
+    snapshotter.snapshot();
+    let files = unzipped(&t.export(db, true).await.bytes);
+    let ran = operations(&snapshotter);
+    assert_eq!(
+        (
+            ran.get("export_table"),
+            ran.get("export_rows"),
+            ran.get("export_row")
+        ),
+        (Some(&1), Some(&2), None)
+    );
+    assert_eq!(
+        names(&files),
+        ["Tasks.md", "Tasks/One.md", "Tasks/Three.md", "Tasks/Two.md"]
+    );
+    for title in ["One", "Two", "Three"] {
+        assert_eq!(
+            files[&format!("Tasks/{title}.md")],
+            format!("# {title}\n\n- Status: Done\n")
+        );
+    }
+    // A row exported as a zip of its own has its properties too.
+    let alone = unzipped(&t.export(rows[0], true).await.bytes);
+    assert_eq!(
+        alone.into_iter().collect::<Vec<_>>(),
+        [("One.md".to_owned(), "# One\n\n- Status: Done\n".to_owned())]
+    );
+    assert_eq!(operations(&snapshotter).get("export_row"), Some(&1));
+}
+
+/// How many times each database use case ran since the last snapshot, which takes the
+/// counts it reads.
+fn operations(snapshotter: &Snapshotter) -> BTreeMap<String, u64> {
+    let mut ran = BTreeMap::new();
+    for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+        let (kind, key) = key.into_parts();
+        let operation = key
+            .labels()
+            .find(|label| label.key() == "operation")
+            .map(|label| label.value().to_owned());
+        if let (MetricKind::Counter, DebugValue::Counter(n), Some(operation)) =
+            (kind, value, operation)
+            && key.name() == "neon_databases_operations_total"
+            && n > 0
+        {
+            *ran.entry(operation).or_default() += n;
+        }
+    }
+    ran
 }

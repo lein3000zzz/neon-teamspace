@@ -108,6 +108,7 @@ mod tests {
     fn page(id: u128, parent: Option<u128>, title: &str) -> OutlinePage {
         OutlinePage {
             id: Uuid::from_u128(id),
+            kind: neon_domain::pages::PageKind::Page,
             parent_id: parent.map(Uuid::from_u128),
             title: title.to_owned(),
             content_updated_at: OffsetDateTime::from_unix_timestamp(1_795_348_800).expect("a time"),

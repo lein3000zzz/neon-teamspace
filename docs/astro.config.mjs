@@ -100,6 +100,8 @@ export default defineConfig({
             'guides/workspace-rules',
             'guides/editing-pages',
             'guides/pages',
+            'guides/databases-and-boards',
+            'guides/databases',
             'guides/import-export',
           ],
         },
@@ -126,7 +128,12 @@ export default defineConfig({
         },
         {
           label: 'Reference',
-          items: ['reference/settings', 'reference/permissions', apiReference],
+          items: [
+            'reference/settings',
+            'reference/permissions',
+            'reference/databases',
+            apiReference,
+          ],
         },
         {
           label: 'Architecture',

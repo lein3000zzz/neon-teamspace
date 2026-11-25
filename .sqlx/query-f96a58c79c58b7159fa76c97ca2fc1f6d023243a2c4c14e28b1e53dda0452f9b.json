@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE database_properties p SET position = u.position\n         FROM UNNEST($1::uuid[], $2::text[]) AS u (id, position)\n         WHERE p.id = u.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f96a58c79c58b7159fa76c97ca2fc1f6d023243a2c4c14e28b1e53dda0452f9b"
+}

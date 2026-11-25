@@ -3,8 +3,9 @@ import { http } from "msw";
 import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { beforeAll, describe, expect, it } from "vitest";
+import { databasePages, DB, fakeDatabase, fakeFeed } from "@/test/databases";
 import { renderApp } from "@/test/render-app";
-import { fakePages, page, PAGE_IDS } from "@/test/pages";
+import { fakePages, page, PAGE_IDS, samplePages } from "@/test/pages";
 import { server, syncLink } from "@/test/server";
 import { authMessage, awarenessMessage, fakeSync } from "@/test/sync";
 import { fakeWorkspaces, people, TEAMSPACE_IDS } from "@/test/workspaces";
@@ -12,16 +13,18 @@ import { afterClose, FRAGMENT, syncServer } from "./connection";
 import { collaborator } from "./cursor";
 
 const PATH = `/w/design/p/${PAGE_IDS.roadmap}`;
+/** A database no database is: deleted, or never shared with the user. */
+const NO_DATABASE = "0193a5b2-0000-7000-8000-0000000000d9";
 
 /** The connection's state, as the page says it. */
 async function indicator(text: string, timeout = 1000) {
   return screen.findByText(text, { selector: "output" }, { timeout });
 }
 
-/** The page's content, once the editor is up. */
+/** The page's content, once the editor is up: the one field in it without a name of its own. */
 async function content() {
   const region = await screen.findByRole("region", { name: "Page content" });
-  return within(region).findByRole("textbox");
+  return within(region).findByRole("textbox", { name: "" });
 }
 
 describe("the live editor", () => {
@@ -63,6 +66,103 @@ describe("the live editor", () => {
     await waitFor(async () => expect(await content()).toHaveTextContent("Kick-off on Monday"));
     blocks.insert(1, [paragraph("block-2", "Retro on Friday")]);
     await waitFor(async () => expect(await content()).toHaveTextContent("Retro on Friday"));
+  });
+
+  it("shows a database block's database in the page, in its views", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeDatabase();
+    fakeFeed();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [database("block-1", DB.tasks), database("block-2", NO_DATABASE)]);
+    renderApp(PATH);
+
+    const region = within(await screen.findByRole("region", { name: "Page content" }));
+    const embedded = within(await region.findByRole("region", { name: "Database Tasks" }));
+    expect(await embedded.findByRole("tab", { name: "Table", selected: true })).toBeInTheDocument();
+    expect(await embedded.findByRole("rowheader", { name: /Write docs/ })).toBeInTheDocument();
+    expect(region.getByRole("textbox", { name: "Database title" })).toHaveValue("Tasks");
+    // A database the user may not see, or that is gone, says so where it was.
+    expect(await region.findByText("This database is not available here.")).toBeInTheDocument();
+  });
+
+  it("keeps the view picked in an embedded database in its block", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeDatabase();
+    fakeFeed();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [database("block-1", DB.tasks)]);
+    const { user } = renderApp(PATH);
+
+    const embedded = within(await screen.findByRole("region", { name: "Database Tasks" }));
+    await waitFor(async () => expect(await content()).toHaveAttribute("contenteditable", "true"));
+    await user.click(await embedded.findByRole("tab", { name: "Board" }));
+
+    expect(await embedded.findByRole("region", { name: "In progress" })).toBeInTheDocument();
+    await waitFor(() => expect(blockAttribute(blocks, 0, "viewId")).toBe(DB.board));
+  });
+
+  it("names an embedded database as its title is typed, in the sidebar too, and saves it", async () => {
+    fakeWorkspaces();
+    const pages = fakePages({ pages: databasePages(samplePages()) });
+    fakeDatabase();
+    fakeFeed();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [database("block-1", DB.tasks)]);
+    const { user } = renderApp(PATH);
+
+    const sidebar = within(await screen.findByRole("complementary"));
+    expect(await sidebar.findByRole("link", { name: "Tasks" })).toBeInTheDocument();
+    const title = await screen.findByRole("textbox", { name: "Database title" });
+    await user.clear(title);
+    await user.type(title, "Sprint tasks");
+
+    expect(sidebar.getByRole("link", { name: "Sprint tasks" })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(pages.changes.at(-1)).toEqual({
+        method: "PATCH",
+        path: `/api/v1/pages/${DB.tasks}`,
+        body: { title: "Sprint tasks" },
+      }),
+    );
+    expect(sidebar.getByRole("link", { name: "Sprint tasks" })).toBeInTheDocument();
+  });
+
+  it("makes a database for a block that names none, inside the page", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const db = fakeDatabase();
+    fakeFeed();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [database("block-1", "")]);
+    const { user } = renderApp(PATH);
+
+    const region = within(await screen.findByRole("region", { name: "Page content" }));
+    expect(await region.findByText("No database chosen yet.")).toBeInTheDocument();
+    await waitFor(async () => expect(await content()).toHaveAttribute("contenteditable", "true"));
+    await user.click(region.getByRole("button", { name: "Make a database here" }));
+
+    expect(await region.findByRole("region", { name: "Database Untitled" })).toBeInTheDocument();
+    expect(db.changes).toEqual([
+      {
+        method: "POST",
+        path: "/api/v1/workspaces/0193a5b2-0000-7000-8000-00000000a001/databases",
+        body: { parent_id: PAGE_IDS.roadmap, inline: true },
+      },
+    ]);
+    await waitFor(() =>
+      expect(blockAttribute(blocks, 0, "databaseId")).toBe(db.created[0]?.page.id),
+    );
   });
 
   it("says when the connection dropped, and when it is back", async () => {
@@ -335,5 +435,22 @@ function paragraph(id: string, text: string): Y.XmlElement {
   const container = new Y.XmlElement("blockContainer");
   container.setAttribute("id", id);
   container.insert(0, [inline]);
+  return container;
+}
+
+/** An attribute of a block's content, as the server's copy of the document holds it. */
+function blockAttribute(blocks: Y.XmlElement, index: number, name: string): unknown {
+  const container = blocks.get(index);
+  const block = container instanceof Y.XmlElement ? container.get(0) : undefined;
+  return block instanceof Y.XmlElement ? block.getAttribute(name) : undefined;
+}
+
+/** A database block, in the structure BlockNote keeps blocks in. */
+function database(id: string, databaseId: string): Y.XmlElement {
+  const element = new Y.XmlElement("database");
+  element.setAttribute("databaseId", databaseId);
+  const container = new Y.XmlElement("blockContainer");
+  container.setAttribute("id", id);
+  container.insert(0, [element]);
   return container;
 }

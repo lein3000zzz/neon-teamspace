@@ -10,6 +10,7 @@ use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
+use neon_app::databases::DatabaseError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
 use neon_app::transfer::TransferError;
@@ -235,13 +236,39 @@ impl From<PageError> for ApiError {
             PageError::Cycle
             | PageError::TooDeep
             | PageError::AlreadyShared
-            | PageError::AlreadyFavorite => StatusCode::CONFLICT,
+            | PageError::AlreadyFavorite
+            | PageError::TooManyRows => StatusCode::CONFLICT,
             PageError::Database(_) | PageError::Internal(_) => {
                 tracing::error!(error = %error, "a page use case failed");
                 return Self::internal();
             }
         };
         Self::new(status, error.code(), error.to_string())
+    }
+}
+
+impl From<DatabaseError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret or a value.
+    /// Others are logged with their cause, and answer as internal errors.
+    fn from(error: DatabaseError) -> Self {
+        match error {
+            DatabaseError::Page(error) => error.into(),
+            DatabaseError::Database(_) | DatabaseError::Internal(_) => {
+                tracing::error!(error = %error, "a database use case failed");
+                Self::internal()
+            }
+            expected => {
+                let status = match &expected {
+                    DatabaseError::Forbidden(_) => StatusCode::FORBIDDEN,
+                    DatabaseError::NotFound(_) => StatusCode::NOT_FOUND,
+                    DatabaseError::NameTaken(_)
+                    | DatabaseError::LossyChange { .. }
+                    | DatabaseError::TooMany(_) => StatusCode::CONFLICT,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                Self::new(status, expected.code(), expected.to_string())
+            }
+        }
     }
 }
 
@@ -252,6 +279,7 @@ impl From<TransferError> for ApiError {
         let (code, message) = (error.code(), error.to_string());
         let (status, retry_after) = match error {
             TransferError::Page(error) => return error.into(),
+            TransferError::Database(error) => return error.into(),
             TransferError::Content { .. } | TransferError::Internal(_) => {
                 tracing::error!(error = %message, "an import or export failed");
                 return Self::internal();

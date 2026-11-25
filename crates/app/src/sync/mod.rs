@@ -68,10 +68,10 @@ use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
 use document::{Command, Joining, Presence};
-use limits::Bucket;
+pub(crate) use limits::Bucket;
 
 pub use access::{AccessFeed, AccessListener, access_feed};
-pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver};
+pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
 pub use document::{LoadError, READ_ONLY};
 pub use limits::Limits;

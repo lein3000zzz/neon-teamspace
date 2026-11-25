@@ -107,7 +107,8 @@ async fn carry(socket: &mut WebSocket, connection: &mut Connection, limits: &Lim
         tokio::select! {
             next = connection.next() => match next {
                 Next::Send(message) => {
-                    if let Err(ending) = send(socket, Message::Binary(message), limits).await {
+                    let sent = send(socket, Message::Binary(message), limits.write_timeout).await;
+                    if let Err(ending) = sent {
                         return ending;
                     }
                 }
@@ -135,7 +136,8 @@ async fn carry(socket: &mut WebSocket, connection: &mut Connection, limits: &Lim
                     return Ending::Unresponsive;
                 }
                 heard = false;
-                if let Err(ending) = send(socket, Message::Ping(Bytes::new()), limits).await {
+                let sent = send(socket, Message::Ping(Bytes::new()), limits.write_timeout).await;
+                if let Err(ending) = sent {
                     return ending;
                 }
             }
@@ -144,8 +146,12 @@ async fn carry(socket: &mut WebSocket, connection: &mut Connection, limits: &Lim
 }
 
 /// Sends a message within the write timeout.
-async fn send(socket: &mut WebSocket, message: Message, limits: &Limits) -> Result<(), Ending> {
-    match timeout(limits.write_timeout, socket.send(message)).await {
+pub(super) async fn send(
+    socket: &mut WebSocket,
+    message: Message,
+    write_timeout: Duration,
+) -> Result<(), Ending> {
+    match timeout(write_timeout, socket.send(message)).await {
         Ok(Ok(())) => Ok(()),
         // The socket is gone.
         Ok(Err(_)) => Err(Ending::ByClient),
@@ -156,7 +162,7 @@ async fn send(socket: &mut WebSocket, message: Message, limits: &Limits) -> Resu
 /// How a connection whose read failed ends: a message over the size limit is refused as
 /// too big, which the WebSocket reports as a capacity error; anything else, such as a
 /// connection reset or a broken frame, is the client's going.
-fn read_failed(error: &axum::Error) -> Ending {
+pub(super) fn read_failed(error: &axum::Error) -> Ending {
     if error.to_string().contains("Message too long") {
         Ending::Closed(CloseReason::MessageTooBig)
     } else {
@@ -165,7 +171,7 @@ fn read_failed(error: &axum::Error) -> Ending {
 }
 
 /// Sends a close frame for `reason`, then waits a moment for the client's.
-async fn close(socket: &mut WebSocket, reason: CloseReason) {
+pub(super) async fn close(socket: &mut WebSocket, reason: CloseReason) {
     let frame = CloseFrame {
         code: reason.code(),
         reason: reason.message().into(),
@@ -177,7 +183,7 @@ async fn close(socket: &mut WebSocket, reason: CloseReason) {
 
 /// Reads what the client still sends until it closes, for a moment, so the WebSocket
 /// answers its close and the connection ends cleanly.
-async fn finish(socket: &mut WebSocket) {
+pub(super) async fn finish(socket: &mut WebSocket) {
     let _ = timeout(CLOSE_TIMEOUT, async {
         while let Some(Ok(_)) = socket.recv().await {}
     })
