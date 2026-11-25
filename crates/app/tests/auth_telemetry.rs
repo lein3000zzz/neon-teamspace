@@ -303,7 +303,7 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
     secrets.push(session.expose().to_owned());
     let (api_token, _) = h
         .auth
-        .create_api_token(&grace, "ci", None, &["read"])
+        .create_api_token(&grace, "ci", None, &["read"], None)
         .await
         .expect("a token");
     secrets.push(api_token.expose().to_owned());

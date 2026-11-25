@@ -15,7 +15,11 @@ settings, also lists each in `problems`. A rate-limited request answers 429 with
 `Retry-After`.\n\n\
 A request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with \
 `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` \
-for safe methods, `write` for the others, `admin` for `/api/v1/admin`. Deleting a workspace \
+for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a \
+workspace works on that workspace's routes and sockets alone, and is refused on another's, \
+on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that \
+workspace's admin work. An agent's token is always bound to the agent's workspace and acts as \
+the agent, which may do only what both it and its owner may. Deleting a workspace \
 and transferring its ownership need a browser session. A request that \
 changes something and carries no `Authorization` header must come from the server's own \
 origin: its `Origin`, or else its `Referer`, must match the public URL.";
@@ -30,6 +34,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "auth", description = "Signing up, in and out, and the mailed links. Open to anyone."),
         (name = "account", description = "The signed-in user's own account, their favorite pages, and the invitations into workspaces waiting for them."),
         (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
+        (name = "agents", description = "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),

@@ -10,7 +10,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::lifecycle::Joined;
-use super::{WorkspaceError, WorkspaceService, locked_membership, membership};
+use super::{WorkspaceError, WorkspaceService, locked_membership, membership, require_person};
 use crate::ratelimit::Bucket;
 
 const NO_INVITATION: &str = "no such pending invitation";
@@ -49,7 +49,7 @@ impl WorkspaceService {
                 let mut conn = self.pool().acquire().await?;
                 membership(&mut conn, principal, workspace_id)
                     .await?
-                    .check(principal, Action::Invite { role })?;
+                    .check(Action::Invite { role })?;
             }
             self.limit(Bucket::WorkspaceInvite, &principal.user.id.to_string())
                 .await?;
@@ -62,7 +62,7 @@ impl WorkspaceService {
             let now = self.now();
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, workspace_id).await?;
-            membership.check(principal, Action::Invite { role })?;
+            membership.check(Action::Invite { role })?;
             if workspaces::member_role(&mut *tx, workspace_id, invitee.id)
                 .await?
                 .is_some()
@@ -102,9 +102,11 @@ impl WorkspaceService {
                 invitation,
                 invitee: Person {
                     id: invitee.id,
+                    kind: invitee.kind,
                     hue_override: invitee.hue_override,
+                    email: invitee.email.map(|email| email.as_str().to_owned()),
                     display_name: invitee.display_name,
-                    email: invitee.email.as_str().to_owned(),
+                    owner: None,
                 },
             })
         })
@@ -121,7 +123,7 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             membership(&mut conn, principal, workspace_id)
                 .await?
-                .check(principal, Action::ManageInvitations)?;
+                .check(Action::ManageInvitations)?;
             Ok(
                 repo::pending_for_workspace(&mut *conn, workspace_id, self.now())
                     .await?
@@ -147,7 +149,7 @@ impl WorkspaceService {
             let mut tx = self.pool().begin().await?;
             locked_membership(&mut tx, principal, workspace_id)
                 .await?
-                .check(principal, Action::ManageInvitations)?;
+                .check(Action::ManageInvitations)?;
             let revoked = repo::decide(
                 &mut *tx,
                 workspace_id,
@@ -201,6 +203,7 @@ impl WorkspaceService {
         id: Uuid,
     ) -> Result<Joined, WorkspaceError> {
         self.observe("accept_invitation", async {
+            require_person(principal)?;
             let user = principal.user.id;
             let now = self.now();
             // The workspace's lock comes before the invitation's, in the order every

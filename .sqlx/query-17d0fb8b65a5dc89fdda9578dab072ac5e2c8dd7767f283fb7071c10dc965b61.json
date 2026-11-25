@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users\n         SET display_name = COALESCE($2, display_name),\n             hue = CASE WHEN $3 THEN $4 ELSE hue END,\n             updated_at = $5\n         WHERE id = $1 AND kind <> 'human'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool",
+        "Int2",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17d0fb8b65a5dc89fdda9578dab072ac5e2c8dd7767f283fb7071c10dc965b61"
+}

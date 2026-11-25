@@ -1,5 +1,8 @@
 //! API tokens: programmatic access as their owner, limited to the scopes they were made
 //! with, and never beyond what the owner's role allows.
+//!
+//! A person's token works across the instance, or only in one workspace it is bound to. An
+//! agent's token is always bound to the agent's workspace, and acts as the agent.
 
 use std::fmt;
 
@@ -24,8 +27,9 @@ pub enum Scope {
     Read,
     /// Change what the owner can change.
     Write,
-    /// The admin pages' work. Only an admin's token may have it, and it stops working
-    /// when its owner stops being an admin.
+    /// The instance admin pages' work, for an instance admin's token across the instance;
+    /// or a workspace's admin work, for an owner's or admin's token bound to it. It stops
+    /// working when its owner stops being one. An agent's token never has it.
     Admin,
 }
 
@@ -52,6 +56,17 @@ impl fmt::Display for Scope {
     }
 }
 
+/// Whom a new token acts for, as its scopes need to know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenHolder {
+    /// A person, across the instance, whose instance role is `role`.
+    Account { role: Role },
+    /// A person, in one workspace only, which they manage or not: own or administer.
+    Workspace { manages: bool },
+    /// An agent, in its workspace.
+    Agent,
+}
+
 /// Scopes a new token cannot have.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidScopes {
@@ -61,13 +76,36 @@ pub enum InvalidScopes {
     Unknown(String),
     #[error("only an admin's token may have the admin scope")]
     AdminOnly,
+    #[error("a token bound to a workspace has the admin scope only for its owners and admins")]
+    WorkspaceAdminOnly,
+    #[error("an agent's token reads and writes, and never has the admin scope")]
+    AgentAdmin,
 }
 
-/// The scopes a new token of an owner with `role` gets: each once, in [`Scope::ALL`]
-/// order. At least one, and admin only for an admin.
+impl InvalidScopes {
+    /// Why the holder may not have what they asked for, when it is the admin scope they
+    /// may not have, rather than scopes that do not exist.
+    pub fn refusal(&self) -> Option<&'static str> {
+        match self {
+            Self::AdminOnly => Some("only an admin's token may have the admin scope"),
+            Self::WorkspaceAdminOnly => Some(
+                "a token bound to a workspace has the admin scope only for its owners and \
+                 admins",
+            ),
+            Self::AgentAdmin => {
+                Some("an agent's token reads and writes, and never has the admin scope")
+            }
+            Self::None | Self::Unknown(_) => None,
+        }
+    }
+}
+
+/// The scopes a new token of `holder` gets: each once, in [`Scope::ALL`] order. At least
+/// one, and admin only for an instance admin's token across the instance, or a
+/// workspace owner's or admin's token bound to it.
 pub fn token_scopes<S: AsRef<str>>(
     requested: &[S],
-    role: Role,
+    holder: TokenHolder,
 ) -> Result<Vec<Scope>, InvalidScopes> {
     if requested.is_empty() {
         return Err(InvalidScopes::None);
@@ -79,8 +117,16 @@ pub fn token_scopes<S: AsRef<str>>(
             Scope::parse(text).ok_or_else(|| InvalidScopes::Unknown(text.to_owned()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if scopes.contains(&Scope::Admin) && role != Role::Admin {
-        return Err(InvalidScopes::AdminOnly);
+    if scopes.contains(&Scope::Admin) {
+        match holder {
+            TokenHolder::Account { role: Role::Admin }
+            | TokenHolder::Workspace { manages: true } => {}
+            TokenHolder::Account { .. } => return Err(InvalidScopes::AdminOnly),
+            TokenHolder::Workspace { manages: false } => {
+                return Err(InvalidScopes::WorkspaceAdminOnly);
+            }
+            TokenHolder::Agent => return Err(InvalidScopes::AgentAdmin),
+        }
     }
     scopes.sort();
     scopes.dedup();
@@ -120,7 +166,11 @@ pub fn check_token_name(raw: &str) -> Result<String, InvalidTokenName> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiToken {
     pub id: Uuid,
+    /// Whom it acts as: a person, or an agent.
     pub user_id: Uuid,
+    /// The one workspace it works in; unset for a person's token that works across the
+    /// instance. An agent's is always its workspace.
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     /// The token's first [`SHOWN_PREFIX_LENGTH`] characters.
     pub prefix: String,
@@ -135,6 +185,17 @@ impl ApiToken {
     pub fn is_expired(&self, now: OffsetDateTime) -> bool {
         self.expires_at.is_some_and(|expires| now >= expires)
     }
+
+    /// What its scopes allow now, for an owner whose instance role is `role`: a token
+    /// across the instance loses the admin scope once its owner is no longer an instance
+    /// admin. A bound token keeps it, as it answers to the workspace role each use reads.
+    pub fn scopes_now(&self, role: Role) -> Vec<Scope> {
+        if self.workspace_id.is_some() {
+            self.scopes.clone()
+        } else {
+            effective_scopes(&self.scopes, role)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -143,14 +204,17 @@ mod tests {
 
     use super::*;
 
+    const ADMIN: TokenHolder = TokenHolder::Account { role: Role::Admin };
+    const USER: TokenHolder = TokenHolder::Account { role: Role::User };
+
     #[test]
     fn scopes_are_sorted_and_deduplicated() {
         assert_eq!(
-            token_scopes(&["write", "read", "write"], Role::User),
+            token_scopes(&["write", "read", "write"], USER),
             Ok(vec![Scope::Read, Scope::Write])
         );
         assert_eq!(
-            token_scopes(&["admin", "read"], Role::Admin),
+            token_scopes(&["admin", "read"], ADMIN),
             Ok(vec![Scope::Read, Scope::Admin])
         );
     }
@@ -159,18 +223,49 @@ mod tests {
     fn scopes_must_exist_and_fit_the_role() {
         let none: [&str; 0] = [];
 
-        assert_eq!(token_scopes(&none, Role::Admin), Err(InvalidScopes::None));
+        assert_eq!(token_scopes(&none, ADMIN), Err(InvalidScopes::None));
         assert_eq!(
-            token_scopes(&["read", "delete"], Role::Admin),
+            token_scopes(&["read", "delete"], ADMIN),
             Err(InvalidScopes::Unknown("delete".into()))
         );
         assert_eq!(
-            token_scopes(&["Read"], Role::Admin),
+            token_scopes(&["Read"], ADMIN),
             Err(InvalidScopes::Unknown("Read".into()))
         );
         assert_eq!(
-            token_scopes(&["admin"], Role::User),
+            token_scopes(&["admin"], USER),
             Err(InvalidScopes::AdminOnly)
+        );
+        assert_eq!(InvalidScopes::None.refusal(), None);
+    }
+
+    #[test]
+    fn the_admin_scope_follows_whom_the_token_acts_for() {
+        let cases = [
+            (ADMIN, true),
+            (USER, false),
+            (TokenHolder::Workspace { manages: true }, true),
+            (TokenHolder::Workspace { manages: false }, false),
+            (TokenHolder::Agent, false),
+        ];
+        for (holder, admin) in cases {
+            assert_eq!(
+                token_scopes(&["read", "admin"], holder).is_ok(),
+                admin,
+                "{holder:?}"
+            );
+            assert_eq!(
+                token_scopes(&["read", "write"], holder),
+                Ok(vec![Scope::Read, Scope::Write]),
+                "{holder:?}"
+            );
+            if let Err(refused) = token_scopes(&["admin"], holder) {
+                assert_eq!(refused.refusal(), Some(refused.to_string()).as_deref());
+            }
+        }
+        assert_eq!(
+            token_scopes(&["admin"], TokenHolder::Agent),
+            Err(InvalidScopes::AgentAdmin)
         );
     }
 
@@ -199,6 +294,7 @@ mod tests {
         let mut token = ApiToken {
             id: Uuid::now_v7(),
             user_id: Uuid::now_v7(),
+            workspace_id: None,
             name: "ci".into(),
             prefix: "nw_abcdefg".into(),
             scopes: vec![Scope::Read],
@@ -211,5 +307,25 @@ mod tests {
         token.expires_at = Some(now + Duration::from_secs(60));
         assert!(!token.is_expired(now + Duration::from_secs(59)));
         assert!(token.is_expired(now + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn a_bound_token_keeps_the_admin_scope_for_the_workspace_role_to_decide() {
+        let mut token = ApiToken {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            workspace_id: None,
+            name: "ci".into(),
+            prefix: "nw_abcdefg".into(),
+            scopes: vec![Scope::Read, Scope::Admin],
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            expires_at: None,
+            last_used_at: None,
+        };
+
+        assert_eq!(token.scopes_now(Role::User), [Scope::Read]);
+        assert_eq!(token.scopes_now(Role::Admin), [Scope::Read, Scope::Admin]);
+        token.workspace_id = Some(Uuid::nil());
+        assert_eq!(token.scopes_now(Role::User), [Scope::Read, Scope::Admin]);
     }
 }

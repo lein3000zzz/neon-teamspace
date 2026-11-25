@@ -568,7 +568,7 @@ async fn shares_are_listed_with_those_inherited_from_above(pool: PgPool) {
             (t.dee.user.id, above, PageAccess::View, true),
         ]
     );
-    assert_eq!(listed[0].person.email, "gus@example.com");
+    assert_eq!(listed[0].person.email.as_deref(), Some("gus@example.com"));
     assert_eq!(
         t.h.pages.shares(&t.cy, above).await.expect("listed").len(),
         1

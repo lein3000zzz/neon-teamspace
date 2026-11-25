@@ -9,12 +9,11 @@ use neon_domain::pages::Placement;
 use neon_domain::workspaces::Action;
 use neon_store::favorites::{self as repo, ALREADY_FAVORITE};
 use neon_store::is_unique_violation;
-use neon_store::pages;
 use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{PageError, PageService, PageView, hide_parents, key_in, renumbered, seen};
+use super::{Facts, PageError, PageService, PageView, hide_parents, key_in, renumbered};
 
 const NOT_FAVORITE: &str = "this page is not among your favorites";
 
@@ -31,17 +30,12 @@ impl PageService {
             let mut conn = self.pool().acquire().await?;
             let order = repo::positions(&mut *conn, user, workspace_id, None).await?;
             let ids: Vec<Uuid> = order.iter().map(|(id, _)| *id).collect();
-            let facts: HashMap<_, _> = pages::facts(&mut *conn, &ids, user)
+            let mut seen: HashMap<Uuid, Option<PageView>> = Facts::read(&mut conn, principal, &ids)
                 .await?
-                .into_iter()
-                .map(|facts| (facts.page.id, facts))
-                .collect();
+                .seen(principal)?;
             let mut list = Vec::new();
             for id in ids {
-                let Some(facts) = facts.get(&id) else {
-                    continue;
-                };
-                if let Some(view) = seen(principal, facts)?
+                if let Some(view) = seen.remove(&id).flatten()
                     && !view.page.is_trashed()
                 {
                     list.push(view);

@@ -104,7 +104,11 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
                 role: Role::Admin,
             };
             let user = runtime::create_admin(loaded, account).await?;
-            print(&format!("created the admin {} ({})\n", user.email, user.id))
+            print(&format!(
+                "created the admin {} ({})\n",
+                user.address(),
+                user.id
+            ))
         }
         Command::Openapi { out: Some(path) } => std::fs::write(&path, http::spec_json())
             .with_context(|| format!("writing {}", path.display())),

@@ -6,6 +6,7 @@
 #[macro_use]
 mod text_enum;
 
+pub mod agents;
 pub mod auth;
 pub mod databases;
 pub mod duration;

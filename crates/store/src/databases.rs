@@ -6,6 +6,8 @@
 //! rules write. A change sets or removes single keys of it, so changes to different
 //! properties never undo one another.
 
+use neon_domain::agents::attribution;
+use neon_domain::auth::UserKind;
 use neon_domain::databases::{Layout, Property, PropertyType};
 use neon_domain::pages::{Page, PageAccess};
 use serde_json::Value as Json;
@@ -15,6 +17,7 @@ use uuid::Uuid;
 
 use crate::decode_error;
 use crate::pages::parse_access;
+use crate::users::parse_kind;
 
 /// A database page's own data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,35 +579,50 @@ pub async fn remove_cells_of(
     Ok(result.rows_affected())
 }
 
-/// Which of `ids` are members of the workspace.
+/// Which of `ids` are members of the workspace, with what each is.
 pub async fn members_among(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
     ids: &[Uuid],
-) -> sqlx::Result<Vec<Uuid>> {
-    sqlx::query_scalar!(
-        "SELECT user_id FROM workspace_members WHERE workspace_id = $1 AND user_id = ANY($2)",
+) -> sqlx::Result<Vec<(Uuid, UserKind)>> {
+    sqlx::query!(
+        "SELECT user_id, kind FROM workspace_members WHERE workspace_id = $1 AND user_id = ANY($2)",
         workspace_id,
         ids,
     )
     .fetch_all(executor)
-    .await
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.user_id, parse_kind(&row.kind)?)))
+    .collect()
 }
 
-/// The display names of a workspace's members, by id.
+/// How a workspace's content names whom it names, by id: its members, people by their
+/// name and agents and integrations with their owner's, and its agents and integrations
+/// deleted since, marked so.
 pub async fn member_names(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
 ) -> sqlx::Result<Vec<(Uuid, String)>> {
     Ok(sqlx::query!(
-        "SELECT u.id, u.display_name FROM workspace_members m JOIN users u ON u.id = m.user_id
-         WHERE m.workspace_id = $1",
+        r#"SELECT u.id, u.kind, u.display_name, o.display_name AS "owner_name?",
+                  u.deleted_at IS NOT NULL AS "deleted!"
+           FROM users u LEFT JOIN users o ON o.id = u.owner_id
+           WHERE u.workspace_id = $1
+              OR u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id = $1)"#,
         workspace_id,
     )
     .fetch_all(executor)
     .await?
     .into_iter()
-    .map(|row| (row.id, row.display_name))
+    .map(|row| {
+        let name = if row.kind == UserKind::Human.as_str() {
+            row.display_name
+        } else {
+            attribution(&row.display_name, row.owner_name.as_deref(), row.deleted)
+        };
+        (row.id, name)
+    })
     .collect())
 }
 

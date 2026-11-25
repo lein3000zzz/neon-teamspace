@@ -521,8 +521,8 @@ impl Inner {
     async fn concerned(&self, changes: &[AccessChange]) -> Vec<Recheck> {
         let mut found: HashMap<ClientId, Recheck> = HashMap::new();
         for change in changes {
-            let candidates = self
-                .followers(|workspace, principal| change.concerns(workspace, principal.user.id));
+            let candidates =
+                self.followers(|workspace, principal| change.concerns(workspace, principal));
             let candidates = match change.subtree() {
                 Some(root) if !candidates.is_empty() => self.within(root, candidates).await,
                 _ => candidates,

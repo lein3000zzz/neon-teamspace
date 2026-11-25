@@ -4,6 +4,7 @@
 mod account;
 mod admin;
 mod admin_workspaces;
+mod agents;
 mod auth;
 mod database_live;
 mod database_rows;
@@ -40,7 +41,7 @@ use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
-use neon_app::workspaces::WorkspaceService;
+use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
 use neon_observability::http::HttpLayer;
 use tower::ServiceBuilder;
@@ -64,6 +65,7 @@ pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
+    pub agents: AgentService,
     pub pages: PageService,
     pub sync: SyncService,
     pub databases: DatabaseService,
@@ -144,6 +146,18 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(workspaces::revoke_invite_link))
         .routes(routes!(workspaces::preview_invite_link))
         .routes(routes!(workspaces::join_with_link))
+        .routes(routes!(agents::list_agents, agents::create_agent))
+        .routes(routes!(
+            agents::get_agent,
+            agents::update_agent,
+            agents::delete_agent
+        ))
+        .routes(routes!(agents::transfer_agent))
+        .routes(routes!(
+            agents::list_agent_tokens,
+            agents::create_agent_token
+        ))
+        .routes(routes!(agents::revoke_agent_token))
         .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
@@ -329,6 +343,8 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
     }
 }
 
+#[cfg(test)]
+mod agents_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

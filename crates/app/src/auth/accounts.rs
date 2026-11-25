@@ -2,7 +2,7 @@
 
 use neon_domain::auth::invite::{MAX_CODE_INPUT, lookup_form};
 use neon_domain::auth::{
-    Email, Invite, Preferences, Principal, RegistrationMode, Role, User, display_name,
+    Email, Invite, Preferences, Principal, RegistrationMode, Role, User, UserKind, display_name,
 };
 use neon_domain::hue::check_hue;
 use neon_domain::settings::Secret;
@@ -93,7 +93,8 @@ impl AuthService {
         let must_verify = self.verifying() && bound.is_none();
         let user = User {
             id: Uuid::now_v7(),
-            email,
+            kind: UserKind::Human,
+            email: Some(email.clone()),
             display_name: name,
             role: Role::User,
             hue_override: None,
@@ -101,11 +102,13 @@ impl AuthService {
             disabled_at: None,
             created_at: now,
             updated_at: now,
+            workspace_id: None,
+            owner_id: None,
         };
 
         let mut tx = self.pool().begin().await?;
-        replace_unverified(&mut tx, &user.email).await?;
-        users::insert(&mut *tx, &user, &hash)
+        replace_unverified(&mut tx, &email).await?;
+        users::insert(&mut *tx, &user, &email, &hash)
             .await
             .map_err(email_taken)?;
         if let Some(invite) = &invite
@@ -215,7 +218,8 @@ impl AuthService {
         let now = self.now();
         let user = User {
             id: Uuid::now_v7(),
-            email,
+            kind: UserKind::Human,
+            email: Some(email.clone()),
             display_name: name,
             role: account.role,
             hue_override: None,
@@ -223,8 +227,10 @@ impl AuthService {
             disabled_at: None,
             created_at: now,
             updated_at: now,
+            workspace_id: None,
+            owner_id: None,
         };
-        users::insert(self.pool(), &user, &hash)
+        users::insert(self.pool(), &user, &email, &hash)
             .await
             .map_err(email_taken)?;
         Ok(user)
@@ -299,9 +305,12 @@ impl AuthService {
     ) -> Result<User, AuthError> {
         self.observe("update_profile", async {
             let user = &principal.user;
+            let email = user.email.as_ref().ok_or(AuthError::Forbidden(
+                "an agent's or integration's name and hue change in its workspace",
+            ))?;
             let name = update
                 .display_name
-                .map(|name| display_name(Some(&name), &user.email))
+                .map(|name| display_name(Some(&name), email))
                 .transpose()
                 .map_err(AuthError::invalid)?;
             let hue = update

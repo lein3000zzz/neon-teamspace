@@ -1,0 +1,192 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain (id, parent_id, depth) AS (\n               SELECT id, parent_id, 0 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT p.id, p.parent_id, c.depth + 1\n               FROM chain c JOIN pages p ON p.id = c.parent_id\n               WHERE c.depth < $2\n           )\n           SELECT s.page_id, s.workspace_id, s.user_id, s.access, s.created_by, s.created_at,\n                  s.updated_at, u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  c.depth AS \"depth!\"\n           FROM chain c\n           JOIN page_shares s ON s.page_id = c.id\n           JOIN users u ON u.id = s.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           ORDER BY c.depth, lower(u.display_name), u.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "access",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "access"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "page_shares",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "owner_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "owner_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "owner_hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "depth!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "9b7eadd0a8d1fd83167c5a7db936fbfa2637df3e9bfc7ac4bbdeee58ca3cd0b1"
+}

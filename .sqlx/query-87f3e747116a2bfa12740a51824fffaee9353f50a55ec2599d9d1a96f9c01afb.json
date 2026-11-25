@@ -1,0 +1,144 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id, u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  m.role, m.joined_at,\n                  (u.kind <> 'human' AND NOT EXISTS (\n                      SELECT 1 FROM workspace_members om JOIN users ou ON ou.id = om.user_id\n                      WHERE om.workspace_id = m.workspace_id AND om.user_id = u.owner_id\n                        AND ou.disabled_at IS NULL\n                  )) AS \"suspended!\"\n           FROM workspace_members m\n           JOIN users u ON u.id = m.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE m.workspace_id = $1 AND m.user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "owner_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "owner_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "owner_hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_members",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "joined_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_members",
+            "name": "joined_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "suspended!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "87f3e747116a2bfa12740a51824fffaee9353f50a55ec2599d9d1a96f9c01afb"
+}

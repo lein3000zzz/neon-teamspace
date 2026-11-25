@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use neon_domain::agents::IdentityMode;
 use neon_domain::auth::invite::MAX_LIFETIME;
 use neon_domain::auth::password::{DEFAULT_MIN_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH_BOUNDS};
 use neon_domain::auth::{Email, RegistrationMode, session};
@@ -72,8 +73,17 @@ pub mod workspaces {
     pub const LIMIT_MEMBERS: Key<i64> = Key::new("workspaces.limits.members");
     /// The most bytes a workspace's attachments take; 0 is no limit.
     pub const LIMIT_STORAGE_BYTES: Key<i64> = Key::new("workspaces.limits.storage_bytes");
-    /// The most agents a workspace has; 0 is no limit.
+    /// The most agents and integrations a workspace has; 0 is no limit.
     pub const LIMIT_AGENTS: Key<i64> = Key::new("workspaces.limits.agents");
+}
+
+/// Whom MCP clients act as, and so whether agents exist.
+pub mod mcp {
+    use neon_domain::settings::Key;
+
+    /// Whom MCP clients may act as: the person who connects them, `user`, one of their
+    /// agents, `agent`, or both.
+    pub const IDENTITIES: Key<[String]> = Key::new("mcp.identities");
 }
 
 /// Pages: how long the trash keeps them.
@@ -338,11 +348,22 @@ pub fn registry() -> Registry {
             Definition::integer(
                 workspaces::LIMIT_AGENTS,
                 0,
-                "The most agents a workspace has, unless an instance admin sets its own limit; \
-                 0 is no limit. Kept for agents, which are not built yet.",
+                "The most agents and integrations a workspace has together, unless an \
+                 instance admin sets its own limit; 0 is no limit. A workspace at its limit \
+                 makes no more; none it has is removed. People count against \
+                 workspaces.limits.members instead.",
             )
             .check(not_negative),
         )
+        .define(Definition::set(
+            mcp::IDENTITIES,
+            IdentityMode::OPTIONS,
+            IdentityMode::DEFAULT,
+            "Whom MCP clients may act as: the person who connects them (user), one of that \
+             person's agents (agent), or both. Without agent, nobody makes agents and every \
+             agent's API tokens are refused; the agents made stay, and work again once it is \
+             back.",
+        ))
         .define(
             Definition::duration(
                 pages::TRASH_RETENTION,
@@ -458,6 +479,7 @@ mod tests {
         assert_eq!(*snapshot.get(workspaces::LIMIT_MEMBERS), 0);
         assert_eq!(*snapshot.get(workspaces::LIMIT_STORAGE_BYTES), 0);
         assert_eq!(*snapshot.get(workspaces::LIMIT_AGENTS), 0);
+        assert_eq!(snapshot.get(mcp::IDENTITIES), ["user", "agent"]);
         assert_eq!(
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
@@ -519,6 +541,10 @@ mod tests {
             "must be between 1h and 3650d"
         );
         assert_eq!(refuse("mail.tls", "ssl"), "want one of starttls, tls, none");
+        assert_eq!(
+            refuse("mcp.identities", "user,people"),
+            "want a list of some of user, agent"
+        );
         assert!(refuse("mail.host", "smtp.example.com:587").starts_with("want a host alone"));
         assert_eq!(
             refuse("mail.from", "Neon <neon@example.com>"),

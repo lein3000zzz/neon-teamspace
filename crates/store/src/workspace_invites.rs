@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::decode_error;
-use crate::users::parse_hue;
+use crate::users::PersonColumns;
 use crate::workspaces::{Row as WorkspaceRow, parse_role};
 
 /// The index an insert breaks when the account has a pending invitation to the workspace.
@@ -115,7 +115,7 @@ pub async fn pending_for_workspace(
     sqlx::query!(
         "SELECT i.id, i.workspace_id, i.user_id, i.role, i.invited_by, i.created_at,
                 i.expires_at, i.state, i.decided_at,
-                u.display_name, u.email, u.hue
+                u.kind, u.display_name, u.email, u.hue
          FROM workspace_invitations i JOIN users u ON u.id = i.user_id
          WHERE i.workspace_id = $1 AND i.state = 'pending' AND i.expires_at > $2
          ORDER BY i.created_at DESC, i.id DESC",
@@ -126,12 +126,16 @@ pub async fn pending_for_workspace(
     .await?
     .into_iter()
     .map(|row| {
-        let invitee = Person {
+        let invitee = Person::try_from(PersonColumns {
             id: row.user_id,
+            kind: row.kind,
             display_name: row.display_name,
             email: row.email,
-            hue_override: parse_hue(row.hue)?,
-        };
+            hue: row.hue,
+            owner_id: None,
+            owner_name: None,
+            owner_hue: None,
+        })?;
         let invitation = Invitation::try_from(InvitationRow {
             id: row.id,
             workspace_id: row.workspace_id,
@@ -159,10 +163,11 @@ pub async fn pending_for_user(
         r#"SELECT i.id, i.workspace_id, i.user_id, i.role, i.invited_by, i.created_at,
                   i.expires_at, i.state, i.decided_at,
                   w.name, w.slug, w.icon, w.hue, w.members_can_create_teamspaces,
+                  w.agents_enabled, w.agent_creation,
                   w.created_by AS workspace_created_by, w.created_at AS workspace_created_at,
                   w.updated_at AS workspace_updated_at,
-                  u.display_name AS "inviter_name?", u.email AS "inviter_email?",
-                  u.hue AS inviter_hue
+                  u.kind AS "inviter_kind?", u.display_name AS "inviter_name?",
+                  u.email AS inviter_email, u.hue AS inviter_hue
            FROM workspace_invitations i
            JOIN workspaces w ON w.id = i.workspace_id
            LEFT JOIN users u ON u.id = i.invited_by
@@ -182,17 +187,23 @@ pub async fn pending_for_user(
             icon: row.icon,
             hue: row.hue,
             members_can_create_teamspaces: row.members_can_create_teamspaces,
+            agents_enabled: row.agents_enabled,
+            agent_creation: row.agent_creation,
             created_by: row.workspace_created_by,
             created_at: row.workspace_created_at,
             updated_at: row.workspace_updated_at,
         })?;
-        let inviter = match (row.invited_by, row.inviter_name, row.inviter_email) {
-            (Some(id), Some(display_name), Some(email)) => Some(Person {
+        let inviter = match (row.invited_by, row.inviter_kind, row.inviter_name) {
+            (Some(id), Some(kind), Some(display_name)) => Some(Person::try_from(PersonColumns {
                 id,
+                kind,
                 display_name,
-                email,
-                hue_override: parse_hue(row.inviter_hue)?,
-            }),
+                email: row.inviter_email,
+                hue: row.inviter_hue,
+                owner_id: None,
+                owner_name: None,
+                owner_hue: None,
+            })?),
             _ => None,
         };
         let invitation = Invitation::try_from(InvitationRow {

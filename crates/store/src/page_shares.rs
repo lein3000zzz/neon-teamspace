@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::pages::{WALK_LIMIT, parse_access};
-use crate::users::parse_hue;
+use crate::users::PersonColumns;
 
 /// The constraint an insert breaks when the page is shared with that person already.
 pub const ALREADY_SHARED: &str = "page_shares_pkey";
@@ -94,6 +94,25 @@ pub async fn delete(
     Ok(result.rows_affected() == 1)
 }
 
+/// What each of `pages` is shared with `user_id` for, itself, without the shares of the
+/// pages above it: for those of them that are shared with them.
+pub async fn of_pages(
+    executor: impl PgExecutor<'_>,
+    pages: &[Uuid],
+    user_id: Uuid,
+) -> sqlx::Result<Vec<(Uuid, PageAccess)>> {
+    sqlx::query!(
+        "SELECT page_id, access FROM page_shares WHERE page_id = ANY($1) AND user_id = $2",
+        pages,
+        user_id,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.page_id, parse_access(&row.access)?)))
+    .collect()
+}
+
 /// A share as its page's list shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listed {
@@ -115,10 +134,13 @@ pub async fn on_chain(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Res
                WHERE c.depth < $2
            )
            SELECT s.page_id, s.workspace_id, s.user_id, s.access, s.created_by, s.created_at,
-                  s.updated_at, u.display_name, u.email, u.hue, c.depth AS "depth!"
+                  s.updated_at, u.kind, u.display_name, u.email, u.hue,
+                  o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
+                  c.depth AS "depth!"
            FROM chain c
            JOIN page_shares s ON s.page_id = c.id
            JOIN users u ON u.id = s.user_id
+           LEFT JOIN users o ON o.id = u.owner_id
            ORDER BY c.depth, lower(u.display_name), u.id"#,
         page_id,
         WALK_LIMIT,
@@ -137,12 +159,16 @@ pub async fn on_chain(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Res
                 created_at: row.created_at,
                 updated_at: row.updated_at,
             },
-            person: Person {
+            person: Person::try_from(PersonColumns {
                 id: row.user_id,
+                kind: row.kind,
                 display_name: row.display_name,
                 email: row.email,
-                hue_override: parse_hue(row.hue)?,
-            },
+                hue: row.hue,
+                owner_id: row.owner_id,
+                owner_name: row.owner_name,
+                owner_hue: row.owner_hue,
+            })?,
             depth: row.depth,
         })
     })

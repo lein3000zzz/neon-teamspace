@@ -35,7 +35,7 @@ use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
-use neon_app::workspaces::{Cleanup as WorkspaceCleanup, WorkspaceService};
+use neon_app::workspaces::{AgentService, Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
 use neon_domain::settings::{Pinned, Secret};
@@ -258,6 +258,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .limiter(Arc::clone(&limiter))
         .access_changes(Arc::clone(&access))
         .build();
+    let agents = AgentService::new(workspaces.clone());
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .broadcaster(Arc::clone(&broadcaster))
@@ -292,6 +293,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             settings,
             auth,
             workspaces,
+            agents,
             pages,
             sync: live,
             databases,

@@ -18,7 +18,7 @@ use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
 };
 use neon_app::transfer::TransferService;
-use neon_app::workspaces::WorkspaceService;
+use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
@@ -109,6 +109,7 @@ async fn build_state(
         .envelope(envelope)
         .access_changes(Arc::clone(&listener))
         .build();
+    let agents = AgentService::new(workspaces.clone());
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
         .broadcaster(Arc::clone(&broadcaster))
@@ -126,6 +127,7 @@ async fn build_state(
         settings,
         auth,
         workspaces,
+        agents,
         pages,
         sync,
         databases,

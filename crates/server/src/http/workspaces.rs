@@ -3,7 +3,9 @@
 //!
 //! Every route needs a browser session or an API token: `read` for `GET`, `write` for the
 //! rest. Who may do what in a workspace is the workspace rules' to say; someone outside a
-//! workspace, an instance admin included, gets `not_found` for it.
+//! workspace, an instance admin included, gets `not_found` for it. A token bound to a
+//! workspace works on its own workspace's routes, and lists that workspace alone; making a
+//! workspace and joining one by link need a person's own session or token.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -11,6 +13,7 @@ use neon_app::workspaces::{
     Joined, LinkPreview, LinkSpec, NewWorkspace, SentInvitation as AppSentInvitation,
     WorkspaceDetails, WorkspaceUpdate,
 };
+use neon_domain::agents::AgentCreation as DomainAgentCreation;
 use neon_domain::settings::Secret;
 use neon_domain::workspaces::{self as domain};
 use serde::{Deserialize, Serialize};
@@ -23,7 +26,7 @@ use super::account::InvitingWorkspace;
 use super::dto::{InviteStatus, Person, TokenRequest, WorkspaceRole, nullable};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
-use super::principal::Authenticated;
+use super::principal::{Account, Authenticated};
 
 /// A workspace the caller is in, as their list shows it.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -76,6 +79,7 @@ pub struct EffectiveLimits {
     /// The most people in it, guests included.
     pub members: Option<u64>,
     pub storage_bytes: Option<u64>,
+    /// The most agents and integrations, together.
     pub agents: Option<u64>,
 }
 
@@ -89,6 +93,48 @@ impl From<domain::Limits> for EffectiveLimits {
     }
 }
 
+/// Who makes agents in a workspace: its owners and admins, or every member but guests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentCreation {
+    Admins,
+    Members,
+}
+
+impl From<DomainAgentCreation> for AgentCreation {
+    fn from(creation: DomainAgentCreation) -> Self {
+        match creation {
+            DomainAgentCreation::Admins => Self::Admins,
+            DomainAgentCreation::Members => Self::Members,
+        }
+    }
+}
+
+impl From<AgentCreation> for DomainAgentCreation {
+    fn from(creation: AgentCreation) -> Self {
+        match creation {
+            AgentCreation::Admins => Self::Admins,
+            AgentCreation::Members => Self::Members,
+        }
+    }
+}
+
+/// A workspace's agents as a whole: whether they work, and who makes them.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WorkspaceAgents {
+    /// Whether the instance has agents at all, as the setting `mcp.identities` says. Off,
+    /// none is made and their tokens are refused, whatever the workspace says.
+    pub available: bool,
+    /// Whether the workspace has its agents on. Off, none is made and their tokens are
+    /// refused.
+    pub enabled: bool,
+    pub creation: AgentCreation,
+    /// How many agents and integrations it has, deleted ones left out. Absent for a
+    /// guest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+}
+
 /// A workspace the caller is in.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Workspace {
@@ -96,10 +142,11 @@ pub struct Workspace {
     pub summary: WorkspaceSummary,
     /// Members, besides owners and admins, may create teamspaces.
     pub members_can_create_teamspaces: bool,
-    /// How many people are in it, guests included. Absent for a guest, who knows of no
-    /// member but themselves.
+    /// How many people are in it, guests included, agents and integrations left out.
+    /// Absent for a guest, who knows of no member but themselves.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_count: Option<i64>,
+    pub agents: WorkspaceAgents,
     pub limits: EffectiveLimits,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
@@ -111,6 +158,12 @@ impl From<WorkspaceDetails> for Workspace {
             summary: WorkspaceSummary::new(&details.workspace, details.role),
             members_can_create_teamspaces: details.workspace.members_can_create_teamspaces,
             member_count: details.members,
+            agents: WorkspaceAgents {
+                available: details.agents_on,
+                enabled: details.workspace.agents_enabled,
+                creation: details.workspace.agent_creation.into(),
+                count: details.agents,
+            },
             limits: details.limits.into(),
             updated_at: details.workspace.updated_at,
         }
@@ -185,7 +238,7 @@ pub struct CreateWorkspace {
         (status = CREATED, description = "The workspace.", body = Workspace),
         (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: only instance admins create workspaces here; or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "token_bound: a token bound to a workspace; or forbidden: only instance admins create workspaces here; or insufficient_scope.", body = ErrorBody),
         (status = CONFLICT, description = "slug_taken: another workspace has the slug given.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -193,7 +246,7 @@ pub struct CreateWorkspace {
 )]
 pub(super) async fn create_workspace(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<CreateWorkspace>,
 ) -> Result<(StatusCode, Json<Workspace>), ApiError> {
     let created = state
@@ -254,6 +307,13 @@ pub struct UpdateWorkspace {
     pub hue_override: Option<Option<i64>>,
     #[serde(default)]
     pub members_can_create_teamspaces: Option<bool>,
+    /// Turns the workspace's agents on or off. Off, none is made and every agent's tokens
+    /// are refused, its open connections closed.
+    #[serde(default)]
+    pub agents_enabled: Option<bool>,
+    /// Who makes agents in it.
+    #[serde(default)]
+    pub agent_creation: Option<AgentCreation>,
 }
 
 #[utoipa::path(
@@ -287,6 +347,8 @@ pub(super) async fn update_workspace(
         icon: body.icon,
         hue: body.hue_override,
         members_can_create_teamspaces: body.members_can_create_teamspaces,
+        agents_enabled: body.agents_enabled,
+        agent_creation: body.agent_creation.map(Into::into),
     };
     Ok(Json(
         state
@@ -341,9 +403,13 @@ pub(super) async fn delete_workspace(
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Member {
     pub user: Person,
+    /// An agent's or integration's is always member.
     pub role: WorkspaceRole,
     #[serde(with = "time::serde::rfc3339")]
     pub joined_at: OffsetDateTime,
+    /// An agent or integration whose owner is out of the workspace or disabled: its
+    /// tokens are refused until that ends, or it is handed to someone else. Never a person.
+    pub suspended: bool,
 }
 
 impl From<domain::Member> for Member {
@@ -352,6 +418,7 @@ impl From<domain::Member> for Member {
             user: member.person.into(),
             role: member.role.into(),
             joined_at: member.joined_at,
+            suspended: member.suspended,
         }
     }
 }
@@ -927,7 +994,7 @@ impl From<LinkPreview> for InviteLinkPreview {
         (status = OK, description = "What the link admits to.", body = InviteLinkPreview),
         (status = BAD_REQUEST, description = "invalid_invite_link: unknown, used up, expired or revoked.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "token_bound: a token bound to a workspace; or insufficient_scope.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -935,7 +1002,7 @@ impl From<LinkPreview> for InviteLinkPreview {
 )]
 pub(super) async fn preview_invite_link(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<TokenRequest>,
 ) -> Result<Json<InviteLinkPreview>, ApiError> {
     let preview = state
@@ -958,7 +1025,7 @@ pub(super) async fn preview_invite_link(
         (status = OK, description = "The workspace joined.", body = WorkspaceSummary),
         (status = BAD_REQUEST, description = "invalid_invite_link: unknown, used up, expired or revoked.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "token_bound: a token bound to a workspace; or insufficient_scope.", body = ErrorBody),
         (status = CONFLICT, description = "already_member, or member_limit.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -967,7 +1034,7 @@ pub(super) async fn preview_invite_link(
 )]
 pub(super) async fn join_with_link(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<TokenRequest>,
 ) -> Result<Json<WorkspaceSummary>, ApiError> {
     let joined = state

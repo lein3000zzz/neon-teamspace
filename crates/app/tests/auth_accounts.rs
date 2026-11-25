@@ -56,7 +56,7 @@ async fn open_registration_makes_a_verified_account_with_an_argon2id_hash(pool: 
         .expect("registers");
 
     let user = &registration.user;
-    assert_eq!(user.email.as_str(), "Ada@Example.com");
+    assert_eq!(user.address(), "Ada@Example.com");
     assert_eq!(user.display_name, "Ada Lovelace");
     assert_eq!(user.role, Role::User);
     assert!(user.is_verified());
@@ -521,7 +521,7 @@ async fn tokens_cannot_change_passwords(pool: PgPool) {
     let (session, _) = h.sign_in("ada@example.com").await;
     let (token, _) = h
         .auth
-        .create_api_token(&session, "ci", None, &["write"])
+        .create_api_token(&session, "ci", None, &["write"], None)
         .await
         .expect("a token");
     let principal = h

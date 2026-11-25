@@ -24,11 +24,22 @@
 //! A page in the trash shows only to those who could edit it, to restore it or delete it
 //! for good.
 //!
+//! An agent or an integration acts for its owner, a person in the same workspace, and may
+//! do only what both may: what its own role, teamspaces and shares allow it, and what its
+//! owner's allow them, asked of the same resource as the owner stands to it
+//! ([`OwnerStanding`]). What one of the two may not know of stays hidden; what one may not
+//! do is forbidden. Joining a teamspace asks the owner to see it in full, and leaving one
+//! asks nothing of them. Agents and integrations work in the workspace and never manage
+//! it: they change no member, teamspace setting or agent, invite nobody and make nothing
+//! that would make them an owner.
+//!
 //! Instance admins have no part inside a workspace: being one counts only for the
 //! instance's own actions, listing workspaces, setting their limits and deleting them.
 //! In a workspace they are whatever their membership makes them, which may be nothing.
 
 use super::roles::{TeamspaceAccess, TeamspaceRole, WorkspaceCreation, WorkspaceRole};
+use crate::agents::AgentCreation;
+use crate::auth::UserKind;
 use crate::pages::PageAccess;
 
 /// Who acts, as far as the rules need to know.
@@ -42,6 +53,48 @@ pub struct Actor {
     pub via_session: bool,
     /// Their role in the workspace concerned; `None` when they are not in it.
     pub role: Option<WorkspaceRole>,
+    /// Set when an agent or an integration acts: its owner, whose access bounds its own.
+    pub on_behalf_of: Option<OwnerStanding>,
+}
+
+impl Actor {
+    /// A person acting for themselves.
+    pub fn person(instance_admin: bool, via_session: bool, role: Option<WorkspaceRole>) -> Self {
+        Self {
+            instance_admin,
+            via_session,
+            role,
+            on_behalf_of: None,
+        }
+    }
+
+    /// Whether what is shown to the actor leaves out who else is in the workspace: see
+    /// [`members_hidden`].
+    pub fn members_hidden(&self) -> bool {
+        members_hidden(self.role, self.on_behalf_of.map(|owner| owner.role))
+    }
+}
+
+/// Whether what is shown leaves out who else is in the workspace, for someone with `role`
+/// there, acting for an owner with `owner_role` if any: for a guest, and for an agent or
+/// integration of a guest.
+pub fn members_hidden(
+    role: Option<WorkspaceRole>,
+    owner_role: Option<Option<WorkspaceRole>>,
+) -> bool {
+    let guest = |role: Option<WorkspaceRole>| role.is_some_and(|role| !role.joins_teamspaces());
+    guest(role) || owner_role.is_some_and(guest)
+}
+
+/// An agent's or integration's owner as the rules need to know them: their role in the
+/// workspace, and the resource acted on as they stand to it, with their own teamspace
+/// role, shares and so on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OwnerStanding {
+    /// `None` once they are out of the workspace.
+    pub role: Option<WorkspaceRole>,
+    /// The same resource the actor acts on, of the same kind, as the owner stands to it.
+    pub resource: Resource,
 }
 
 /// What an action is done to, with what the rules need to know of it.
@@ -51,8 +104,13 @@ pub enum Resource {
     Instance { creation: WorkspaceCreation },
     /// A workspace as a whole.
     Workspace { members_can_create_teamspaces: bool },
-    /// One member of the workspace: their role, and whether they are the actor.
-    Member { role: WorkspaceRole, is_actor: bool },
+    /// One member of the workspace: their role, what they are, and whether they are the
+    /// actor.
+    Member {
+        role: WorkspaceRole,
+        kind: UserKind,
+        is_actor: bool,
+    },
     /// A teamspace of the workspace, and the actor's role in it, if any.
     Teamspace {
         access: TeamspaceAccess,
@@ -67,6 +125,24 @@ pub enum Resource {
         shared: Option<PageAccess>,
         trashed: bool,
     },
+    /// The workspace's agents as a whole, for making them: whether agents are on, on the
+    /// instance and in the workspace, and who makes them there.
+    Agents {
+        instance: bool,
+        workspace: bool,
+        creation: AgentCreation,
+    },
+    /// One agent or integration of the workspace, and whether the actor owns it.
+    Agent { kind: UserKind, own: bool },
+}
+
+/// Someone added to a teamspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Newcomer {
+    /// A person, whose role in the workspace is this.
+    Person(WorkspaceRole),
+    /// An agent or integration; `own` when the actor owns it.
+    Delegate { own: bool },
 }
 
 /// Where pages are, as the rules need to know of it.
@@ -140,9 +216,10 @@ pub enum Action {
     },
     DeleteTeamspace,
     ListTeamspaceMembers,
-    /// Adding a member of the workspace whose role there is `workspace_role`.
+    /// Adding a member of the workspace: a person, or an agent or integration, which its
+    /// owner adds only to teamspaces they are in themselves.
     AddTeamspaceMember {
-        workspace_role: WorkspaceRole,
+        newcomer: Newcomer,
     },
     RemoveTeamspaceMember,
     ChangeTeamspaceRole,
@@ -171,6 +248,25 @@ pub enum Action {
     ListShares,
     /// Sharing it with a member or guest, changing what a share gives, or removing one.
     SharePage,
+
+    // On the workspace's agents.
+    /// Making an agent, which the maker owns.
+    CreateAgent,
+
+    // On an agent or integration.
+    /// Its name, owner and status.
+    ViewAgent,
+    /// Its name and hue, which only its owner changes.
+    UpdateAgent,
+    /// Handing it to another person of the workspace, who owns it from then on.
+    TransferAgent,
+    DeleteAgent,
+    /// Its tokens, without their secrets.
+    ListAgentTokens,
+    /// From a browser session, by its owner alone.
+    CreateAgentToken,
+    /// From a browser session.
+    RevokeAgentToken,
 }
 
 /// Why an action is refused.
@@ -190,6 +286,127 @@ const NOT_APPLICABLE: Denied = Forbidden("this cannot be done to that");
 
 /// Whether `actor` may do `action` to `resource`.
 pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(), Denied> {
+    match actor.on_behalf_of {
+        None => decide(actor, action, resource),
+        Some(owner) => on_behalf(actor, owner, action, resource),
+    }
+}
+
+const DELEGATES_MANAGE_NOTHING: Denied = Forbidden(
+    "agents and integrations work in the workspace and never manage it, its members, its \
+     teamspaces or its agents",
+);
+
+const OWNER_MAY_NOT: Denied = Forbidden(
+    "an agent or integration does only what its owner may, and its owner may not do this",
+);
+
+/// What an agent's owner must be allowed for the agent to do an action.
+enum OwnerCheck {
+    /// The same action, on the resource as they stand to it.
+    Same,
+    /// Another action instead.
+    Instead(Action),
+    /// Only that they are in the workspace.
+    InWorkspace,
+}
+
+fn owner_check(action: Action) -> OwnerCheck {
+    match action {
+        // To join a teamspace, the owner must see it in full.
+        Action::JoinTeamspace => OwnerCheck::Instead(Action::ViewTeamspace),
+        // Leaving one only narrows what the agent may do.
+        Action::LeaveTeamspace => OwnerCheck::InWorkspace,
+        _ => OwnerCheck::Same,
+    }
+}
+
+/// What agents and integrations never do, whatever their owner may.
+fn delegates_never(action: Action) -> bool {
+    matches!(
+        action,
+        Action::UpdateWorkspace
+            | Action::DeleteWorkspace
+            | Action::Leave
+            | Action::Invite { .. }
+            | Action::ManageInvitations
+            | Action::CreateInviteLink { .. }
+            | Action::ManageInviteLinks
+            | Action::CreateTeamspace
+            | Action::ChangeRole { .. }
+            | Action::RemoveMember
+            | Action::TransferOwnership
+            | Action::UpdateTeamspace
+            | Action::ChangeTeamspaceAccess { .. }
+            | Action::DeleteTeamspace
+            | Action::AddTeamspaceMember { .. }
+            | Action::RemoveTeamspaceMember
+            | Action::ChangeTeamspaceRole
+            | Action::CreateAgent
+            | Action::UpdateAgent
+            | Action::TransferAgent
+            | Action::DeleteAgent
+            | Action::ListAgentTokens
+            | Action::CreateAgentToken
+            | Action::RevokeAgentToken
+    )
+}
+
+/// An agent or integration acting for `owner`: what it may do as a member itself, and
+/// what its owner may, both. Hidden from either stays hidden, so that what an agent may not
+/// do never tells it what it may not know.
+fn on_behalf(
+    actor: Actor,
+    owner: OwnerStanding,
+    action: Action,
+    resource: Resource,
+) -> Result<(), Denied> {
+    if matches!(resource, Resource::Instance { .. }) {
+        return Err(Forbidden(
+            "an agent or integration works inside its own workspace only",
+        ));
+    }
+    if std::mem::discriminant(&resource) != std::mem::discriminant(&owner.resource) {
+        return Err(NOT_APPLICABLE);
+    }
+    // Either out of the workspace, it may know nothing of it.
+    let (Some(_), Some(owner_role)) = (actor.role, owner.role) else {
+        return Err(Hidden);
+    };
+    if let Resource::Pages {
+        space: PageSpace::Private { own: true },
+    } = resource
+    {
+        return Err(Forbidden(
+            "an agent or integration has no private pages: its owner could not see them",
+        ));
+    }
+    let itself = Actor::person(false, actor.via_session, actor.role);
+    let mine = decide(itself, action, resource);
+    let them = Actor::person(false, actor.via_session, Some(owner_role));
+    let theirs = match owner_check(action) {
+        OwnerCheck::Same => decide(them, action, owner.resource),
+        OwnerCheck::Instead(instead) => decide(them, instead, owner.resource),
+        OwnerCheck::InWorkspace => Ok(()),
+    }
+    .map_err(|denied| match denied {
+        Hidden => Hidden,
+        Forbidden(_) => OWNER_MAY_NOT,
+    });
+    let both = match (mine, theirs) {
+        (Err(Hidden), _) | (_, Err(Hidden)) => Err(Hidden),
+        (Err(denied), _) | (_, Err(denied)) => Err(denied),
+        (Ok(()), Ok(())) => Ok(()),
+    };
+    if delegates_never(action) && both != Err(Hidden) {
+        Err(DELEGATES_MANAGE_NOTHING)
+    } else {
+        both
+    }
+}
+
+/// The rules for a person, or for an agent's or integration's own part.
+fn decide(actor: Actor, action: Action, resource: Resource) -> Result<(), Denied> {
     match resource {
         Resource::Instance { creation } => on_instance(actor, action, creation),
         Resource::Workspace {
@@ -200,9 +417,18 @@ pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(),
             action,
             members_can_create_teamspaces,
         ),
-        Resource::Member { role, is_actor } => {
-            on_member(member(actor)?, actor.via_session, action, role, is_actor)
-        }
+        Resource::Member {
+            role,
+            kind,
+            is_actor,
+        } => on_member(
+            member(actor)?,
+            actor.via_session,
+            action,
+            role,
+            kind,
+            is_actor,
+        ),
         Resource::Teamspace { access, membership } => {
             on_teamspace(member(actor)?, action, access, membership)
         }
@@ -212,6 +438,14 @@ pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(),
             shared,
             trashed,
         } => on_page(member(actor)?, action, space, shared, trashed),
+        Resource::Agents {
+            instance,
+            workspace,
+            creation,
+        } => on_agents(member(actor)?, action, instance, workspace, creation),
+        Resource::Agent { kind, own } => {
+            on_agent(member(actor)?, actor.via_session, action, kind, own)
+        }
     }
 }
 
@@ -307,6 +541,32 @@ fn on_workspace(
 }
 
 fn on_member(
+    role: WorkspaceRole,
+    via_session: bool,
+    action: Action,
+    target: WorkspaceRole,
+    kind: UserKind,
+    is_actor: bool,
+) -> Result<(), Denied> {
+    on_person(role, via_session, action, target, is_actor)?;
+    if kind.is_human() {
+        return Ok(());
+    }
+    match action {
+        Action::ChangeRole { .. } => Err(Forbidden(
+            "an agent's or integration's role in its workspace is always member",
+        )),
+        Action::RemoveMember => Err(Forbidden(
+            "an agent or integration is deleted, not removed: it belongs to this workspace \
+             alone",
+        )),
+        Action::TransferOwnership => Err(Forbidden("ownership goes to a person")),
+        _ => Ok(()),
+    }
+}
+
+/// The rules on a member as a person, whatever they are.
+fn on_person(
     role: WorkspaceRole,
     via_session: bool,
     action: Action,
@@ -421,10 +681,15 @@ fn on_teamspace(
             TeamspaceAccess::Default => Err(Forbidden("the default teamspace cannot be deleted")),
             _ => allow_if(owns, OWNERS_ONLY),
         },
-        Action::AddTeamspaceMember { workspace_role } => match access {
-            TeamspaceAccess::Default => Err(IN_THE_DEFAULT),
+        Action::AddTeamspaceMember { newcomer } => match (access, newcomer) {
+            (TeamspaceAccess::Default, _) => Err(IN_THE_DEFAULT),
+            (_, Newcomer::Delegate { own: true }) => allow_if(
+                membership.is_some(),
+                Forbidden("you add your agent only to teamspaces you are in yourself"),
+            ),
             _ if !owns => Err(OWNERS_ONLY),
-            _ => allow_if(
+            (_, Newcomer::Delegate { own: false }) => Ok(()),
+            (_, Newcomer::Person(workspace_role)) => allow_if(
                 workspace_role.joins_teamspaces(),
                 Forbidden("guests are in no teamspace: make them a member first"),
             ),
@@ -558,6 +823,77 @@ fn on_page(
     }
 }
 
+fn on_agents(
+    role: WorkspaceRole,
+    action: Action,
+    instance: bool,
+    workspace: bool,
+    creation: AgentCreation,
+) -> Result<(), Denied> {
+    match action {
+        Action::CreateAgent => {
+            if !role.joins_teamspaces() {
+                Err(Forbidden("guests make no agents"))
+            } else if !instance {
+                Err(Forbidden("agents are turned off on this instance"))
+            } else if !workspace {
+                Err(Forbidden("agents are turned off in this workspace"))
+            } else {
+                allow_if(
+                    creation == AgentCreation::Members || role.manages(),
+                    Forbidden("in this workspace only owners and admins make agents"),
+                )
+            }
+        }
+        _ => Err(NOT_APPLICABLE),
+    }
+}
+
+fn on_agent(
+    role: WorkspaceRole,
+    via_session: bool,
+    action: Action,
+    kind: UserKind,
+    own: bool,
+) -> Result<(), Denied> {
+    const OWNER_OR_MANAGERS: Denied =
+        Forbidden("only its owner, and the workspace's owners and admins, may do this");
+    const TOKENS_NEED_SESSION: &str =
+        "managing an agent's tokens needs a browser session: API tokens cannot";
+
+    // Guests know of no member, agents included, theirs too.
+    if !role.joins_teamspaces() {
+        return Err(Hidden);
+    }
+    match action {
+        Action::ViewAgent => Ok(()),
+        Action::UpdateAgent => allow_if(own, Forbidden("only its owner renames or recolours it")),
+        Action::TransferAgent => allow_if(
+            role.manages(),
+            Forbidden("only the workspace's owners and admins hand an agent to someone else"),
+        ),
+        Action::DeleteAgent | Action::ListAgentTokens => {
+            allow_if(own || role.manages(), OWNER_OR_MANAGERS)
+        }
+        Action::CreateAgentToken => {
+            if kind == UserKind::Integration {
+                Err(Forbidden(
+                    "an integration works through its webhook, and has no tokens",
+                ))
+            } else if !own {
+                Err(Forbidden("only its owner makes an agent's tokens"))
+            } else {
+                needs_session(via_session, TOKENS_NEED_SESSION)
+            }
+        }
+        Action::RevokeAgentToken => {
+            allow_if(own || role.manages(), OWNER_OR_MANAGERS)?;
+            needs_session(via_session, TOKENS_NEED_SESSION)
+        }
+        _ => Err(NOT_APPLICABLE),
+    }
+}
+
 fn allow_if(allowed: bool, otherwise: Denied) -> Result<(), Denied> {
     if allowed { Ok(()) } else { Err(otherwise) }
 }
@@ -602,5 +938,7 @@ pub fn check_teamspace_owner_remains(
     }
 }
 
+#[cfg(test)]
+mod delegate_tests;
 #[cfg(test)]
 mod tests;
