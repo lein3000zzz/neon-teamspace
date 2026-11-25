@@ -38,9 +38,9 @@ const GRADIENTS = {
   dusk: [250, 345],
 } as const;
 
-/** A hue at the lightness and chroma the palette and mode give the accent. */
+/** A hue at the lightness and chroma the palette and mode give covers. */
 function tone(hue: number | string): string {
-  return `oklch(var(--accent-l) var(--accent-c) ${hue})`;
+  return `oklch(var(--cover-l) var(--cover-c) ${hue})`;
 }
 
 function gradient(from: number | string, to: number | string): string {

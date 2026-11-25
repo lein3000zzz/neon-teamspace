@@ -15,6 +15,12 @@
  *
  * --glow-blur and --glow-alpha are zero in light modes: light stays flat, and
  * in dark only hue-carrying elements glow.
+ *
+ * Covers take --cover-l and --cover-c instead. The accent's lightness is set
+ * for text, and in dark modes it is high enough that a band of it across the
+ * top of a page glares; a cover is a fill under nothing but a button, so in
+ * dark modes it sits at mid lightness with less chroma, and in light modes it
+ * matches the accent.
  */
 
 /* Nothing: the pure black and white of lein3000.dev. Radius 0, because the
@@ -33,6 +39,8 @@
   --bad: oklch(52% 0.17 25);
   --accent-l: 50%;
   --accent-c: 0.18;
+  --cover-l: 50%;
+  --cover-c: 0.18;
   --accent-ink: #ffffff;
   --glow-blur: 0px;
   --glow-alpha: 0;
@@ -51,6 +59,8 @@
   --bad: oklch(68% 0.16 25);
   --accent-l: 82%;
   --accent-c: 0.19;
+  --cover-l: 52%;
+  --cover-c: 0.17;
   --accent-ink: #000000;
   --glow-blur: 14px;
   --glow-alpha: 0.55;
@@ -70,6 +80,8 @@
   --bad: oklch(52% 0.17 25);
   --accent-l: 48%;
   --accent-c: 0.16;
+  --cover-l: 48%;
+  --cover-c: 0.16;
   --accent-ink: #ffffff;
   --glow-blur: 0px;
   --glow-alpha: 0;
@@ -88,6 +100,8 @@
   --bad: oklch(68% 0.16 25);
   --accent-l: 80%;
   --accent-c: 0.17;
+  --cover-l: 50%;
+  --cover-c: 0.14;
   --accent-ink: #0e1013;
   --glow-blur: 12px;
   --glow-alpha: 0.5;
@@ -108,6 +122,8 @@
   --bad: oklch(50% 0.16 30);
   --accent-l: 47%;
   --accent-c: 0.15;
+  --cover-l: 47%;
+  --cover-c: 0.15;
   --accent-ink: #fffdf9;
   --glow-blur: 0px;
   --glow-alpha: 0;
@@ -126,6 +142,8 @@
   --bad: oklch(68% 0.15 30);
   --accent-l: 78%;
   --accent-c: 0.16;
+  --cover-l: 48%;
+  --cover-c: 0.11;
   --accent-ink: #1a1815;
   --glow-blur: 12px;
   --glow-alpha: 0.45;

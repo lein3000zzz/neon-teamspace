@@ -236,6 +236,10 @@ saturated, which is what reads as neon on a dark ground, and there, and only the
 elements that carry a hue glow: focus rings, live cursors, presence dots and the active
 card's border. Everything else stays flat.
 
+Page covers take their own pair, `--cover-l` and `--cover-c`: the accent's values in light
+modes, and a mid lightness with less chroma in dark modes, where a band at the accent's text
+lightness would glare across the top of the page.
+
 ### Hues of things
 
 Users, workspaces and teamspaces each have a hue of their own, worked out from their ID;
