@@ -66,8 +66,8 @@ describe("a database's live feed", () => {
     expect(afterFeedClose(4408)).toBe("later");
     expect(afterFeedClose(4429)).toBe("later");
     expect(afterFeedClose(1013)).toBe("later");
-    expect(afterFeedClose(1009)).toBe("failed");
-    expect(afterFeedClose(4400)).toBe("failed");
+    expect(afterFeedClose(1009)).toBe("again");
+    expect(afterFeedClose(4400)).toBe("again");
     expect(afterFeedClose(1012)).toBe("again");
     expect(afterFeedClose(1006)).toBe("again");
   });

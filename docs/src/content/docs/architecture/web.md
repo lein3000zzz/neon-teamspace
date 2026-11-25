@@ -205,8 +205,8 @@ workspace's key:
   message to the cache: a row's values and title, a row added, moved or trashed, the schema
   or a view to read again. On `ready`, as it connects and again as it reconnects, it reads the
   database and its rows afresh, beginning again any read already on its way, as that may have
-  begun before the feed heard every change. It tries again after a dropped connection, after a
-  pause for 1013, 4408 and 4429, and stops on 4401 and 4404, as
+  begun before the feed heard every change. It stops on 4401 and 4404, tries again after a
+  pause for 1013, 4408 and 4429, and soon after any other close, as
   [Real-time sync](/docs/architecture/realtime/#database-feeds) asks. It closes a moment after
   nothing shows the database any more, and the next view of it opens it afresh.
 - A change the server refuses shows above the views, named by its code where one says more

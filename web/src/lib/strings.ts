@@ -1454,7 +1454,6 @@ export const strings = {
         signedOut:
           "Your session ended, so others' changes stopped showing. Sign in again to go on.",
         accessLost: "You can no longer see this database, so its changes stopped showing.",
-        failed: "The database's live changes ended with an error. Reconnect to see them again.",
       },
       reconnect: "Reconnect",
     },

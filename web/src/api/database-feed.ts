@@ -23,11 +23,10 @@ import type { PageAccess } from "./pages";
 export type FeedStatus = "connecting" | "connected" | "reconnecting" | "closed";
 
 /**
- * Why the server ended the feed for good: the session ended (4401), the user
- * may no longer see the database (4404), or anything else that asking again
- * would not cure.
+ * Why the server ended the feed for good: the session ended (4401), or the
+ * user may no longer see the database (4404).
  */
-export type FeedClosedBy = "signedOut" | "accessLost" | "failed";
+export type FeedClosedBy = "signedOut" | "accessLost";
 
 export type FeedState = {
   status: FeedStatus;
@@ -69,11 +68,13 @@ export function feedServer(location: Pick<Location, "protocol" | "host">): strin
 }
 
 /**
- * What follows the server closing the feed with `code`: trying `again` soon,
- * trying `later`, after a longer pause, when it says the client fell behind
- * (4408), sent too much (4429) or there are too many connections (1013), or
- * stopping, for why it closed. Anything else, such as a restart (1012) or a
- * dropped connection, is tried again.
+ * What follows the server closing the feed with `code`, as the server's docs
+ * ask of a feed: stopping once the session ended (4401) or the database is
+ * no longer seen (4404); trying `later`, after a longer pause, when the
+ * client fell behind (4408), sent too much (4429) or there are too many
+ * connections (1013); and trying `again` soon after anything else, such as
+ * a restart (1012), a message too large (1009) or a dropped connection. A
+ * feed sends nothing, so nothing it sent is refused again.
  */
 export function afterFeedClose(code: number): "again" | "later" | FeedClosedBy {
   switch (code) {
@@ -85,12 +86,8 @@ export function afterFeedClose(code: number): "again" | "later" | FeedClosedBy {
     case 4408:
     case 4429:
       return "later";
-    case 1003:
-    case 1007:
-    case 1009:
-      return "failed";
     default:
-      return code >= 4400 && code < 4500 ? "failed" : "again";
+      return "again";
   }
 }
 
