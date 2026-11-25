@@ -55,6 +55,7 @@ use metrics::Unit;
 use neon_domain::auth::Principal;
 use neon_domain::pages::PageAccess;
 use neon_observability::red::Red;
+use neon_store::users;
 use sqlx::PgPool;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
@@ -278,6 +279,8 @@ pub struct Admission {
     page_id: Uuid,
     workspace_id: Uuid,
     access: PageAccess,
+    /// For an agent or integration, its owner's display name, which its presence shows.
+    owner: Option<String>,
     /// How many access changes were heard before the rules were asked.
     epoch: u64,
 }
@@ -332,9 +335,16 @@ impl SyncService {
             .pages
             .document_access(&principal, page_id)
             .await?;
+        let owner = match principal.user.owner_id {
+            Some(owner) if !principal.user.kind.is_human() => users::by_id(&self.inner.pool, owner)
+                .await?
+                .map(|owner| owner.display_name),
+            _ => None,
+        };
         Ok(Admission {
             workspace_id: view.page.workspace_id,
             access: view.access,
+            owner,
             principal,
             page_id,
             epoch,
@@ -360,6 +370,8 @@ impl SyncService {
                     id: user.id,
                     name: user.display_name.clone(),
                     hue: user.hue(),
+                    kind: user.kind,
+                    owner: admission.owner.clone(),
                 },
                 access: admission.access,
                 outbox: outbox.clone(),

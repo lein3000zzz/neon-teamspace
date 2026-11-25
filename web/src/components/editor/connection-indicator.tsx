@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { strings } from "@/lib/strings";
 import type { Connection } from "./connection-state";
+import { collaboratorLabel } from "./cursor";
 
 const copy = strings.pages.editor;
 
@@ -24,7 +25,7 @@ type ConnectionIndicatorProps = {
 export function ConnectionIndicator({ connection, readOnly }: ConnectionIndicatorProps) {
   const state = connection.status === "connected" && readOnly ? "readOnly" : connection.status;
   const live = connection.status === "connected";
-  const names = connection.peers.map((peer) => peer.name).join(", ");
+  const names = connection.peers.map(collaboratorLabel).join(", ");
   return (
     <div className="flex items-center gap-2">
       {connection.peers.length > 0 && (

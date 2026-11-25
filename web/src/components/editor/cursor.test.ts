@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { hueFor } from "@/lib/hue";
-import { cleanState, collaborator, collaboratorOf, renderCursor } from "./cursor";
+import {
+  cleanState,
+  collaborator,
+  collaboratorLabel,
+  collaboratorOf,
+  renderCursor,
+} from "./cursor";
 
 describe("collaboration cursors", () => {
   it("draws someone's caret and name in their hue, through the theme", () => {
@@ -77,5 +83,35 @@ describe("collaboration cursors", () => {
     const clean = cleanState({ user: { id: "bob", name: "B".repeat(5000), hue: 3 } });
     expect(clean).toHaveProperty("user.name", "B".repeat(100));
     expect(cleanState({ user: { id: "x".repeat(37), name: "Bob" } })).toEqual({});
+  });
+
+  it("names an agent with the person it acts for", () => {
+    const id = "0193a5b2-0000-7000-8000-00000000c0a1";
+    const scout = { id, name: "Scout", hue: 200, kind: "agent" as const, owner: "Ada" };
+
+    expect(collaboratorOf(scout)).toEqual(scout);
+    expect(cleanState({ user: scout })).toEqual({
+      user: { ...collaborator(id, "Scout", 200), kind: "agent", owner: "Ada" },
+    });
+    expect(
+      renderCursor({ ...scout, color: "#000000" }).querySelector(".bn-collaboration-cursor__label"),
+    ).toHaveTextContent("Scout · via Ada");
+    expect(collaboratorLabel(scout)).toBe("Scout · via Ada");
+    expect(collaboratorLabel({ name: "Hook", kind: "integration" })).toBe("Hook");
+    expect(collaboratorLabel({ name: "Bob" })).toBe("Bob");
+  });
+
+  it("keeps a person a person whatever kind a state claims", () => {
+    const user = { id: "bob", name: "Bob", hue: 3 };
+    expect(collaboratorOf({ ...user, kind: "robot", owner: "Ada" })).toEqual(user);
+    expect(collaboratorOf({ ...user, kind: "human", owner: "Ada" })).toEqual(user);
+    expect(collaboratorOf({ ...user, kind: "agent", owner: 7 })).toEqual({
+      ...user,
+      kind: "agent",
+    });
+    expect(collaboratorOf({ ...user, kind: "agent", owner: "A".repeat(500) })).toHaveProperty(
+      "owner",
+      "A".repeat(100),
+    );
   });
 });

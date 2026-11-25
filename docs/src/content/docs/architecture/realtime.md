@@ -85,13 +85,16 @@ at most 8 KiB of JSON, a cursor and a name; a larger one closes the connection w
 and one that is not JSON with `1007`.
 
 The server writes who the connection is into the `user` field of each state it passes on,
-whatever the client put there: the account's `id`, its display name as `name`, and its
-`hue`, as the API gives them. Nobody shows under another person's name, and no colour or
-other field a client makes up reaches the others' editors, which draw each cursor from its
-hue. A state that is not an object, such as `null` for a cursor that left, passes as it is.
+whatever the client put there: the account's `id`, its display name as `name`, its `hue`
+and its `kind`, `human`, `agent` or `integration`, as the API gives them, and for an agent
+or integration `owner`, the display name of the person it acts for. Nobody shows under
+another person's name, no agent shows as a person, and no colour or other field a client
+makes up reaches the others' editors, which draw each cursor from its hue and name an
+agent's `Scout · via Ada`. A state that is not an object, such as `null` for a cursor that
+left, passes as it is.
 
 ```json
-{ "user": { "id": "0193a5b2-0000-7000-8000-0000000000a1", "name": "Ada", "hue": 212 }, "cursor": null }
+{ "user": { "id": "0193a5b2-0000-7000-8000-0000000000a1", "name": "Ada", "hue": 212, "kind": "human" }, "cursor": null }
 ```
 
 A connection may send 20 awareness messages a second, with bursts of 100; past that, the

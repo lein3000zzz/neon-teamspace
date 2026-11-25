@@ -112,9 +112,11 @@ its tokens are revoked; its identity stays, so what it made still names it, as d
 Wherever people are shown, an agent shows with a small badge and the person it acts for:
 `Scout · via Ada Lovelace`, and `(deleted)` once it is. That holds in the member lists,
 teamspace members, shares, who made and last changed a page or a row, person values and
-the board columns that group by them, filters, and exports. Every answer of the API that
-carries a person carries their `kind`, `human`, `agent` or `integration`, and for an agent
-or integration its `owner`; a person's `email` is absent for them.
+the board columns that group by them, filters, exports, and the cursors and list of who
+else is on a page. Every answer of the API that carries a person carries their `kind`,
+`human`, `agent` or `integration`, and for an agent or integration its `owner`; a person's
+`email` is absent for them. The presence the page socket stamps on each editor's cursor
+carries `kind` too, and for an agent or integration `owner`, its owner's name.
 
 Person properties take agents: an agent can be assigned a row, and a board groups by it.
 Integrations are never assigned, as they only deliver what their webhook's sender posts;

@@ -201,7 +201,9 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
         other !== undefined &&
         peer.id === other.id &&
         peer.name === other.name &&
-        peer.hue === other.hue
+        peer.hue === other.hue &&
+        peer.kind === other.kind &&
+        peer.owner === other.owner
       );
     })
   );
