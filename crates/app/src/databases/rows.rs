@@ -606,7 +606,7 @@ impl DatabaseService {
     }
 
     /// A row the principal may see, with its values, and its schema.
-    pub(super) async fn load_row(
+    async fn load_row(
         &self,
         conn: &mut PgConnection,
         principal: &Principal,

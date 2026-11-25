@@ -23,7 +23,7 @@ use super::rows::{
     snapshot_view,
 };
 use super::schema::member_names;
-use super::{DatabaseError, DatabaseService, RowView, StoredRow, row_view};
+use super::{DatabaseError, DatabaseService, RowView, StoredRow, domain_row, row_view};
 use crate::pages::{Facts, in_workspace};
 
 /// The most tasks a list holds: the most recently changed.
@@ -48,6 +48,14 @@ pub struct Task {
     pub database_title: Option<String>,
     /// Its value of its database's status property, if it has one.
     pub status: Option<TaskStatus>,
+}
+
+/// A row with its properties, as [`DatabaseService::row_details`] tells it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowDetails {
+    pub row: RowView,
+    /// Every property of its database, in order, with the row's value as text, if any.
+    pub properties: Vec<(Property, Option<String>)>,
 }
 
 /// A status option.
@@ -285,17 +293,52 @@ impl DatabaseService {
         .await
     }
 
-    /// A row the caller sees, with its values, and the properties of its database, which
-    /// name its values.
+    /// A row the caller sees, with its values, and each property of its database with the
+    /// row's value of it as people read it: options and people by name, numbers in their
+    /// format. A guest's leave out the people.
     pub async fn row_details(
         &self,
         principal: &Principal,
         row_id: Uuid,
-    ) -> Result<(RowView, Vec<Property>), DatabaseError> {
+    ) -> Result<RowDetails, DatabaseError> {
         self.observe("get_row", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let (view, schema) = self.load_row(&mut conn, principal, row_id).await?;
-            Ok((view, schema.properties))
+            let context = row_context(self, &mut conn, principal, row_id).await?;
+            row_check(&context, Action::ViewPage)?;
+            let data = repo::row(&mut *conn, row_id)
+                .await?
+                .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
+            let schema = schema_of(&mut conn, data.database_id).await?;
+            let members_hidden = context.members_hidden();
+            let names = if members_hidden {
+                HashMap::new()
+            } else {
+                member_names(&mut conn, context.page().workspace_id).await?
+            };
+            let mut row = domain_row(&schema, context.page(), data.number, &data.cells);
+            if members_hidden {
+                row = row.without_people(&schema);
+            }
+            let texts = schema
+                .properties
+                .iter()
+                .map(|property| {
+                    let text = row
+                        .value(property)
+                        .map(|value| value.display(&property.ty, &names));
+                    (property.clone(), text.filter(|text| !text.is_empty()))
+                })
+                .collect();
+            let snapshot = Snapshot {
+                schema,
+                page: context.page().clone(),
+                number: data.number,
+                cells: data.cells,
+            };
+            Ok(RowDetails {
+                row: snapshot_view(&snapshot, data.database_id, &context),
+                properties: texts,
+            })
         })
         .await
     }

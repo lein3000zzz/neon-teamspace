@@ -13,6 +13,7 @@ use neon_app::auth::AuthError;
 use neon_app::databases::DatabaseError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
+use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
@@ -269,6 +270,29 @@ impl From<DatabaseError> for ApiError {
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, expected.code(), expected.to_string())
+            }
+        }
+    }
+}
+
+impl From<ContentError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the page. Others are
+    /// logged with their cause, and answer as internal errors, or as unavailable while the
+    /// server stops.
+    fn from(error: ContentError) -> Self {
+        match error {
+            ContentError::Page(error) => error.into(),
+            failed @ ContentError::Load(_) => {
+                tracing::error!(error = %failed, "a page's content use case failed");
+                Self::internal()
+            }
+            other => {
+                let status = match &other {
+                    ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                Self::new(status, other.code(), other.to_string())
             }
         }
     }

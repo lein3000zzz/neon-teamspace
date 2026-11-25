@@ -6,6 +6,7 @@ mod admin;
 mod admin_workspaces;
 mod agents;
 mod auth;
+mod content;
 mod database_live;
 mod database_rows;
 mod databases;
@@ -22,6 +23,7 @@ mod sync;
 mod teamspaces;
 mod transfer;
 mod web;
+mod whoami;
 mod workspaces;
 
 use std::sync::Arc;
@@ -89,6 +91,7 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(auth::check_invite))
         .routes(routes!(auth::request_to_join))
         .routes(routes!(auth::confirm_join))
+        .routes(routes!(whoami::whoami))
         .routes(routes!(account::get_me, account::update_me))
         .routes(routes!(account::change_password))
         .routes(routes!(
@@ -187,6 +190,8 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::trash_page))
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
+        .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(pages::recent_pages))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -216,9 +221,15 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(databases::duplicate_view))
         .routes(routes!(database_rows::query_rows))
         .routes(routes!(database_rows::create_row))
-        .routes(routes!(database_rows::row_by_unique_id))
+        .routes(routes!(
+            database_rows::row_by_unique_id,
+            database_rows::change_row_by_unique_id
+        ))
+        .routes(routes!(database_rows::claim_row_by_unique_id))
         .routes(routes!(database_rows::get_row, database_rows::change_row))
         .routes(routes!(database_rows::move_row))
+        .routes(routes!(database_rows::claim_row))
+        .routes(routes!(database_rows::list_tasks))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
         // Uploads are larger than the bodies of other routes.
@@ -347,6 +358,8 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 mod agents_tests;
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod content_tests;
 #[cfg(test)]
 mod databases_tests;
 #[cfg(test)]
