@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM oauth_grants g\n         WHERE g.updated_at < $2\n           AND NOT EXISTS (SELECT 1 FROM oauth_tokens t\n                           WHERE t.grant_id = g.id AND t.expires_at > $1)\n           AND NOT EXISTS (SELECT 1 FROM oauth_codes c\n                           WHERE c.grant_id = g.id AND c.expires_at > $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd9c40446b5b60ac0a7ace888141a41e466d384f1f07e83c67153d2fc8c04dde"
+}
