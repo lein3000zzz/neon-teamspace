@@ -212,10 +212,10 @@ not:
 | Rename or recolour their own | yes | yes | yes | hidden |
 | Rename or recolour another's | no | no | no | hidden |
 | Hand it to another person | yes | yes | no | hidden |
-| Delete their own, list its tokens, revoke them at a browser | yes | yes | yes | hidden |
-| Delete another's, list its tokens, revoke them at a browser | yes | yes | no | hidden |
-| Make their own agent's token, at a browser | yes | yes | yes | hidden |
-| Make another's agent's token, or an integration's | no | no | no | hidden |
+| Delete their own, list its tokens and connected apps, revoke them at a browser | yes | yes | yes | hidden |
+| Delete another's, list its tokens and connected apps, revoke them at a browser | yes | yes | no | hidden |
+| Make their own agent's token, or connect an app as it, at a browser | yes | yes | yes | hidden |
+| Make another's agent's token or connect an app as it, or an integration's | no | no | no | hidden |
 
 An agent's or integration's role is always member: changing it, removing it from the
 workspace and making it an owner answer `403 forbidden`, as it is deleted instead. In a
@@ -246,7 +246,8 @@ hand it to someone else or delete it.
 
 ## Tokens bound to a workspace
 
-A token bound to one workspace, every agent's among them, works in that workspace alone:
+A token bound to one workspace, every agent's and every OAuth access token among them,
+works in that workspace alone:
 another workspace is **hidden** to it, and the account's and the instance admins' routes,
 making a workspace and invite links answer `403 token_bound`. The account's favorites are
 the exception: a bound token reaches its own workspace's favorites alone, and the others

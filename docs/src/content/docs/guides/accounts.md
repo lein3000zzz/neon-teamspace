@@ -182,6 +182,11 @@ in with at a browser, nor lock an admin out.
 
 Revoking a token with `DELETE /api/v1/account/tokens/{id}` stops it at once.
 
+Programs that connect over OAuth, such as MCP clients, need no token copied by hand: the
+person allows them on a consent page, in one workspace, as themselves or as one of their
+agents. They are listed under **Connected apps**, where each is disconnected; see
+[Connecting apps over OAuth](/docs/guides/oauth/).
+
 ## Managing accounts
 
 Admins list accounts with `GET /api/v1/admin/users`, in pages of up to 200, in the order the
