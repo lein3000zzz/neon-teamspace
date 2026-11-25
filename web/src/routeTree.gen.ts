@@ -45,6 +45,7 @@ import { Route as AppWSlugSettingsIndexRouteImport } from './routes/_app/w/$slug
 import { Route as AppWSlugSettingsAgentsRouteImport } from './routes/_app/w/$slug/settings/agents'
 import { Route as AppWSlugSettingsMembersRouteImport } from './routes/_app/w/$slug/settings/members'
 import { Route as AppWSlugSettingsTeamspacesRouteImport } from './routes/_app/w/$slug/settings/teamspaces'
+import { Route as AppWSlugSettingsWebhooksRouteImport } from './routes/_app/w/$slug/settings/webhooks'
 import { Route as AppWSlugTeamspacesIndexRouteImport } from './routes/_app/w/$slug/teamspaces/index'
 import { Route as AppWSlugTeamspacesTeamspaceIdRouteImport } from './routes/_app/w/$slug/teamspaces/$teamspaceId'
 
@@ -229,6 +230,12 @@ const AppWSlugSettingsTeamspacesRoute =
     path: '/teamspaces',
     getParentRoute: () => AppWSlugSettingsRoute,
   } as any)
+const AppWSlugSettingsWebhooksRoute =
+  AppWSlugSettingsWebhooksRouteImport.update({
+    id: '/webhooks',
+    path: '/webhooks',
+    getParentRoute: () => AppWSlugSettingsRoute,
+  } as any)
 const AppWSlugTeamspacesIndexRoute = AppWSlugTeamspacesIndexRouteImport.update({
   id: '/teamspaces/',
   path: '/teamspaces/',
@@ -275,6 +282,7 @@ export interface FileRoutesByFullPath {
   '/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/w/$slug/settings/webhooks': typeof AppWSlugSettingsWebhooksRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
   '/w/$slug/settings/': typeof AppWSlugSettingsIndexRoute
   '/w/$slug/teamspaces/': typeof AppWSlugTeamspacesIndexRoute
@@ -309,6 +317,7 @@ export interface FileRoutesByTo {
   '/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/w/$slug/settings/webhooks': typeof AppWSlugSettingsWebhooksRoute
   '/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
   '/w/$slug/settings': typeof AppWSlugSettingsIndexRoute
   '/w/$slug/teamspaces': typeof AppWSlugTeamspacesIndexRoute
@@ -350,6 +359,7 @@ export interface FileRoutesById {
   '/_app/w/$slug/settings/agents': typeof AppWSlugSettingsAgentsRoute
   '/_app/w/$slug/settings/members': typeof AppWSlugSettingsMembersRoute
   '/_app/w/$slug/settings/teamspaces': typeof AppWSlugSettingsTeamspacesRoute
+  '/_app/w/$slug/settings/webhooks': typeof AppWSlugSettingsWebhooksRoute
   '/_app/w/$slug/teamspaces/$teamspaceId': typeof AppWSlugTeamspacesTeamspaceIdRoute
   '/_app/w/$slug/settings/': typeof AppWSlugSettingsIndexRoute
   '/_app/w/$slug/teamspaces/': typeof AppWSlugTeamspacesIndexRoute
@@ -390,6 +400,7 @@ export interface FileRouteTypes {
     | '/w/$slug/settings/agents'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
+    | '/w/$slug/settings/webhooks'
     | '/w/$slug/teamspaces/$teamspaceId'
     | '/w/$slug/settings/'
     | '/w/$slug/teamspaces/'
@@ -424,6 +435,7 @@ export interface FileRouteTypes {
     | '/w/$slug/settings/agents'
     | '/w/$slug/settings/members'
     | '/w/$slug/settings/teamspaces'
+    | '/w/$slug/settings/webhooks'
     | '/w/$slug/teamspaces/$teamspaceId'
     | '/w/$slug/settings'
     | '/w/$slug/teamspaces'
@@ -464,6 +476,7 @@ export interface FileRouteTypes {
     | '/_app/w/$slug/settings/agents'
     | '/_app/w/$slug/settings/members'
     | '/_app/w/$slug/settings/teamspaces'
+    | '/_app/w/$slug/settings/webhooks'
     | '/_app/w/$slug/teamspaces/$teamspaceId'
     | '/_app/w/$slug/settings/'
     | '/_app/w/$slug/teamspaces/'
@@ -728,6 +741,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWSlugSettingsTeamspacesRouteImport
       parentRoute: typeof AppWSlugSettingsRoute
     }
+    '/_app/w/$slug/settings/webhooks': {
+      id: '/_app/w/$slug/settings/webhooks'
+      path: '/webhooks'
+      fullPath: '/w/$slug/settings/webhooks'
+      preLoaderRoute: typeof AppWSlugSettingsWebhooksRouteImport
+      parentRoute: typeof AppWSlugSettingsRoute
+    }
     '/_app/w/$slug/teamspaces/': {
       id: '/_app/w/$slug/teamspaces/'
       path: '/teamspaces'
@@ -789,6 +809,7 @@ interface AppWSlugSettingsRouteChildren {
   AppWSlugSettingsAgentsRoute: typeof AppWSlugSettingsAgentsRoute
   AppWSlugSettingsMembersRoute: typeof AppWSlugSettingsMembersRoute
   AppWSlugSettingsTeamspacesRoute: typeof AppWSlugSettingsTeamspacesRoute
+  AppWSlugSettingsWebhooksRoute: typeof AppWSlugSettingsWebhooksRoute
   AppWSlugSettingsIndexRoute: typeof AppWSlugSettingsIndexRoute
 }
 
@@ -796,6 +817,7 @@ const AppWSlugSettingsRouteChildren: AppWSlugSettingsRouteChildren = {
   AppWSlugSettingsAgentsRoute: AppWSlugSettingsAgentsRoute,
   AppWSlugSettingsMembersRoute: AppWSlugSettingsMembersRoute,
   AppWSlugSettingsTeamspacesRoute: AppWSlugSettingsTeamspacesRoute,
+  AppWSlugSettingsWebhooksRoute: AppWSlugSettingsWebhooksRoute,
   AppWSlugSettingsIndexRoute: AppWSlugSettingsIndexRoute,
 }
 
