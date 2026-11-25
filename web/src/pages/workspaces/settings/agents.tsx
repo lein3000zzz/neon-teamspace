@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import type { ApiToken } from "@/api/account";
@@ -15,7 +15,7 @@ import {
   type CreatedApiToken,
 } from "@/api/agents";
 import { hasCode } from "@/api/errors";
-import { teamspacesQuery, useAddTeamspaceMember } from "@/api/teamspaces";
+import { teamspaceMembersQuery, teamspacesQuery, useAddTeamspaceMember } from "@/api/teamspaces";
 import { membersQuery, workspaceQuery, type Workspace } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { CopyField } from "@/components/feedback/copy-field";
@@ -99,6 +99,7 @@ function CreateSection({
 }) {
   const create = useCreateAgent(workspace.id);
   const [name, setName] = useState("");
+  const [hue, setHue] = useState<number | null>(null);
   const [problem, setProblem] = useState<string>();
 
   if (!mayCreateAgent(workspace.role, workspace.agents)) {
@@ -119,10 +120,11 @@ function CreateSection({
       return;
     }
     create.mutate(
-      { name: name.trim() },
+      { name: name.trim(), ...(hue === null ? {} : { hue_override: hue }) },
       {
         onSuccess: (agent) => {
           setName("");
+          setHue(null);
           onDone(copy.created(agent.name));
         },
       },
@@ -156,6 +158,7 @@ function CreateSection({
             />
           )}
         </Field>
+        <HueControl name={name.trim()} value={hue} onChange={setHue} />
         <Button type="submit" className="justify-self-start" disabled={create.isPending}>
           {create.isPending ? copy.pending : copy.submit}
         </Button>
@@ -431,8 +434,9 @@ function TransferForm({ agent, pending, onChoose, onSettled, onDone }: TransferF
 }
 
 /**
- * The teamspaces it may be added to: for its owner, those they are in; for
- * the workspace's owners and admins, any but General, which it is in already.
+ * The teamspaces it may be added to and is not in yet: for its owner, those
+ * they are in themselves, whatever their role in the workspace; for the
+ * workspace's owners and admins, any but General, which it is in already.
  */
 function AddToTeamspace({
   agent,
@@ -447,14 +451,18 @@ function AddToTeamspace({
   const teamspaces = useQuery(teamspacesQuery(workspace.id));
   const [teamspaceId, setTeamspaceId] = useState("");
   const add = useAddTeamspaceMember(workspace.id, teamspaceId);
-  const choices =
+  const open =
     teamspaces.data?.teamspaces.filter(
       (teamspace) =>
         teamspace.access !== "default" &&
-        (manages(workspace.role)
-          ? true
-          : own && teamspace.role !== undefined && teamspace.role !== null),
+        (own ? teamspace.role !== undefined && teamspace.role !== null : manages(workspace.role)),
     ) ?? [];
+  const members = useQueries({
+    queries: open.map((teamspace) => teamspaceMembersQuery(workspace.id, teamspace.id)),
+  });
+  const choices = open.filter(
+    (_, index) => members[index]?.data?.some((member) => member.user.id === agent.id) !== true,
+  );
   if (teamspaces.isPending) {
     return null;
   }

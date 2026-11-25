@@ -618,6 +618,7 @@ export const strings = {
     pinned: "Pinned",
     hashedHint: (hue: number) =>
       `Every id hashes to a hue of its own: ${hue} degrees for this one, on every device.`,
+    hashedLater: "Every id hashes to a hue of its own: this one gets its hue once it is made.",
     slider: "Hue",
     preview: "Preview",
     save: "Save colour",

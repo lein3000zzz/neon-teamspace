@@ -5,7 +5,16 @@ import type { Agent } from "@/api/agents";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import { AGENT_TOKEN, design, fakeWorkspaces, people, scout, teamspaces } from "@/test/workspaces";
+import { hueFor } from "@/lib/hue";
+import {
+  AGENT_TOKEN,
+  asPerson,
+  design,
+  fakeWorkspaces,
+  people,
+  scout,
+  teamspaces,
+} from "@/test/workspaces";
 
 const ID = design().id;
 const base = `/api/v1/workspaces/${ID}`;
@@ -62,6 +71,32 @@ describe("the agents of a workspace", () => {
       { method: "POST", path: `${base}/agents`, body: { name: "Hermes" } },
     ]);
     expect(await agentCard("Hermes")).toBeTruthy();
+  });
+
+  it("makes an agent in a hue pinned as it is made", async () => {
+    const api = fakeWorkspaces();
+    const { user } = renderApp("/w/design/settings/agents");
+
+    const form = within(await screen.findByRole("form", { name: "Make an agent" }));
+    await user.type(form.getByLabelText("Name"), "Hermes");
+    expect(
+      form.getByText("Every id hashes to a hue of its own: this one gets its hue once it is made."),
+    ).toBeInTheDocument();
+    await user.click(form.getByRole("radio", { name: "Pinned" }));
+    expect(form.getByRole("slider", { name: "Hue" })).toHaveAttribute(
+      "aria-valuenow",
+      String(hueFor("Hermes")),
+    );
+    await user.click(form.getByRole("button", { name: "Make agent" }));
+
+    expect(await screen.findByText("Hermes is made. Make it a token below.")).toBeInTheDocument();
+    expect(api.changes).toEqual([
+      {
+        method: "POST",
+        path: `${base}/agents`,
+        body: { name: "Hermes", hue_override: hueFor("Hermes") },
+      },
+    ]);
   });
 
   it("says when the workspace is at its agent limit", async () => {
@@ -251,6 +286,45 @@ describe("the agents of a workspace", () => {
     expect(added).toEqual([
       { teamspace: teamspaces.open.id, body: { user_id: scout.id, role: "member" } },
     ]);
+  });
+
+  it("offers its owner only the teamspaces they are in and it is not, though they manage the workspace", async () => {
+    fakeWorkspaces({
+      agents: [scout],
+      teamspaces: [
+        teamspaces.general,
+        teamspaces.open,
+        { ...teamspaces.closed, role: "member" },
+        teamspaces.private,
+      ],
+    });
+    server.use(
+      http.get(`${base}/teamspaces/${teamspaces.private.id}/members`, () =>
+        HttpResponse.json({
+          members: [
+            { user: people.ada, role: "owner", joined_at: scout.created_at },
+            { user: asPerson(scout), role: "member", joined_at: scout.created_at },
+          ],
+        }),
+      ),
+    );
+    const { user } = renderApp("/w/design/settings/agents");
+
+    const card = await agentCard("Scout");
+    const form = within(card.getByRole("form", { name: "Add to a teamspace: Scout" }));
+    const teamspace = await form.findByRole("combobox", { name: "Teamspace" });
+    await waitFor(() =>
+      expect(
+        within(teamspace)
+          .getAllByRole("option")
+          .map((option) => option.textContent),
+      ).toEqual(["Choose a teamspace", "Closed room"]),
+    );
+    await user.selectOptions(teamspace, "Closed room");
+    await user.click(form.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByText("Scout is in Closed room.")).toBeInTheDocument();
+    await waitFor(() => expect(form.getByText("No teamspace to add it to.")).toBeInTheDocument());
   });
 
   it("shows no Agents tab to a guest", async () => {

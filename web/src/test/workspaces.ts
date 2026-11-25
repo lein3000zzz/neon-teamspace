@@ -514,7 +514,9 @@ export function fakeWorkspaces(options: Options = {}) {
           return noTeamspace();
         }
         const input = body as Schemas["AddTeamspaceMember"];
-        const person = Object.values(people).find((entry) => entry.id === input.user_id);
+        const person = [...Object.values(people), ...state.agents.map(asPerson)].find(
+          (entry) => entry.id === input.user_id,
+        );
         if (person === undefined) {
           return apiError(404, "not_found", "no such member");
         }

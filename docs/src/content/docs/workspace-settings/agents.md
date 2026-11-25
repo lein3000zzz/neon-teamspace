@@ -12,7 +12,8 @@ where they are turned back on.
 
 ## Make an agent
 
-A name, 1 to 100 characters. The agent is the caller's: it acts for them, and is a member
+A name, 1 to 100 characters, and a hue: from its id, which the server draws as it makes the
+agent, or pinned on the slider. The agent is the caller's: it acts for them, and is a member
 of the workspace and of its default teamspace from then on. The form shows to whom the
 workspace lets make agents, while agents are on: everyone but guests, or its owners and
 admins alone, as [General](/docs/workspace-settings/general/#agents) says. A workspace at
@@ -36,8 +37,9 @@ What the card offers depends on who looks:
   neither a guest nor disabled, after a question: it acts for them from then on, and its
   tokens are revoked.
 - Its owner and the workspace's owners and admins **delete** it, after a question.
-- They also **add it to a teamspace**: its owner to the teamspaces they are in, owners and
-  admins to any teamspace but General, which it is in already. It joins as a member.
+- They also **add it to a teamspace** it is not in yet: its owner to the teamspaces they
+  are in, whatever their role in the workspace; owners and admins someone else's agent to
+  any teamspace but General, which it is in already. It joins as a member.
 
 ## Tokens
 
