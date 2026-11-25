@@ -4,7 +4,8 @@ description: A workspace's name, icon, address and colour, whether members creat
 ---
 
 **Workspace settings**, in the sidebar and the switcher, opens `/w/{slug}/settings`. It has
-three tabs: **General**, this page; [Members](/docs/workspace-settings/members/); and
+four tabs: **General**, this page; [Members](/docs/workspace-settings/members/);
+[Agents](/docs/workspace-settings/agents/); and
 [Teamspaces](/docs/workspace-settings/teamspaces/). Guests see only **General**, as they see
 no member but themselves and no teamspace.
 
@@ -34,10 +35,23 @@ the same on every device; [the web app](/docs/architecture/web/#hues-of-things) 
 **Pinned** opens the slider and presets of the accent picker, with a preview of the mark.
 **Save colour** keeps the choice.
 
+## Agents
+
+Owners and admins set the workspace's [agents](/docs/guides/agents/):
+
+- **Agents are on in this workspace**: on unless turned off. Off, nobody makes agents and
+  every agent's tokens are refused, its open connections closed. The agents stay, and work
+  again once this is back on.
+- **Who makes agents**: every member, the default, or owners and admins.
+
+While the instance has agents off, with the setting `mcp.identities`, the section says so,
+and the switches wait for it.
+
 ## Limits
 
 How many people are in the workspace, guests included, and its member limit, which instance
-admins set; **no limit** unless they set one. Guests see the limit alone. A workspace at its limit takes in nobody new,
+admins set; **no limit** unless they set one. Agents and integrations count against the
+agent limit instead. Guests see the limit alone. A workspace at its limit takes in nobody new,
 and nobody in it is removed by a limit.
 
 ## Leave workspace

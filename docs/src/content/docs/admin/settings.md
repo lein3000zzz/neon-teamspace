@@ -26,7 +26,8 @@ settings](/docs/self-hosting/configuration/#pinned-settings) explains why.
 ## Changing settings
 
 Each kind of setting has its control: **On** and **Off** for a switch, a list for one of
-several options, a number, a duration such as `30m`, `12h` or `7d`, or text. A setting saved
+several options, a button for each option of a set, such as `mcp.identities`, pressed for
+those it holds, a number, a duration such as `30m`, `12h` or `7d`, or text. A setting saved
 here has **Reset to default**, which takes it back to its default when saved.
 
 Changes collect at the foot of the page, which counts them, until **Save changes** sends them

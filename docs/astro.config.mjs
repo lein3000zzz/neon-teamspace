@@ -98,6 +98,7 @@ export default defineConfig({
             'guides/accounts',
             'guides/workspaces',
             'guides/workspace-rules',
+            'guides/agents',
             'guides/editing-pages',
             'guides/pages',
             'guides/databases-and-boards',
@@ -110,6 +111,7 @@ export default defineConfig({
           items: [
             'workspace-settings/general',
             'workspace-settings/members',
+            'workspace-settings/agents',
             'workspace-settings/teamspaces',
           ],
         },

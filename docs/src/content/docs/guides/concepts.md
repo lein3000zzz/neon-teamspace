@@ -15,7 +15,9 @@ WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it, and markdow
 pages and pages export as markdown, as [Import and export](/docs/guides/import-export/) has
 it. Databases work in the API and the web app: their rows, properties and views, the table,
 the board and the list, as [Databases](/docs/guides/databases/) and
-[Databases and boards](/docs/guides/databases-and-boards/) have it. The rest is **planned**:
+[Databases and boards](/docs/guides/databases-and-boards/) have it. Agents work in the API
+and the web app, with tokens their owners make, as [Agents](/docs/guides/agents/) has it. The
+rest is **planned**:
 it describes the design the code is being built toward, so the details may still change.
 :::
 
@@ -49,8 +51,9 @@ and usage, and nothing inside it unless they are a member themselves.
 
 Limits cap a workspace's members, storage and agents. Each is unlimited unless an instance
 admin sets an instance-wide default or a workspace's own limit. A workspace at its member
-limit takes no more invitations or joins, and nobody already in it is removed; the storage
-and agent limits will hold once attachments and agents exist. There is no billing.
+limit takes no more invitations or joins, and nobody already in it is removed; one at its
+agent limit makes no more agents. The storage limit will hold once attachments exist. There
+is no billing.
 
 ## Workspaces
 
@@ -146,8 +149,7 @@ at once.
 
 ## Members
 
-Everyone in a workspace is a member. Humans are the one kind built; agents and
-integrations are **planned**:
+Everyone in a workspace is a member, of one of three kinds:
 
 | Kind | What it is |
 |---|---|
@@ -166,26 +168,27 @@ it read or edit a few pages.
 
 ## Agents
 
-**Planned.** An agent is a member of kind agent, with an owner, a name and a hue. Its role
-is always member, never admin or owner, and it joins teamspaces as a person does. It may do
-what both its own access and its owner's allow, never more than the owner. Its work is shown
-as `agent name · via owner`, so everyone sees who answers for it.
+An agent is a member of kind agent, with an owner, a name and a hue. Its role is always
+member, never admin or owner, and it joins teamspaces as a person does. It may do what both
+its own access and its owner's allow, never more than the owner. Its work is shown as
+`agent name · via owner`, so everyone sees who answers for it. [Agents](/docs/guides/agents/)
+has the rules, and the API.
 
 When its owner leaves the workspace or their account is disabled, the agent is suspended.
 Agents count toward the workspace's agent limit. Workspace admins can turn agents off for
 the workspace, and choose who may create them: admins only, or any member, which is the
-default.
+default. Agents work today through API tokens their owner makes, bound to the workspace.
 
-Agents connect over MCP at `/mcp`. An agent's client signs in through its owner's browser
-with OAuth 2.1, where the owner chooses whether it acts as them or as one of their agents.
-Agents that run on their own, with no browser, use a token instead. A token belongs to one
-workspace, with the scope read, write or admin, and never does more than its owner's role
-allows. Everything an agent does over MCP, a script can also do through the HTTP API with
-the same token.
+**Planned:** agents connect over MCP at `/mcp`. An agent's client signs in through its
+owner's browser with OAuth 2.1, where the owner chooses whether it acts as them or as one of
+their agents. Agents that run on their own, with no browser, use a token instead, bound to
+the workspace, with the scope read or write, never doing more than its owner may. Everything
+an agent does over MCP, a script can also do through the HTTP API with the same token.
 
 ## Integrations
 
-**Planned.** An integration is an incoming webhook. A workspace admin creates one with a
+An integration is a member of kind integration, which the agent rules cover already.
+**Planned:** each comes with an incoming webhook. A workspace admin creates one with a
 name and a target: a database, where it creates rows or updates them by unique ID, or a
 page, where it appends blocks or comments. It gets a secret address under `/hooks/in/`, and
 can also check a signature from senders that sign their requests. An integration is a member

@@ -11,7 +11,8 @@ list in [Workspaces](/docs/admin/workspaces/). Who may do what is listed in one 
 [permissions](/docs/reference/permissions/) page.
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`
-and `write` for the rest. Deleting a workspace and transferring its ownership need a browser
+and `write` for the rest. A token bound to one workspace, an agent's included, works on that
+workspace's routes alone; see [Agents](/docs/guides/agents/). Deleting a workspace and transferring its ownership need a browser
 session, so a token that leaked cannot take a team's work away. A workspace someone is not
 in answers `404 not_found` to them, as one that does not exist would, instance admins
 included.

@@ -52,6 +52,13 @@ A request carries one of two credentials:
   the session's absolute expiry. The `__Host-` prefix makes browsers refuse a cookie of that
   name that a sibling subdomain or a plain-http page tries to set.
 
+Only people sign in. Agents and integrations are rows of the same users table, so whatever
+names who made something names them alike, but they have no address and no password: no
+sign-in, session, mailed link or invitation finds them, the admins' account list and counts
+leave them out, and their role on the instance is never admin. An agent proves who it is with
+a token alone, which works only while its owner is a member of its workspace who can sign in
+and agents are on; see [Agents](/docs/guides/agents/).
+
 A session expires when it goes unused for the idle time, or at its absolute expiry. Use
 slides the idle expiry forward, never past the absolute one. The server writes the last use
 at most once a minute, so a busy session does not cost a write per request. A session of a
@@ -70,6 +77,11 @@ working there when its owner stops being an admin. Reading needs `read`, every o
 revoking tokens need a browser session, so a leaked token cannot lock its owner out or make
 more tokens. So do deleting a workspace and transferring its ownership, so a leaked token
 cannot take a team's work away.
+
+A token bound to one workspace works on that workspace's routes and sockets alone, is never
+an instance admin's, and answers `403 token_bound` on the account's and the admin routes;
+its `admin` scope is the workspace's admin work, for its owners and admins. An agent's token
+is always bound, and never has `admin`.
 
 An admin's token does less than the admin at a browser. Creating an account with a password,
 changing a role, and disabling or enabling an account need a browser session; a token
@@ -201,7 +213,8 @@ run one at a time, and each sees the admins as the one before left them.
 
 Who may do what in a workspace is decided in one function of `neon-domain`, which every
 workspace use case calls before it acts; the [permissions](/docs/reference/permissions/)
-page lists its rules. What a caller may not know of, a workspace they are not in, a
+page lists its rules. For an agent or integration, the same function is asked as the agent
+and as its owner, on the same resource, and allows only what both may. What a caller may not know of, a workspace they are not in, a
 private teamspace they are not in, or to a guest another member, answers `404 not_found`,
 the same as for something that does not exist. The same function refuses API tokens what
 cannot be undone, deleting a workspace and transferring its ownership. Being an instance admin counts only for the instance admins' own routes,

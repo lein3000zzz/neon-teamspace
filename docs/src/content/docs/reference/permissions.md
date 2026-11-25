@@ -1,6 +1,6 @@
 ---
 title: Permissions
-description: Who may do what in a workspace, its teamspaces, its pages and databases, and what instance admins may do with workspaces.
+description: Who may do what in a workspace, its teamspaces, its pages and databases, its agents, what agents may do for their owners, and what instance admins may do with workspaces.
 ---
 
 These tables are the rules the server enforces. They live in one function in `neon-domain`,
@@ -191,6 +191,64 @@ grouping names. Setting or clearing a row's person value, and changing a person 
 type, whose values would become names, answer them `403 forbidden`. Someone who sees a row
 only through its own share reads it without its database's id. An API token changes a
 database only with the `write` scope; a query, which is a `POST`, needs only `read`.
+
+## Agents
+
+Making agents, by the role of whoever acts. Agents are on when the setting `mcp.identities`
+has `agent` and the workspace has its agents on; otherwise nobody makes one.
+
+| Action | Owner | Admin | Member | Guest |
+|---|---|---|---|---|
+| Make an agent, while agents are on and every member may | yes | yes | yes | no |
+| Make an agent, while agents are on and only owners and admins may | yes | yes | no | no |
+| Make an agent, while agents are off | no | no | no | no |
+
+On one agent or integration, by the role of whoever acts, for one they own and one they do
+not:
+
+| Action | Owner | Admin | Member | Guest |
+|---|---|---|---|---|
+| See it, its owner and its status | yes | yes | yes | hidden |
+| Rename or recolour their own | yes | yes | yes | hidden |
+| Rename or recolour another's | no | no | no | hidden |
+| Hand it to another person | yes | yes | no | hidden |
+| Delete their own, list its tokens, revoke them at a browser | yes | yes | yes | hidden |
+| Delete another's, list its tokens, revoke them at a browser | yes | yes | no | hidden |
+| Make their own agent's token, at a browser | yes | yes | yes | hidden |
+| Make another's agent's token, or an integration's | no | no | no | hidden |
+
+An agent's or integration's role is always member: changing it, removing it from the
+workspace and making it an owner answer `403 forbidden`, as it is deleted instead. In a
+teamspace it is a member, never an owner, and its own owner adds it only to teamspaces they
+are in: elsewhere that answers `403 forbidden`.
+
+### What an agent may do
+
+An agent or integration may do what the tables above allow a member with its own
+teamspaces and shares, and what they allow its owner, with theirs, on the same thing, both.
+What either may not know of is **hidden**; what either may not do is **no**. So:
+
+| On | An agent may |
+|---|---|
+| The workspace | see it, and list its members, as its owner may; nothing else |
+| A member | see them, as its owner may; change, remove or transfer to nobody |
+| A teamspace | see it as both may; join an open one its owner sees in full; leave one it is in; manage none |
+| The top of a teamspace's pages | list them as both may; add pages where both are in the teamspace |
+| Its own private pages | none: it has none, as its owner could not see them |
+| A page or a row | the least of what its own access and its owner's give, as the page tables have them |
+| Agents | see them, as its owner may; make, change, hand over, delete none, nor make or revoke tokens |
+| The instance | nothing |
+
+An agent whose owner is out of the workspace, or disabled, is suspended: its tokens are
+refused, so it may do nothing at all, and its connections close.
+
+## Tokens bound to a workspace
+
+A token bound to one workspace, every agent's among them, works in that workspace alone:
+another workspace is **hidden** to it, and the account's and the instance admins' routes
+answer `403 token_bound`. Without the `admin` scope, it acts as a member at most: a bound
+token of an owner or admin manages nothing. With it, it does the workspace's admin work its
+holder's role allows, and never an instance admin's.
 
 ## The instance
 
