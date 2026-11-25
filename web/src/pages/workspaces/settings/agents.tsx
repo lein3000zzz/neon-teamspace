@@ -15,6 +15,7 @@ import {
   type CreatedApiToken,
 } from "@/api/agents";
 import { hasCode } from "@/api/errors";
+import { useDisconnectWorkspaceApp, workspaceAppsQuery, type ConnectedApp } from "@/api/oauth";
 import { teamspaceMembersQuery, teamspacesQuery, useAddTeamspaceMember } from "@/api/teamspaces";
 import { membersQuery, workspaceQuery, type Workspace } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
@@ -24,7 +25,7 @@ import { CheckboxField, Field, focusFirstInvalid } from "@/components/forms/fiel
 import { Chip, ChipList } from "@/components/nodes/chip";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { KeyValueList, KeyValueRow } from "@/components/nodes/key-value";
-import { KindBadge } from "@/components/people/person-label";
+import { KindBadge, PersonLabel } from "@/components/people/person-label";
 import { ItemActions, ItemCard, PageSection } from "@/components/settings/page-section";
 import { useMe } from "@/components/shell/signed-in";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -86,7 +87,100 @@ export function AgentsSettingsPage() {
         <output className="block text-sm text-muted-foreground empty:hidden">{done ?? ""}</output>
         <AgentList onDone={setDone} />
       </PageSection>
+      <AgentAppsSection workspaceId={workspace.id} />
     </div>
+  );
+}
+
+/**
+ * The apps connected over OAuth that act as the workspace's agents, as far as
+ * the person may see their credentials: every agent's for owners and admins,
+ * their own agents' for the other members. Disconnecting one stops its tokens.
+ */
+function AgentAppsSection({ workspaceId }: { workspaceId: string }) {
+  const apps = useQuery(workspaceAppsQuery(workspaceId));
+  const [done, setDone] = useState<string>();
+
+  return (
+    <PageSection title={copy.apps} hint={copy.appsHint}>
+      <output className="block text-sm text-muted-foreground empty:hidden">{done ?? ""}</output>
+      {apps.isPending && <Loading />}
+      {apps.isError && (
+        <ErrorNotice
+          error={apps.error}
+          retrying={apps.isFetching}
+          onRetry={() => void apps.refetch()}
+        />
+      )}
+      {apps.data?.length === 0 && <p className="text-sm text-muted-foreground">{copy.noApps}</p>}
+      {apps.data && apps.data.length > 0 && (
+        <ul className="grid gap-3" aria-label={copy.apps}>
+          {apps.data.map((app) => (
+            <AgentAppCard key={app.id} workspaceId={workspaceId} app={app} onDone={setDone} />
+          ))}
+        </ul>
+      )}
+    </PageSection>
+  );
+}
+
+function AgentAppCard({
+  workspaceId,
+  app,
+  onDone,
+}: {
+  workspaceId: string;
+  app: ConnectedApp;
+  onDone: (message: string) => void;
+}) {
+  const disconnect = useDisconnectWorkspaceApp(workspaceId);
+  const [confirming, setConfirming] = useState(false);
+  const name = app.client.name;
+  const agent = app.identity.display_name;
+
+  return (
+    <ItemCard aria-label={name}>
+      <div className="grid gap-2">
+        <p className="font-medium">{name}</p>
+        <ChipList aria-label={copy.appScopes}>
+          {app.scopes.map((scope) => (
+            <Chip key={scope}>{strings.consent.scopeNames[scope]}</Chip>
+          ))}
+        </ChipList>
+        <KeyValueList className="text-sm">
+          <KeyValueRow label={copy.appActsAs}>
+            <PersonLabel person={app.identity} />
+          </KeyValueRow>
+          <KeyValueRow label={copy.appConnectedBy}>{app.connected_by.display_name}</KeyValueRow>
+          <KeyValueRow label={copy.appLastUsed}>
+            {app.last_used_at ? formatDateTime(app.last_used_at) : copy.appNever}
+          </KeyValueRow>
+        </KeyValueList>
+        {disconnect.isError && <ErrorNotice error={disconnect.error} />}
+      </div>
+      <ItemActions>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={disconnect.isPending}
+          aria-label={copy.disconnectLabel(name, agent)}
+          onClick={() => setConfirming(true)}
+        >
+          {copy.disconnect}
+        </Button>
+      </ItemActions>
+      <ConfirmDialog
+        open={confirming}
+        title={copy.disconnectTitle(name, agent)}
+        description={copy.disconnectLede}
+        confirm={copy.disconnect}
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          disconnect.mutate(app.id, { onSuccess: () => onDone(copy.disconnected(name)) });
+        }}
+      />
+    </ItemCard>
   );
 }
 
