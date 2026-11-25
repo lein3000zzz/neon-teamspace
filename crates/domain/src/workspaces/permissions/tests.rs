@@ -272,6 +272,9 @@ fn all_actions() -> Vec<Action> {
         Action::ListAgentTokens,
         Action::CreateAgentToken,
         Action::RevokeAgentToken,
+        Action::ManageIncomingWebhooks,
+        Action::RegisterWebhook,
+        Action::ManageWebhook,
     ];
     for role in ROLES {
         actions.push(Action::Invite { role });
@@ -310,6 +313,7 @@ enum Kind {
     Page,
     Agents,
     Agent,
+    Webhook,
 }
 
 fn kind(action: Action) -> Kind {
@@ -327,7 +331,8 @@ fn kind(action: Action) -> Kind {
         | Action::ManageInvitations
         | Action::CreateInviteLink { .. }
         | Action::ManageInviteLinks
-        | Action::CreateTeamspace => Kind::Workspace,
+        | Action::CreateTeamspace
+        | Action::ManageIncomingWebhooks => Kind::Workspace,
         Action::ViewMember
         | Action::ChangeRole { .. }
         | Action::RemoveMember
@@ -360,6 +365,7 @@ fn kind(action: Action) -> Kind {
         | Action::ListAgentTokens
         | Action::CreateAgentToken
         | Action::RevokeAgentToken => Kind::Agent,
+        Action::RegisterWebhook | Action::ManageWebhook => Kind::Webhook,
     }
 }
 
@@ -417,8 +423,17 @@ fn all_resources() -> Vec<Resource> {
             resources.push(Resource::Agent { kind, own });
         }
     }
+    for subject in WEBHOOK_SUBJECTS {
+        resources.push(Resource::Webhook { subject });
+    }
     resources
 }
+
+const WEBHOOK_SUBJECTS: [WebhookSubject; 3] = [
+    WebhookSubject::Itself,
+    WebhookSubject::OwnDelegate,
+    WebhookSubject::Other,
+];
 
 /// The workspace's agents with agents on or off, on the instance and in the workspace, and
 /// each who makes them.
@@ -448,6 +463,7 @@ fn resource_kind(resource: Resource) -> Kind {
         Resource::Page { .. } => Kind::Page,
         Resource::Agents { .. } => Kind::Agents,
         Resource::Agent { .. } => Kind::Agent,
+        Resource::Webhook { .. } => Kind::Webhook,
     }
 }
 
@@ -466,6 +482,10 @@ fn tables() -> Vec<(Action, &'static str)> {
         (Action::ManageInvitations, "open y y f f \n locked y y f f"),
         (Action::ManageInviteLinks, "open y y f f \n locked y y f f"),
         (Action::CreateTeamspace, "open y y y f \n locked y y f f"),
+        (
+            Action::ManageIncomingWebhooks,
+            "open y y f f \n locked y y f f",
+        ),
         (
             Action::Invite { role: R::Owner },
             "open f f f f \n locked f f f f",
@@ -590,6 +610,9 @@ fn tables() -> Vec<(Action, &'static str)> {
         (Action::ListAgentTokens, OWNER_OR_MANAGERS),
         (Action::CreateAgentToken, MAKE_TOKEN),
         (Action::RevokeAgentToken, OWNER_OR_MANAGERS),
+        // Actions on an identity's outgoing webhooks.
+        (Action::RegisterWebhook, REGISTER_WEBHOOK),
+        (Action::ManageWebhook, MANAGE_WEBHOOK),
     ]
 }
 
@@ -1263,6 +1286,36 @@ const MAKE_TOKEN: &str = "
     integration theirs f f f h
 ";
 
+/// Rows `itself`, `own-delegate`, an agent or integration the actor owns, and `other`.
+fn webhook_table(action: Action, table: &str) {
+    let rows = rows(table);
+    let labels: Vec<&str> = rows.iter().map(|row| row[0]).collect();
+    assert_eq!(labels, ["itself", "own-delegate", "other"], "{action:?}");
+    for (row, subject) in rows.iter().zip(WEBHOOK_SUBJECTS) {
+        check_members(
+            action,
+            Resource::Webhook { subject },
+            expected(&row[1..]),
+            row[0],
+        );
+    }
+}
+
+/// The workspace's owners and admins register webhooks for anyone; everyone else for
+/// themselves and what they own, but guests, who register none.
+const REGISTER_WEBHOOK: &str = "
+    itself       y y y f
+    own-delegate y y y f
+    other        y y f h
+";
+
+/// As registering, but those who may not manage a webhook may not know of it either.
+const MANAGE_WEBHOOK: &str = "
+    itself       y y y h
+    own-delegate y y y h
+    other        y y h h
+";
+
 #[test]
 fn every_action_has_exactly_one_table() {
     let actions = all_actions();
@@ -1272,7 +1325,7 @@ fn every_action_has_exactly_one_table() {
         .filter(|action| kind(**action) != Kind::Instance)
         .count();
 
-    assert_eq!(actions.len(), 64, "every action and parameter is listed");
+    assert_eq!(actions.len(), 67, "every action and parameter is listed");
     assert_eq!(tables.len(), workspace_and_below);
     for action in actions.iter().filter(|a| kind(**a) != Kind::Instance) {
         let found = tables.iter().filter(|(a, _)| a == action).count();
@@ -1292,6 +1345,7 @@ fn workspace_actions_follow_their_tables() {
             Kind::Page => page_table(action, table),
             Kind::Agents => agents_table(action, table),
             Kind::Agent => agent_table(action, table),
+            Kind::Webhook => webhook_table(action, table),
             Kind::Instance => unreachable!("instance actions have no table"),
         }
     }

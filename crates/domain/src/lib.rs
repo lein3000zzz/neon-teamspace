@@ -15,4 +15,5 @@ pub mod jobs;
 pub mod mail;
 pub mod pages;
 pub mod settings;
+pub mod webhooks;
 pub mod workspaces;
