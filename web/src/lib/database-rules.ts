@@ -15,6 +15,7 @@ import type {
   PropertyKind,
   PropertyOption,
   Row,
+  Values,
   View,
   ViewProperty,
   ViewRows,
@@ -728,4 +729,151 @@ export function movedCard(answer: ViewRows, move: CardMove, grouping: Property):
         return Object.assign({}, group, { count: group.count - left + joined });
       }) ?? null,
   };
+}
+
+/** The schemes the server takes in a URL value. */
+export const URL_SCHEMES = /^(https?:|mailto:|tel:)\S+$/i;
+
+/** A day a number of months from another, or the last of that month when it is shorter. */
+function monthsFrom(day: Date, months: number): Date {
+  const last = new Date(day.getFullYear(), day.getMonth() + months + 1, 0).getDate();
+  return new Date(day.getFullYear(), day.getMonth() + months, Math.min(day.getDate(), last));
+}
+
+/** The day a relative one names, from today, as the server works it out. */
+function relativeDay(name: string, now: Date): string | undefined {
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const by = (days: number) =>
+    today(new Date(day.getFullYear(), day.getMonth(), day.getDate() + days));
+  switch (name) {
+    case "today":
+      return by(0);
+    case "tomorrow":
+      return by(1);
+    case "yesterday":
+      return by(-1);
+    case "one_week_ago":
+      return by(-7);
+    case "one_week_from_now":
+      return by(7);
+    case "one_month_ago":
+      return today(monthsFrom(day, -1));
+    case "one_month_from_now":
+      return today(monthsFrom(day, 1));
+    default:
+      return isDay(name) ? name : undefined;
+  }
+}
+
+/** A value of a property that meets one condition, where one value plainly does. */
+function meeting(property: Property, condition: Condition, me: string | null, now: Date): unknown {
+  const { operator, value } = condition;
+  switch (property.type) {
+    case "title":
+    case "text":
+      return typeof value === "string" &&
+        value.trim() !== "" &&
+        ["is", "contains", "starts_with", "ends_with"].includes(operator)
+        ? value
+        : undefined;
+    case "url":
+      // Only a whole link the server keeps: part of one is no link.
+      return operator === "is" && typeof value === "string" && URL_SCHEMES.test(value.trim())
+        ? value.trim()
+        : undefined;
+    case "number":
+      if (typeof value !== "number") {
+        return undefined;
+      }
+      switch (operator) {
+        case "equals":
+        case "greater_than_or_equal":
+        case "less_than_or_equal":
+          return value;
+        case "greater_than":
+          return value + 1;
+        case "less_than":
+          return value - 1;
+        default:
+          return undefined;
+      }
+    case "select":
+    case "status":
+      if (operator === "in_group") {
+        return property.options?.find((option) => option.group === value)?.id;
+      }
+      return operator === "is" && optionOf(property, value) !== undefined ? value : undefined;
+    case "multi_select":
+      return operator === "contains" && optionOf(property, value) !== undefined
+        ? [value]
+        : undefined;
+    case "person":
+      if (operator !== "contains" || me === null || typeof value !== "string") {
+        return undefined;
+      }
+      return [value === ME ? me : value];
+    case "checkbox":
+      return operator === "is" && value === true ? true : undefined;
+    case "date": {
+      if (operator === "within") {
+        // Every range of days counts from today, and holds it.
+        return { start: today(now) };
+      }
+      const day = typeof value === "string" ? relativeDay(value, now) : undefined;
+      if (
+        day === undefined ||
+        !["is", "before", "after", "on_or_before", "on_or_after"].includes(operator)
+      ) {
+        return undefined;
+      }
+      return { start: shiftDays(day, operator === "before" ? -1 : operator === "after" ? 1 : 0) };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A day some days from another. */
+function shiftDays(day: string, days: number): string {
+  const at = localDay(day);
+  return today(new Date(at.getFullYear(), at.getMonth(), at.getDate() + days));
+}
+
+/**
+ * Values a new row starts with so that a view's filter shows it: one for
+ * each condition that every row it shows must meet, which are those of the
+ * filter's "and" groups, and which one value plainly meets: an option it
+ * is, text it is or contains, a number it equals or passes, a day it is on
+ * or around, the person viewing for "me". Conditions in an "or" group, or
+ * met only by leaving a value out, set nothing. `me` is null for guests,
+ * who set no people.
+ */
+export function valuesMeeting(
+  database: Database,
+  filter: Filter | null | undefined,
+  me: string | null,
+  now = new Date(),
+): Values {
+  const values: Values = {};
+  const walk = (part: Filter) => {
+    if ("and" in part) {
+      part.and.forEach(walk);
+      return;
+    }
+    if ("or" in part) {
+      return;
+    }
+    const property = propertyOf(database, part.property);
+    const value = property === undefined ? undefined : meeting(property, part, me, now);
+    if (property === undefined || value === undefined) {
+      return;
+    }
+    const before = values[property.id];
+    values[property.id] =
+      Array.isArray(before) && Array.isArray(value) ? [...new Set([...before, ...value])] : value;
+  };
+  if (filter !== null && filter !== undefined) {
+    walk(filter);
+  }
+  return values;
 }

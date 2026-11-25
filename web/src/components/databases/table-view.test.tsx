@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { keys } from "@/api/keys";
 import type { Page } from "@/api/pages";
@@ -11,6 +11,7 @@ import {
   fakeDatabase,
   fakeFeed,
   FIRST_SHOWN,
+  views,
 } from "@/test/databases";
 import { apiError } from "@/test/fixtures";
 import { fakePages, samplePages } from "@/test/pages";
@@ -393,6 +394,78 @@ describe("a database's table", () => {
 
     expect(await rows.findByRole("button", { name: "Rename Write the docs" })).toBeInTheDocument();
     expect(rowChanges(db.changes, DB.docs)).toEqual([]);
+  });
+
+  it("adds a row to a filtered view with the values its filter asks for, so it shows there", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const tasks = views();
+    const [first] = tasks;
+    if (first === undefined) {
+      throw new Error("the sample has a table");
+    }
+    first.filter = {
+      and: [
+        { property: DB.status, operator: "is", value: DB.finished },
+        { property: DB.owner, operator: "contains", value: "me" },
+        { property: DB.points, operator: "greater_than", value: 2 },
+        { or: [{ property: DB.done, operator: "is", value: true }] },
+      ],
+    };
+    const db = fakeDatabase({ views: tasks });
+    fakeFeed();
+    const { user } = renderApp(DATABASE_PATH);
+    await table();
+
+    await user.click((await database()).getByRole("button", { name: "Add a row" }));
+
+    expect(await screen.findByRole("textbox", { name: "Title of Untitled" })).toBeInTheDocument();
+    expect(db.changes.filter((change) => change.method === "POST")).toEqual([
+      {
+        method: "POST",
+        path: `/api/v1/databases/${DB.tasks}/rows`,
+        body: { values: { [DB.status]: DB.finished, [DB.owner]: [people.ada.id], [DB.points]: 3 } },
+      },
+    ]);
+  });
+
+  it("opens a row added to a view whose filter leaves it out nonetheless", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages()) });
+    const tasks = views();
+    const [first] = tasks;
+    if (first === undefined) {
+      throw new Error("the sample has a table");
+    }
+    first.filter = {
+      or: [
+        { property: DB.status, operator: "is", value: DB.finished },
+        { property: DB.done, operator: "is", value: true },
+      ],
+    };
+    const db = fakeDatabase({ views: tasks });
+    fakeFeed();
+    // The server applies the filter: a row with neither is not among the view's rows.
+    server.use(
+      http.post(`/api/v1/databases/${DB.tasks}/query`, () =>
+        HttpResponse.json({
+          rows: db.state.rows.filter((entry) => entry.values[DB.done] === true),
+          groups: null,
+          total: 1,
+        }),
+      ),
+    );
+    const { user, router } = renderApp(DATABASE_PATH);
+    const view = await database();
+    await view.findByRole("rowheader", { name: /Fix login/ }, FIRST_SHOWN);
+
+    await user.click(view.getByRole("button", { name: "Add a row" }));
+
+    const made = "0193a5b2-0000-7000-8000-000000000101";
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/w/design/p/${made}`));
+    expect(
+      db.changes.filter((change) => change.method === "POST").map((change) => change.body),
+    ).toEqual([{}]);
   });
 
   it("sorts, hides and adds beside a column from its heading's menu", async () => {

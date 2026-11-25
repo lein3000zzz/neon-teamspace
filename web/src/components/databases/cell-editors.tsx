@@ -25,6 +25,7 @@ import {
   nextHue,
   readNumber,
   today,
+  URL_SCHEMES,
   type DateValue,
 } from "@/lib/database-rules";
 import { strings } from "@/lib/strings";
@@ -203,9 +204,6 @@ export function NumberEditor({ value, label, onSave, onClose, commitRef }: Edito
     </div>
   );
 }
-
-/** The schemes the server takes in a URL value. */
-const URL_SCHEMES = /^(https?:|mailto:|tel:)\S+$/i;
 
 /** A link, with the way to open it; empty clears it. */
 export function UrlEditor({ value, label, onSave, onClose, commitRef }: EditorProps) {

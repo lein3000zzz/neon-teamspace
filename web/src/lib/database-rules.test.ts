@@ -21,6 +21,7 @@ import {
   shownColumns,
   startingValue,
   valueOf,
+  valuesMeeting,
 } from "./database-rules";
 
 const database: Database = {
@@ -304,5 +305,68 @@ describe("a number as it is typed", () => {
     ]) {
       expect(readNumber(text, ".")).toBeUndefined();
     }
+  });
+});
+
+describe("a new row's values in a view that filters", () => {
+  const now = new Date(2026, 0, 31);
+
+  it("meet each condition every row must, where one value plainly does", () => {
+    expect(
+      valuesMeeting(
+        database,
+        {
+          and: [
+            { property: DB.status, operator: "in_group", value: "done" },
+            { property: DB.tags, operator: "contains", value: DB.bug },
+            { and: [{ property: DB.tags, operator: "contains", value: DB.idea }] },
+            { property: DB.points, operator: "less_than", value: 1 },
+            { property: DB.due, operator: "after", value: "one_month_from_now" },
+            { property: DB.name, operator: "starts_with", value: "Fix" },
+            { property: DB.link, operator: "contains", value: "example" },
+            { property: DB.done, operator: "is", value: false },
+          ],
+        },
+        people.ada.id,
+        now,
+      ),
+    ).toEqual({
+      [DB.status]: DB.finished,
+      [DB.tags]: [DB.bug, DB.idea],
+      [DB.points]: 0,
+      [DB.due]: { start: "2026-03-01" },
+      [DB.name]: "Fix",
+    });
+  });
+
+  it("set nothing for an or, a negation, or people for a guest", () => {
+    expect(
+      valuesMeeting(
+        database,
+        {
+          and: [
+            {
+              or: [
+                { property: DB.status, operator: "is", value: DB.finished },
+                { property: DB.done, operator: "is", value: true },
+              ],
+            },
+            { property: DB.points, operator: "not_equals", value: 3 },
+            { property: DB.owner, operator: "contains", value: "me" },
+            { property: DB.ticket, operator: "equals", value: 4 },
+          ],
+        },
+        null,
+        now,
+      ),
+    ).toEqual({});
+    expect(
+      valuesMeeting(
+        database,
+        { property: DB.due, operator: "within", value: "next_week" },
+        null,
+        now,
+      ),
+    ).toEqual({ [DB.due]: { start: "2026-01-31" } });
   });
 });

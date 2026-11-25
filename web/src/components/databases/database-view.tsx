@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "cn";
 import { ArrowUpDown, Layers, ListFilter, Plus, Search, Settings2 } from "lucide-react";
 import { useCallback, useId, useState, type FormEvent, type ReactNode } from "react";
@@ -20,8 +20,9 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useMe } from "@/components/shell/signed-in";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
-import { filterSize, propertyOf } from "@/lib/database-rules";
+import { filterSize, propertyOf, valuesMeeting } from "@/lib/database-rules";
 import { titleOf } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
 import { BoardView } from "./board-view";
@@ -115,21 +116,54 @@ export function DatabaseView({
   );
 }
 
-/** The rows of the view in view, laid out as it says, with their count and the way to add one. */
+/**
+ * The rows of the view in view, laid out as it says, with their count and the
+ * way to add one. A row added to a view that filters starts with the values
+ * its filter plainly asks for, so it shows there; one that shows nonetheless
+ * not, as an "or" leaves it out, opens on its own, to be filled in.
+ */
 function ViewRows({ view }: { view: View }) {
   const workspace = useWorkspace();
-  const { database, editsDatabase, report } = useDatabaseScope();
-  const rows = useQuery(viewRowsQuery(workspace.id, database.page.id, view.id));
+  const me = useMe();
+  const queryClient = useQueryClient();
+  const openRow = useOpenRow();
+  const { database, editsDatabase, seesPeople, report } = useDatabaseScope();
+  const query = viewRowsQuery(workspace.id, database.page.id, view.id);
+  const rows = useQuery(query);
   const change = useChangeView(workspace.id, database.page.id);
   const create = useCreateRow(workspace.id, database);
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
   const onChangeView = (body: ChangeView) =>
     change.mutate({ viewId: view.id, ...body }, { onError: report });
-  const onNewRow = (key?: GroupKey) =>
-    create.mutate(key === undefined ? {} : { group: { view_id: view.id, key } }, {
-      onSuccess: (row) => setEditingTitle(row.id),
-      onError: report,
-    });
+  const onNewRow = (key?: GroupKey) => {
+    const filtered = (view.filter ?? null) !== null;
+    const values = valuesMeeting(database, view.filter, seesPeople ? me.id : null);
+    create.mutate(
+      {
+        ...(Object.keys(values).length === 0 ? {} : { values }),
+        ...(key === undefined ? {} : { group: { view_id: view.id, key } }),
+      },
+      {
+        onSuccess: async (row) => {
+          if (!filtered) {
+            setEditingTitle(row.id);
+            return;
+          }
+          try {
+            const shown = await queryClient.fetchQuery({ ...query, staleTime: 0 });
+            if (shown.rows.some((entry) => entry.id === row.id)) {
+              setEditingTitle(row.id);
+            } else {
+              openRow(row.id);
+            }
+          } catch (error) {
+            report(error);
+          }
+        },
+        onError: report,
+      },
+    );
+  };
 
   if (rows.isPending) {
     return <Loading label={copy.loading} />;
