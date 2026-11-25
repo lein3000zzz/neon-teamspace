@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
 import { describe, expect, it } from "vitest";
 import { keys } from "@/api/keys";
+import type { Page } from "@/api/pages";
 import type { Recorded } from "@/test/workspaces";
 import {
   DATABASE_PATH,
@@ -458,6 +459,71 @@ describe("the table's live changes", () => {
     expect(sidebar.getByRole("link", { name: "Sprint" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
     expect(title).toHaveValue("Sprint");
+  });
+
+  it("keeps a typed title when a read of the page lands in the same moment as the keystroke", async () => {
+    const { user, pages, queryClient } = openDatabase();
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    const key = keys.page(design().id, DB.tasks);
+    const stale = queryClient.getQueryData<Page>(key);
+    const query = queryClient.getQueryCache().find<Page>({ queryKey: key, exact: true });
+    if (stale === undefined || query === undefined) {
+      throw new Error("the database's page is read");
+    }
+
+    // The keystroke and a read begun before it, with the old title, are shown in one render.
+    act(() => {
+      fireEvent.change(title, { target: { value: "Sprint" } });
+      query.setData({ ...stale });
+    });
+    expect(await screen.findByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    await user.click(title);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(pages.changes.at(-1)).toEqual({
+        method: "PATCH",
+        path: `/api/v1/pages/${DB.tasks}`,
+        body: { title: "Sprint" },
+      }),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryData(key)).toEqual(expect.objectContaining({ title: "Sprint" })),
+    );
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByRole("link", { name: "Sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Database Sprint" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Where this page is" })).getByText("Sprint"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a title changed elsewhere even while the title has the cursor, when nothing was typed", async () => {
+    const { user, pages, feed, queryClient } = openDatabase();
+    await table();
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    await user.click(title);
+    await waitFor(() => expect(feed.urls).toHaveLength(1));
+
+    // Someone renames the database; this tab reads its page again as its feed reconnects.
+    const entry = pages.state.pages.find((page) => page.id === DB.tasks);
+    if (entry === undefined) {
+      throw new Error("the sample has Tasks");
+    }
+    entry.title = "Backlog";
+    feed.close(1012);
+    await waitFor(() => expect(feed.urls).toHaveLength(2), { timeout: 3000 });
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(keys.page(design().id, DB.tasks))).toEqual(
+        expect.objectContaining({ title: "Backlog" }),
+      ),
+    );
+    expect(await screen.findByRole("region", { name: "Database Backlog" })).toBeInTheDocument();
+    expect(title).toHaveValue("Backlog");
+    await user.tab();
+    expect(pages.changes.filter((change) => change.method === "PATCH")).toEqual([]);
   });
 
   it("stops, and says why, once the server ends it for good", async () => {

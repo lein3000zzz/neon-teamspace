@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { showPage, useUpdatePage, type Page } from "@/api/pages";
+import { holdsTitle, showPage, useHeldTitle, useUpdatePage, type Page } from "@/api/pages";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { Button } from "@/components/ui/button";
 import { titleOf } from "@/lib/page-tree";
@@ -48,13 +48,15 @@ export function PageTitle({ workspaceId, page, editable, onEnter }: PageTitlePro
 function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editable">) {
   const queryClient = useQueryClient();
   const update = useUpdatePage(workspaceId, page.id);
+  const held = useHeldTitle(workspaceId, page.id);
   const field = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState(page.title);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The title last sent, so leaving the field does not send it again. */
   const sent = useRef(page.title);
   const save = useRef(update.mutate);
-  const saving = useRef(false);
+  /** How the last save stands, for a flush that has nothing new to send. */
+  const status = useRef(update.status);
   const emptyAtOpen = useRef(page.title === "");
 
   useEffect(() => {
@@ -62,8 +64,8 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
   }, [update.mutate]);
 
   useEffect(() => {
-    saving.current = update.isPending;
-  }, [update.isPending]);
+    status.current = update.status;
+  }, [update.status]);
 
   useEffect(() => {
     if (emptyAtOpen.current) {
@@ -71,7 +73,11 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
     }
   }, []);
 
-  /** Saves what is typed now, unless it was sent already; `again` sends it anyway. */
+  /**
+   * Saves what is typed now, unless it was sent already; `again` sends it
+   * anyway. Typed back to what was saved, it is held no longer; one on its
+   * way lets go as it lands, and one refused stays held, to try again.
+   */
   const flush = (again = false) => {
     clearTimeout(timer.current);
     timer.current = undefined;
@@ -79,6 +85,8 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
     if (again || text !== sent.current) {
       sent.current = text;
       save.current({ title: text });
+    } else if (status.current !== "pending" && status.current !== "error") {
+      held.release();
     }
   };
 
@@ -96,19 +104,14 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
     [],
   );
 
-  // A title changed elsewhere shows here, unless it is being typed or saved. Then what is
-  // typed goes on showing everywhere, even once a read of the page from before it lands,
-  // as one a database's live feed asks for on connecting does.
+  // A title changed elsewhere shows here, unless one typed here is not saved yet.
   useEffect(() => {
-    const typed = field.current?.value;
-    if (typed === undefined || page.title === typed) {
+    if (holdsTitle(queryClient, workspaceId, page.id)) {
       return;
     }
-    if (document.activeElement === field.current || timer.current !== undefined || saving.current) {
-      showPage(queryClient, workspaceId, page.id, { title: typed });
-    } else {
+    sent.current = page.title;
+    if (field.current !== null && field.current.value !== page.title) {
       setValue(page.title);
-      sent.current = page.title;
     }
   }, [page.title, page.id, queryClient, workspaceId]);
 
@@ -134,6 +137,7 @@ function TitleField({ workspaceId, page, onEnter }: Omit<PageTitleProps, "editab
           onChange={(event) => {
             const text = event.target.value.replaceAll(/[\r\n]+/g, " ");
             setValue(text);
+            held.hold(text);
             showPage(queryClient, workspaceId, page.id, { title: text });
             clearTimeout(timer.current);
             timer.current = setTimeout(() => flush(), TITLE_SAVE_MS);

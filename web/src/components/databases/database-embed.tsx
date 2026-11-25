@@ -4,7 +4,7 @@ import { Database, Maximize2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { databaseQuery, type Database as DatabaseData } from "@/api/databases";
 import { hasCode } from "@/api/errors";
-import { showPage, useUpdatePage } from "@/api/pages";
+import { holdsTitle, showPage, useHeldTitle, useUpdatePage } from "@/api/pages";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
@@ -137,8 +137,8 @@ function Embedded({ databaseId, viewId, onViewChange }: EmbeddedProps) {
 /**
  * The database's title over its views, typed in place by those who edit it:
  * the sidebar shows it as it is typed, as for a page's title; Enter or leaving
- * it saves, and a refusal says why below it. A title changed elsewhere shows
- * here unless it is being typed or saved.
+ * it saves, and a refusal says why below it, Enter trying again. A title
+ * changed elsewhere shows here unless one typed here is not saved yet.
  */
 function EmbedTitle({
   database,
@@ -151,27 +151,26 @@ function EmbedTitle({
   const queryClient = useQueryClient();
   const page = database.page;
   const update = useUpdatePage(workspace.id, page.id, onFailed);
+  const held = useHeldTitle(workspace.id, page.id);
   const [title, setTitle] = useState(page.title);
   const sent = useRef(page.title);
   const field = useRef<HTMLInputElement>(null);
-  const saving = useRef(false);
+  /** How the last save stands, as for a page's title. */
+  const status = useRef(update.status);
   const icon = page.icon ? <span aria-hidden>{page.icon}</span> : null;
 
   useEffect(() => {
-    saving.current = update.isPending;
-  }, [update.isPending]);
+    status.current = update.status;
+  }, [update.status]);
 
-  // As a page's title: what is typed, or being saved, stays shown when an older read lands.
+  // A title changed elsewhere shows here, unless one typed here is not saved yet.
   useEffect(() => {
-    const typed = field.current?.value;
-    if (typed === undefined || page.title === typed) {
+    if (holdsTitle(queryClient, workspace.id, page.id)) {
       return;
     }
-    if (document.activeElement === field.current || saving.current) {
-      showPage(queryClient, workspace.id, page.id, { title: typed });
-    } else {
+    sent.current = page.title;
+    if (field.current !== null && field.current.value !== page.title) {
       setTitle(page.title);
-      sent.current = page.title;
     }
   }, [page.title, page.id, queryClient, workspace.id]);
 
@@ -186,9 +185,11 @@ function EmbedTitle({
     );
   }
   const save = () => {
-    if (title !== sent.current) {
+    if (title !== sent.current || status.current === "error") {
       sent.current = title;
       update.mutate({ title });
+    } else if (status.current !== "pending") {
+      held.release();
     }
   };
   return (
@@ -203,6 +204,7 @@ function EmbedTitle({
         onChange={(event) => {
           const text = event.target.value.replaceAll(/[\r\n]+/g, " ");
           setTitle(text);
+          held.hold(text);
           showPage(queryClient, workspace.id, page.id, { title: text });
         }}
         onKeyDown={(event) => {
