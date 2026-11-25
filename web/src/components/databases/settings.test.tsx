@@ -107,6 +107,34 @@ describe("a view's filter", () => {
     );
   });
 
+  it("takes a decimal or a negative number typed key by key", async () => {
+    const { user, db } = openDatabase();
+    const view = await database();
+    await user.click(view.getByRole("button", { name: "Filter" }));
+    const filter = await panel("Filter");
+    await user.click(filter.getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(filter.getByRole("combobox", { name: "Property" }), "Points");
+    const value = filter.getByRole("textbox", { name: "Value" });
+
+    await user.clear(value);
+    await user.type(value, "2.5");
+    expect(value).toHaveValue("2.5");
+    await waitFor(() =>
+      expect(bodies(db.changes, `/views/${DB.table}`).at(-1)).toEqual({
+        filter: { and: [{ property: DB.points, operator: "equals", value: 2.5 }] },
+      }),
+    );
+
+    await user.clear(value);
+    await user.type(value, "-3");
+    expect(value).toHaveValue("-3");
+    await waitFor(() =>
+      expect(bodies(db.changes, `/views/${DB.table}`).at(-1)).toEqual({
+        filter: { and: [{ property: DB.points, operator: "equals", value: -3 }] },
+      }),
+    );
+  });
+
   it("compares a date with a day relative to today, or an exact one", async () => {
     const { user, db } = openDatabase();
     const view = await database();

@@ -16,6 +16,7 @@ import {
   ME,
   operatorsFor,
   propertyOf,
+  readNumber,
   RELATIVE_DAYS,
   startingValue,
   takesValue,
@@ -293,6 +294,7 @@ function ConditionEditor({ condition: current, onChange, onRemove }: ConditionEd
       {takesValue(current.operator) && (
         <span className="min-w-32 flex-1">
           <ValueInput
+            key={property.id}
             property={property}
             condition={current}
             onChange={(value) => onChange({ ...current, value })}
@@ -327,17 +329,7 @@ function ValueInput({ property, condition: current, onChange }: ValueInputProps)
   switch (property.type) {
     case "number":
     case "unique_id":
-      return (
-        <Input
-          aria-label={copy.value}
-          inputMode="decimal"
-          value={typeof value === "number" ? String(value) : ""}
-          onChange={(event) => {
-            const number = Number(event.target.value);
-            onChange(event.target.value.trim() === "" || !Number.isFinite(number) ? "" : number);
-          }}
-        />
-      );
+      return <NumberValueInput value={value} onChange={onChange} />;
     case "select":
     case "multi_select":
     case "status":
@@ -412,6 +404,32 @@ function ValueInput({ property, condition: current, onChange }: ValueInputProps)
         />
       );
   }
+}
+
+/**
+ * A number to compare with, kept as it is typed, so "-" and "2." stay on the
+ * way to -3 and 2.5: the condition takes it whenever it reads as a number,
+ * and is left out of the filter while it does not.
+ */
+function NumberValueInput({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const [text, setText] = useState(typeof value === "number" ? String(value) : "");
+  return (
+    <Input
+      aria-label={copy.value}
+      inputMode="decimal"
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(readNumber(event.target.value) ?? "");
+      }}
+    />
+  );
 }
 
 const EXACT = "exact";
