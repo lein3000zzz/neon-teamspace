@@ -155,6 +155,29 @@ describe("agents in a database", () => {
     );
   });
 
+  it("filters by an agent, named with whom it acts for", async () => {
+    const { user } = open();
+    const view = await database();
+
+    await user.click(await view.findByRole("button", { name: "Filter" }, FIRST_SHOWN));
+    const filter = within(await screen.findByRole("dialog", { name: "Filter" }));
+    await user.click(filter.getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(filter.getByRole("combobox", { name: "Property" }), "Owner");
+    const value = filter.getByRole("combobox", { name: "Value" });
+    const names = within(value)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "Scout · via Ada",
+        "GitHub · via Ada",
+        "Courier · via Bob (deleted)",
+      ]),
+    );
+    await user.selectOptions(value, scout.id);
+    expect(value).toHaveDisplayValue("Scout · via Ada");
+  });
+
   it("groups a board by an agent, named with whom it acts for", async () => {
     const byOwner = views().map((view) =>
       view.id === DB.board

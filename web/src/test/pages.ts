@@ -3,7 +3,7 @@ import type { Schemas } from "@/api/client";
 import type { Crumb, Page, PageAccess, Placement, Share, TreePage } from "@/api/pages";
 import { ada, apiError } from "./fixtures";
 import { server } from "./server";
-import { people, TEAMSPACE_IDS, type Recorded } from "./workspaces";
+import { asPerson, people, scout, TEAMSPACE_IDS, type Recorded } from "./workspaces";
 
 const WORKSPACE_ID = "0193a5b2-0000-7000-8000-00000000a001";
 const CREATED = "2026-11-20T09:00:00Z";
@@ -378,7 +378,9 @@ export function fakePages(options: Options = {}) {
       record((body, params) => {
         const input = body as Schemas["CreateShare"];
         const id = String(params["id"]);
-        const person = Object.values(people).find((entry) => entry.id === input.user_id);
+        const person = [...Object.values(people), asPerson(scout)].find(
+          (entry) => entry.id === input.user_id,
+        );
         if (person === undefined) {
           return apiError(404, "not_found", "no such member");
         }
