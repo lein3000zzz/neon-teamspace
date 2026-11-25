@@ -1133,6 +1133,13 @@ export const strings = {
       dismiss: "Dismiss",
     },
   },
+  databases: {
+    create: {
+      newDatabase: "New database",
+      addInside: "Add a database inside",
+      creating: "Making a database…",
+    },
+  },
   workspaceInvite: {
     title: "Join a workspace",
     signedOutLede:

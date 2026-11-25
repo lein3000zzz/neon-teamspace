@@ -41,8 +41,9 @@ type MoveDialogProps = {
 /**
  * Where a page can go, to pick from with the keyboard or a tap: the top of
  * each teamspace the user is in, their private pages, and every page they
- * edit but the page itself and the pages under it. Picking one moves it there,
- * last among its new siblings.
+ * edit but the page itself and the pages under it, and but databases, which
+ * hold only their rows. Picking one moves it there, last among its new
+ * siblings.
  */
 export function MoveDialog({ workspace, page, open, onOpenChange, onMoved }: MoveDialogProps) {
   const searchId = useId();
@@ -87,6 +88,7 @@ export function MoveDialog({ workspace, page, open, onOpenChange, onMoved }: Mov
           seen.has(candidate.id) ||
           blocked.has(candidate.id) ||
           !edits(candidate.access) ||
+          candidate.kind !== "page" ||
           candidate.id === page.parent_id
         ) {
           continue;

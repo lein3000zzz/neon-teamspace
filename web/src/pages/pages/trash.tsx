@@ -81,7 +81,7 @@ function TrashedPage({ page, onDone }: { page: Page; onDone: (message: string) =
           params={{ slug: workspace.slug, pageId: page.id }}
           className="flex min-w-0 items-center gap-2 font-medium hover:underline"
         >
-          <PageGlyph icon={page.icon} />
+          <PageGlyph icon={page.icon} kind={page.kind} />
           <span className="truncate">{title}</span>
         </Link>
         {page.trashed_at && (

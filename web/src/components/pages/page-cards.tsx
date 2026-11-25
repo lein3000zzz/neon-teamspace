@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
+import type { PageKind } from "@/api/pages";
 import type { WorkspaceSummary } from "@/api/workspaces";
 import { titleOf } from "@/lib/page-tree";
 import { PageGlyph } from "./page-tree";
 
-type Listed = { id: string; title: string; icon?: string | null | undefined };
+type Listed = { id: string; title: string; icon?: string | null | undefined; kind?: PageKind };
 
 type PageCardsProps = {
   workspace: WorkspaceSummary;
@@ -25,7 +26,7 @@ export function PageCards({ workspace, pages, label }: PageCardsProps) {
             params={{ slug: workspace.slug, pageId: page.id }}
             className="flex min-h-(--tap-lg) items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-primary"
           >
-            <PageGlyph icon={page.icon} />
+            <PageGlyph icon={page.icon} kind={page.kind} />
             <span className="min-w-0 flex-1 truncate font-medium">{titleOf(page)}</span>
           </Link>
         </li>
