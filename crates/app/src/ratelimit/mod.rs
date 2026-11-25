@@ -1,6 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
-//! requests to join, invite lookups, invitations into workspaces, and imports and exports
-//! of pages.
+//! requests to join, invite lookups, invitations into workspaces, imports and exports of
+//! pages, and OAuth clients registering themselves.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -66,10 +66,12 @@ pub enum Bucket {
     PageImport,
     /// Exporting pages, by user: each export reads every page it holds.
     PageExport,
+    /// OAuth clients registering themselves, by IP: anyone may, and each is kept a while.
+    OAuthRegister,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -84,6 +86,7 @@ impl Bucket {
         Self::WorkspaceLinkJoin,
         Self::PageImport,
         Self::PageExport,
+        Self::OAuthRegister,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -103,6 +106,7 @@ impl Bucket {
             Self::WorkspaceLinkJoin => "workspace-link:user:",
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
+            Self::OAuthRegister => "oauth-register:ip:",
         }
     }
 

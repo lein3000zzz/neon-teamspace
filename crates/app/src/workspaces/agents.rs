@@ -4,9 +4,10 @@
 //! An agent is made by a person of the workspace, its owner, as the workspace's switches
 //! allow, and within its agent limit, which agents and integrations count against together.
 //! It is a member of the workspace from then on, in its default teamspace like everyone but
-//! guests, and joins others as people do. Handing it to another person revokes its tokens:
-//! they were made by, and acted for, its former owner. Deleting it ends its membership and
-//! revokes its tokens; its identity stays, for what it made. Once a change that ends tokens
+//! guests, and joins others as people do. Handing it to another person revokes its tokens
+//! and the OAuth grants that act as it: they were made by, and acted for, its former owner.
+//! Deleting it ends its membership and revokes its tokens and grants; its identity stays,
+//! for what it made. Once a change that ends tokens
 //! or access commits, the [`AccessChanges`](crate::pages::AccessChanges) port hears of it,
 //! and its open connections close.
 //!
@@ -26,7 +27,7 @@ use neon_domain::workspaces::{Action, Resource, TeamspaceRole};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::agents::{self as repo, New, Stored};
-use neon_store::{api_tokens, teamspaces, users};
+use neon_store::{api_tokens, oauth, teamspaces, users};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use tracing::{Instrument as _, info, info_span};
@@ -303,7 +304,8 @@ impl AgentService {
                 return Ok(self.agent_of(stored));
             }
             repo::set_owner(&mut *tx, id, to, self.now()).await?;
-            let revoked = api_tokens::delete_for_user(&mut *tx, id).await?;
+            let revoked = api_tokens::delete_for_user(&mut *tx, id).await?
+                + oauth::delete_grants_of_user(&mut *tx, id).await?;
             let stored = repo::get(&mut *tx, workspace_id, id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_AGENT))?;
@@ -347,7 +349,8 @@ impl AgentService {
                 return Ok(());
             }
             repo::mark_deleted(&mut tx, workspace_id, id, self.now()).await?;
-            let revoked = api_tokens::delete_for_user(&mut *tx, id).await?;
+            let revoked = api_tokens::delete_for_user(&mut *tx, id).await?
+                + oauth::delete_grants_of_user(&mut *tx, id).await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
