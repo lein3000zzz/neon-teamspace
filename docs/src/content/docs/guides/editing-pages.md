@@ -28,7 +28,9 @@ Under the workspace switcher, the sidebar lists a workspace's pages in sections:
 a drawer, opened from the button at the top left.
 
 Each page is a row: the arrow before it opens and closes the pages under it, the title opens
-the page, and the row's buttons add a page inside it and open its menu. A teamspace's row
+the page, and the row's buttons add a page inside it and open its menu. A database shows with
+a table's glyph; its rows are in its views rather than the tree, and nothing else goes under
+it. [Databases and boards](/docs/guides/databases-and-boards/) is about them. A teamspace's row
 folds its tree away the same way. On a computer the buttons show as the pointer passes over
 a row or the keyboard reaches it; on a touch screen they always show. Opening a page opens
 the pages above it in the tree, so it shows there.
@@ -52,6 +54,7 @@ title, ready to type.
 |---|---|---|
 | **Rename** | Turns the row's title into a field: Enter or leaving it saves, Escape puts the old title back. | Those who edit the page. |
 | **Add a page inside** | Makes a page inside it. | Those who edit it. |
+| **Add a database inside** | Makes a [database](/docs/guides/databases-and-boards/) inside it, a page of its own. | Those who edit it. |
 | **Add to favorites**, **Remove from favorites** | Marks it, or takes the mark away. | Everyone who sees it. |
 | **Share…** | Opens [sharing](#sharing). | Those who edit it, but not guests. |
 | **Move to…** | Opens the list of places it can go. | Those who edit it. |
@@ -102,7 +105,9 @@ that says they can view it.
 A page's content is blocks, edited with [BlockNote](https://www.blocknotejs.org/):
 paragraphs, headings, lists, to-dos, toggles, quotes, code, tables and more. Type `/` for the
 menu of blocks, or the usual markdown shortcuts, such as `#` and a space for a heading or
-`-` and a space for a list. Select text for its formatting toolbar. The handle beside a block
+`-` and a space for a list. **Database**, in that menu, makes a database inside the page, with
+its views shown where it was typed; see [Inside a
+page](/docs/guides/databases-and-boards/#inside-a-page). Select text for its formatting toolbar. The handle beside a block
 drags it or opens its menu.
 
 Everyone with the page open edits the same document at once. Each change reaches the

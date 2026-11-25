@@ -104,7 +104,8 @@ blockContainer id="block-4"
 
 Its config, the type's name, its props with their defaults and its content, is defined once,
 in `web/src/components/editor/custom-blocks.ts`. The web app's editor makes its block from it
-and draws it, as a placeholder that names the database by its id. The module imports
+and draws it as the database's views, inside the page, as
+[the web app](/docs/architecture/web/#databases) describes. The module imports
 nothing, so `tools/blocknote-fixtures` imports it too, by its path, and tests the crate against
 an editor with the same schema. A page opened in an editor without the block would lose it,
 as y-prosemirror deletes what the schema lacks.

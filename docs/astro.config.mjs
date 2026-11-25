@@ -100,6 +100,7 @@ export default defineConfig({
             'guides/workspace-rules',
             'guides/editing-pages',
             'guides/pages',
+            'guides/databases-and-boards',
             'guides/databases',
             'guides/import-export',
           ],

@@ -5,8 +5,9 @@ description: How the web app is built, how its API types stay in step with the s
 
 The web app is a single-page app in `web/`: React and TypeScript, built with Vite into static
 files that Caddy serves. Bun installs its packages and runs its scripts. It talks to the
-server only through the JSON API under `/api/v1` and the WebSocket of
-[real-time sync](/docs/architecture/realtime/), under `/ws`, which syncs a page.
+server only through the JSON API under `/api/v1` and the WebSockets of
+[real-time sync](/docs/architecture/realtime/), under `/ws`, which sync a page and tell of a
+database's changes.
 
 ## The stack
 
@@ -90,7 +91,8 @@ accounts](/docs/guides/signing-in/) describes them.
 Every form checks what the server would refuse, a password's length from
 `GET /api/v1/auth/config` included, before sending it, and shows the server's own message
 beside the field it is about when it disagrees. The API calls are all in `web/src/api`, one
-module each for auth, the account, the admin pages, workspaces, teamspaces and pages.
+module each for auth, the account, the admin pages, workspaces, teamspaces, pages and
+databases.
 
 ## Workspaces
 
@@ -167,8 +169,10 @@ document, to the `XmlFragment` named `document-store` that
   before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
 - The editor's schema (`schema.ts`) is BlockNote's default blocks and the app's database
   block, made from its config in `custom-blocks.ts`, as
-  [Page documents](/docs/architecture/documents/#block-types) describes. The block draws as a
-  placeholder that names its database by its id.
+  [Page documents](/docs/architecture/documents/#block-types) describes. The block draws the
+  database it names with the same views as its own page, compact; see
+  [Databases](#databases). The slash menu is BlockNote's, with a **Database** item beside its
+  table that makes an inline database under the page and gives its id to a new block.
 
 BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
 every palette and mode: its `--bn-` variables take the palette's tokens, its text and
@@ -178,6 +182,47 @@ Others' cursors carry their hue the way other elements do, with `data-hue` and
 `--accent-h`, so each is drawn at the reader's own lightness and chroma, and glows in dark
 mode. The tint over the text someone selects is the one colour drawn outside the theme:
 y-prosemirror writes it as an sRGB colour, which the app derives from their hue.
+
+## Databases
+
+A database's page, a row's page and a database block all draw the same components, in
+`web/src/components/databases/`, on the calls in `web/src/api/databases.ts`, cached under the
+workspace's key:
+
+- The database, its properties and its views are one query. Each view's rows are another,
+  every part of `POST /api/v1/databases/{id}/query` read in turn: the server filters, sorts
+  and groups them, so the app never does, and a database holds at most 10,000 rows.
+- A change shows at once: a value is written into every view's rows and the row's own query
+  before the server answers, a card moves to its column, a view's settings change in place.
+  Shortly after, every view's rows are read again, once for a burst of changes, so each row
+  settles where the server's filter, sorts and groups put it. A refused change reads them
+  again at once.
+- `web/src/lib/database-rules.ts` repeats the server's rules for what the app offers: the
+  operators of each type, the columns a view shows, how values read, how a card's move
+  changes a row. The server checks everything again.
+- The feed, `web/src/api/database-feed.ts`, is one WebSocket per database for the whole tab,
+  to `/ws/databases/{id}`, shared by everything that shows the database. It applies each
+  message to the cache: a row's values and title, a row added, moved or trashed, the schema
+  or a view to read again. On `ready`, as it connects and again as it reconnects, it reads the
+  database and its rows afresh, beginning again any read already on its way, as that may have
+  begun before the feed heard every change. It tries again after a dropped connection, after a
+  pause for 1013, 4408 and 4429, and stops on 4401 and 4404, as
+  [Real-time sync](/docs/architecture/realtime/#database-feeds) asks. It closes a moment after
+  nothing shows the database any more, and the next view of it opens it afresh.
+- A change the server refuses shows above the views, named by its code where one says more
+  than the server's words alone: `too_many_rows`, and `limit_reached`, as for a row's values
+  past 64 KiB. A row seen only through its own share comes without its `database_id`, so its
+  page shows what every row has rather than the database's properties.
+- Guests read no member ids, so for them the app offers no way to set people: person values
+  show without an editor, a filter on people compares with `me` alone, a person property
+  keeps its type, and a card stays in its person's column, as the server would refuse each.
+- Cards and columns move with pointer events rather than the browser's drag and drop, so a
+  drag inside a page's editor stays out of ProseMirror's own, and each has a menu that does
+  the same from the keyboard and on touch screens.
+- A row opens beside its database, in a panel named by the address's `peek`, from 64rem wide
+  up, and in place of it below. A database's page names the view in view in `view`.
+- A date property's format is the reader's, kept in `localStorage` by property, as the server
+  keeps no such setting.
 
 ## The theme model
 
