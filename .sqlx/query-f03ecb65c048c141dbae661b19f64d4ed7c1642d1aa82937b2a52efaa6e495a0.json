@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, t.user_id, t.workspace_id, t.name, t.prefix, t.scopes, t.created_at,\n                  t.expires_at, t.last_used_at,\n                  u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,\n                  u.disabled_at, u.created_at AS user_created_at,\n                  u.updated_at AS user_updated_at, u.workspace_id AS user_workspace_id,\n                  u.owner_id, u.deleted_at IS NOT NULL AS \"deleted!\",\n                  EXISTS (\n                      SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id\n                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id\n                        AND o.disabled_at IS NULL\n                  ) AS \"owner_active!\",\n                  COALESCE(w.agents_enabled, false) AS \"workspace_agents_on!\"\n           FROM api_tokens t\n           JOIN users u ON u.id = t.user_id\n           LEFT JOIN workspaces w ON w.id = u.workspace_id\n           WHERE t.token_hash = $1",
+  "query": "SELECT t.id, t.user_id, t.workspace_id, t.name, t.prefix, t.scopes, t.created_at,\n                  t.expires_at, t.last_used_at,\n                  u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,\n                  u.disabled_at, u.created_at AS user_created_at,\n                  u.updated_at AS user_updated_at, u.workspace_id AS user_workspace_id,\n                  u.owner_id, u.deleted_at IS NOT NULL AS \"deleted!\",\n                  EXISTS (\n                      SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id\n                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id\n                        AND m.role <> 'guest' AND o.disabled_at IS NULL\n                  ) AS \"owner_active!\",\n                  COALESCE(w.agents_enabled, false) AS \"workspace_agents_on!\"\n           FROM api_tokens t\n           JOIN users u ON u.id = t.user_id\n           LEFT JOIN workspaces w ON w.id = u.workspace_id\n           WHERE t.id = $1",
   "describe": {
     "columns": [
       {
@@ -244,7 +244,7 @@
     ],
     "parameters": {
       "Left": [
-        "Bytea"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -273,5 +273,5 @@
       null
     ]
   },
-  "hash": "a2c272f6c50ff8a968bcb37676108e782a37d7c87162abb7d6481861c0dc9b81"
+  "hash": "f03ecb65c048c141dbae661b19f64d4ed7c1642d1aa82937b2a52efaa6e495a0"
 }

@@ -24,7 +24,8 @@ Each card shows the agent's name and hue, a badge for an agent or an integration
 owner, **Yours** for the caller's own, when it was made, and its status:
 
 - **Active**: its tokens work.
-- **Suspended**: its owner is out of the workspace or disabled, or their account is gone.
+- **Suspended**: its owner is out of the workspace, a guest there or disabled, or their
+  account is gone. The workspace's owners and admins hand it to someone else or delete it.
 - **Turned off**: agents are off, on the instance or in the workspace.
 - **Deleted**: it is out of the workspace, and what it made still names it.
 

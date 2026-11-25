@@ -100,7 +100,7 @@ pub async fn by_token_hash(
                   EXISTS (
                       SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id
                       WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id
-                        AND o.disabled_at IS NULL
+                        AND m.role <> 'guest' AND o.disabled_at IS NULL
                   ) AS "owner_active!",
                   COALESCE(w.agents_enabled, false) AS "workspace_agents_on!"
            FROM api_tokens t
@@ -128,7 +128,7 @@ pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Opti
                   EXISTS (
                       SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id
                       WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id
-                        AND o.disabled_at IS NULL
+                        AND m.role <> 'guest' AND o.disabled_at IS NULL
                   ) AS "owner_active!",
                   COALESCE(w.agents_enabled, false) AS "workspace_agents_on!"
            FROM api_tokens t

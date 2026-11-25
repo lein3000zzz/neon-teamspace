@@ -66,12 +66,15 @@ owner.
 
 ## Suspension
 
-An agent is **suspended** while its owner is out of its workspace or disabled, or their
-account is gone. Its tokens are refused, on every route and socket, and its open page and
-database connections close. Suspension is worked out each time a token is used, from the
-owner's membership and account, and never stored: there is no flag to fall out of step. So
-an agent resumes by itself when its owner comes back into the workspace or is enabled again,
-or when a workspace's owner or admin hands it to another person.
+An agent is **suspended** while its owner is out of its workspace, a guest there or
+disabled, or their account is gone. A guest owns no agent: nobody hands one to a guest, and
+an owner made a guest keeps theirs only as suspended, without seeing it, until they are a
+member again or the agent goes to someone else. Its tokens are refused, on every route and
+socket, and its open page and database connections close. Suspension is worked out each
+time a token is used, from the owner's membership, role and account, and never stored:
+there is no flag to fall out of step. So an agent resumes by itself when its owner comes
+back into the workspace, is a member again or is enabled again, or when a workspace's owner
+or admin hands it to another person.
 
 Its owner's access bounds the agent's at once in the same way. When its owner leaves a
 teamspace, loses a share, changes role, or is removed, the agent's open connections are

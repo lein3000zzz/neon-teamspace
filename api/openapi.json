@@ -13149,7 +13149,7 @@
           },
           "suspended": {
             "type": "boolean",
-            "description": "An agent or integration whose owner is out of the workspace or disabled: its\ntokens are refused until that ends, or it is handed to someone else. Never a person."
+            "description": "An agent or integration whose owner is out of the workspace, a guest there or\ndisabled: its tokens are refused until that ends, or it is handed to someone else.\nNever a person."
           },
           "user": {
             "$ref": "#/components/schemas/Person"

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT u.id, u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  m.role, m.joined_at,\n                  (u.kind <> 'human' AND NOT EXISTS (\n                      SELECT 1 FROM workspace_members om JOIN users ou ON ou.id = om.user_id\n                      WHERE om.workspace_id = m.workspace_id AND om.user_id = u.owner_id\n                        AND ou.disabled_at IS NULL\n                  )) AS \"suspended!\"\n           FROM workspace_members m\n           JOIN users u ON u.id = m.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE m.workspace_id = $1\n           ORDER BY array_position(ARRAY['owner', 'admin', 'member', 'guest'], m.role),\n                    lower(u.display_name), u.id",
+  "query": "SELECT u.id, u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  m.role, m.joined_at,\n                  (u.kind <> 'human' AND NOT EXISTS (\n                      SELECT 1 FROM workspace_members om JOIN users ou ON ou.id = om.user_id\n                      WHERE om.workspace_id = m.workspace_id AND om.user_id = u.owner_id\n                        AND om.role <> 'guest' AND ou.disabled_at IS NULL\n                  )) AS \"suspended!\"\n           FROM workspace_members m\n           JOIN users u ON u.id = m.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE m.workspace_id = $1\n           ORDER BY array_position(ARRAY['owner', 'admin', 'member', 'guest'], m.role),\n                    lower(u.display_name), u.id",
   "describe": {
     "columns": [
       {
@@ -139,5 +139,5 @@
       null
     ]
   },
-  "hash": "5a832a4341d9331c5aa5f1d6dfd3334e0ad75eb6f5cd6ea3c93beb2fe46372d6"
+  "hash": "fee3b45c023430cb6d055d270b033910486d7ca805833f892d8314a4e776e512"
 }

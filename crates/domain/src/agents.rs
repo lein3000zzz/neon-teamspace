@@ -11,9 +11,10 @@
 //!   teamspaces as a person does, and is a teamspace member, never a teamspace owner. It
 //!   has no private pages of its own: its owner could not see them.
 //! - **Suspension** is worked out each time, never stored: one is suspended while its owner
-//!   is out of its workspace or disabled, or its owner's account is gone. Its tokens are
-//!   refused meanwhile, and it resumes as soon as that ends, or once a workspace's owner or
-//!   admin hands it to another person there.
+//!   is out of its workspace, a guest there or disabled, or its owner's account is gone. A
+//!   guest owns no agent, as nobody hands one to a guest. Its tokens are refused meanwhile,
+//!   and it resumes as soon as that ends, or once a workspace's owner or admin hands it to
+//!   another person there.
 //! - **Switches.** The setting `mcp.identities` says whether agents exist on the instance,
 //!   and each workspace may turn its agents off and say who makes them: its owners and
 //!   admins, or every member. While agents are off, none is made and every agent's tokens
@@ -71,7 +72,8 @@ text_enum! {
     AgentStatus {
         /// Its tokens work.
         Active => "active",
-        /// Its owner is out of its workspace or disabled, or their account is gone.
+        /// Its owner is out of its workspace, a guest there or disabled, or their account
+        /// is gone.
         Suspended => "suspended",
         /// Agents are off on the instance or in its workspace.
         Disabled => "disabled",
@@ -82,8 +84,8 @@ text_enum! {
 
 impl AgentStatus {
     /// The status of an identity of `kind`: whether it was deleted, whether its owner is a
-    /// member of its workspace who can sign in, and whether agents are on, on the
-    /// instance and in the workspace both. Deletion shows first, then suspension.
+    /// member of its workspace, not a guest, who can sign in, and whether agents are on, on
+    /// the instance and in the workspace both. Deletion shows first, then suspension.
     pub fn of(kind: UserKind, deleted: bool, owner_active: bool, agents_on: bool) -> Self {
         if deleted {
             Self::Deleted
@@ -107,7 +109,7 @@ impl AgentStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Standing {
     pub deleted: bool,
-    /// Its owner is a member of its workspace, and can sign in.
+    /// Its owner is a member of its workspace, not a guest, and can sign in.
     pub owner_active: bool,
     /// Its workspace has its agents on.
     pub workspace_agents_on: bool,

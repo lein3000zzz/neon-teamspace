@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT u.id, u.kind, u.workspace_id AS \"workspace_id!\", u.display_name, u.hue,\n                  u.created_at, u.updated_at, u.deleted_at,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  EXISTS (\n                      SELECT 1 FROM workspace_members m JOIN users d ON d.id = m.user_id\n                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id\n                        AND d.disabled_at IS NULL\n                  ) AS \"owner_active!\",\n                  w.agents_enabled\n           FROM users u\n           JOIN workspaces w ON w.id = u.workspace_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE u.workspace_id = $1 AND u.id = $2",
+  "query": "SELECT u.id, u.kind, u.workspace_id AS \"workspace_id!\", u.display_name, u.hue,\n                  u.created_at, u.updated_at, u.deleted_at,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  EXISTS (\n                      SELECT 1 FROM workspace_members m JOIN users d ON d.id = m.user_id\n                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id\n                        AND m.role <> 'guest' AND d.disabled_at IS NULL\n                  ) AS \"owner_active!\",\n                  w.agents_enabled\n           FROM users u\n           JOIN workspaces w ON w.id = u.workspace_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE u.workspace_id = $1\n           ORDER BY u.deleted_at IS NOT NULL, lower(u.display_name), u.id",
   "describe": {
     "columns": [
       {
@@ -144,7 +144,6 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Uuid"
       ]
     },
@@ -157,12 +156,12 @@
       false,
       false,
       true,
-      true,
-      true,
+      false,
+      false,
       true,
       null,
       false
     ]
   },
-  "hash": "0b13efe5c46cdf89b77c9117da626f8da91caf8088025268aa46f7939663adb6"
+  "hash": "000f8561cd6aeaa0d26661023a36f3858eb3c4e8c45c888b985bee2f99b7adaa"
 }

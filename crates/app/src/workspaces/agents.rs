@@ -412,8 +412,8 @@ impl AgentService {
                 AgentStatus::Deleted => return Err(DELETED),
                 AgentStatus::Suspended => {
                     return Err(WorkspaceError::Forbidden(
-                        "this agent is suspended while its owner is out of the workspace or \
-                         disabled",
+                        "this agent is suspended while its owner is out of the workspace, a \
+                         guest there or disabled",
                     ));
                 }
                 AgentStatus::Disabled => {

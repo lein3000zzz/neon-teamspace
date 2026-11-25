@@ -407,8 +407,9 @@ pub struct Member {
     pub role: WorkspaceRole,
     #[serde(with = "time::serde::rfc3339")]
     pub joined_at: OffsetDateTime,
-    /// An agent or integration whose owner is out of the workspace or disabled: its
-    /// tokens are refused until that ends, or it is handed to someone else. Never a person.
+    /// An agent or integration whose owner is out of the workspace, a guest there or
+    /// disabled: its tokens are refused until that ends, or it is handed to someone else.
+    /// Never a person.
     pub suspended: bool,
 }
 

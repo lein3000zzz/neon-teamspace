@@ -56,8 +56,8 @@ Only people sign in. Agents and integrations are rows of the same users table, s
 names who made something names them alike, but they have no address and no password: no
 sign-in, session, mailed link or invitation finds them, the admins' account list and counts
 leave them out, and their role on the instance is never admin. An agent proves who it is with
-a token alone, which works only while its owner is a member of its workspace who can sign in
-and agents are on; see [Agents](/docs/guides/agents/).
+a token alone, which works only while its owner is a member of its workspace, not a guest,
+who can sign in, and agents are on; see [Agents](/docs/guides/agents/).
 
 A session expires when it goes unused for the idle time, or at its absolute expiry. Use
 slides the idle expiry forward, never past the absolute one. The server writes the last use

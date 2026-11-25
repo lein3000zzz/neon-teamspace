@@ -36,8 +36,8 @@ pub struct Member {
     pub person: Person,
     pub role: WorkspaceRole,
     pub joined_at: OffsetDateTime,
-    /// An agent or integration whose owner is out of the workspace or disabled, whose
-    /// tokens are refused meanwhile; never a person.
+    /// An agent or integration whose owner is out of the workspace, a guest there or
+    /// disabled, whose tokens are refused meanwhile; never a person.
     pub suspended: bool,
 }
 

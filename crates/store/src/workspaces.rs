@@ -423,7 +423,7 @@ pub async fn list_members(
                   (u.kind <> 'human' AND NOT EXISTS (
                       SELECT 1 FROM workspace_members om JOIN users ou ON ou.id = om.user_id
                       WHERE om.workspace_id = m.workspace_id AND om.user_id = u.owner_id
-                        AND ou.disabled_at IS NULL
+                        AND om.role <> 'guest' AND ou.disabled_at IS NULL
                   )) AS "suspended!"
            FROM workspace_members m
            JOIN users u ON u.id = m.user_id
@@ -454,7 +454,7 @@ pub async fn member(
                   (u.kind <> 'human' AND NOT EXISTS (
                       SELECT 1 FROM workspace_members om JOIN users ou ON ou.id = om.user_id
                       WHERE om.workspace_id = m.workspace_id AND om.user_id = u.owner_id
-                        AND ou.disabled_at IS NULL
+                        AND om.role <> 'guest' AND ou.disabled_at IS NULL
                   )) AS "suspended!"
            FROM workspace_members m
            JOIN users u ON u.id = m.user_id

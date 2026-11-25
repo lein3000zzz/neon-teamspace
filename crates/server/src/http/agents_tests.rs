@@ -607,3 +607,54 @@ async fn a_bound_token_keeps_to_its_workspace_s_favorites(pool: PgPool) {
     let session = team.ada.get(favorites).await;
     assert_eq!(ids(&session), [far_a, far_b, there]);
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let scout = agent(&team.cy, ws, "Scout").await;
+    let worker = Bearer::new(
+        &app,
+        agent_token(&team.cy, ws, &scout, &["read", "write"]).await,
+    );
+    let one = format!("/api/v1/workspaces/{ws}/agents/{scout}");
+    let cy_id = id(&team.cy.get("/api/v1/account/me").await);
+    let role = |role: &'static str| {
+        let uri = format!("/api/v1/workspaces/{ws}/members/{cy_id}");
+        let ada = &team.ada;
+        async move {
+            let changed = ada
+                .send(Method::PATCH, &uri, Some(json!({"role": role})))
+                .await;
+            assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+        }
+    };
+    assert_eq!(
+        worker.get("/api/v1/workspaces").await.status,
+        StatusCode::OK
+    );
+
+    // A guest owns no agent: Cy's is suspended, and the admins see it so.
+    role("guest").await;
+    let refused = worker.get("/api/v1/workspaces").await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{}", refused.body);
+    assert_eq!(team.ada.get(&one).await.body["status"], "suspended");
+
+    // A member again, it works again; an admin may also hand it to someone else.
+    role("member").await;
+    assert_eq!(
+        worker.get("/api/v1/workspaces").await.status,
+        StatusCode::OK
+    );
+    assert_eq!(team.ada.get(&one).await.body["status"], "active");
+    role("guest").await;
+    let bob_id = id(&team.bob.get("/api/v1/account/me").await);
+    let handed = team
+        .bob
+        .post(&format!("{one}/transfer"), json!({"owner_id": bob_id}))
+        .await;
+    assert_eq!(handed.status, StatusCode::OK, "{}", handed.body);
+    assert_eq!(handed.body["status"], "active");
+}

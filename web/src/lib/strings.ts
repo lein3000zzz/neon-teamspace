@@ -714,7 +714,7 @@ export const strings = {
       agentLimit: "This workspace has as many agents and integrations as its limit allows.",
       list: "Agents",
       listHint:
-        "Its agents and integrations, with whom each acts for. An agent is suspended while its owner is out of the workspace or disabled.",
+        "Its agents and integrations, with whom each acts for. An agent is suspended while its owner is out of the workspace, a guest there or disabled.",
       none: "No agents yet.",
       owner: (name: string) => `Owner: ${name}`,
       noOwner: "Its owner's account is gone",
@@ -727,7 +727,8 @@ export const strings = {
       },
       statusHints: {
         active: "Its tokens work.",
-        suspended: "Its owner is out of the workspace or disabled: its tokens are refused.",
+        suspended:
+          "Its owner is out of the workspace, a guest there or disabled: its tokens are refused.",
         disabled: "Agents are turned off: its tokens are refused.",
         deleted: "What it made still names it.",
       },
@@ -900,7 +901,8 @@ export const strings = {
       guestHint: "As a guest, you see no member but yourself.",
       you: "You",
       suspended: "Suspended",
-      suspendedHint: "Its owner is out of the workspace or disabled, so its tokens are refused.",
+      suspendedHint:
+        "Its owner is out of the workspace, a guest there or disabled, so its tokens are refused.",
       joined: (when: string) => `Joined ${when}`,
       roleOf: (name: string) => `Role of ${name}`,
       changeTitle: (name: string, role: string) => `Make ${name} ${role}?`,

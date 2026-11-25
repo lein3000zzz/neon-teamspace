@@ -38,7 +38,9 @@ describe("the agents of a workspace", () => {
     const theirs = await agentCard("Ranger");
     expect(theirs.getByText("Suspended")).toBeInTheDocument();
     expect(
-      theirs.getByText("Its owner is out of the workspace or disabled: its tokens are refused."),
+      theirs.getByText(
+        "Its owner is out of the workspace, a guest there or disabled: its tokens are refused.",
+      ),
     ).toBeInTheDocument();
     expect(theirs.queryByRole("button", { name: "Rename or recolour Ranger" })).toBeNull();
     expect(theirs.getByRole("button", { name: "Delete Ranger" })).toBeInTheDocument();

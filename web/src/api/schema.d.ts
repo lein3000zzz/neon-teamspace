@@ -2785,8 +2785,9 @@ export interface components {
             /** @description An agent's or integration's is always member. */
             role: components["schemas"]["WorkspaceRole"];
             /**
-             * @description An agent or integration whose owner is out of the workspace or disabled: its
-             *     tokens are refused until that ends, or it is handed to someone else. Never a person.
+             * @description An agent or integration whose owner is out of the workspace, a guest there or
+             *     disabled: its tokens are refused until that ends, or it is handed to someone else.
+             *     Never a person.
              */
             suspended: boolean;
             user: components["schemas"]["Person"];

@@ -77,7 +77,7 @@ pub async fn list(executor: impl PgExecutor<'_>, workspace_id: Uuid) -> sqlx::Re
                   EXISTS (
                       SELECT 1 FROM workspace_members m JOIN users d ON d.id = m.user_id
                       WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id
-                        AND d.disabled_at IS NULL
+                        AND m.role <> 'guest' AND d.disabled_at IS NULL
                   ) AS "owner_active!",
                   w.agents_enabled
            FROM users u
@@ -108,7 +108,7 @@ pub async fn get(
                   EXISTS (
                       SELECT 1 FROM workspace_members m JOIN users d ON d.id = m.user_id
                       WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id
-                        AND d.disabled_at IS NULL
+                        AND m.role <> 'guest' AND d.disabled_at IS NULL
                   ) AS "owner_active!",
                   w.agents_enabled
            FROM users u

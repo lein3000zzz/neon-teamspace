@@ -239,8 +239,10 @@ What either may not know of is **hidden**; what either may not do is **no**. So:
 | Agents | see them, as its owner may; make, change, hand over, delete none, nor make or revoke tokens |
 | The instance | nothing |
 
-An agent whose owner is out of the workspace, or disabled, is suspended: its tokens are
-refused, so it may do nothing at all, and its connections close.
+An agent whose owner is out of the workspace, a guest there or disabled is suspended: its
+tokens are refused, so it may do nothing at all, and its connections close. A guest owns no
+agent, so an owner made a guest no longer sees theirs; the workspace's owners and admins
+hand it to someone else or delete it.
 
 ## Tokens bound to a workspace
 

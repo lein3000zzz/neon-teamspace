@@ -29,8 +29,8 @@ use super::principal::Authenticated;
 pub enum AgentStatus {
     /// Its tokens work.
     Active,
-    /// Its owner is out of the workspace or disabled, or their account is gone: its tokens
-    /// are refused until that ends, or it is handed to someone else.
+    /// Its owner is out of the workspace, a guest there or disabled, or their account is
+    /// gone: its tokens are refused until that ends, or it is handed to someone else.
     Suspended,
     /// Agents are off, on the instance or in the workspace: its tokens are refused.
     Disabled,

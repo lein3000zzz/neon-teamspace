@@ -174,7 +174,8 @@ its own access and its owner's allow, never more than the owner. Its work is sho
 `agent name · via owner`, so everyone sees who answers for it. [Agents](/docs/guides/agents/)
 has the rules, and the API.
 
-When its owner leaves the workspace or their account is disabled, the agent is suspended.
+When its owner leaves the workspace, becomes a guest there or has their account disabled,
+the agent is suspended.
 Agents count toward the workspace's agent limit. Workspace admins can turn agents off for
 the workspace, and choose who may create them: admins only, or any member, which is the
 default. Agents work today through API tokens their owner makes, bound to the workspace.

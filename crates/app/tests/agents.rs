@@ -140,6 +140,15 @@ impl Team {
             .await
             .map(|_| ())
     }
+
+    /// Ada gives `who` the workspace role `role`.
+    async fn role(&self, who: &Principal, role: WorkspaceRole) {
+        self.h
+            .workspaces
+            .change_member_role(&self.ada, self.id, who.user.id, role)
+            .await
+            .expect("changed");
+    }
 }
 
 fn new(name: &str) -> NewAgent {
@@ -751,6 +760,134 @@ async fn an_agent_is_suspended_while_its_owner_is_out_or_disabled(pool: PgPool) 
     assert!(!works().await, "Dee's token does not come back with her");
     let (_, bobs) = t.h.agent_token(&t.bob, &handed, &["read"]).await;
     assert_eq!(bobs.user.owner_id, Some(t.bob.user.id));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
+    let t = team(pool).await;
+    let scout = t.h.agent(&t.cy, t.id, "Scout").await;
+    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &["write"]).await;
+    let works = || async { t.h.auth.authenticate_token(secret.expose()).await.is_ok() };
+
+    // A guest owns no agent: Cy's is suspended, its token refused, its connections looked
+    // at again.
+    t.h.changes.take();
+    t.role(&t.cy, WorkspaceRole::Guest).await;
+    assert_eq!(
+        t.h.changes.take(),
+        [AccessChange::Workspace {
+            workspace_id: t.id,
+            user_id: Some(t.cy.user.id)
+        }]
+    );
+    assert!(!works().await && t.h.auth.refresh(&worker).await.is_err());
+    assert_eq!(t.status(&scout).await, AgentStatus::Suspended);
+    assert!(
+        t.h.workspaces
+            .list_members(&t.bob, t.id)
+            .await
+            .expect("listed")
+            .iter()
+            .any(|member| member.person.id == scout.id && member.suspended)
+    );
+    assert_hidden(
+        t.h.agents
+            .create_agent_token(&t.cy, t.id, scout.id, "more", None, &["read"])
+            .await,
+    );
+
+    // A member again, Cy has it back.
+    t.role(&t.cy, WorkspaceRole::Member).await;
+    assert!(works().await);
+    assert_eq!(t.status(&scout).await, AgentStatus::Active);
+
+    // Or the workspace's owners and admins hand it to someone else, which resumes it.
+    t.role(&t.cy, WorkspaceRole::Guest).await;
+    let handed =
+        t.h.agents
+            .transfer_agent(&t.bob, t.id, scout.id, t.bob.user.id)
+            .await
+            .expect("handed over");
+    assert_eq!(handed.status, AgentStatus::Active);
+}
+
+/// A request that authenticated as an agent just before its owner became a guest still
+/// sees no one: what it reads is what a guest reads.
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_of_a_guest_reads_no_people(pool: PgPool) {
+    let t = team(pool).await;
+    let scout = t.h.agent(&t.cy, t.id, "Scout").await;
+    let (_, worker) = t.h.agent_token(&t.cy, &scout, &["read"]).await;
+    let database =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.id,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewDatabase {
+                    title: "Tasks".to_owned(),
+                    icon: None,
+                    inline: false,
+                },
+            )
+            .await
+            .expect("made");
+    let db = database.page.page.id;
+    let assignee =
+        t.h.databases
+            .add_property(
+                &t.ada,
+                db,
+                NewProperty {
+                    name: "Assignee".to_owned(),
+                    spec: PropertySpec {
+                        kind: PropertyKind::Person,
+                        number_format: None,
+                        currency: None,
+                        prefix: None,
+                    },
+                    options: None,
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("added");
+    let mut values = Map::new();
+    values.insert("Name".to_owned(), json!("Triage"));
+    values.insert(assignee.id.to_string(), json!([t.ada.user.id]));
+    let row =
+        t.h.databases
+            .create_row(
+                &t.ada,
+                db,
+                NewRow {
+                    values,
+                    placement: Placement::Last,
+                    group: None,
+                },
+            )
+            .await
+            .expect("a row");
+    let read = t.h.databases.row(&worker, row.id).await.expect("read");
+    assert_eq!(
+        read.created_by,
+        Some(t.ada.user.id),
+        "a member's agent sees people"
+    );
+
+    t.role(&t.cy, WorkspaceRole::Guest).await;
+    t.h.pages
+        .share_page(&t.ada, db, t.cy.user.id, PageAccess::View)
+        .await
+        .expect("shared with Cy");
+    let read = t.h.databases.row(&worker, row.id).await.expect("read");
+    assert_eq!(read.created_by, None, "{read:?}");
+    assert!(
+        !read.values.contains_key(&assignee.id.to_string()),
+        "{:?}",
+        read.values
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
