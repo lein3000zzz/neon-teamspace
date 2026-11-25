@@ -97,10 +97,10 @@ work: a suspended, turned off or deleted agent gets none.
 
 ## Handing over and deleting
 
-The workspace's owners and admins hand an agent to another person of the workspace, not a
-guest, with `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer`. It acts for its new
-owner from then on, which resumes it if it was suspended, and its tokens are revoked: its
-former owner made them, and they would otherwise act for the new owner.
+The workspace's owners and admins hand an agent to another person of the workspace, neither
+a guest nor disabled, with `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer`. It
+acts for its new owner from then on, which resumes it if it was suspended, and its tokens
+are revoked: its former owner made them, and they would otherwise act for the new owner.
 
 Its owner renames it and changes its hue with `PATCH /api/v1/workspaces/{id}/agents/{agent_id}`.
 Its owner, or the workspace's owners and admins, delete it with `DELETE` on the same path.

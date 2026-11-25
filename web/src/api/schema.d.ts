@@ -1505,7 +1505,7 @@ export interface paths {
         put?: never;
         /**
          * Hand an agent to someone else
-         * @description Makes another person of the workspace, not a guest, its owner, for the workspace's owners and admins. It acts for them from then on, which resumes it if it was suspended; its tokens, which its former owner made, are revoked.
+         * @description Makes another person of the workspace, not a guest and not disabled, its owner, for the workspace's owners and admins. It acts for them from then on, which resumes it if it was suspended; its tokens, which its former owner made, are revoked.
          */
         post: operations["transfer_agent"];
         delete?: never;
@@ -9776,7 +9776,7 @@ export interface operations {
                     "application/json": components["schemas"]["Agent"];
                 };
             };
-            /** @description invalid_input: not a person, or a guest. */
+            /** @description invalid_input: not a person, a guest, or a disabled account. */
             400: {
                 headers: {
                     [name: string]: unknown;

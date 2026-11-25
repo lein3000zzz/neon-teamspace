@@ -33,7 +33,8 @@ What the card offers depends on who looks:
 
 - Its owner **renames or recolours** it: a name, and a hue from its id or pinned.
 - The workspace's owners and admins **hand it over** to another person of the workspace,
-  not a guest, after a question: it acts for them from then on, and its tokens are revoked.
+  neither a guest nor disabled, after a question: it acts for them from then on, and its
+  tokens are revoked.
 - Its owner and the workspace's owners and admins **delete** it, after a question.
 - They also **add it to a teamspace**: its owner to the teamspaces they are in, owners and
   admins to any teamspace but General, which it is in already. It joins as a member.

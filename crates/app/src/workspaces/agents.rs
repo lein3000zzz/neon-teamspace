@@ -26,7 +26,7 @@ use neon_domain::workspaces::{Action, Resource, TeamspaceRole};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::agents::{self as repo, New, Stored};
-use neon_store::{api_tokens, teamspaces};
+use neon_store::{api_tokens, teamspaces, users};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use tracing::{Instrument as _, info, info_span};
@@ -256,9 +256,10 @@ impl AgentService {
         .await
     }
 
-    /// Hands an agent or integration to another person of the workspace, not a guest, for
-    /// the workspace's owners and admins. It acts for them from then on, which resumes it
-    /// when it was suspended; its tokens, made by its former owner, are revoked.
+    /// Hands an agent or integration to another person of the workspace, neither a guest
+    /// nor disabled, for the workspace's owners and admins. It acts for them from then on,
+    /// which resumes it when it was suspended; its tokens, made by its former owner, are
+    /// revoked.
     pub async fn transfer_agent(
         &self,
         principal: &Principal,
@@ -288,6 +289,14 @@ impl AgentService {
             if !newcomer.role.joins_teamspaces() {
                 return Err(WorkspaceError::InvalidInput(
                     "guests own no agents: make them a member first".to_owned(),
+                ));
+            }
+            if users::by_id(&mut *tx, to)
+                .await?
+                .is_none_or(|person| person.disabled_at.is_some())
+            {
+                return Err(WorkspaceError::InvalidInput(
+                    "their account is disabled: it would stay suspended with them".to_owned(),
                 ));
             }
             if stored.owner.as_ref().is_some_and(|owner| owner.id == to) {

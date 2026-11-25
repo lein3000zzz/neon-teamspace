@@ -269,10 +269,10 @@ pub struct TransferAgent {
     path = "/workspaces/{id}/agents/{agent_id}/transfer",
     tag = "agents",
     summary = "Hand an agent to someone else",
-    description = "Makes another person of the workspace, not a guest, its owner, for the \
-                   workspace's owners and admins. It acts for them from then on, which \
-                   resumes it if it was suspended; its tokens, which its former owner made, \
-                   are revoked.",
+    description = "Makes another person of the workspace, not a guest and not disabled, its \
+                   owner, for the workspace's owners and admins. It acts for them from then \
+                   on, which resumes it if it was suspended; its tokens, which its former \
+                   owner made, are revoked.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("agent_id" = Uuid, Path, description = "The agent's id."),
@@ -280,7 +280,7 @@ pub struct TransferAgent {
     request_body = TransferAgent,
     responses(
         (status = OK, description = "The agent.", body = Agent),
-        (status = BAD_REQUEST, description = "invalid_input: not a person, or a guest.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: not a person, a guest, or a disabled account.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: not an owner or admin, or it is deleted; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such agent or member.", body = ErrorBody),

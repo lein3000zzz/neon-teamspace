@@ -1011,6 +1011,27 @@ async fn only_the_owner_renames_and_the_managers_hand_over(pool: PgPool) {
             .transfer_agent(&t.bob, t.id, scout.id, Uuid::now_v7())
             .await,
     );
+    // Not to someone disabled, with whom it would stay suspended.
+    let admin = t.h.admin().await;
+    let disable = |disabled| UserUpdate {
+        disabled: Some(disabled),
+        ..UserUpdate::default()
+    };
+    t.h.auth
+        .update_user(&admin, dee.user.id, disable(true))
+        .await
+        .expect("disabled");
+    assert!(matches!(
+        agents
+            .transfer_agent(&t.bob, t.id, scout.id, dee.user.id)
+            .await,
+        Err(WorkspaceError::InvalidInput(reason)) if reason.contains("disabled")
+    ));
+    assert_eq!(t.status(&scout).await, AgentStatus::Active, "still Cy's");
+    t.h.auth
+        .update_user(&admin, dee.user.id, disable(false))
+        .await
+        .expect("enabled");
     agents
         .transfer_agent(&t.bob, t.id, scout.id, dee.user.id)
         .await
