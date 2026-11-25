@@ -18,7 +18,7 @@ use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
 };
 use neon_app::transfer::TransferService;
-use neon_app::webhooks::{WebhookService, WebhookTransport};
+use neon_app::webhooks::{Services, WebhookService, WebhookTransport};
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
@@ -167,8 +167,13 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     let webhooks = WebhookService::builder(
         pool.clone(),
         Arc::clone(&settings),
-        workspaces.clone(),
-        pages.clone(),
+        Services {
+            workspaces: workspaces.clone(),
+            agents: agents.clone(),
+            pages: pages.clone(),
+            databases: databases.clone(),
+            sync: sync.clone(),
+        },
         transport,
     )
     .envelope(envelope)

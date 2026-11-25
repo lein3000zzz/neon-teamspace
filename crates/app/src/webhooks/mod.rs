@@ -1,5 +1,6 @@
 //! Webhooks: outgoing ones, which tell a URL of what happens to the rows an identity is
-//! assigned to, and their deliveries.
+//! assigned to, and their deliveries; and incoming ones, which act as an integration on a
+//! database or a page with what is posted to them: see [`incoming`].
 //!
 //! - **Registering.** An outgoing webhook belongs to one identity of a workspace, a person,
 //!   an agent or an integration, and names the [`EventType`]s it wants. The workspace's
@@ -27,7 +28,9 @@
 mod delivery;
 mod error;
 pub(crate) mod events;
+pub mod incoming;
 mod outgoing;
+pub mod payload;
 pub mod signature;
 pub mod transport;
 
@@ -47,14 +50,22 @@ use uuid::Uuid;
 
 use crate::clock::Clock;
 use crate::crypto::Envelope;
+use crate::databases::DatabaseService;
 use crate::pages::PageService;
+use crate::ratelimit::{MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, webhooks as keys};
 use crate::standing::Standing;
-use crate::workspaces::WorkspaceService;
+use crate::sync::SyncService;
+use crate::workspaces::{AgentService, WorkspaceService};
 
-pub use delivery::DeliveryJob;
-pub use error::WebhookError;
+pub use delivery::{DELIVERY_HEADER, DeliveryJob, EVENT_HEADER};
+pub use error::{IncomingError, Refusal, WebhookError};
+pub use incoming::{
+    Accepted, BodyError, CreatedIncoming, IncomingRequest, IncomingUpdate, IncomingWebhook,
+    Integration, LoggedRequest, NewIncomingWebhook, Target,
+};
 pub use outgoing::{Creator, DeliveryAttempt, NewWebhook, OutgoingWebhook, WebhookUpdate};
+pub use payload::TargetKind;
 pub use transport::WebhookTransport;
 
 /// RED subsystem of the webhook use cases.
@@ -71,8 +82,12 @@ pub const MAX_ATTEMPTS: i32 = 12;
 /// How many deliveries in a row may be given up on before the webhook turns itself off.
 pub const DISABLE_AFTER: i32 = 5;
 
-/// How long a rotated secret still signs deliveries beside the new one.
+/// How long a rotated secret still signs deliveries beside the new one, and verifies an
+/// incoming webhook's requests.
 pub const ROTATION_OVERLAP: Duration = Duration::from_secs(24 * 3600);
+
+/// The largest body an incoming webhook reads.
+pub const MAX_INCOMING_BODY: usize = 256 * 1024;
 
 const NO_WORKSPACE: &str = "no such workspace";
 const NO_WEBHOOK: &str = "no such webhook";
@@ -87,26 +102,48 @@ struct Inner {
     pool: PgPool,
     settings: Arc<SettingsService>,
     workspaces: WorkspaceService,
+    agents: AgentService,
     pages: PageService,
+    databases: DatabaseService,
+    sync: SyncService,
     transport: Arc<dyn WebhookTransport>,
+    limiter: Arc<dyn RateLimiter>,
     envelope: Envelope,
     clock: Clock,
     red: Red,
 }
 
+/// The services webhooks work through: the workspaces and agents they belong to, the pages
+/// and rows their events are about, and the services incoming ones act through.
+#[derive(Clone)]
+pub struct Services {
+    pub workspaces: WorkspaceService,
+    pub agents: AgentService,
+    pub pages: PageService,
+    pub databases: DatabaseService,
+    pub sync: SyncService,
+}
+
 /// Puts a [`WebhookService`] together. Without being told otherwise it seals nothing, so it
-/// makes no webhook, and reads the system clock.
+/// makes no webhook with a secret, limits incoming requests in memory, and reads the
+/// system clock.
 pub struct WebhookServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
-    workspaces: WorkspaceService,
-    pages: PageService,
+    services: Services,
     transport: Arc<dyn WebhookTransport>,
+    limiter: Option<Arc<dyn RateLimiter>>,
     envelope: Envelope,
     clock: Clock,
 }
 
 impl WebhookServiceBuilder {
+    /// Where incoming requests' rates are counted, as other use cases count theirs.
+    pub fn limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
+        self.limiter = Some(limiter);
+        self
+    }
+
     /// Seals webhooks' secrets: without it, none is made.
     pub fn envelope(mut self, envelope: Envelope) -> Self {
         self.envelope = envelope;
@@ -120,13 +157,26 @@ impl WebhookServiceBuilder {
 
     /// Call it after telemetry is installed, as it creates the RED metrics.
     pub fn build(self) -> WebhookService {
+        let Services {
+            workspaces,
+            agents,
+            pages,
+            databases,
+            sync,
+        } = self.services;
         WebhookService {
             inner: Arc::new(Inner {
                 pool: self.pool,
                 settings: self.settings,
-                workspaces: self.workspaces,
-                pages: self.pages,
+                workspaces,
+                agents,
+                pages,
+                databases,
+                sync,
                 transport: self.transport,
+                limiter: self
+                    .limiter
+                    .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
                 envelope: self.envelope,
                 clock: self.clock,
                 red: Red::new(SUBSYSTEM),
@@ -136,21 +186,20 @@ impl WebhookServiceBuilder {
 }
 
 impl WebhookService {
-    /// The webhooks of the workspaces `workspaces` serves, whose rows `pages` reads, sent
-    /// through `transport`.
+    /// The webhooks of the workspaces `services` serve, outgoing ones sent through
+    /// `transport`.
     pub fn builder(
         pool: PgPool,
         settings: Arc<SettingsService>,
-        workspaces: WorkspaceService,
-        pages: PageService,
+        services: Services,
         transport: Arc<dyn WebhookTransport>,
     ) -> WebhookServiceBuilder {
         WebhookServiceBuilder {
             pool,
             settings,
-            workspaces,
-            pages,
+            services,
             transport,
+            limiter: None,
             envelope: Envelope::default(),
             clock: Clock::system(),
         }

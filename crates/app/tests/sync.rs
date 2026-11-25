@@ -878,3 +878,79 @@ impl Metrics {
         )
     }
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn blocks_the_server_appends_reach_every_editor_and_are_logged_at_once(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    // A long pause before logging: the append logs at once all the same.
+    let sync = t.sync(Limits {
+        persist_delay: Duration::from_secs(3600),
+        ..quick()
+    });
+    let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
+    dee.write("typed by Dee").await.expect("taken");
+
+    sync.append(
+        &t.ada,
+        t.page,
+        vec![
+            Block::paragraph("appended"),
+            Block::paragraph("by the server"),
+        ],
+    )
+    .await
+    .expect("appended");
+
+    dee.until("the server's blocks", |message| {
+        matches!(message, Message::Sync(SyncMessage::Update(_)))
+    })
+    .await;
+    assert_eq!(dee.text(), "typed by Dee\nappended\nby the server");
+    // Logged before the call answered, as Ada's, with Dee's typing before it.
+    let logged = rows(&pool, t.page).await;
+    assert_eq!(
+        logged.iter().map(|(author, _)| *author).collect::<Vec<_>>(),
+        [Some(t.dee.user.id), Some(t.ada.user.id)]
+    );
+    let read = sync.content(t.page).await.expect("its content");
+    assert_eq!(read.plain_text(), "typed by Dee\nappended\nby the server");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_server_appends_to_a_page_nobody_has_open_for_those_who_edit_it(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let sync = t.sync(quick());
+    let gus = t.h.person("gus@example.com").await;
+    let workspace =
+        t.h.pages
+            .page(&t.ada, t.page)
+            .await
+            .expect("a page")
+            .page
+            .workspace_id;
+    t.h.bring_in(&t.ada, workspace, &gus, WorkspaceRole::Guest)
+        .await;
+
+    sync.append(&t.dee, t.page, vec![Block::paragraph("while closed")])
+        .await
+        .expect("appended");
+    assert_eq!(
+        sync.content(t.page)
+            .await
+            .expect("its content")
+            .plain_text(),
+        "while closed"
+    );
+    let refused = sync
+        .append(&gus, t.page, vec![Block::paragraph("not mine")])
+        .await;
+    assert!(
+        matches!(refused, Err(neon_app::pages::PageError::NotFound(_))),
+        "{refused:?}"
+    );
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    assert_eq!(ada.waiting().await.len(), 0);
+    assert_eq!(ada.text(), "while closed");
+    sync.shutdown().await;
+}

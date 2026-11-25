@@ -35,7 +35,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "account", description = "The signed-in user's own account, their favorite pages, and the invitations into workspaces waiting for them."),
         (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
         (name = "agents", description = "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."),
-        (name = "webhooks", description = "Outgoing webhooks, which tell a URL, signed, of what happens to the rows an identity is assigned to, with their delivery logs."),
+        (name = "webhooks", description = "Outgoing webhooks, which tell a URL, signed, of what happens to the rows an identity is assigned to, with their delivery logs; and incoming webhooks, which act as an integration on a database or page with what is posted to their URL, `POST /hooks/in/{token}`, which the docs describe."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),

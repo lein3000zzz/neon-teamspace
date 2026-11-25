@@ -23,6 +23,10 @@
 //!   those that got it back. Every connection is looked at so again every
 //!   [`Limits::revalidate_interval`], for what no change tells of, such as a session
 //!   expiring.
+//! - **The server's own edits.** [`SyncService::append`] adds blocks to a page, as an
+//!   incoming webhook does, through its live document, loaded for it if nobody has it
+//!   open: the editors see them at once, they merge with what is being typed, and they are
+//!   logged before the call answers.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -74,7 +78,7 @@ pub(crate) use limits::Bucket;
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
-pub use document::{LoadError, READ_ONLY};
+pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 
 /// RED subsystem of the sync's work: loading, logging and compacting documents.
@@ -460,6 +464,71 @@ impl SyncService {
         Ok(readable(page_id, read))
     }
 
+    /// Adds blocks after the last one of a page's document, as the principal, for those who
+    /// may edit it: through its live document, loaded for this if nobody has it open, so
+    /// everyone editing sees them at once and they merge with what is being typed. Once this
+    /// answers, the change is logged.
+    pub async fn append(
+        &self,
+        principal: &Principal,
+        page_id: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+    ) -> Result<(), PageError> {
+        let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.access != PageAccess::Edit {
+            return Err(PageError::Forbidden("you may view this page, not edit it"));
+        }
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        for _ in 0..JOIN_ATTEMPTS {
+            let commands = self
+                .document(page_id, view.page.workspace_id)
+                .map_err(|reason| {
+                    PageError::Internal(format!("the document: {}", reason.name()))
+                })?;
+            let (done, answer) = oneshot::channel();
+            let command = Command::Append {
+                author: principal.user.id,
+                blocks: blocks.clone(),
+                done,
+            };
+            if commands.send(command).await.is_err() {
+                continue;
+            }
+            // Dropped unanswered, the document unloaded under the command: open it again.
+            if let Ok(appended) = answer.await {
+                return appended.map_err(|error| match error {
+                    AppendError::Gone => PageError::NotFound("no such page"),
+                    AppendError::TooLarge => PageError::InvalidInput(format!(
+                        "the page would hold more than {} bytes",
+                        self.inner.limits.max_document
+                    )),
+                    AppendError::NotADocument => PageError::Internal(error.to_string()),
+                });
+            }
+        }
+        Err(PageError::Internal(
+            "the page's document kept unloading".to_owned(),
+        ))
+    }
+
+    /// The page's live document, started if there is none, without a connection.
+    fn document(
+        &self,
+        page_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<mpsc::Sender<Command>, CloseReason> {
+        let mut registry = self.inner.registry();
+        if self.inner.stop.is_cancelled() {
+            return Err(CloseReason::Restarting);
+        }
+        Ok(self
+            .live(&mut registry, page_id, workspace_id)
+            .commands
+            .clone())
+    }
+
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {
@@ -487,7 +556,19 @@ impl SyncService {
             return Err(CloseReason::TooManyConnections);
         }
         *registry.users.entry(user_id).or_default() += 1;
-        let slot = match registry.docs.entry(admission.page_id) {
+        let slot = self.live(&mut registry, admission.page_id, admission.workspace_id);
+        slot.connections.insert(client, admission.principal.clone());
+        Ok((slot.commands.clone(), slot.generation))
+    }
+
+    /// The registry's slot of a page's live document, its task started if there is none.
+    fn live<'a>(
+        &self,
+        registry: &'a mut Registry,
+        page_id: Uuid,
+        workspace_id: Uuid,
+    ) -> &'a mut Slot {
+        match registry.docs.entry(page_id) {
             Entry::Occupied(slot) => slot.into_mut(),
             Entry::Vacant(vacant) => {
                 static GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -495,20 +576,18 @@ impl SyncService {
                 let (commands, received) = mpsc::channel(COMMAND_QUEUE);
                 self.inner.tasks.spawn(document::run(
                     Arc::clone(&self.inner),
-                    admission.page_id,
+                    page_id,
                     generation,
                     received,
                 ));
                 vacant.insert(Slot {
                     generation,
-                    workspace_id: admission.workspace_id,
+                    workspace_id,
                     commands,
                     connections: HashMap::new(),
                 })
             }
-        };
-        slot.connections.insert(client, admission.principal.clone());
-        Ok((slot.commands.clone(), slot.generation))
+        }
     }
 }
 

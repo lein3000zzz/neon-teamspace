@@ -10,6 +10,7 @@ pub mod databases;
 pub mod documents;
 pub mod email_tokens;
 pub mod favorites;
+pub mod incoming_webhooks;
 pub mod invites;
 pub mod jobs;
 pub mod join_requests;

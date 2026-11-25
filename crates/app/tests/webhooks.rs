@@ -10,17 +10,25 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use neon_app::databases::PropertySpec;
 use neon_app::databases::{GroupMove, NewDatabase, NewProperty, NewRow, NewView, RowMove};
 use neon_app::jobs::{RedHook, Worker, WorkerConfig, run_span};
 use neon_app::pages::Location;
+use neon_app::sync::{SyncService, access_feed};
 use neon_app::webhooks::transport::{Answer, Outgoing, SendError, WebhookTransport};
-use neon_app::webhooks::{DELIVERY_KIND, DeliveryJob, MAX_ATTEMPTS, NewWebhook, WebhookService};
+use neon_app::webhooks::{
+    BodyError, DELIVERY_KIND, DeliveryJob, IncomingRequest, MAX_ATTEMPTS, NewIncomingWebhook,
+    NewWebhook, Services, WebhookService,
+};
+use neon_app::workspaces::NewTeamspace;
 use neon_domain::auth::Principal;
+use neon_domain::auth::{Credential, Scope};
 use neon_domain::databases::view::GroupingSpec;
 use neon_domain::databases::{Layout, PropertyKind, ViewSpec};
 use neon_domain::jobs::Backoff;
 use neon_domain::pages::Placement;
+use neon_domain::workspaces::TeamspaceAccess;
 use neon_domain::workspaces::WorkspaceRole;
 use neon_observability::propagation::current_traceparent;
 use neon_observability::red::Buckets;
@@ -142,11 +150,18 @@ async fn team(pool: PgPool) -> Team {
         .await
         .expect("added");
     let kept = Arc::new(Kept::default());
+    let (_, feed) = access_feed();
+    let sync = SyncService::builder(h.pool.clone(), h.pages.clone(), h.auth.clone(), feed).build();
     let webhooks = WebhookService::builder(
         h.pool.clone(),
         Arc::clone(&h.settings),
-        h.workspaces.clone(),
-        h.pages.clone(),
+        Services {
+            workspaces: h.workspaces.clone(),
+            agents: h.agents.clone(),
+            pages: h.pages.clone(),
+            databases: h.databases.clone(),
+            sync,
+        },
         Arc::clone(&kept) as Arc<dyn WebhookTransport>,
     )
     .envelope(envelope())
@@ -438,4 +453,157 @@ async fn a_delivery_carries_the_trace_of_the_change_that_caused_it(pool: PgPool)
     assert!(header("neon-webhook-signature").is_some_and(|value| value.starts_with("v1=")));
     let body: Value = serde_json::from_slice(&sent[0].body).expect("JSON");
     assert_eq!(body["identity"]["id"], dee.to_string());
+}
+
+/// The principal an incoming webhook's integration acts as, as the webhook makes it.
+async fn integration(t: &Team, id: Uuid) -> Principal {
+    let (user, _) = neon_store::users::identity(&t.h.pool, id)
+        .await
+        .expect("read")
+        .expect("an identity");
+    Principal {
+        user,
+        credential: Credential::Token {
+            id: Uuid::now_v7(),
+            name: "hook".to_owned(),
+            scopes: vec![Scope::Read, Scope::Write],
+            workspace_id: Some(t.workspace),
+        },
+    }
+}
+
+fn request(token: &str) -> IncomingRequest<'_> {
+    IncomingRequest {
+        token,
+        client_ip: "203.0.113.7",
+        json: true,
+        signature: None,
+        timestamp: None,
+    }
+}
+
+async fn body(json: Value) -> Result<Bytes, BodyError> {
+    Ok(Bytes::from(json.to_string()))
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_integration_edits_its_target_alone_and_only_while_its_owner_may(pool: PgPool) {
+    let t = team(pool).await;
+    // A private teamspace of Ada's, its database the webhook's target.
+    let ops =
+        t.h.workspaces
+            .create_teamspace(
+                &t.ada,
+                t.workspace,
+                NewTeamspace {
+                    name: "Ops".to_owned(),
+                    icon: None,
+                    hue: None,
+                    access: TeamspaceAccess::Private,
+                },
+            )
+            .await
+            .expect("made")
+            .teamspace
+            .id;
+    let incidents =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(ops),
+                Placement::Last,
+                NewDatabase {
+                    title: "Incidents".to_owned(),
+                    icon: None,
+                    inline: false,
+                },
+            )
+            .await
+            .expect("made")
+            .page
+            .page
+            .id;
+    let created = t
+        .webhooks
+        .create_incoming(
+            &t.ada,
+            t.workspace,
+            NewIncomingWebhook {
+                name: "Pager".to_owned(),
+                target_id: incidents,
+                signed: false,
+            },
+        )
+        .await
+        .expect("made");
+    let token = created.token.expose().to_owned();
+    let page = json!({"version": 1, "action": "create_row", "values": {"Name": "Disk full"}});
+
+    let accepted = t
+        .webhooks
+        .receive_incoming(request(&token), body(page.clone()))
+        .await
+        .expect("taken");
+    assert_eq!(accepted.action, "create_row");
+
+    // Its integration edits nothing else: Tasks, in General, it may only view.
+    let acting = integration(&t, created.hook.integration.id).await;
+    let elsewhere =
+        t.h.databases
+            .create_row(
+                &acting,
+                t.db,
+                NewRow {
+                    values: values(json!({"Name": "Not mine"})),
+                    ..NewRow::default()
+                },
+            )
+            .await;
+    assert_eq!(
+        elsewhere.expect_err("refused").to_string(),
+        "you may view this page, not edit it"
+    );
+
+    // Its owner leaves Ops: the integration's own share is not enough without theirs.
+    t.h.workspaces
+        .leave_teamspace(&t.ada, t.workspace, ops)
+        .await
+        .expect("left");
+    let refused = t
+        .webhooks
+        .receive_incoming(request(&token), body(page))
+        .await
+        .expect_err("refused");
+    assert_eq!((refused.status(), refused.code()), (404, "not_found"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn rows_an_incoming_webhook_makes_are_told_to_outgoing_ones(pool: PgPool) {
+    let t = team(pool).await;
+    let created = t
+        .webhooks
+        .create_incoming(
+            &t.ada,
+            t.workspace,
+            NewIncomingWebhook {
+                name: "Forms".to_owned(),
+                target_id: t.db,
+                signed: false,
+            },
+        )
+        .await
+        .expect("made");
+    let token = created.token.expose().to_owned();
+    let dee = t.dee.user.id.to_string();
+
+    t.webhooks
+        .receive_incoming(
+            request(&token),
+            body(json!({"version": 1, "action": "create_row", "values": {"Name": "Call back", "Assignee": [dee]}})),
+        )
+        .await
+        .expect("taken");
+
+    assert_eq!(t.take().await, [("row.assigned".to_owned(), t.dee.user.id)]);
 }

@@ -1,6 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
-//! requests to join, invite lookups, invitations into workspaces, and imports and exports
-//! of pages.
+//! requests to join, invite lookups, invitations into workspaces, imports and exports of
+//! pages, and the requests incoming webhooks take.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -35,6 +35,19 @@ pub const ACCOUNT: Quota = Quota {
     every: Duration::from_secs(6),
 };
 
+/// Sixty requests, then one a second: what each incoming webhook takes.
+pub const HOOK: Quota = Quota {
+    burst: 60,
+    every: Duration::from_secs(1),
+};
+
+/// A hundred and twenty requests, then two a second: what one client sends to incoming
+/// webhooks together, whether their URLs work or not.
+pub const HOOK_CLIENT: Quota = Quota {
+    burst: 120,
+    every: Duration::from_millis(500),
+};
+
 /// What is being limited. Each has its own buckets, keyed by an IP, an address or a user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bucket {
@@ -66,10 +79,14 @@ pub enum Bucket {
     PageImport,
     /// Exporting pages, by user: each export reads every page it holds.
     PageExport,
+    /// Requests to incoming webhooks from one IP, checked before their URL is looked up.
+    IncomingClient,
+    /// Requests to one incoming webhook, by webhook.
+    IncomingHook,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -84,6 +101,8 @@ impl Bucket {
         Self::WorkspaceLinkJoin,
         Self::PageImport,
         Self::PageExport,
+        Self::IncomingClient,
+        Self::IncomingHook,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -103,12 +122,16 @@ impl Bucket {
             Self::WorkspaceLinkJoin => "workspace-link:user:",
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
+            Self::IncomingClient => "hook-in:ip:",
+            Self::IncomingHook => "hook-in:hook:",
         }
     }
 
     pub fn quota(self) -> Quota {
         match self {
             Self::LoginEmail => ACCOUNT,
+            Self::IncomingClient => HOOK_CLIENT,
+            Self::IncomingHook => HOOK,
             _ => STANDARD,
         }
     }
@@ -142,12 +165,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_bucket_is_looser() {
+    fn only_the_cross_ip_bucket_and_incoming_webhooks_are_looser() {
         for bucket in Bucket::ALL {
-            let want = if bucket == Bucket::LoginEmail {
-                ACCOUNT
-            } else {
-                STANDARD
+            let want = match bucket {
+                Bucket::LoginEmail => ACCOUNT,
+                Bucket::IncomingClient => HOOK_CLIENT,
+                Bucket::IncomingHook => HOOK,
+                _ => STANDARD,
             };
             assert_eq!(bucket.quota(), want, "{bucket:?}");
         }

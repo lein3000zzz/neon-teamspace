@@ -13,6 +13,8 @@ mod dto;
 mod error;
 mod extract;
 mod favorites;
+mod hooks;
+mod incoming_webhooks;
 mod meta;
 mod openapi;
 mod page_shares;
@@ -35,7 +37,7 @@ use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::pages::PageService;
@@ -171,6 +173,21 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(webhooks::webhook_deliveries))
         .routes(routes!(webhooks::test_webhook))
         .routes(routes!(
+            incoming_webhooks::list_incoming_webhooks,
+            incoming_webhooks::create_incoming_webhook
+        ))
+        .routes(routes!(
+            incoming_webhooks::get_incoming_webhook,
+            incoming_webhooks::update_incoming_webhook,
+            incoming_webhooks::delete_incoming_webhook
+        ))
+        .routes(routes!(incoming_webhooks::rotate_incoming_token))
+        .routes(routes!(
+            incoming_webhooks::rotate_incoming_secret,
+            incoming_webhooks::remove_incoming_secret
+        ))
+        .routes(routes!(incoming_webhooks::incoming_webhook_requests))
+        .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
         ))
@@ -239,8 +256,9 @@ fn api() -> OpenApiRouter<AppState> {
                 .routes(routes!(transfer::import_pages))
                 .layer(transfer::import_body_limit()),
         );
-    // Real-time sync speaks WebSocket, which the API's description has no words for; the
-    // docs describe it.
+    // Real-time sync speaks WebSocket, which the API's description has no words for, and
+    // incoming webhooks take what their senders post, outside the API; the docs describe
+    // both.
     OpenApiRouter::with_openapi(openapi::base())
         .nest("/api/v1", routes)
         .route("/ws/pages/{page_id}", get(sync::open_page))
@@ -248,6 +266,7 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        .route("/hooks/in/{token}", post(hooks::receive_hook))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -361,6 +380,8 @@ mod agents_tests;
 mod auth_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod incoming_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]

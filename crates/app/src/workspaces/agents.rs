@@ -1,5 +1,6 @@
 //! Agents and integrations: making agents, listing them, renaming and recolouring them,
-//! handing them to another person, deleting them, and their API tokens.
+//! handing them to another person, deleting them, and their API tokens; and making the
+//! integrations of incoming webhooks.
 //!
 //! An agent is made by a person of the workspace, its owner, as the workspace's switches
 //! allow, and within its agent limit, which agents and integrations count against together.
@@ -9,6 +10,11 @@
 //! revokes its tokens; its identity stays, for what it made. Once a change that ends tokens
 //! or access commits, the [`AccessChanges`](crate::pages::AccessChanges) port hears of it,
 //! and its open connections close.
+//!
+//! An integration is made with its incoming webhook, by the webhook's use case, on its
+//! transaction, within the same agent limit. It joins no teamspace, not even the default
+//! one: what it may edit is what its webhook shares with it, its target, so its access is
+//! the least that target needs, and bounded by its owner's as every agent's is.
 //!
 //! Every public use case runs in a span named `agents <operation>` and is measured as RED
 //! metrics of [`SUBSYSTEM`]: a refusal is `ok`, only failures of the server are `error`. No
@@ -489,6 +495,74 @@ impl AgentService {
             Ok(())
         })
         .await
+    }
+
+    /// Makes an integration owned by the principal, for an incoming webhook they make, on the
+    /// webhook's transaction: for those who manage the workspace's incoming webhooks, within
+    /// its agent limit. It is a member of the workspace and of none of its teamspaces. The
+    /// workspace stays locked until the transaction ends.
+    pub(crate) async fn add_integration(
+        &self,
+        conn: &mut PgConnection,
+        principal: &Principal,
+        workspace_id: Uuid,
+        name: &str,
+    ) -> Result<Uuid, WorkspaceError> {
+        let membership = locked_membership(&mut *conn, principal, workspace_id).await?;
+        membership.check(Action::ViewWorkspace)?;
+        membership.check(Action::ManageIncomingWebhooks)?;
+        let name = check_agent_name(name).map_err(WorkspaceError::invalid)?;
+        let limits = self
+            .workspaces()
+            .limits_of(&mut *conn, workspace_id)
+            .await?;
+        let count = repo::count_live(&mut *conn, workspace_id).await?;
+        if let Some(limit) = limits.agents
+            && !limits.admits_agent(count)
+        {
+            return Err(WorkspaceError::AgentLimit { limit });
+        }
+        let id = Uuid::now_v7();
+        repo::insert(
+            &mut *conn,
+            &New {
+                id,
+                kind: UserKind::Integration,
+                workspace_id,
+                owner_id: principal.user.id,
+                name: &name,
+                hue_override: None,
+                at: self.now(),
+            },
+        )
+        .await?;
+        info!(
+            user_id = %principal.user.id,
+            workspace_id = %workspace_id,
+            agent_id = %id,
+            "integration created"
+        );
+        Ok(id)
+    }
+
+    /// Deletes an integration with its incoming webhook, on the webhook's transaction: it
+    /// leaves the workspace, and so its shares. Its open connections, which it has none of,
+    /// are told once the transaction commits by [`integration_ended`](Self::integration_ended).
+    pub(crate) async fn remove_integration(
+        &self,
+        conn: &mut PgConnection,
+        workspace_id: Uuid,
+        id: Uuid,
+    ) -> Result<(), WorkspaceError> {
+        if repo::lock(&mut *conn, workspace_id, id).await? {
+            repo::mark_deleted(conn, workspace_id, id, self.now()).await?;
+        }
+        Ok(())
+    }
+
+    /// Tells the port that an integration's access ended, once its deletion committed.
+    pub(crate) fn integration_ended(&self, id: Uuid) {
+        self.ended(id);
     }
 
     /// Reads an agent or integration of a workspace, once the principal may know of the

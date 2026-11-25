@@ -1534,6 +1534,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/incoming-webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incoming webhooks
+         * @description The workspace's incoming webhooks, oldest first, for its owners and admins.
+         */
+        get: operations["list_incoming_webhooks"];
+        put?: never;
+        /**
+         * Make an incoming webhook
+         * @description For the workspace's owners and admins, on a database or page they may share. It makes an integration the caller owns, within the workspace's agent limit, which joins no teamspace and gets the target shared with it to edit: what it may change is its target, and no more than its owner may. Its URL, and its secret when it checks signatures, are in this answer only.
+         */
+        post: operations["create_incoming_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/incoming-webhooks/{hook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An incoming webhook */
+        get: operations["get_incoming_webhook"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an incoming webhook
+         * @description With its integration, which leaves the workspace and its target's share; what it made still names it. Its URL stops working.
+         */
+        delete: operations["delete_incoming_webhook"];
+        options?: never;
+        head?: never;
+        /** Rename an incoming webhook, or turn it on or off */
+        patch: operations["update_incoming_webhook"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/incoming-webhooks/{hook_id}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An incoming webhook's requests
+         * @description Its last 50 requests but those refused for their rate, newest first: when, from where, what they asked and how they were answered, never their body.
+         */
+        get: operations["incoming_webhook_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/incoming-webhooks/{hook_id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make or rotate an incoming webhook's signing secret
+         * @description A new secret, in this answer only, which requests must be signed with from now. One rotated still verifies for 24 hours, so a sender can move over.
+         */
+        post: operations["rotate_incoming_secret"];
+        /**
+         * Stop checking an incoming webhook's signatures
+         * @description It takes unsigned requests again; its secrets are forgotten.
+         */
+        delete: operations["remove_incoming_secret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/incoming-webhooks/{hook_id}/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give an incoming webhook a new URL
+         * @description The new URL is in this answer only; the old one stops working at once.
+         */
+        post: operations["rotate_incoming_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/invitations": {
         parameters: {
             query?: never;
@@ -2361,6 +2471,21 @@ export interface components {
             /** @example Tasks */
             title?: string;
         };
+        CreateIncomingWebhook: {
+            /**
+             * @description Its integration's name, 1 to 100 characters.
+             * @example CI
+             */
+            name: string;
+            /** @description Take only requests signed with a secret made now. False unless set. */
+            signed?: boolean;
+            /**
+             * Format: uuid
+             * @description A database, whose rows it makes and changes, or a page, which it adds to: one the
+             *     caller may share.
+             */
+            target_id: string;
+        };
         CreateInvitation: {
             /**
              * @description The address of an account on this instance.
@@ -2529,6 +2654,21 @@ export interface components {
              * @example nw_AbCdEfGh...
              */
             token: string;
+        };
+        /**
+         * @description A new incoming webhook with its URL and, when it checks signatures, its secret: shown
+         *     this once.
+         */
+        CreatedIncomingWebhook: {
+            hook: components["schemas"]["IncomingWebhook"];
+            /** @description `whsec_` and 43 characters; absent unless it checks signatures. */
+            signing_secret?: string | null;
+            /**
+             * @description Where senders post: `/hooks/in/` and its token, after the server's public URL when
+             *     it has one. The token is in this answer only.
+             * @example https://neon.example.com/hooks/in/nwh_...
+             */
+            url: string;
         };
         /**
          * @description A new invite with its code. The code is shown here, and again only from its sealed
@@ -2731,6 +2871,101 @@ export interface components {
             key?: string | null;
             /** Format: uuid */
             view_id: string;
+        };
+        /** @description The integration an incoming webhook acts as. */
+        IncomingIntegration: {
+            /** Format: uuid */
+            id: string;
+            owner?: components["schemas"]["Owner"] | null;
+            /**
+             * @description Suspended while its owner is out of the workspace, a guest there or disabled: its
+             *     webhook refuses what is sent meanwhile.
+             */
+            status: components["schemas"]["AgentStatus"];
+        };
+        /** @description A request an incoming webhook took, without what it sent. */
+        IncomingRequest: {
+            /** @description `create_row`, `update_row` or `append`, once its body read. */
+            action?: string | null;
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description The sender's address, as the server tells clients apart.
+             * @example 203.0.113.7
+             */
+            client_ip: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            latency_ms: number;
+            /**
+             * @description `ok`, or the error's code, such as `invalid_signature`.
+             * @example ok
+             */
+            outcome: string;
+            /**
+             * Format: int32
+             * @description The status it was answered with.
+             */
+            status_code: number;
+        };
+        IncomingRequestLog: {
+            /** @description The last 50 but those refused for their rate, newest first. */
+            requests: components["schemas"]["IncomingRequest"][];
+        };
+        /** @description An incoming webhook's target. */
+        IncomingTarget: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["TargetKind"];
+            /** @description Its title; absent for a caller who may not see it. */
+            title?: string | null;
+        };
+        /** @description An incoming webhook, without its URL's token or its secret. */
+        IncomingWebhook: {
+            /** Format: date-time */
+            created_at: string;
+            created_by?: components["schemas"]["WebhookCreator"] | null;
+            /** Format: date-time */
+            disabled_at?: string | null;
+            /** @description False while it is turned off and refuses what is sent. */
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            integration: components["schemas"]["IncomingIntegration"];
+            /**
+             * @description Its integration's name, which shows as `name · via Owner` where it writes.
+             * @example CI
+             */
+            name: string;
+            /**
+             * Format: date-time
+             * @description Until when the secret before the last rotation still verifies.
+             */
+            previous_secret_expires_at?: string | null;
+            /** @description Whether it takes only requests signed with its secret. */
+            signed: boolean;
+            target: components["schemas"]["IncomingTarget"];
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        IncomingWebhookList: {
+            /** @description Oldest first. */
+            hooks: components["schemas"]["IncomingWebhook"][];
+        };
+        /** @description An incoming webhook with its new signing secret, shown this once. */
+        IncomingWebhookSecret: {
+            hook: components["schemas"]["IncomingWebhook"];
+            /** @example whsec_... */
+            signing_secret: string;
+        };
+        /** @description An incoming webhook with its new URL, shown this once. */
+        IncomingWebhookUrl: {
+            hook: components["schemas"]["IncomingWebhook"];
+            /** @example https://neon.example.com/hooks/in/nwh_... */
+            url: string;
         };
         /** @description An invite, without its code. */
         Invite: {
@@ -3608,6 +3843,11 @@ export interface components {
             full_width?: boolean | null;
             small_text?: boolean | null;
         };
+        /**
+         * @description What an incoming webhook works on.
+         * @enum {string}
+         */
+        TargetKind: "database" | "page";
         /** @description A teamspace the caller may see. */
         Teamspace: {
             access: components["schemas"]["TeamspaceAccess"];
@@ -3767,6 +4007,15 @@ export interface components {
             /**
              * @description 1 to 100 characters.
              * @example Scout
+             */
+            name?: string | null;
+        };
+        UpdateIncomingWebhook: {
+            /** @description False turns it off: it refuses what is sent until it is on again. */
+            enabled?: boolean | null;
+            /**
+             * @description Renames its integration too.
+             * @example CI
              */
             name?: string | null;
         };
@@ -10134,6 +10383,593 @@ export interface operations {
             };
             /** @description too_deep. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_incoming_webhooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhooks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhookList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not an owner or admin; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_incoming_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateIncomingWebhook"];
+            };
+        };
+        responses: {
+            /** @description The webhook, with its URL. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedIncomingWebhook"];
+                };
+            };
+            /** @description invalid_input: a name out of bounds, or a row as the target. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not an owner or admin, or the target is not theirs to share; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace or page. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description agent_limit; or no_secret_key for a signed one without secrets.keys. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_incoming_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhook"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_incoming_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_incoming_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateIncomingWebhook"];
+            };
+        };
+        responses: {
+            /** @description The webhook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhook"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    incoming_webhook_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingRequestLog"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rotate_incoming_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook with its new secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhookSecret"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no_secret_key: secrets.keys is not set. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_incoming_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhook"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rotate_incoming_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The webhook's id. */
+                hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook with its new URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingWebhookUrl"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

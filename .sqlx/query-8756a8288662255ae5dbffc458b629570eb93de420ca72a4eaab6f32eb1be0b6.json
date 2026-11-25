@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM incoming_webhook_requests\n         WHERE hook_id = $1 AND id NOT IN (\n             SELECT id FROM incoming_webhook_requests WHERE hook_id = $1\n             ORDER BY at DESC, id DESC LIMIT $2\n         )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8756a8288662255ae5dbffc458b629570eb93de420ca72a4eaab6f32eb1be0b6"
+}

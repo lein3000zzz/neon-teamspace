@@ -35,7 +35,7 @@ use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
-use neon_app::webhooks::{DeliveryJob, WebhookService};
+use neon_app::webhooks::{DeliveryJob, Services, WebhookService};
 use neon_app::workspaces::{AgentService, Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
@@ -271,16 +271,22 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
-        .limiter(limiter)
+        .limiter(Arc::clone(&limiter))
         .build();
     let webhooks = WebhookService::builder(
         pool.clone(),
         Arc::clone(&settings),
-        workspaces.clone(),
-        pages.clone(),
+        Services {
+            workspaces: workspaces.clone(),
+            agents: agents.clone(),
+            pages: pages.clone(),
+            databases: databases.clone(),
+            sync: live.clone(),
+        },
         Arc::new(HttpTransport::default()),
     )
     .envelope(envelope)
+    .limiter(limiter)
     .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
