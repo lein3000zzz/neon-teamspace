@@ -9,6 +9,35 @@ import { design, fakeWorkspaces } from "@/test/workspaces";
 const ID = design().id;
 
 describe("a workspace's general settings", () => {
+  it("turns the workspace's agents off, and leaves making them to owners and admins", async () => {
+    const api = fakeWorkspaces();
+    const { user } = renderApp("/w/design/settings");
+
+    const form = within(await screen.findByRole("form", { name: "Agents" }));
+    const enabled = form.getByRole("checkbox", { name: /Agents are on in this workspace/ });
+    expect(enabled).toBeChecked();
+    await user.click(enabled);
+    await user.selectOptions(form.getByLabelText("Who makes agents"), "admins");
+    await user.click(form.getByRole("button", { name: "Save" }));
+
+    expect(await form.findByText("Saved.")).toBeInTheDocument();
+    expect(api.changes).toEqual([
+      {
+        method: "PATCH",
+        path: `/api/v1/workspaces/${ID}`,
+        body: { agents_enabled: false, agent_creation: "admins" },
+      },
+    ]);
+  });
+
+  it("shows the agent switches to owners and admins alone", async () => {
+    fakeWorkspaces({ role: "member" });
+    renderApp("/w/design/settings");
+
+    await screen.findByRole("region", { name: "Workspace" });
+    expect(screen.queryByRole("form", { name: "Agents" })).toBeNull();
+  });
+
   it("renames it, keeping its address", async () => {
     const api = fakeWorkspaces();
     const { user, router } = renderApp("/w/design/settings");

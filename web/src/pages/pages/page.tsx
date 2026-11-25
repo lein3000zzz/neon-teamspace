@@ -27,6 +27,8 @@ import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { CoverBand, CoverPicker } from "@/components/pages/cover-picker";
 import { IconPicker } from "@/components/pages/icon-picker";
 import { PageMenu } from "@/components/pages/page-menu";
+import { PersonLabel } from "@/components/people/person-label";
+import { useWorkspacePeople } from "@/components/people/use-people";
 import { usePageNav } from "@/components/pages/page-nav-state";
 import { documentTitle, PageTitle } from "@/components/pages/page-title";
 import { ShareDialog } from "@/components/pages/share-dialog";
@@ -40,6 +42,7 @@ import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { edits, mayShare } from "@/lib/page-rules";
 import { titleOf } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
+import { seesTeamspaces } from "@/lib/workspace-rules";
 
 const PageEditor = lazy(() => import("@/components/editor/page-editor"));
 
@@ -225,6 +228,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
             {copy.readOnly}
           </p>
         )}
+        {page.kind !== "row" && <Byline page={page} />}
       </header>
 
       {page.kind === "row" && <RowProperties page={page} />}
@@ -246,6 +250,42 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
         </Suspense>
       )}
     </article>
+  );
+}
+
+/**
+ * Who made the page and who changed it last, an agent with the person it acts
+ * for. Guests, who know no other member, are told neither.
+ */
+function Byline({ page }: { page: Page }) {
+  const workspace = useWorkspace();
+  const people = useWorkspacePeople(workspace.id, seesTeamspaces(workspace.role));
+  const made = page.created_by ?? null;
+  const changed = page.last_edited_by ?? null;
+  if (made === null && changed === null) {
+    return null;
+  }
+  return (
+    <section aria-label={copy.byline} style={{ paddingInline: "var(--page-inset)" }}>
+      <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {made !== null && (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <dt>{copy.createdBy}</dt>
+            <dd className="min-w-0">
+              <PersonLabel person={people.get(made)} />
+            </dd>
+          </div>
+        )}
+        {changed !== null && changed !== made && (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <dt>{copy.editedBy}</dt>
+            <dd className="min-w-0">
+              <PersonLabel person={people.get(changed)} />
+            </dd>
+          </div>
+        )}
+      </dl>
+    </section>
   );
 }
 

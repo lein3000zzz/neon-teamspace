@@ -5,7 +5,7 @@
  * other error.
  */
 import type { Teamspace, TeamspaceAccess, TeamspaceRole } from "@/api/teamspaces";
-import type { WorkspaceRole } from "@/api/workspaces";
+import type { Workspace, WorkspaceRole } from "@/api/workspaces";
 
 /** Highest first, as the member list orders them. */
 export const WORKSPACE_ROLES = [
@@ -105,4 +105,20 @@ export function teamspaceEntry(
 /** Anyone in a teamspace leaves it, but for the default one, which everyone stays in. */
 export function mayLeaveTeamspace(teamspace: Pick<Teamspace, "access" | "role">): boolean {
   return teamspace.access !== "default" && !!teamspace.role;
+}
+
+/**
+ * Who makes agents: everyone but guests while agents are on, on the instance
+ * and in the workspace, unless the workspace leaves it to its owners and admins.
+ */
+export function mayCreateAgent(role: WorkspaceRole, agents: Workspace["agents"]): boolean {
+  if (role === "guest" || !agents.available || !agents.enabled) {
+    return false;
+  }
+  return agents.creation === "members" || manages(role);
+}
+
+/** An agent's owner, and the workspace's owners and admins, delete it and see its tokens. */
+export function managesAgent(role: WorkspaceRole, own: boolean): boolean {
+  return own || manages(role);
 }

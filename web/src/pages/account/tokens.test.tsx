@@ -6,6 +6,7 @@ import type { Schemas } from "@/api/client";
 import { apiError, grace, signedInAs } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
+import { design, fakeWorkspaces, studio, summaryOf } from "@/test/workspaces";
 
 const SECRET = "nw_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcd";
 
@@ -61,6 +62,54 @@ describe("API tokens", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByDisplayValue(SECRET)).toBeNull();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
+  });
+
+  it("binds a token to one workspace, with its admin work for an owner of it", async () => {
+    fakeWorkspaces({ workspaces: [summaryOf(design("owner")), studio] });
+    const api = tokens();
+    const { user } = renderApp("/account/tokens");
+
+    const where = await screen.findByLabelText("Works in");
+    await waitFor(() =>
+      expect(
+        within(where)
+          .getAllByRole("option")
+          .map((option) => option.textContent),
+      ).toEqual(["Every workspace", "Design", "Studio"]),
+    );
+    await user.selectOptions(where, "Studio");
+    expect(screen.queryByRole("checkbox", { name: "Admin" })).toBeNull();
+    await user.selectOptions(where, "Design");
+    const admin = screen.getByRole("checkbox", { name: "Admin" });
+    expect(admin).toHaveAccessibleDescription(/workspace's admin work/);
+    await user.click(admin);
+    await user.type(screen.getByLabelText("Name"), "Design bot");
+    await user.click(screen.getByRole("button", { name: "Make token" }));
+
+    await waitFor(() =>
+      expect(api.made).toEqual([
+        { name: "Design bot", scopes: ["read", "admin"], workspace_id: design().id },
+      ]),
+    );
+  });
+
+  it("says where each token works", async () => {
+    fakeWorkspaces();
+    tokens([
+      deploy,
+      {
+        ...deploy,
+        id: "0193a5b2-0000-7000-8000-0000000000a2",
+        name: "Bound",
+        workspace_id: design().id,
+      },
+    ]);
+    renderApp("/account/tokens");
+
+    const bound = within((await screen.findByText("Bound")).closest("li") as HTMLElement);
+    expect(await bound.findByText("Design")).toBeInTheDocument();
+    const everywhere = within(screen.getByText("Deploy script").closest("li") as HTMLElement);
+    expect(everywhere.getByText("Every workspace")).toBeInTheDocument();
   });
 
   it("offers the admin scope to admins only", async () => {

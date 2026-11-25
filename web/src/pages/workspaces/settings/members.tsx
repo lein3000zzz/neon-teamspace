@@ -18,6 +18,7 @@ import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Field } from "@/components/forms/field";
 import { Chip, ChipList } from "@/components/nodes/chip";
 import { HueDot } from "@/components/nodes/hue-dot";
+import { PersonLabel } from "@/components/people/person-label";
 import { ItemActions, ItemCard, PageSection } from "@/components/settings/page-section";
 import { useMe } from "@/components/shell/signed-in";
 import { Alert } from "@/components/ui/alert";
@@ -26,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { actsForOwner } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { emailProblem } from "@/lib/validation";
 import {
@@ -212,7 +214,7 @@ function PendingCard({ invitation }: { invitation: SentInvitation }) {
           variant="outline"
           size="sm"
           disabled={revoke.isPending}
-          aria-label={copy.revokeLabel(invitee.email)}
+          aria-label={copy.revokeLabel(invitee.email ?? invitee.display_name)}
           onClick={() => setConfirming(true)}
         >
           {copy.revoke}
@@ -220,7 +222,7 @@ function PendingCard({ invitation }: { invitation: SentInvitation }) {
       </ItemActions>
       <ConfirmDialog
         open={confirming}
-        title={copy.revokeTitle(invitee.email)}
+        title={copy.revokeTitle(invitee.email ?? invitee.display_name)}
         description={copy.revokeLede}
         confirm={copy.revoke}
         onCancel={() => setConfirming(false)}
@@ -274,9 +276,11 @@ function MemberCard({ member, onDone }: { member: Member; onDone: (message: stri
   const [pending, setPending] = useState<Pending>();
   const { user } = member;
   const self = user.id === me.id;
-  const roles = assignableRoles(workspace.role, member.role);
-  const canRemove = mayRemove(workspace.role, member.role, self);
-  const canTransfer = mayTransfer(workspace.role, member.role, self);
+  // An agent's or integration's role stays member; it is managed, and deleted, under Agents.
+  const person = !actsForOwner(user);
+  const roles = person ? assignableRoles(workspace.role, member.role) : [];
+  const canRemove = person && mayRemove(workspace.role, member.role, self);
+  const canTransfer = person && mayTransfer(workspace.role, member.role, self);
   const busy = changeRole.isPending || remove.isPending || transfer.isPending;
   const failure = changeRole.error ?? remove.error ?? transfer.error;
   const name = user.display_name;
@@ -324,15 +328,15 @@ function MemberCard({ member, onDone }: { member: Member; onDone: (message: stri
     <ItemCard>
       <div className="grid min-w-0 gap-1.5">
         <p className="flex min-w-0 items-center gap-2 font-medium">
-          <HueDot hue={user.hue} />
-          <span className="break-words">{name}</span>
+          <PersonLabel person={user} />
         </p>
-        <p className="text-sm break-all text-muted-foreground">{user.email}</p>
+        {user.email && <p className="text-sm break-all text-muted-foreground">{user.email}</p>}
         <ChipList>
           <Chip tone={member.role === "owner" ? "strong" : "default"}>
             {strings.roles[member.role]}
           </Chip>
           {self && <Chip>{copy.you}</Chip>}
+          {member.suspended && <Chip title={copy.suspendedHint}>{copy.suspended}</Chip>}
           <Chip>{copy.joined(formatDate(member.joined_at))}</Chip>
         </ChipList>
         {failure !== null &&

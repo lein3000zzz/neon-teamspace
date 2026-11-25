@@ -10,12 +10,12 @@ import {
   type TeamspaceMember,
   type TeamspaceRole,
 } from "@/api/teamspaces";
-import { membersQuery } from "@/api/workspaces";
+import { membersQuery, type Member } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Field } from "@/components/forms/field";
 import { Chip, ChipList } from "@/components/nodes/chip";
-import { HueDot } from "@/components/nodes/hue-dot";
+import { PersonLabel } from "@/components/people/person-label";
 import { ItemActions, ItemCard } from "@/components/settings/page-section";
 import { useMe } from "@/components/shell/signed-in";
 import { Alert } from "@/components/ui/alert";
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
 import { formatDate } from "@/lib/format";
+import { actsForOwner, attribution } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { TEAMSPACE_ROLES } from "@/lib/workspace-rules";
 
@@ -118,10 +119,9 @@ function MemberRow({
     <ItemCard>
       <div className="grid min-w-0 gap-1.5">
         <p className="flex min-w-0 items-center gap-2 font-medium">
-          <HueDot hue={user.hue} />
-          <span className="break-words">{user.display_name}</span>
+          <PersonLabel person={user} />
         </p>
-        <p className="text-sm break-all text-muted-foreground">{user.email}</p>
+        {user.email && <p className="text-sm break-all text-muted-foreground">{user.email}</p>}
         <ChipList>
           <Chip tone={member.role === "owner" ? "strong" : "default"}>
             {strings.teamspaceRoles[member.role]}
@@ -197,6 +197,11 @@ type AddMemberFormProps = {
   onAdded: (name: string) => void;
 };
 
+/** The teamspace roles someone may have: an agent's or integration's is member alone. */
+function rolesFor(member: Member | undefined): readonly TeamspaceRole[] {
+  return member !== undefined && actsForOwner(member.user) ? ["member"] : TEAMSPACE_ROLES;
+}
+
 /** Someone from the workspace who is not a guest and not in the teamspace yet. */
 function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
   const workspace = useWorkspace();
@@ -270,7 +275,9 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
             <option value="">{copy.choose}</option>
             {candidates.map((person) => (
               <option key={person.user.id} value={person.user.id}>
-                {person.user.display_name} ({person.user.email})
+                {person.user.email
+                  ? `${person.user.display_name} (${person.user.email})`
+                  : attribution(person.user)}
               </option>
             ))}
           </NativeSelect>
@@ -284,11 +291,13 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
             value={role}
             onChange={(event) => setRole(event.target.value === "owner" ? "owner" : "member")}
           >
-            {TEAMSPACE_ROLES.map((option) => (
-              <option key={option} value={option}>
-                {strings.teamspaceRoles[option]}
-              </option>
-            ))}
+            {rolesFor(candidates.find((candidate) => candidate.user.id === userId)).map(
+              (option) => (
+                <option key={option} value={option}>
+                  {strings.teamspaceRoles[option]}
+                </option>
+              ),
+            )}
           </NativeSelect>
         )}
       </Field>

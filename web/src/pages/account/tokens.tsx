@@ -9,6 +9,7 @@ import {
   type Scope,
 } from "@/api/account";
 import type { Schemas } from "@/api/client";
+import { workspacesQuery, type WorkspaceSummary } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { CopyField } from "@/components/feedback/copy-field";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
@@ -20,9 +21,11 @@ import { useMe } from "@/components/shell/signed-in";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { formatDateTime } from "@/lib/format";
 import { strings } from "@/lib/strings";
 import { dayProblem, endOfDay, today, tokenNameProblem } from "@/lib/validation";
+import { manages } from "@/lib/workspace-rules";
 
 const copy = strings.account.tokens;
 
@@ -78,11 +81,16 @@ function CreateTokenForm({
 }) {
   const me = useMe();
   const create = useCreateToken();
+  const workspaces = useQuery(workspacesQuery);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<ReadonlySet<Scope>>(() => new Set(["read"]));
   const [expires, setExpires] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("");
   const [problems, setProblems] = useState<Problems>({});
-  const offered = SCOPES.filter((scope) => scope !== "admin" || me.role === "admin");
+  const bound = workspaces.data?.workspaces.find((workspace) => workspace.id === workspaceId);
+  // Admin is the admin routes' across the instance, or the workspace's own admin work.
+  const admin = bound === undefined ? me.role === "admin" : manages(bound.role);
+  const offered = SCOPES.filter((scope) => scope !== "admin" || admin);
   const scopesErrorId = useId();
 
   const toggle = (scope: Scope, on: boolean) =>
@@ -115,11 +123,13 @@ function CreateTokenForm({
         name: name.trim(),
         scopes: chosen,
         ...(expires === "" ? {} : { expires_at: endOfDay(expires) }),
+        ...(bound === undefined ? {} : { workspace_id: bound.id }),
       },
       {
         onSuccess: (token) => {
           setName("");
           setExpires("");
+          setWorkspaceId("");
           setScopes(new Set(["read"]));
           onCreated(token);
         },
@@ -148,6 +158,23 @@ function CreateTokenForm({
           />
         )}
       </Field>
+      <Field label={copy.worksIn} hint={copy.worksInHint}>
+        {(control) => (
+          <NativeSelect
+            {...control}
+            name="workspace"
+            value={workspaceId}
+            onChange={(event) => setWorkspaceId(event.target.value)}
+          >
+            <option value="">{copy.everywhere}</option>
+            {(workspaces.data?.workspaces ?? []).map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
       <fieldset
         className="grid gap-1"
         {...(problems.scopes ? { "aria-describedby": scopesErrorId } : {})}
@@ -157,7 +184,11 @@ function CreateTokenForm({
           <CheckboxField
             key={scope}
             label={copy.scopeNames[scope]}
-            hint={copy.scopeHints[scope]}
+            hint={
+              scope === "admin" && bound !== undefined
+                ? copy.boundAdminHint
+                : copy.scopeHints[scope]
+            }
             checked={scopes.has(scope)}
             onCheckedChange={(on) => toggle(scope, on)}
           />
@@ -213,8 +244,17 @@ function CreatedToken({
   );
 }
 
+/** Where a token works: every workspace, or the one it is bound to, by name. */
+function worksIn(token: ApiToken, workspaces: readonly WorkspaceSummary[] | undefined): string {
+  if (token.workspace_id === undefined || token.workspace_id === null) {
+    return copy.everywhere;
+  }
+  return workspaces?.find((workspace) => workspace.id === token.workspace_id)?.name ?? "…";
+}
+
 function TokenCard({ token }: { token: ApiToken }) {
   const revoke = useRevokeToken();
+  const workspaces = useQuery(workspacesQuery);
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -229,6 +269,9 @@ function TokenCard({ token }: { token: ApiToken }) {
         <KeyValueList className="text-sm">
           <KeyValueRow label={copy.prefix}>
             <span className="font-mono">{token.prefix}…</span>
+          </KeyValueRow>
+          <KeyValueRow label={copy.worksIn}>
+            {worksIn(token, workspaces.data?.workspaces)}
           </KeyValueRow>
           <KeyValueRow label={copy.made}>{formatDateTime(token.created_at)}</KeyValueRow>
           <KeyValueRow label={copy.lastUsed}>

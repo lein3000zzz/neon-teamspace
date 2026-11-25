@@ -80,6 +80,19 @@ const smtpPassword: Setting = {
   env_var: "NEON_SETTINGS__MAIL__PASSWORD",
 };
 
+const identities: Setting = {
+  key: "mcp.identities",
+  kind: "set",
+  options: ["user", "agent"],
+  description: "Whom MCP clients may act as.",
+  value: ["user", "agent"],
+  default: ["user", "agent"],
+  source: "default",
+  pinned: false,
+  browser_only: false,
+  env_var: "NEON_SETTINGS__MCP__IDENTITIES",
+};
+
 const ALL = [minLength, registration, requestsSetting, idle, name, smtpPassword];
 
 /** Mail as the server starts without it. */
@@ -117,6 +130,27 @@ async function renderSettings() {
 }
 
 describe("settings", () => {
+  it("picks some of a set's options, in the listed order", async () => {
+    const patches = settings([...ALL, identities]);
+    const { user } = await renderSettings();
+
+    const mcp = within(screen.getByRole("region", { name: "MCP" }));
+    expect(mcp.getByText(/Default: user, agent/)).toBeInTheDocument();
+    const people = mcp.getByRole("button", { name: "user" });
+    const agent = mcp.getByRole("button", { name: "agent" });
+    expect(people).toHaveAttribute("aria-pressed", "true");
+    expect(agent).toHaveAttribute("aria-pressed", "true");
+    await user.click(agent);
+    expect(agent).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    await user.click(agent);
+    expect(screen.queryByText("1 unsaved change")).toBeNull();
+    await user.click(people);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(patches).toEqual([{ "mcp.identities": ["agent"] }]));
+  });
+
   it("groups the settings by their key's prefix, with where each value comes from", async () => {
     settings();
     await renderSettings();
