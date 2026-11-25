@@ -872,7 +872,6 @@ async fn feeds_are_checked_as_they_open_and_follow_access_changes(pool: PgPool) 
     finish(&state, server, vec![follower, ada]).await;
 }
 
-/// Opens Ada's next feed of `db` once she has room for it: the one before has gone.
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_agent_s_feed_closes_once_its_owner_leaves(pool: PgPool) {
     let state = state(pool).await;
@@ -881,7 +880,10 @@ async fn an_agent_s_feed_closes_once_its_owner_leaves(pool: PgPool) {
     let ws = &t.workspace;
     let db = database_id(&database(&t.ada, ws).await);
     let scout = agent(&t.dee, ws, "Scout").await;
-    let worker = Bearer::new(&app, agent_token(&t.dee, ws, &scout, &["read"]).await);
+    let worker = Bearer::new(
+        &app,
+        agent_token(&t.dee, ws, &scout, &["read", "write"]).await,
+    );
     let server = Server::start(app.clone()).await;
     let socket = follow(
         server.addr,
@@ -892,18 +894,21 @@ async fn an_agent_s_feed_closes_once_its_owner_leaves(pool: PgPool) {
     .expect("its token follows the database");
     let mut follower = Follower { socket };
     assert_eq!(follower.next().await["type"], "ready");
+    let mut ada = Follower::join(server.addr, &db, t.ada.cookie()).await;
 
-    // It hears what changes, named by whoever changed it.
-    let row = t
-        .ada
+    // What it changes is named after it, in its own feed and in everyone else's.
+    let row = worker
         .post(
             &format!("/api/v1/databases/{db}/rows"),
             json!({"values": {"Name": "Triage"}}),
         )
         .await;
     assert_eq!(row.status, StatusCode::CREATED, "{}", row.body);
-    let created = follower.next_of("row_created").await;
-    assert_eq!(created["row"]["title"], "Triage", "{created}");
+    for feed in [&mut follower, &mut ada] {
+        let created = feed.next_of("row_created").await;
+        assert_eq!(created["row"]["title"], "Triage", "{created}");
+        assert_eq!(created["row"]["created_by"], scout.as_str(), "{created}");
+    }
 
     let left = t
         .dee
@@ -911,9 +916,10 @@ async fn an_agent_s_feed_closes_once_its_owner_leaves(pool: PgPool) {
         .await;
     assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
     assert_eq!(follower.closed().await, Some(4401));
-    finish(&state, server, vec![follower]).await;
+    finish(&state, server, vec![follower, ada]).await;
 }
 
+/// Opens Ada's next feed of `db` once she has room for it: the one before has gone.
 async fn once_there_is_room(addr: std::net::SocketAddr, db: &str, cookie: &str) -> Follower {
     timeout(PATIENCE, async {
         loop {

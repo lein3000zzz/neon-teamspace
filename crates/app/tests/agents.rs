@@ -5,10 +5,11 @@
 mod support;
 
 use std::fmt::Debug;
+use std::time::Duration;
 
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
-use neon_app::auth::{AuthError, UserUpdate};
+use neon_app::auth::{AuthError, RegisterInput, UserUpdate};
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::pages::{AccessChange, Location, NewPage, PageError, PageView};
 use neon_app::workspaces::{
@@ -149,6 +150,26 @@ impl Team {
             .await
             .expect("changed");
     }
+
+    /// An integration of Ada's named `name`, as incoming webhooks will make them: its id.
+    async fn integration(&self, name: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        neon_store::agents::insert(
+            &mut self.h.pool.acquire().await.expect("a connection"),
+            &neon_store::agents::New {
+                id,
+                kind: UserKind::Integration,
+                workspace_id: self.id,
+                owner_id: self.ada.user.id,
+                name,
+                hue_override: None,
+                at: self.h.time.clock().now(),
+            },
+        )
+        .await
+        .expect("an integration");
+        id
+    }
 }
 
 fn new(name: &str) -> NewAgent {
@@ -242,7 +263,9 @@ async fn agents_are_made_by_whom_the_workspace_lets_and_within_its_limit(pool: P
     );
     t.h.set("mcp.identities", json!(["user", "agent"])).await;
 
-    // Agents count against their own limit, people against theirs.
+    // Agents and integrations count against their own limit together, people against
+    // theirs.
+    t.integration("GitHub").await;
     let admin = t.h.admin().await;
     let limits = |members, agents| LimitsUpdate {
         members: Some(Some(members)),
@@ -251,18 +274,18 @@ async fn agents_are_made_by_whom_the_workspace_lets_and_within_its_limit(pool: P
     };
     let set =
         t.h.workspaces
-            .set_workspace_limits(&admin, t.id, limits(4, 3))
+            .set_workspace_limits(&admin, t.id, limits(4, 4))
             .await
             .expect("set");
     assert_eq!(set.usage.members, 4, "people alone");
-    assert_eq!(set.usage.agents, 2);
+    assert_eq!(set.usage.agents, 3, "two agents and an integration");
     t.h.agent(&t.ada, t.id, "Third").await;
     assert!(matches!(
         agents.create_agent(&t.ada, t.id, new("Fourth")).await,
-        Err(WorkspaceError::AgentLimit { limit: 3 })
+        Err(WorkspaceError::AgentLimit { limit: 4 })
     ));
     let details = t.h.workspaces.workspace(&t.ada, t.id).await.expect("read");
-    assert_eq!((details.members, details.agents), (Some(4), Some(3)));
+    assert_eq!((details.members, details.agents), (Some(4), Some(4)));
 
     // A deleted one frees its place; 0 is no limit.
     agents
@@ -544,22 +567,33 @@ async fn agents_work_in_the_workspace_and_manage_nothing(pool: PgPool) {
     let (_, worker) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
     let ws = &t.h.workspaces;
     let agents = &t.h.agents;
+    // Whatever its owner, Ada, may do, and whatever a member may.
+    let manages_nothing = |result: Result<(), WorkspaceError>| {
+        assert_eq!(
+            assert_forbidden(result),
+            "agents and integrations work in the workspace and never manage it, its members, \
+             its teamspaces or its agents"
+        );
+    };
 
-    assert_forbidden(
+    manages_nothing(
         ws.update_workspace(&worker, t.id, WorkspaceUpdate::default())
-            .await,
+            .await
+            .map(drop),
     );
-    assert_forbidden(
+    manages_nothing(
         ws.invite(&worker, t.id, "eve@example.com", WorkspaceRole::Member)
-            .await,
+            .await
+            .map(drop),
     );
-    assert_forbidden(
+    manages_nothing(
         ws.change_member_role(&worker, t.id, t.cy.user.id, WorkspaceRole::Guest)
-            .await,
+            .await
+            .map(drop),
     );
-    assert_forbidden(ws.remove_member(&worker, t.id, t.cy.user.id).await);
-    assert_forbidden(ws.leave_workspace(&worker, t.id).await);
-    assert_forbidden(
+    manages_nothing(ws.remove_member(&worker, t.id, t.cy.user.id).await);
+    manages_nothing(ws.leave_workspace(&worker, t.id).await);
+    manages_nothing(
         ws.create_teamspace(
             &worker,
             t.id,
@@ -570,12 +604,18 @@ async fn agents_work_in_the_workspace_and_manage_nothing(pool: PgPool) {
                 access: TeamspaceAccess::Open,
             },
         )
-        .await,
+        .await
+        .map(drop),
     );
-    assert_forbidden(t.add(&worker, t.general, t.cy.user.id).await);
-    assert_forbidden(agents.create_agent(&worker, t.id, new("Child")).await);
-    assert_forbidden(agents.delete_agent(&worker, t.id, scout.id).await);
-    assert_forbidden(agents.agent_tokens(&worker, t.id, scout.id).await);
+    manages_nothing(t.add(&worker, t.open, t.cy.user.id).await);
+    manages_nothing(
+        agents
+            .create_agent(&worker, t.id, new("Child"))
+            .await
+            .map(drop),
+    );
+    manages_nothing(agents.delete_agent(&worker, t.id, scout.id).await);
+    manages_nothing(agents.agent_tokens(&worker, t.id, scout.id).await.map(drop));
     // What it may see it sees, as its owner does.
     let members = ws.list_members(&worker, t.id).await.expect("listed");
     assert_eq!(members.len(), 5);
@@ -891,6 +931,79 @@ async fn an_agent_of_a_guest_reads_no_people(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_hourly_cleanup_keeps_agents_and_integrations(pool: PgPool) {
+    let t = team(pool).await;
+    t.h.set("auth.registration", json!("open")).await;
+    t.h.set("auth.verify_email", json!(true)).await;
+    let scout = t.h.agent(&t.cy, t.id, "Scout").await;
+    let hook = t.integration("GitHub").await;
+    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &["write"]).await;
+    let made = t
+        .page(&worker, t.general, "From Scout")
+        .await
+        .expect("made");
+    t.h.auth
+        .register(RegisterInput {
+            email: "squatter@example.com".into(),
+            password: support::secret(support::PASSWORD),
+            display_name: None,
+            invite_code: None,
+            ip: support::IP.into(),
+        })
+        .await
+        .expect("registers");
+
+    // Past the time an unverified person is kept: agents and integrations, which have no
+    // address to verify, stay.
+    t.h.time.advance(Duration::from_secs(40 * 24 * 3600));
+    let report = t.h.auth.cleanup().await.expect("cleans");
+    assert_eq!(report.unverified_users, 1, "the squatter alone");
+    let members =
+        t.h.workspaces
+            .list_members(&t.ada, t.id)
+            .await
+            .expect("listed");
+    for id in [scout.id, hook] {
+        assert!(members.iter().any(|member| member.person.id == id));
+    }
+    assert!(t.h.auth.authenticate_token(secret.expose()).await.is_ok());
+    let kept = t.h.pages.page(&t.ada, made.page.id).await.expect("seen");
+    assert_eq!(kept.page.created_by, Some(scout.id));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_instance_lists_and_counts_people_alone(pool: PgPool) {
+    let t = team(pool).await;
+    let scout = t.h.agent(&t.cy, t.id, "Scout").await;
+    let hook = t.integration("GitHub").await;
+    let admin = t.h.admin().await;
+
+    let users =
+        t.h.auth
+            .list_users(&admin, None, Some(100))
+            .await
+            .expect("listed");
+    assert_eq!(users.users.len(), 5, "four people and the admin");
+    assert!(
+        users
+            .users
+            .iter()
+            .all(|user| user.kind == UserKind::Human && user.id != scout.id && user.id != hook)
+    );
+    let workspaces =
+        t.h.workspaces
+            .admin_workspaces(&admin, None, None)
+            .await
+            .expect("listed");
+    let design = workspaces
+        .workspaces
+        .iter()
+        .find(|entry| entry.workspace.id == t.id)
+        .expect("listed");
+    assert_eq!((design.usage.members, design.usage.agents), (4, 2));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn turning_agents_off_refuses_their_tokens(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
@@ -1124,21 +1237,7 @@ async fn deleting_an_agent_keeps_what_it_made_named(pool: PgPool) {
     assert_eq!(row.created_by, Some(scout.id));
 
     // Integrations are not given work.
-    let integration = Uuid::now_v7();
-    neon_store::agents::insert(
-        &mut t.h.pool.acquire().await.expect("a connection"),
-        &neon_store::agents::New {
-            id: integration,
-            kind: UserKind::Integration,
-            workspace_id: t.id,
-            owner_id: t.ada.user.id,
-            name: "GitHub",
-            hue_override: None,
-            at: t.h.time.clock().now(),
-        },
-    )
-    .await
-    .expect("an integration");
+    let integration = t.integration("GitHub").await;
     assert!(matches!(
         t.h.databases
             .create_row(
@@ -1171,10 +1270,16 @@ async fn deleting_an_agent_keeps_what_it_made_named(pool: PgPool) {
         .expect("a column");
     assert_eq!(table.rows[0][column], "Scout · via cy");
 
+    t.h.changes.take();
     t.h.agents
         .delete_agent(&t.cy, t.id, scout.id)
         .await
         .expect("deleted");
+    assert_eq!(
+        t.h.changes.take(),
+        [AccessChange::Account { user_id: scout.id }],
+        "its open connections look again, and close"
+    );
     assert!(t.h.auth.authenticate_token(secret.expose()).await.is_err());
     assert!(t.h.auth.refresh(&worker).await.is_err());
     let listed = t.h.agents.list_agents(&t.ada, t.id).await.expect("listed");

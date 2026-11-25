@@ -316,6 +316,24 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
         .authenticate_token("nw_hunter2forgedtoken")
         .await
         .expect_err("forged");
+    // An agent's token, made, used and revoked.
+    let design = h.workspace(&grace, "Design").await.workspace.id;
+    let scout = h.agent(&grace, design, "Scout").await;
+    let (agent_token, worker) = h.agent_token(&grace, &scout, &["read", "write"]).await;
+    secrets.push(agent_token.expose().to_owned());
+    h.workspaces
+        .list_teamspaces(&worker, design)
+        .await
+        .expect("works");
+    let made = h
+        .agents
+        .agent_tokens(&grace, design, scout.id)
+        .await
+        .expect("listed");
+    h.agents
+        .revoke_agent_token(&grace, design, scout.id, made[0].id)
+        .await
+        .expect("revoked");
 
     // A changed password, and a reset.
     let changed = "hunter2 changed passphrase";
@@ -360,6 +378,10 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
     }
     seen.push_str(&format!("{:?}\n", login("grace@example.com", PASSWORD)));
     assert!(seen.contains("auth login"), "the capture works");
+    assert!(
+        seen.contains("agents create_agent_token"),
+        "the capture has the agents' spans"
+    );
     for secret in &secrets {
         assert!(
             !seen.contains(secret.as_str()),

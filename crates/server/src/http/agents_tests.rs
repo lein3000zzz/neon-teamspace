@@ -479,13 +479,15 @@ async fn a_person_s_bound_token_works_in_its_workspace_alone(pool: PgPool) {
     let refused = bound_admin.get("/api/v1/admin/users").await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN);
     assert_eq!(refused.code(), "token_bound");
+    // The instance's people are people alone.
+    let scout = agent(&team.cy, ws, "Scout").await;
     let listed = root.get("/api/v1/admin/users").await;
+    let users = listed.body["users"].as_array().expect("a list");
+    assert_eq!(users.len(), 5, "{}", listed.body);
     assert!(
-        listed.body["users"]
-            .as_array()
-            .expect("a list")
+        users
             .iter()
-            .all(|user| user["email"].is_string())
+            .all(|user| user["email"].is_string() && user["id"] != scout.as_str())
     );
 }
 
