@@ -60,8 +60,9 @@ The rest is optional:
 | `style` | `font`, `default`, `serif` or `mono`; `small_text` and `full_width`, both off unless set. |
 | `placement` | Where among its siblings; see [Order](#order). Last unless set. |
 
-A cover is drawn from the theme's tokens, at the lightness and chroma of the reader's
-palette and mode, the way the accent is. `accent` is the reader's accent and
+A cover is drawn from the theme's tokens, at a lightness and chroma set for covers in the
+reader's palette and mode: the accent's in light modes, and deeper in dark modes, where the
+accent is bright for text and a band of it would glare. `accent` is the reader's accent hue and
 `accent-gradient` runs from it to the hue opposite. `red`, `orange`, `yellow`, `green`,
 `teal`, `blue`, `violet` and `pink` are single hues. `sunrise`, `lagoon`, `aurora` and `dusk`
 are gradients between two of them. Image covers come with attachments.
