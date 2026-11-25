@@ -1,9 +1,9 @@
-use super::{from_markdown, to_markdown};
+use super::{from_markdown, to_markdown, to_markdown_with_ids};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     Block, BlockKind, CheckListItemProps, CodeBlockProps, DatabaseProps, Document, FileProps,
-    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, StyledText, Styles, TableCell,
-    TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, QuoteProps, StyledText, Styles,
+    TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
 };
 
 fn text(text: &str) -> Vec<Inline> {
@@ -672,5 +672,71 @@ fn a_toggle_title_that_is_another_block_is_text() {
     assert_eq!(
         from_markdown(":::toggle - not a list\n:::"),
         doc(vec![toggle(text("- not a list"))])
+    );
+}
+
+#[test]
+fn ids_are_written_before_their_blocks_at_their_level() {
+    let document = doc(vec![
+        heading(1, "Plan", false).with_id("h"),
+        paragraph(vec![]).with_id("empty"),
+        bullet("First")
+            .with_id("b1")
+            .with_children(vec![bullet("Under it").with_id("b2")]),
+        bullet("Second").with_id("b3"),
+        Block::new(BlockKind::Quote {
+            props: QuoteProps::default(),
+            content: text("Said"),
+        })
+        .with_id("q")
+        .with_children(vec![bullet("Inside").with_id("qb")]),
+        toggle(text("Fold"))
+            .with_id("t")
+            .with_children(vec![paragraph(text("Hidden")).with_id("tp")]),
+        Block::new(BlockKind::CodeBlock {
+            props: CodeBlockProps::default(),
+            code: "<!-- block not-one -->".into(),
+        })
+        .with_id("c"),
+        paragraph(text("an id: of / course")).with_id("odd id/1"),
+    ]);
+    let named = to_markdown_with_ids(&document);
+    assert_eq!(
+        named,
+        "<!-- block h -->\n# Plan\n\n<!-- block empty -->\n\n<!-- block b1 -->\n- First\n  \
+         <!-- block b2 -->\n  - Under it\n<!-- block b3 -->\n- Second\n\n<!-- block q -->\n\
+         > Said\n>\n> <!-- block qb -->\n> - Inside\n\n<!-- block t -->\n:::toggle Fold\n\n\
+         <!-- block tp -->\nHidden\n\n:::\n\n<!-- block c -->\n```\n<!-- block not-one -->\n\
+         ```\n\n<!-- block odd%20id%2F1 -->\nan id: of / course\n"
+    );
+    // Read back, the lines naming blocks are gone, but for what code holds.
+    let read = from_markdown(&named);
+    assert_eq!(read, from_markdown(&to_markdown(&document)));
+    assert!(read.blocks.iter().any(|block| matches!(
+        &block.kind,
+        BlockKind::CodeBlock { code, .. } if code == "<!-- block not-one -->"
+    )));
+}
+
+#[test]
+fn only_lines_that_name_a_block_alone_are_left_out() {
+    assert_eq!(
+        from_markdown(
+            "<!-- block a -->\nKept\n\n<!-- block two words -->\n\ntext <!-- block b -->"
+        ),
+        doc(vec![
+            paragraph(text("Kept")),
+            paragraph(text("<!-- block two words -->")),
+            paragraph(text("text <!-- block b -->")),
+        ])
+    );
+    // Numbered lists named item by item read as one list.
+    assert_eq!(
+        from_markdown("<!-- block a -->\n1. one\n<!-- block b -->\n2. two\n"),
+        from_markdown("1. one\n2. two\n")
+    );
+    assert_eq!(
+        from_markdown("> <!-- block a -->\n> quoted"),
+        from_markdown("> quoted")
     );
 }

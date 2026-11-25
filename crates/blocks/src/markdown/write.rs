@@ -13,7 +13,27 @@ use crate::model::{
 
 /// The document as markdown, ending with a line break unless it is empty.
 pub fn to_markdown(document: &Document) -> String {
-    let lines = blocks(&document.blocks);
+    write(document, false)
+}
+
+/// The document as markdown with each block's id on a line of its own before the block, as
+/// [the module docs](super#block-ids) set out. Reading it gives the same blocks as reading
+/// [`to_markdown`]'s.
+pub fn to_markdown_with_ids(document: &Document) -> String {
+    write(document, true)
+}
+
+/// The line that names the block after it: `<!-- block <id> -->`.
+pub(super) fn id_line(id: &str) -> String {
+    format!("{ID_OPEN}{} {ID_CLOSE}", encode_id(id))
+}
+
+/// What starts and ends a line naming a block.
+pub(super) const ID_OPEN: &str = "<!-- block ";
+pub(super) const ID_CLOSE: &str = "-->";
+
+fn write(document: &Document, ids: bool) -> String {
+    let lines = blocks(&document.blocks, ids);
     if lines.is_empty() {
         return String::new();
     }
@@ -33,10 +53,10 @@ enum List {
 /// The largest number CommonMark reads as a list item's.
 const MAX_NUMBER: u64 = 999_999_999;
 
-/// The lines of a sequence of sibling blocks.
-fn blocks(blocks: &[Block]) -> Vec<String> {
+/// The lines of a sequence of sibling blocks, each after the line naming it when `ids`.
+fn blocks(blocks: &[Block], ids: bool) -> Vec<String> {
     let mut flat = Vec::new();
-    flatten(blocks, &mut flat);
+    flatten(blocks, ids, &mut flat);
     let mut lines: Vec<String> = Vec::new();
     let mut previous: Option<List> = None;
     let mut number: u64 = 0;
@@ -44,13 +64,13 @@ fn blocks(blocks: &[Block]) -> Vec<String> {
     for block in flat {
         let (rendered, list) = match &block.kind {
             BlockKind::BulletListItem { content, .. } => (
-                list_item("- ", "", content, &block.children),
+                list_item("- ", "", content, &block.children, ids),
                 Some(List::Bullet),
             ),
             BlockKind::CheckListItem { props, content } => {
                 let check = if props.checked { "[x] " } else { "[ ] " };
                 (
-                    list_item("- ", check, content, &block.children),
+                    list_item("- ", check, content, &block.children, ids),
                     Some(List::Bullet),
                 )
             }
@@ -69,14 +89,17 @@ fn blocks(blocks: &[Block]) -> Vec<String> {
                 // CommonMark reads at most nine digits as a list item's number.
                 let marker = format!("{}{delimiter} ", number.min(MAX_NUMBER));
                 (
-                    list_item(&marker, "", content, &block.children),
+                    list_item(&marker, "", content, &block.children, ids),
                     Some(List::Numbered(delimiter)),
                 )
             }
-            _ => (block_lines(block), None),
+            _ => (block_lines(block, ids), None),
         };
         if !lines.is_empty() && (list.is_none() || list != previous) {
             lines.push(String::new());
+        }
+        if ids && let Some(id) = &block.id {
+            lines.push(id_line(id));
         }
         lines.extend(rendered);
         previous = list;
@@ -85,8 +108,8 @@ fn blocks(blocks: &[Block]) -> Vec<String> {
 }
 
 /// The blocks to write at one level: children of blocks that cannot hold them in markdown
-/// come after their parent, and empty paragraphs are left out.
-fn flatten<'a>(blocks: &'a [Block], flat: &mut Vec<&'a Block>) {
+/// come after their parent, and empty paragraphs are left out, unless their ids are written.
+fn flatten<'a>(blocks: &'a [Block], ids: bool, flat: &mut Vec<&'a Block>) {
     for block in blocks {
         if holds_children(block) {
             flat.push(block);
@@ -94,10 +117,10 @@ fn flatten<'a>(blocks: &'a [Block], flat: &mut Vec<&'a Block>) {
         }
         let empty_paragraph =
             matches!(&block.kind, BlockKind::Paragraph { content, .. } if content.is_empty());
-        if !empty_paragraph {
+        if ids || !empty_paragraph {
             flat.push(block);
         }
-        flatten(&block.children, flat);
+        flatten(&block.children, ids, flat);
     }
 }
 
@@ -119,7 +142,13 @@ fn holds_children(block: &Block) -> bool {
     }
 }
 
-fn list_item(marker: &str, check: &str, content: &[Inline], children: &[Block]) -> Vec<String> {
+fn list_item(
+    marker: &str,
+    check: &str,
+    content: &[Inline],
+    children: &[Block],
+    ids: bool,
+) -> Vec<String> {
     let indent = " ".repeat(marker.len());
     let text = inline(content, Context::lines());
     let mut lines = Vec::new();
@@ -133,7 +162,7 @@ fn list_item(marker: &str, check: &str, content: &[Inline], children: &[Block]) 
     if lines.is_empty() {
         lines.push(format!("{marker}{check}").trim_end().to_owned());
     }
-    let nested = blocks(children);
+    let nested = blocks(children, ids);
     let starts_with_list = children.first().is_some_and(|child| {
         matches!(
             child.kind,
@@ -158,21 +187,21 @@ fn indented(indent: &str, line: &str) -> String {
 }
 
 /// The lines of one block that is not a list item.
-fn block_lines(block: &Block) -> Vec<String> {
+fn block_lines(block: &Block, ids: bool) -> Vec<String> {
     match &block.kind {
         BlockKind::Paragraph { content, .. } => inline(content, Context::lines()),
         BlockKind::Heading { props, content } => {
             let hashes = "#".repeat(usize::from(props.level.clamp(1, 6)));
             let title = heading_line(&hashes, content);
             if props.is_toggleable {
-                toggle(&title, &block.children)
+                toggle(&title, &block.children, ids)
             } else {
                 vec![title]
             }
         }
         BlockKind::ToggleListItem { content, .. } => {
             let title = single_line(content, Context::title());
-            toggle(&title, &block.children)
+            toggle(&title, &block.children, ids)
         }
         BlockKind::Quote { content, .. } => {
             let quoted = |line: &String| {
@@ -190,7 +219,7 @@ fn block_lines(block: &Block) -> Vec<String> {
                 if !lines.is_empty() {
                     lines.push(">".to_owned());
                 }
-                lines.extend(blocks(&block.children).iter().map(quoted));
+                lines.extend(blocks(&block.children, ids).iter().map(quoted));
             }
             if lines.is_empty() {
                 lines.push(">".to_owned());
@@ -224,13 +253,13 @@ fn heading_line(hashes: &str, content: &[Inline]) -> String {
     }
 }
 
-fn toggle(title: &str, children: &[Block]) -> Vec<String> {
+fn toggle(title: &str, children: &[Block], ids: bool) -> Vec<String> {
     let mut lines = vec![if title.is_empty() {
         ":::toggle".to_owned()
     } else {
         format!(":::toggle {title}")
     }];
-    let nested = blocks(children);
+    let nested = blocks(children, ids);
     if !nested.is_empty() {
         lines.push(String::new());
         lines.extend(nested);

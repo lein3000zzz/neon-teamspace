@@ -2,6 +2,7 @@
 //! of markdown's own blocks first; the extension's lines are then found among the
 //! paragraphs, and the tree becomes the document's blocks.
 
+use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
@@ -9,6 +10,7 @@ use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, OffsetIter, Options, Parser, Tag, TagEnd,
 };
 
+use super::write::{ID_CLOSE, ID_OPEN};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE,
@@ -18,9 +20,71 @@ use crate::model::{
 };
 
 /// The blocks of a markdown text. Any text is markdown, so this cannot fail; the blocks have
-/// no ids.
+/// no ids. The lines naming blocks that [`to_markdown_with_ids`](super::to_markdown_with_ids)
+/// writes are left out, so its markdown reads as [`to_markdown`](super::to_markdown)'s does.
 pub fn from_markdown(markdown: &str) -> Document {
-    Document::new(convert(parse(markdown)))
+    let markdown = without_ids(markdown);
+    Document::new(convert(parse(&markdown)))
+}
+
+/// The markdown without the lines that name a block: each an HTML block of its own, so none
+/// in code is taken, and gone with its line, so blocks around it read as if it never was.
+fn without_ids(markdown: &str) -> Cow<'_, str> {
+    if !markdown.contains(ID_OPEN) {
+        return Cow::Borrowed(markdown);
+    }
+    let mut cuts: Vec<Range<usize>> = Vec::new();
+    for (event, range) in Parser::new_ext(markdown, options()).into_offset_iter() {
+        let Event::Html(html) = event else {
+            continue;
+        };
+        if !names_block(&html) {
+            continue;
+        }
+        let start = markdown[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        // What comes before it on its line: indentation, or the markers of a quote.
+        if !markdown[start..range.start]
+            .chars()
+            .all(|c| c == ' ' || c == '\t' || c == '>')
+        {
+            continue;
+        }
+        let end = if markdown[..range.end].ends_with('\n') {
+            range.end
+        } else {
+            markdown[range.end..]
+                .find('\n')
+                .map_or(markdown.len(), |at| range.end + at + 1)
+        };
+        cuts.push(start..end);
+    }
+    if cuts.is_empty() {
+        return Cow::Borrowed(markdown);
+    }
+    let mut kept = String::with_capacity(markdown.len());
+    let mut from = 0;
+    for cut in cuts {
+        if cut.start >= from {
+            kept.push_str(&markdown[from..cut.start]);
+            from = cut.end;
+        }
+    }
+    kept.push_str(&markdown[from..]);
+    Cow::Owned(kept)
+}
+
+/// Whether an HTML block's line is one naming a block: `<!-- block <id> -->`, the id one word.
+fn names_block(html: &str) -> bool {
+    html.trim()
+        .strip_prefix(ID_OPEN)
+        .and_then(|rest| rest.strip_suffix(ID_CLOSE))
+        .map(str::trim_end)
+        .is_some_and(|id| {
+            !id.is_empty()
+                && id.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'%')
+                })
+        })
 }
 
 /// The parser's options: CommonMark with GitHub's tables, strikethrough and task lists.

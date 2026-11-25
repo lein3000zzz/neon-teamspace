@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use neon_blocks::markdown::{from_markdown, to_markdown};
+use neon_blocks::markdown::{from_markdown, to_markdown, to_markdown_with_ids};
 use neon_blocks::{
     Block, BlockKind, Document, FileProps, ImageProps, Inline, Link, SequentialIds, StyledText,
     TableCell, TableCellProps, TextAlignment, fragment, read_doc, replace,
@@ -109,6 +109,25 @@ fn markdown_keeps_what_it_can_and_is_stable_after_one_pass() {
             to_markdown(&parsed),
             markdown,
             "{name}: stable after one pass"
+        );
+    }
+}
+
+#[test]
+fn markdown_with_ids_names_every_block_and_reads_as_markdown_without_them() {
+    for (name, document) in every_fixture() {
+        let named = to_markdown_with_ids(&document);
+        for block in document.walk() {
+            let id = block.id.as_deref().expect("fixture blocks have ids");
+            assert!(
+                named.contains(&format!("<!-- block {id} -->")),
+                "{name}: {id} unnamed"
+            );
+        }
+        assert_eq!(
+            from_markdown(&named),
+            from_markdown(&to_markdown(&document)),
+            "{name}"
         );
     }
 }

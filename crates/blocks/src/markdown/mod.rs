@@ -60,6 +60,31 @@
 //! of colons that closes nothing is text, as is a line that starts with an escaped colon,
 //! `\:::`.
 //!
+//! # Block ids
+//!
+//! [`to_markdown_with_ids`] writes the same markdown with a line naming each block before the
+//! block's own lines, at its level: indented under a list item, quoted in a quote.
+//!
+//! ```markdown
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b1 -->
+//! # Plan
+//!
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b2 -->
+//! - First
+//!   <!-- block 0193a5b2-0000-7000-8000-0000000000b3 -->
+//!   - Under it
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b4 -->
+//! - Second
+//! ```
+//!
+//! The line is `<!-- block `, the id percent-encoded as a database's is, and ` -->`. Every
+//! block with an id has one, empty paragraphs included, which have no other line; blocks whose
+//! children markdown cannot nest are followed by their children's lines, each child named.
+//! Such a line is an HTML comment, which renderers leave unshown. [`from_markdown`] leaves out
+//! every line that names a block, wherever it stands but in code, so markdown written with ids
+//! reads as the same blocks as without them: a client may send back what it read, edited, and
+//! the lines it kept change nothing.
+//!
 //! # What markdown loses
 //!
 //! - Block ids. Read blocks have none until they are written into a document.
@@ -82,7 +107,7 @@ mod parse;
 mod write;
 
 pub use parse::from_markdown;
-pub use write::to_markdown;
+pub use write::{to_markdown, to_markdown_with_ids};
 
 #[cfg(test)]
 mod tests;
