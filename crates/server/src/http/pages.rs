@@ -12,6 +12,7 @@ use neon_app::pages::{
 };
 use neon_blocks::markdown::from_markdown;
 use neon_domain::pages as domain;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use utoipa::{IntoParams, ToSchema};
@@ -184,7 +185,7 @@ pub struct PageStyle {
 
 /// Where a page goes among its siblings: `"first"`, `"last"`, `{"after": id}` or
 /// `{"before": id}`, the id being a sibling's.
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
     First,
@@ -296,7 +297,7 @@ impl From<PageView> for Page {
 }
 
 /// The one place a page is made in, moved to or imported to.
-pub(super) fn location(
+pub(crate) fn location(
     parent_id: Option<Uuid>,
     teamspace_id: Option<Uuid>,
     private: bool,

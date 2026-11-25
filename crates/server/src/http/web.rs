@@ -121,8 +121,23 @@ impl WebConfig {
         forwarded.map_or(peer, canonical).to_string()
     }
 
+    /// The origin the server is reached at: `server.public_url`'s, or else the `Host` the
+    /// request was sent to, over plain http.
+    pub(crate) fn public_origin(&self, headers: &HeaderMap) -> String {
+        match &self.origin {
+            Some(origin) => origin.clone(),
+            None => {
+                let host = headers
+                    .get(HOST)
+                    .and_then(|host| host.to_str().ok())
+                    .unwrap_or("localhost");
+                format!("http://{host}")
+            }
+        }
+    }
+
     /// Whether `origin`, as an `Origin` header has it, is the server's own.
-    fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
+    pub(crate) fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
         if let Some(own) = &self.origin {
             return origin.eq_ignore_ascii_case(own);
         }

@@ -48,7 +48,11 @@ metrics-util = { version = "0.20.4", default-features = false, features = ["debu
 # renderer.
 pulldown-cmark = { version = "0.13.6", default-features = false }
 rand = "0.10.4"
+# The MCP server, over the Streamable HTTP transport with its sessions, and in tests its client.
+rmcp = { version = "3.11.0", default-features = false }
 rpassword = "7.5.5"
+# The JSON schemas of the MCP tools' arguments, the version rmcp publishes them with.
+schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.2.0"
 serde_json = "1.0.154"
@@ -68,6 +72,7 @@ sqlx = { version = "0.9.1", default-features = false, features = [
 thiserror = "2.0.21"
 time = "0.3.55"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net"] }
+tokio-stream = "0.1.19"
 tokio-util = "0.7.20"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers"] }

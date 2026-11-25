@@ -7,11 +7,12 @@
 //! block, which markdown sent back may keep or leave out.
 
 use axum::extract::State;
-use neon_app::databases::RowDetails;
-use neon_app::sync::Edited;
+use neon_app::databases::{DatabaseService, RowDetails};
+use neon_app::sync::{Edited, SyncService};
 use neon_blocks::edit::{Applied, Edit};
 use neon_blocks::markdown::{from_markdown, to_markdown_with_ids};
 use neon_domain::pages::PageKind as DomainPageKind;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use utoipa::ToSchema;
@@ -76,7 +77,7 @@ impl PageMarkdown {
 
 /// One change to a page's blocks. Markdown may hold the lines naming blocks that reading
 /// it gives; they are left out.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, ToSchema, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EditOperation {
     /// Adds the blocks of `markdown` at the end of the page, before the empty paragraph
@@ -181,13 +182,14 @@ impl From<Edited> for EditedPage {
 
 /// A page's content as markdown, with a row's properties: what reading it shows.
 pub(crate) async fn page_markdown(
-    state: &AppState,
+    sync: &SyncService,
+    databases: &DatabaseService,
     principal: &neon_domain::auth::Principal,
     id: Uuid,
 ) -> Result<PageMarkdown, ApiError> {
-    let (view, document) = state.sync.read(principal, id).await?;
+    let (view, document) = sync.read(principal, id).await?;
     let row = match view.page.kind {
-        DomainPageKind::Row => Some(state.databases.row_details(principal, id).await?),
+        DomainPageKind::Row => Some(databases.row_details(principal, id).await?),
         _ => None,
     };
     Ok(PageMarkdown::new(view.into(), &document, row))
@@ -217,7 +219,9 @@ pub(super) async fn get_markdown(
     Authenticated(principal): Authenticated,
     Path(id): Path<Uuid>,
 ) -> Result<Body<PageMarkdown>, ApiError> {
-    Ok(Body(page_markdown(&state, &principal, id).await?))
+    Ok(Body(
+        page_markdown(&state.sync, &state.databases, &principal, id).await?,
+    ))
 }
 
 #[utoipa::path(

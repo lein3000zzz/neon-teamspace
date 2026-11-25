@@ -1,30 +1,30 @@
 //! The HTTP API under `/api/v1`, its description, and the middleware every request
 //! passes.
 
-mod account;
+pub(crate) mod account;
 mod admin;
 mod admin_workspaces;
 mod agents;
 mod auth;
-mod content;
+pub(crate) mod content;
 mod database_live;
-mod database_rows;
-mod databases;
-mod dto;
+pub(crate) mod database_rows;
+pub(crate) mod databases;
+pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
 mod meta;
 mod openapi;
 mod page_shares;
-mod pages;
-mod principal;
+pub(crate) mod pages;
+pub(crate) mod principal;
 mod sync;
-mod teamspaces;
+pub(crate) mod teamspaces;
 mod transfer;
-mod web;
-mod whoami;
-mod workspaces;
+pub(crate) mod web;
+pub(crate) mod whoami;
+pub(crate) mod workspaces;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -36,7 +36,7 @@ use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{any, get};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::pages::PageService;
@@ -74,6 +74,7 @@ pub struct AppState {
     pub live: LiveDatabases,
     pub transfer: TransferService,
     pub web: Arc<WebConfig>,
+    pub mcp: crate::mcp::Mcp,
 }
 
 /// Every API route, each registered together with its entry in the description.
@@ -247,6 +248,9 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
+        // resources.
+        .route(crate::mcp::PATH, any(crate::mcp::serve))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -362,6 +366,8 @@ mod auth_tests;
 mod content_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod mcp_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]

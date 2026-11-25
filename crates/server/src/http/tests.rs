@@ -13,6 +13,7 @@ use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
+use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
@@ -55,7 +56,15 @@ pub(super) async fn state_for(
     web: WebConfig,
     limits: SyncLimits,
 ) -> AppState {
-    build_state(pool, envelope, web, limits, LiveLimits::default()).await
+    build_state(
+        pool,
+        envelope,
+        web,
+        limits,
+        LiveLimits::default(),
+        Arc::new(MemoryLimiter::new()),
+    )
+    .await
 }
 
 /// The state, with database feeds that keep to `limits`.
@@ -66,6 +75,25 @@ pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppSta
         WebConfig::new(None, Vec::new()),
         SyncLimits::default(),
         limits,
+        Arc::new(MemoryLimiter::new()),
+    )
+    .await
+}
+
+/// The state, with the MCP server counting requests in `limiter`, on `web`.
+pub(crate) async fn state_with_mcp(
+    pool: PgPool,
+    web: WebConfig,
+    limits: SyncLimits,
+    limiter: Arc<dyn RateLimiter>,
+) -> AppState {
+    build_state(
+        pool,
+        Envelope::default(),
+        web,
+        limits,
+        LiveLimits::default(),
+        limiter,
     )
     .await
 }
@@ -76,6 +104,7 @@ async fn build_state(
     web: WebConfig,
     limits: SyncLimits,
     feeds: LiveLimits,
+    mcp_limiter: Arc<dyn RateLimiter>,
 ) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -95,7 +124,9 @@ async fn build_state(
     );
     let (documents, feed) = access_feed();
     let (followers, databases_feed) = access_feed();
-    let listener: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![documents, followers]));
+    let (sessions, mcp_feed) = crate::mcp::access_feed();
+    let listener: Arc<dyn AccessChanges> =
+        Arc::new(Fanout::new(vec![documents, followers, sessions]));
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
@@ -116,13 +147,26 @@ async fn build_state(
         .build();
     let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
         .limits(limits)
-        .broadcaster(broadcaster)
+        .broadcaster(Arc::clone(&broadcaster))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
         .build();
     let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
+    let mcp = crate::mcp::Mcp::new(
+        crate::mcp::Services {
+            settings: Arc::clone(&settings),
+            auth: auth.clone(),
+            workspaces: workspaces.clone(),
+            pages: pages.clone(),
+            sync: sync.clone(),
+            databases: databases.clone(),
+            broadcaster,
+        },
+        mcp_limiter,
+        mcp_feed,
+    );
     AppState {
         settings,
         auth,
@@ -134,6 +178,7 @@ async fn build_state(
         live,
         transfer,
         web: Arc::new(web),
+        mcp,
     }
 }
 

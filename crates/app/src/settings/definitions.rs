@@ -77,13 +77,23 @@ pub mod workspaces {
     pub const LIMIT_AGENTS: Key<i64> = Key::new("workspaces.limits.agents");
 }
 
-/// Whom MCP clients act as, and so whether agents exist.
+/// MCP: whom clients act as, and so whether agents exist, and the bounds of their
+/// sessions.
 pub mod mcp {
+    use std::time::Duration;
+
     use neon_domain::settings::Key;
 
     /// Whom MCP clients may act as: the person who connects them, `user`, one of their
     /// agents, `agent`, or both.
     pub const IDENTITIES: Key<[String]> = Key::new("mcp.identities");
+    /// How many MCP sessions this server holds at once, and how many one identity may.
+    pub const MAX_SESSIONS: Key<i64> = Key::new("mcp.max_sessions");
+    pub const MAX_SESSIONS_PER_IDENTITY: Key<i64> = Key::new("mcp.max_sessions_per_identity");
+    /// How long a session without requests or open streams lasts.
+    pub const SESSION_IDLE_TIMEOUT: Key<Duration> = Key::new("mcp.session_idle_timeout");
+    /// How often, at most, a session hears that one resource it subscribes to changed.
+    pub const NOTIFICATION_INTERVAL: Key<Duration> = Key::new("mcp.notification_interval");
 }
 
 /// Pages: how long the trash keeps them.
@@ -365,6 +375,50 @@ pub fn registry() -> Registry {
              back.",
         ))
         .define(
+            Definition::integer(
+                mcp::MAX_SESSIONS,
+                1000,
+                "The most MCP sessions this server holds at once, of every identity together. \
+                 One more is refused until one ends: a client closes it, it idles out, or what \
+                 it acts as stops working.",
+            )
+            .check(between_counts(1, 100_000)),
+        )
+        .define(
+            Definition::integer(
+                mcp::MAX_SESSIONS_PER_IDENTITY,
+                10,
+                "The most MCP sessions one person or agent holds at once on this server. One \
+                 more is refused until one of theirs ends.",
+            )
+            .check(between_counts(1, 1000)),
+        )
+        .define(
+            Definition::duration(
+                mcp::SESSION_IDLE_TIMEOUT,
+                Duration::from_secs(30 * 60),
+                "How long an MCP session lasts without a request and without an open stream, \
+                 then ends with its subscriptions. A client starts a new one when it comes \
+                 back. A change applies to every session at once.",
+            )
+            .check(between(
+                Duration::from_secs(1),
+                Duration::from_secs(24 * 3600),
+            )),
+        )
+        .define(
+            Definition::duration(
+                mcp::NOTIFICATION_INTERVAL,
+                Duration::from_secs(2),
+                "How often, at most, an MCP session is told that one resource it subscribes to \
+                 changed. Changes meanwhile are told together, once the interval is over.",
+            )
+            .check(between(
+                Duration::from_millis(100),
+                Duration::from_secs(3600),
+            )),
+        )
+        .define(
             Definition::duration(
                 pages::TRASH_RETENTION,
                 Duration::from_secs(30 * 24 * 3600),
@@ -420,6 +474,17 @@ fn not_negative(value: &i64) -> Result<(), String> {
         Ok(())
     } else {
         Err("must be 0, for no limit, or more".to_owned())
+    }
+}
+
+/// Refuses counts outside `least..=most`.
+fn between_counts(least: i64, most: i64) -> impl Fn(&i64) -> Result<(), String> + Send + Sync {
+    move |value| {
+        if (least..=most).contains(value) {
+            Ok(())
+        } else {
+            Err(format!("must be between {least} and {most}"))
+        }
     }
 }
 
@@ -480,6 +545,16 @@ mod tests {
         assert_eq!(*snapshot.get(workspaces::LIMIT_STORAGE_BYTES), 0);
         assert_eq!(*snapshot.get(workspaces::LIMIT_AGENTS), 0);
         assert_eq!(snapshot.get(mcp::IDENTITIES), ["user", "agent"]);
+        assert_eq!(*snapshot.get(mcp::MAX_SESSIONS), 1000);
+        assert_eq!(*snapshot.get(mcp::MAX_SESSIONS_PER_IDENTITY), 10);
+        assert_eq!(
+            *snapshot.get(mcp::SESSION_IDLE_TIMEOUT),
+            Duration::from_secs(1800)
+        );
+        assert_eq!(
+            *snapshot.get(mcp::NOTIFICATION_INTERVAL),
+            Duration::from_secs(2)
+        );
         assert_eq!(
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)

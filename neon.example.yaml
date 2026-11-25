@@ -133,6 +133,13 @@ settings:
     # agents (agent), or both. Without agent, nobody makes agents and agents' tokens are
     # refused.
     # identities: [user, agent]
+    # The most sessions the server holds at once, and one person or agent may.
+    # max_sessions: 1000
+    # max_sessions_per_identity: 10
+    # How long a session without requests or open streams lasts.
+    # session_idle_timeout: 30m
+    # How often, at most, a session hears that one resource it subscribes to changed.
+    # notification_interval: 2s
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d

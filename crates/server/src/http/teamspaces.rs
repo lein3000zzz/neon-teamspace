@@ -6,7 +6,9 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use neon_app::workspaces::{NewTeamspace, TeamspaceEntry, TeamspaceUpdate};
+use neon_app::workspaces::{
+    NewTeamspace, TeamspaceEntry, TeamspaceList as AppTeamspaceList, TeamspaceUpdate,
+};
 use neon_domain::workspaces as domain;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -163,17 +165,23 @@ pub(super) async fn list_teamspaces(
     Path(id): Path<Uuid>,
 ) -> Result<Json<TeamspaceList>, ApiError> {
     let list = state.workspaces.list_teamspaces(&principal, id).await?;
-    Ok(Json(TeamspaceList {
-        teamspaces: list.teamspaces.into_iter().map(Teamspace::from).collect(),
-        hidden: list
-            .hidden
-            .into_iter()
-            .map(|teamspace| TeamspaceName {
-                id: teamspace.id,
-                name: teamspace.name,
-            })
-            .collect(),
-    }))
+    Ok(Json(list.into()))
+}
+
+impl From<AppTeamspaceList> for TeamspaceList {
+    fn from(list: AppTeamspaceList) -> Self {
+        Self {
+            teamspaces: list.teamspaces.into_iter().map(Teamspace::from).collect(),
+            hidden: list
+                .hidden
+                .into_iter()
+                .map(|teamspace| TeamspaceName {
+                    id: teamspace.id,
+                    name: teamspace.name,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Deserialize, ToSchema)]

@@ -202,6 +202,18 @@ impl WorkspaceService {
         .await
     }
 
+    /// Whether the principal is in the workspace, as far as its token reaches: what a
+    /// long-lived connection asks again on each request, without the workspace's details.
+    pub async fn admits(&self, principal: &Principal, id: Uuid) -> Result<(), WorkspaceError> {
+        self.observe("admits", async {
+            let mut conn = self.pool().acquire().await?;
+            membership(&mut conn, principal, id)
+                .await?
+                .check(Action::ViewWorkspace)
+        })
+        .await
+    }
+
     /// A workspace the principal is in.
     pub async fn workspace(
         &self,

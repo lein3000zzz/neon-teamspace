@@ -88,6 +88,13 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, "forbidden", message)
     }
 
+    /// The same answer, telling the client how long to wait before it tries again.
+    #[must_use]
+    pub fn with_retry_after(mut self, wait: Duration) -> Self {
+        self.retry_after = Some(wait);
+        self
+    }
+
     /// The same answer, naming each field it refuses.
     #[must_use]
     pub fn with_problems(mut self, problems: Vec<Problem>) -> Self {

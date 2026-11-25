@@ -79,7 +79,7 @@ impl AccessChange {
     /// Which pages a change to a teamspace reaches is the rules' to say again, so every
     /// page of the workspace counts; a change to a page is narrowed further by
     /// [`subtree`](Self::subtree).
-    pub(crate) fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
+    pub fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
         let (workspace, user) = match *self {
             Self::Agents => return owner_of(principal).is_some(),
             Self::Pages {
