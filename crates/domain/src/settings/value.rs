@@ -18,6 +18,9 @@ pub enum Kind {
     Enum(&'static [&'static str]),
     /// Written the way people type it: `30s`, `1h 30m`, `7 days`.
     Duration,
+    /// Some of the listed options, each at most once, kept in the listed order: a YAML list,
+    /// or a comma-separated environment variable. Empty is none of them.
+    Set(&'static [&'static str]),
     /// A string that is never displayed, logged or audited.
     Secret,
 }
@@ -43,6 +46,12 @@ impl Kind {
             Self::String => Ok(Value::String(raw.trim().to_owned())),
             Self::Enum(options) => parse_option(options, raw),
             Self::Duration => parse_duration(raw),
+            Self::Set(options) => parse_set(
+                options,
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty()),
+            ),
             Self::Secret => Ok(Value::Secret(Secret::new(raw))),
         }
     }
@@ -62,6 +71,15 @@ impl Kind {
             (Self::Enum(options), _) => Err(want_option(options)),
             (Self::Duration, Json::String(s)) => parse_duration(s),
             (Self::Duration, _) => Err(WANT_DURATION.to_owned()),
+            (Self::Set(options), Json::Array(items)) => {
+                let texts = items
+                    .iter()
+                    .map(|item| item.as_str().map(str::trim))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| want_set(options))?;
+                parse_set(options, texts.into_iter())
+            }
+            (Self::Set(options), _) => Err(want_set(options)),
             (Self::Secret, Json::String(s)) => Ok(Value::Secret(Secret::new(s.as_str()))),
             (Self::Secret, _) => Err("want text".to_owned()),
         }
@@ -76,6 +94,7 @@ impl fmt::Display for Kind {
             Self::String => "string",
             Self::Enum(_) => "enum",
             Self::Duration => "duration",
+            Self::Set(_) => "set",
             Self::Secret => "secret",
         })
     }
@@ -96,6 +115,32 @@ fn parse_option(options: &[&str], raw: &str) -> Result<Value, String> {
     } else {
         Err(want_option(options))
     }
+}
+
+fn want_set(options: &[&str]) -> String {
+    format!("want a list of some of {}", options.join(", "))
+}
+
+/// The options named, each once, in the listed order. Naming one twice is a typo-like
+/// slip worth saying, not a different value.
+fn parse_set<'a>(options: &[&str], items: impl Iterator<Item = &'a str>) -> Result<Value, String> {
+    let mut named = Vec::new();
+    for item in items {
+        if !options.contains(&item) {
+            return Err(want_set(options));
+        }
+        if named.contains(&item) {
+            return Err(format!("names {item} twice"));
+        }
+        named.push(item);
+    }
+    Ok(Value::List(
+        options
+            .iter()
+            .filter(|option| named.contains(option))
+            .map(|option| (*option).to_owned())
+            .collect(),
+    ))
 }
 
 fn parse_duration(raw: &str) -> Result<Value, String> {
@@ -131,13 +176,15 @@ impl fmt::Display for Secret {
     }
 }
 
-/// A parsed setting value. Enum settings hold their option as a string.
+/// A parsed setting value. Enum settings hold their option as a string, and set settings
+/// their options as a list in the listed order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Bool(bool),
     Integer(i64),
     String(String),
     Duration(Duration),
+    List(Vec<String>),
     Secret(Secret),
 }
 
@@ -149,6 +196,7 @@ impl Value {
             Self::Integer(n) => Json::from(*n),
             Self::String(s) => Json::String(s.clone()),
             Self::Duration(d) => Json::String(duration::format(*d)),
+            Self::List(items) => Json::Array(items.iter().cloned().map(Json::String).collect()),
             Self::Secret(s) => Json::String(s.expose().to_owned()),
         }
     }
@@ -171,6 +219,7 @@ impl fmt::Display for Value {
             Self::Integer(n) => write!(f, "{n}"),
             Self::String(s) => f.write_str(s),
             Self::Duration(d) => f.write_str(&duration::format(*d)),
+            Self::List(items) => f.write_str(&items.join(", ")),
             Self::Secret(s) => write!(f, "{s}"),
         }
     }
@@ -245,6 +294,42 @@ mod tests {
         assert!(Kind::Integer.parse_json(&json!("1")).is_err());
         assert!(Kind::String.parse_json(&json!(1)).is_err());
         assert!(Kind::Secret.parse_json(&json!(null)).is_err());
+    }
+
+    #[test]
+    fn sets_keep_the_listed_order_and_name_each_option_once() {
+        const MODES: Kind = Kind::Set(&["user", "agent"]);
+        let list = |items: &[&str]| Value::List(items.iter().map(|i| (*i).to_owned()).collect());
+
+        assert_eq!(
+            MODES.parse_text("agent, user"),
+            Ok(list(&["user", "agent"]))
+        );
+        assert_eq!(MODES.parse_text(" agent "), Ok(list(&["agent"])));
+        assert_eq!(MODES.parse_text(""), Ok(list(&[])));
+        assert_eq!(MODES.parse_json(&json!(["agent"])), Ok(list(&["agent"])));
+        assert_eq!(MODES.parse_json(&json!([])), Ok(list(&[])));
+        assert_eq!(
+            MODES.parse_text("user,bots"),
+            Err("want a list of some of user, agent".into())
+        );
+        assert_eq!(
+            MODES.parse_json(&json!("user")),
+            Err("want a list of some of user, agent".into())
+        );
+        assert_eq!(
+            MODES.parse_json(&json!(["user", 1])),
+            Err("want a list of some of user, agent".into())
+        );
+        assert_eq!(
+            MODES.parse_json(&json!(["user", "user"])),
+            Err("names user twice".into())
+        );
+        let value = list(&["user", "agent"]);
+        assert_eq!(value.to_stored_json(), json!(["user", "agent"]));
+        assert_eq!(MODES.parse_json(&value.to_stored_json()), Ok(value.clone()));
+        assert_eq!(value.to_string(), "user, agent");
+        assert_eq!(MODES.to_string(), "set");
     }
 
     #[test]

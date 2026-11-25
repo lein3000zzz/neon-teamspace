@@ -20,6 +20,9 @@ that has one:
 A setting set by its environment variable or in the config file is pinned: the admin page
 shows it but cannot change it.
 
+A *set* holds some of its options: a list in the config file, such as `[user, agent]`, and
+a comma-separated list in its environment variable, such as `user,agent`; empty is none.
+
 Secret settings, and those that say where a secret goes, such as the mail server, are marked
 *browser session only*: an admin changes them signed in at a browser, never with an API token.
 
