@@ -46,13 +46,18 @@ database:
 
 | Item | What it does |
 |---|---|
-| **Rename** | Turns the tab into a field: Enter or leaving it saves, Escape keeps the old name. |
+| **Rename** | Turns the tab into a field: Enter or leaving it saves what you typed, Escape keeps the name as it is, and the tab has the focus back after Enter or Escape. |
 | **Duplicate** | Copies the view, with its filter, sorts, grouping and columns, right after it. |
 | **Show as table**, **board** or **list** | Lays the same rows out another way. A board needs a select, status or person property to group by; the first one it finds is used. |
 | **Move left**, **Move right** | Reorders the views. |
 | **Delete** | Asks first. A database keeps at least one view. |
 
 **+** after the tabs adds a view: a table, a board, or a list.
+
+However many rows a view lists, up to the 10,000 a database holds, only those near the screen
+are drawn, and more as the page scrolls, so a long table, list or board stays quick. The
+browser's find in page therefore finds only the rows drawn; the magnifier finds any row by its
+id.
 
 On a database's own page, the address names the view in view, so a link opens the same view.
 Inside a page, the view picked is kept in the page for everyone, by those who edit the page;
@@ -65,9 +70,10 @@ scrolls sideways and the title column stays in place.
 
 - **A value**: click it, or reach it with Tab and press Enter, to edit it in place. Each type
   has its own editor; see [Values](#values).
-- **A title**: click it to type a new one. **Open** beside it opens the row; its menu opens it
-  as a full page or moves it to the trash. Both show as the pointer passes, and always on a
-  touch screen.
+- **A title**: click it to type a new one; Enter or a click outside saves what you typed, and
+  Escape keeps the title as it is. **Open** beside it opens the row; its menu opens it as a
+  full page or moves it to the trash. Both show as the pointer passes, and always on a touch
+  screen.
 - **A column's heading** opens its menu: **Rename…**, **Change type…**, **Sort ascending** and
   **Sort descending**, **Filter by it**, **Hide in this view**, **Insert left** and **Insert
   right** to add a property beside it, **Move left** and **Move right**, and **Delete
@@ -77,7 +83,8 @@ scrolls sideways and the title column stays in place.
   a slider, and press the arrow keys. The width is kept in the view once it settles.
 - **+** after the last heading adds a property, shown in this view.
 - **New**, under the rows, adds a row with the cursor in its title. The count beside it says
-  how many rows the view shows.
+  how many rows the view shows. In a view that filters, see [New rows in a filtered
+  view](#new-rows-in-a-filtered-view).
 
 A table can group its rows too, from **Group**: each group then has a heading with its count.
 
@@ -88,7 +95,8 @@ in its order, or each person a row names, after the column of rows without a val
 of options are drawn in the option's colour.
 
 - **Move a card** by dragging it to another column, or within one, between two cards; a line
-  shows where it lands, and Escape calls the drag off. Moving it to another column sets its
+  shows where it lands, and Escape calls the drag off. Where a card cannot be placed, as within
+  its own column on a sorted board, no line shows. Moving it to another column sets its
   value: a status's option, or, on a board of people, the person of the new column in place
   of the old one's.
 - **From the keyboard or on a touch screen**, the card's menu has **Move to** each other
@@ -137,15 +145,26 @@ The value fits the property:
 | Property | The value |
 |---|---|
 | Text, title, URL | Text, compared ignoring case. |
-| Number, unique id | A number. |
+| Number, unique id | A number, typed as you would in a cell: `-3`, `2.5`, or `2,5` with a decimal comma. |
 | Select, status, multi-select | An option. A status can also be compared by its group: **To do**, **In progress** or **Done**. |
 | Date, created and edited time | A day relative to today, such as **One week ago**, or **An exact date**, picked in a date field; **is within** takes a range, such as **The past week**. |
 | Person, created and edited by | **Me**, whoever looks at the view, or a member. |
 | Checkbox | **Checked** or **Unchecked**. |
 
 **is empty** and **is not empty** need no value. The filter is saved with the view once you
-stop changing it for a moment, and as the panel closes; a condition still missing its value
-is left out until it has one. **Clear filters** removes them all.
+stop changing it for a moment, and as the panel closes; a condition still missing its value,
+or with one that is not a number yet, as `-` on the way to `-3`, is left out until it has
+one. **Clear filters** removes them all.
+
+### New rows in a filtered view
+
+A row added to a view that filters, with **New** under a table or a list or at the foot of a
+board's column, starts with the values its filter plainly asks for, so it shows there: the
+option a condition names, the text it is, contains or starts or ends with, a number it
+equals or passes, a day it is on or around, a checked box, and you for **Me**. Only conditions
+every shown row must meet count, those joined by **And**; those in an **Or** group, and those
+met by leaving a value out, set nothing. A new row the filter leaves out nonetheless opens on
+its own, beside the database or in its place, to be filled in.
 
 ### Sorts
 
@@ -158,10 +177,10 @@ same keep the order they were placed in, and rows without a value come last.
 | Property | Its editor |
 |---|---|
 | Title, text | A field. Enter saves; in a text, Shift+Enter starts a new line. Clicking outside saves too, and Escape leaves it as it was. |
-| Number | A field that takes any number, `1,250.5` too. Something else says so and is not saved. |
+| Number | A field that takes any number, `-3`, `1,250.5` or `1 250,5` too. A lone comma or dot groups thousands only before exactly three digits, where your browser's decimal separator is the other one, as `1,250` is 1250 in English; otherwise it is the decimal separator, as `3,75` is 3.75. Something else, such as hex, says so and is not saved. |
 | Select, status | The options, found by typing; picking one closes it. |
 | Multi-select | The options, each toggled on or off. |
-| Date | The browser's own date field, a calendar on a phone. **End date** adds an end; **Include time** takes a time of day too. An end before the start is not saved. |
+| Date | The browser's own date field, a calendar on a phone. **End date** adds an end; **Include time** takes a time of day too. The date is saved once it is entered, with Enter, **Set date** or a click outside, not as each digit of it is typed; Escape leaves it as it was. An end before the start is not saved. |
 | Person | The workspace's members, found by typing, each toggled. |
 | Checkbox | Checked in place. |
 | URL | A field that takes `http:`, `https:`, `mailto:` and `tel:` links, with a link to open the one saved. |
@@ -170,8 +189,9 @@ same keep the order they were placed in, and rows without a value come last.
 In a select or a multi-select, typing a name no option has offers **Create**, which adds the
 option, in the next free colour, and picks it, for those who edit the database.
 
-Values are saved as they change. Two people changing different properties of a row at once
-both keep theirs; of two changes to the same one, the last saved wins.
+Values are saved as they are entered, and your changes to one row reach the server in the
+order you made them. Two people changing different properties of a row at once both keep
+theirs; of two changes to the same one, the last saved wins.
 
 ## Properties
 
@@ -185,14 +205,15 @@ property's name on a row's page open its settings:
 | **Number format** | A number: **Number**, **Whole number**, **Percent** or **Currency**, with its three-letter code. It changes how numbers show, not what is kept. |
 | **Prefix** | A unique id: the letters before each row's number, as `NW` in `NW-42`. |
 | **Date format** | A date: how its days show, **Nov 22, 2026**, **Sunday, November 22, 2026** or **2026-11-22**. This one is yours, kept in this browser; others pick their own. |
-| **Options** | A select, a multi-select or a status. Each has a name, a colour from twelve hues or grey, and for a status a group. The arrows reorder them; removing one clears it from every row that had it. |
+| **Options** | A select, a multi-select or a status. Each has a name, a colour from twelve hues or grey, and for a status a group. The arrows reorder them; removing one clears it from every row that had it. The options are saved only when you changed them here, and an option someone else added while the dialog was open is kept. |
 
 **Delete property**, in the same dialog or a column's menu, deletes the property and its value
 on every row, after asking. The title stays.
 
 ## Rows
 
-A row opens from its title in any view:
+A row opens from its title on a board or in a list, and in a table from **Open** beside its
+title, where a click on the title renames it; in every view, its menu opens it as a full page:
 
 - **Beside the database**, on a wide screen: a panel over the side of the page, with the row as
   its own page shows it. **Open as full page** opens it so; **Close** or Escape goes back.
@@ -235,7 +256,7 @@ that stands:
 | **Connecting** | Asking the server for the database's changes. |
 | **Live** | Changes others make show as they make them. |
 | **Reconnecting** | The connection dropped, or the server asked for a pause. Once it is back, everything is read afresh, so nothing missed meanwhile stays missing. |
-| **Disconnected** | The server ended it: your session ended, or you can no longer see the database. A notice says which, with **Reconnect**. |
+| **Disconnected** | The server ended it for good: your session ended, or you can no longer see the database. A notice says which, with **Reconnect**. After any other close it reconnects by itself. |
 
 Inside a page, the word is a dot, its state said to screen readers. A row's page follows its
 database's changes too.
