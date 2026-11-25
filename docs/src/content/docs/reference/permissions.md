@@ -245,10 +245,12 @@ refused, so it may do nothing at all, and its connections close.
 ## Tokens bound to a workspace
 
 A token bound to one workspace, every agent's among them, works in that workspace alone:
-another workspace is **hidden** to it, and the account's and the instance admins' routes
-answer `403 token_bound`. Without the `admin` scope, it acts as a member at most: a bound
-token of an owner or admin manages nothing. With it, it does the workspace's admin work its
-holder's role allows, and never an instance admin's.
+another workspace is **hidden** to it, and the account's and the instance admins' routes,
+making a workspace and invite links answer `403 token_bound`. The account's favorites are
+the exception: a bound token reaches its own workspace's favorites alone, and the others
+are **hidden**. Without the `admin` scope, it acts as a member at most: a bound token of an
+owner or admin manages nothing. With it, it does the workspace's admin work its holder's
+role allows, and never an instance admin's.
 
 ## The instance
 

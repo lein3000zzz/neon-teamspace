@@ -79,9 +79,11 @@ more tokens. So do deleting a workspace and transferring its ownership, so a lea
 cannot take a team's work away.
 
 A token bound to one workspace works on that workspace's routes and sockets alone, is never
-an instance admin's, and answers `403 token_bound` on the account's and the admin routes;
-its `admin` scope is the workspace's admin work, for its owners and admins. An agent's token
-is always bound, and never has `admin`.
+an instance admin's, and answers `403 token_bound` on the account's and the admin routes,
+on making a workspace and on invite links. On the account's favorites it reaches its own
+workspace's alone, and the others answer as pages that are no favorite. Its `admin` scope is
+the workspace's admin work, for its owners and admins. An agent's token is always bound, and
+never has `admin`.
 
 An admin's token does less than the admin at a browser. Creating an account with a password,
 changing a role, and disabling or enabling an account need a browser session; a token

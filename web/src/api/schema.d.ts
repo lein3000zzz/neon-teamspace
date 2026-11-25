@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * List the caller's favorite pages
-         * @description Those they may see and that are out of the trash, in their order.
+         * @description Those they may see and that are out of the trash, in their order. For a token bound to a workspace, that workspace's alone.
          */
         get: operations["list_favorites"];
         put?: never;
@@ -2225,8 +2225,9 @@ export interface components {
             /**
              * Format: uuid
              * @description Binds the token to one workspace the caller is in: it works on that workspace's
-             *     routes and sockets alone, and on no other workspace, the caller's account or the
-             *     instance admins' routes. Absent, it works across the instance.
+             *     routes and sockets alone, and on no other workspace, the caller's account but that
+             *     workspace's favorites, or the instance admins' routes. Absent, it works across the
+             *     instance.
              */
             workspace_id?: string | null;
         };

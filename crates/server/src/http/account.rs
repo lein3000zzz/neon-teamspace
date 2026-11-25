@@ -1,6 +1,7 @@
 //! `/api/v1/account`: the signed-in user's own account, and the invitations into
 //! workspaces waiting for them. A person's own: a token bound to a workspace, every agent's
-//! among them, is refused here.
+//! among them, is refused here. The favorites, which belong to each workspace, are apart:
+//! see [`favorites`](super::favorites).
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -491,8 +492,9 @@ pub struct CreateApiToken {
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub expires_at: Option<OffsetDateTime>,
     /// Binds the token to one workspace the caller is in: it works on that workspace's
-    /// routes and sockets alone, and on no other workspace, the caller's account or the
-    /// instance admins' routes. Absent, it works across the instance.
+    /// routes and sockets alone, and on no other workspace, the caller's account but that
+    /// workspace's favorites, or the instance admins' routes. Absent, it works across the
+    /// instance.
     #[serde(default)]
     pub workspace_id: Option<Uuid>,
 }

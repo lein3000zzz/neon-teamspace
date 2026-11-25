@@ -488,3 +488,122 @@ async fn a_person_s_bound_token_works_in_its_workspace_alone(pool: PgPool) {
             .all(|user| user["email"].is_string())
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_bound_token_keeps_to_its_workspace_s_favorites(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let favorites = "/api/v1/account/favorites";
+    let other = id(&team
+        .ada
+        .post("/api/v1/workspaces", json!({"name": "Elsewhere"}))
+        .await);
+    let far = general(&team.ada, &other).await;
+    let [far_a, far_b] = [
+        create(&team.ada, &other, json!({"teamspace_id": far}), "A").await,
+        create(&team.ada, &other, json!({"teamspace_id": far}), "B").await,
+    ];
+    let near = general(&team.ada, ws).await;
+    let [here, there] = [
+        create(&team.ada, ws, json!({"teamspace_id": near}), "Here").await,
+        create(&team.ada, ws, json!({"teamspace_id": near}), "There").await,
+    ];
+    for page in [&far_a, &far_b, &here] {
+        let added = team.ada.post(favorites, json!({"page_id": page})).await;
+        assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
+    }
+    let made = team
+        .ada
+        .post(
+            "/api/v1/account/tokens",
+            json!({"name": "bound", "scopes": ["read", "write"], "workspace_id": ws}),
+        )
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let bound = Bearer::new(
+        &app,
+        format!("Bearer {}", made.body["token"].as_str().expect("a token")),
+    );
+    let ids = |answer: &Answer| -> Vec<String> {
+        answer.body["pages"]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|page| page["id"].as_str().expect("an id").to_owned())
+            .collect()
+    };
+
+    // It lists its workspace's favorites alone.
+    assert_eq!(
+        ids(&bound.get(favorites).await),
+        std::slice::from_ref(&here)
+    );
+    let elsewhere = bound
+        .get(&format!("{favorites}?workspace_id={other}"))
+        .await;
+    assert_eq!(elsewhere.status, StatusCode::OK, "{}", elsewhere.body);
+    assert_eq!(ids(&elsewhere), Vec::<String>::new());
+
+    // The others are not there for it: to place beside, move or remove, they answer as a
+    // page that is no favorite at all.
+    let unknown = "00000000-0000-4000-8000-000000000001".to_owned();
+    for beside in [&far_a, &unknown] {
+        let placed = bound
+            .post(
+                favorites,
+                json!({"page_id": there, "placement": {"after": beside}}),
+            )
+            .await;
+        assert_eq!(placed.status, StatusCode::BAD_REQUEST, "{}", placed.body);
+    }
+    for page in [&far_b, &unknown] {
+        let moved = bound
+            .post(
+                &format!("{favorites}/{page}/move"),
+                json!({"placement": "first"}),
+            )
+            .await;
+        assert_eq!(moved.status, StatusCode::NOT_FOUND, "{}", moved.body);
+        let removed = bound
+            .send(Method::DELETE, &format!("{favorites}/{page}"), None)
+            .await;
+        assert_eq!(removed.status, StatusCode::NOT_FOUND, "{}", removed.body);
+    }
+    let session = team
+        .ada
+        .get(&format!("{favorites}?workspace_id={other}"))
+        .await;
+    assert_eq!(ids(&session), [far_a.clone(), far_b.clone()]);
+
+    // In its own workspace it adds, moves and removes them.
+    let added = bound
+        .post(
+            favorites,
+            json!({"page_id": there, "placement": {"before": here}}),
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
+    assert_eq!(
+        ids(&bound.get(favorites).await),
+        [there.clone(), here.clone()]
+    );
+    let moved = bound
+        .post(
+            &format!("{favorites}/{there}/move"),
+            json!({"placement": "last"}),
+        )
+        .await;
+    assert_eq!(moved.status, StatusCode::NO_CONTENT, "{}", moved.body);
+    assert_eq!(
+        ids(&bound.get(favorites).await),
+        [here.clone(), there.clone()]
+    );
+    let removed = bound
+        .send(Method::DELETE, &format!("{favorites}/{here}"), None)
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
+    let session = team.ada.get(favorites).await;
+    assert_eq!(ids(&session), [far_a, far_b, there]);
+}

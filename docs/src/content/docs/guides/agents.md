@@ -122,8 +122,16 @@ naming one in a person value answers `400 invalid_input`.
 A person's own token, made under [API tokens](/docs/guides/accounts/#api-tokens), may be
 bound to one workspace they are in. A bound token works on that workspace's routes and
 sockets alone. On another workspace it answers `404 not_found`, as for one that does not
-exist, and on `/api/v1/account` and `/api/v1/admin` it answers `403 token_bound`.
+exist. On the account's routes under `/api/v1/account`, on `/api/v1/admin`, on making a
+workspace with `POST /api/v1/workspaces`, and on previewing and joining by an invite link
+under `/api/v1/workspace-invite-links`, it answers `403 token_bound`.
 `GET /api/v1/workspaces` lists that workspace alone.
+
+Favorites, under `/api/v1/account/favorites`, are the one part of the account a bound
+token reaches, as they belong to each workspace: it lists, adds, moves and removes its
+workspace's favorites alone, and those of other workspaces are not there for it. Moving or
+removing one of them answers `404 not_found`, and placing a favorite beside one answers
+`400 invalid_input`, as for a page that is no favorite.
 
 The `admin` scope of a bound token is for the workspace's owners and admins, and covers
 that workspace's admin work only: without it, a bound token of an owner or admin manages
