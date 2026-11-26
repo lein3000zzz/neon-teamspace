@@ -1,6 +1,8 @@
 //! The MCP server's tools. Each acts in the workspace the caller's token is bound to, through
-//! the app's services, as the API's routes do, and answers with the same JSON as its route
-//! does, as structured content. Its arguments are checked against the JSON schema it
+//! the app's services, as the API's routes do, and answers with the API's objects, as
+//! structured content: those its route answers with, but for `create_page`, which answers
+//! as `read_page` does, with the page and its markdown, and `get_page_tree`, which nests the
+//! pages its routes list flat. Its arguments are checked against the JSON schema it
 //! publishes, as their types read them: an unknown field, a missing one or a value of the
 //! wrong type is refused. A refusal is a tool error, with the API's code and message.
 //!

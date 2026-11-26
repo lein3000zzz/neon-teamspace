@@ -97,11 +97,13 @@ without a restart.
 
 ## Tools
 
-Each tool answers with JSON as structured content, the same JSON as its
-[API route](#the-same-over-rest), and with that JSON as text. When a tool cannot do what it
-was asked, it answers a tool error. Its text says why, and its structured content holds
-`{"error": {"code", "message"}}` with the API's code. `not_found` stands for what is not there
-and for what the caller may not see, alike. Others are `forbidden`, `invalid_input`,
+Each tool answers with JSON as structured content, the objects its
+[API route](#the-same-over-rest) answers with, and with that JSON as text. Two answer
+otherwise: `create_page` answers as `read_page` does, with the page and its markdown, and
+`get_page_tree` nests the pages that its routes list flat, a part at a time. When a tool
+cannot do what it was asked, it answers a tool error. Its text says why, and its structured
+content holds `{"error": {"code", "message"}}` with the API's code. `not_found` stands for
+what is not there and for what the caller may not see, alike. Others are `forbidden`, `invalid_input`,
 `insufficient_scope` for a change made with a token without `write`, and
 `invalid_arguments`. Each tool publishes the JSON schema of its arguments, and refuses
 unknown fields, missing ones and values of the wrong type with `invalid_arguments`. Its
