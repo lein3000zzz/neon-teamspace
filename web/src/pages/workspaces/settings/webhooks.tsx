@@ -840,18 +840,20 @@ function IncomingCard({
         <p className="text-sm">
           {copy.kinds[hook.target.kind]}: {hook.target.title ?? copy.unseenTarget}
         </p>
+        {/* Whether it is turned on; its integration's state only when that stops it, and why. */}
         <ChipList>
           <Chip tone={hook.enabled && status === "active" ? "strong" : "default"}>
             {hook.enabled ? copy.on : copy.off}
           </Chip>
           <Chip>{hook.signed ? copy.signedChip : copy.unsignedChip}</Chip>
-          <Chip>{strings.workspaces.agents.statuses[status]}</Chip>
+          {status !== "active" && <Chip>{copy.integrationStatuses[status]}</Chip>}
           {hook.integration.owner && (
             <Chip>{strings.workspaces.agents.owner(hook.integration.owner.display_name)}</Chip>
           )}
         </ChipList>
-        {status === "suspended" && <p className="text-sm text-bad">{copy.suspended}</p>}
-        {status === "deleted" && <p className="text-sm text-bad">{copy.integrationDeleted}</p>}
+        {status !== "active" && (
+          <p className="text-sm text-bad">{copy.integrationRefuses[status]}</p>
+        )}
         {!hook.enabled && (
           <Alert tone="error" live="polite">
             <AlertTitle>{copy.offTitle}</AlertTitle>

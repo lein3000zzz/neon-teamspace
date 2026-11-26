@@ -877,9 +877,17 @@ export const strings = {
       requestsLabel: (name: string) => `Requests of ${name}`,
       hideRequests: "Hide requests",
       noRequests: "No requests yet.",
-      suspended:
-        "Its owner is out of the workspace, a guest there or disabled: it refuses what is sent until that ends, or it is handed to someone else.",
-      integrationDeleted: "Its integration is deleted: it refuses what is sent.",
+      integrationStatuses: {
+        suspended: "Integration suspended",
+        disabled: "Integration turned off",
+        deleted: "Integration deleted",
+      },
+      integrationRefuses: {
+        suspended:
+          "Its owner is out of the workspace, a guest there or disabled: it refuses what is sent until that ends, or it is handed to someone else.",
+        disabled: "Its integration is turned off: it refuses what is sent.",
+        deleted: "Its integration is deleted: it refuses what is sent.",
+      },
     },
     agents: {
       offInstance:

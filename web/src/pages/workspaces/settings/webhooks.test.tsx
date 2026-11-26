@@ -455,6 +455,34 @@ describe("incoming webhooks", () => {
     ]);
   });
 
+  it("says whether it is on, and its integration's state only when that stops it, with why", async () => {
+    fakeWorkspaces();
+    fakeWebhooks({
+      incoming: [
+        ciHook,
+        {
+          ...ciHook,
+          id: "0193a5b2-0000-7000-8000-00000000e0ff",
+          name: "Nightly",
+          integration: { ...ciHook.integration, status: "deleted" },
+        },
+      ],
+    });
+    renderApp("/w/design/settings/webhooks");
+
+    const working = await incomingCard("CI");
+    expect(working.getByText("On")).toBeInTheDocument();
+    expect(working.queryByText("Active")).toBeNull();
+    expect(working.queryByText(/^Integration (suspended|turned off|deleted)$/)).toBeNull();
+
+    const stopped = await incomingCard("Nightly");
+    expect(stopped.getByText("On")).toBeInTheDocument();
+    expect(stopped.getByText("Integration deleted")).toBeInTheDocument();
+    expect(
+      stopped.getByText("Its integration is deleted: it refuses what is sent."),
+    ).toBeInTheDocument();
+  });
+
   it("shows its last requests, and why a suspended one refuses", async () => {
     fakeWorkspaces();
     fakeWebhooks({
@@ -464,6 +492,7 @@ describe("incoming webhooks", () => {
     const { user } = renderApp("/w/design/settings/webhooks");
 
     const card = await incomingCard("CI");
+    expect(card.getByText("Integration suspended")).toBeInTheDocument();
     expect(card.getByText(/it refuses what is sent until that ends/)).toBeInTheDocument();
     await user.click(card.getByRole("button", { name: "Requests of CI" }));
     const log = within(await card.findByRole("region", { name: "Requests of CI" }));
