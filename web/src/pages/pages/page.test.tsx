@@ -242,6 +242,70 @@ describe("a page's header", () => {
     const alert = await (await main()).findByRole("alert");
     expect(alert).toHaveTextContent("The cover could not be uploaded.");
     expect(alert).toHaveTextContent("This workspace has reached its storage limit of 10 bytes.");
+
+    await user.click(within(alert).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(alert).not.toBeInTheDocument());
+  });
+
+  it("forgets why a cover was not uploaded once a preset takes its place", async () => {
+    fakeWorkspaces();
+    fakePages();
+    server.use(
+      http.post("/api/v1/pages/:id/files", () =>
+        apiError(409, "storage_limit", "this workspace has reached its storage limit of 10 bytes"),
+      ),
+    );
+    const { user } = renderApp(goals);
+
+    await user.click(await (await main()).findByRole("button", { name: "Add cover" }));
+    await user.upload(
+      within(await screen.findByRole("dialog", { name: "Cover" })).getByLabelText(
+        "An image for the cover",
+      ),
+      new File([new Uint8Array([1])], "big.png", { type: "image/png" }),
+    );
+    await (await main()).findByRole("alert");
+
+    await user.click((await main()).getByRole("button", { name: "Add cover" }));
+    const picker = within(await screen.findByRole("dialog", { name: "Cover" }));
+    await user.click(picker.getByRole("button", { name: "Dusk" }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-cover]")).toHaveAttribute("data-cover", "dusk"),
+    );
+    expect((await main()).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says a cover is uploading in place of a cover it replaces", async () => {
+    fakeWorkspaces();
+    fakePages({
+      pages: samplePages().map((entry) =>
+        entry.id === PAGE_IDS.goals ? Object.assign(entry, { cover: "sunrise" }) : entry,
+      ),
+    });
+    let arrive: (() => void) | undefined;
+    const arrived = new Promise<void>((resolve) => {
+      arrive = resolve;
+    });
+    server.use(
+      http.post("/api/v1/pages/:id/files", async () => {
+        await arrived;
+        return apiError(413, "file_too_large", "files take at most 1 KiB");
+      }),
+    );
+    const { user } = renderApp(goals);
+
+    await user.click(await (await main()).findByRole("button", { name: "Change cover" }));
+    await user.upload(
+      within(await screen.findByRole("dialog", { name: "Cover" })).getByLabelText(
+        "An image for the cover",
+      ),
+      new File([new Uint8Array([1])], "beach.png", { type: "image/png" }),
+    );
+    const uploading = await (await main()).findByRole("button", { name: "Uploading the cover…" });
+    expect(uploading).toBeDisabled();
+
+    arrive?.();
+    expect(await (await main()).findByRole("button", { name: "Change cover" })).toBeEnabled();
   });
 
   it("sets the page's font, small text and full width", async () => {

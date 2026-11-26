@@ -122,9 +122,12 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
   const set = (body: UpdatePage) => update.mutate(body);
   const coverUpload = useUploadCover(workspace.id, page.id);
   const covered = Boolean(page.cover ?? page.cover_image);
-  // A preset takes an image's place, which the server takes off; none removes either.
-  const pickCover = (cover: Cover | null) =>
+  // A preset takes an image's place, which the server takes off; none removes either. Either
+  // way, why an upload failed is no longer news.
+  const pickCover = (cover: Cover | null) => {
+    coverUpload.reset();
     set(cover === null ? { cover: null, cover_image: null } : { cover });
+  };
 
   useEffect(() => {
     if (peek) {
@@ -186,7 +189,13 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
 
       <header className="grid gap-3">
         {coverUpload.isError && (
-          <ErrorNotice error={coverUpload.error} title={copy.coverNotUploaded} />
+          <ErrorNotice error={coverUpload.error} title={copy.coverNotUploaded}>
+            <div>
+              <Button variant="ghost" size="sm" onClick={() => coverUpload.reset()}>
+                {copy.dismissCover}
+              </Button>
+            </div>
+          </ErrorNotice>
         )}
         {covered && (
           <CoverBand cover={page.cover} image={page.cover_image}>
@@ -197,8 +206,13 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
                 onPick={pickCover}
                 onUpload={(file) => coverUpload.mutate(file)}
               >
-                <Button variant="outline" size="sm" className="bg-background">
-                  {copy.changeCover}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-background"
+                  disabled={coverUpload.isPending}
+                >
+                  {coverUpload.isPending ? copy.uploadingCover : copy.changeCover}
                 </Button>
               </CoverPicker>
             )}

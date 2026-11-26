@@ -1328,6 +1328,7 @@ export const strings = {
       addCover: "Add cover",
       uploadingCover: "Uploading the cover…",
       coverNotUploaded: "The cover could not be uploaded.",
+      dismissCover: "Dismiss",
       changeIcon: "Change icon",
       changeCover: "Change cover",
     },
