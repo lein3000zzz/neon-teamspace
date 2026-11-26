@@ -57,7 +57,7 @@ async fn post(app: &Router, path: &str, headers: &[(&str, &str)], body: Vec<u8>)
 
 const JSON: (&str, &str) = ("content-type", "application/json");
 
-async fn send(app: &Router, path: &str, payload: &Value) -> Answer {
+pub(super) async fn send(app: &Router, path: &str, payload: &Value) -> Answer {
     post(app, path, &[JSON], payload.to_string().into_bytes()).await
 }
 
@@ -81,14 +81,20 @@ async fn signed(app: &Router, path: &str, payload: &Value, secret: &str, skew: i
 }
 
 /// The path of a webhook's URL.
-fn path_of(created: &Answer) -> String {
+pub(super) fn path_of(created: &Answer) -> String {
     let url = created.body["url"].as_str().expect("a URL");
     assert!(url.starts_with("/hooks/in/nwh_"), "{url}");
     url.to_owned()
 }
 
 /// Makes an incoming webhook as `by`, on `target`.
-async fn hook(by: &Browser<'_>, ws: &str, name: &str, target: &str, signed: bool) -> Answer {
+pub(super) async fn hook(
+    by: &Browser<'_>,
+    ws: &str,
+    name: &str,
+    target: &str,
+    signed: bool,
+) -> Answer {
     by.post(
         &format!("/api/v1/workspaces/{ws}/incoming-webhooks"),
         json!({"name": name, "target_id": target, "signed": signed}),
@@ -96,7 +102,7 @@ async fn hook(by: &Browser<'_>, ws: &str, name: &str, target: &str, signed: bool
     .await
 }
 
-fn create_row(values: Value) -> Value {
+pub(super) fn create_row(values: Value) -> Value {
     json!({"version": 1, "action": "create_row", "values": values})
 }
 

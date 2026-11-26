@@ -28,7 +28,7 @@ use crate::webhooks::receiver::{PATIENCE, Received, Receiver, Reply, ScriptedRes
 
 /// The state with a secret key, sending webhooks as the server does, to private addresses
 /// too, as the receiver is on loopback.
-async fn delivering(pool: PgPool) -> AppState {
+pub(super) async fn delivering(pool: PgPool) -> AppState {
     let state = state_for_webhooks(pool, Arc::new(HttpTransport::default())).await;
     allow_private(&state, true).await;
     state
@@ -49,7 +49,7 @@ async fn allow_private(state: &AppState, allowed: bool) {
 }
 
 /// A job worker running deliveries, retrying them within milliseconds.
-async fn worker(pool: &PgPool, state: &AppState) -> WorkerHandle {
+pub(super) async fn worker(pool: &PgPool, state: &AppState) -> WorkerHandle {
     Worker::new(
         pool.clone(),
         WorkerConfig {
@@ -101,7 +101,7 @@ async fn webhook(by: &Browser<'_>, ws: &str, user: &str, url: &str) -> (String, 
 }
 
 /// A database in General with an Assignee person property: its id and body.
-async fn tasks(by: &Browser<'_>, ws: &str) -> (String, Value) {
+pub(super) async fn tasks(by: &Browser<'_>, ws: &str) -> (String, Value) {
     let made = database(by, ws).await;
     let db = database_id(&made);
     let added = by
@@ -215,7 +215,7 @@ async fn queued(pool: &PgPool) -> i64 {
         .expect("counted")
 }
 
-fn signed_with(received: &Received, secrets: &[&str]) -> bool {
+pub(super) fn signed_with(received: &Received, secrets: &[&str]) -> bool {
     let secrets: Vec<&[u8]> = secrets.iter().map(|secret| secret.as_bytes()).collect();
     signature::verify(
         &secrets,

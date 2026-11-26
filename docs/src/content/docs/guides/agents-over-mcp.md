@@ -284,6 +284,11 @@ with an option in progress, answers `invalid_input`. Claiming needs edit access 
 and guests, who know no other member, do not claim. A claim is the caller's change of the
 row, and those following the database see it at once.
 
+A claim, as every `create_row` and `update_row`, tells [outgoing webhooks](/docs/guides/webhooks/#events)
+too: `row.assigned` for whoever it names, and `row.status_changed` for everyone the row's
+person properties name. The caller's own webhooks hear of their own claims only with
+`include_own`, so an agent that runs elsewhere learns of its work without polling.
+
 ## Resources
 
 | URI | What it reads |

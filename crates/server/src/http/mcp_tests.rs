@@ -5,8 +5,8 @@
 //! agent is suspended, its token revoked or expired, or people are kept out, a person's
 //! token beside an agent's and one across the instance, concurrent claims, an edit
 //! merging with a page-sync client typing, a client that finds the OAuth server from
-//! `/mcp`'s challenge, connects as an agent and acts there as it, and markdown nested too
-//! deep refused.
+//! `/mcp`'s challenge, connects as an agent and acts there as it, and an agent's claims and
+//! updates reaching outgoing webhooks, on a row an incoming webhook's integration made.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,12 +35,16 @@ use tower::ServiceExt as _;
 
 use super::agents_tests::{Bearer, agent, agent_token};
 use super::auth_tests::{admin, call};
+use super::databases_tests::property;
+use super::incoming_tests::{create_row, hook, path_of, send};
 use super::oauth_tests::{REDIRECT, code, exchange, register, request, tokens, verifier};
 use super::pages_tests::{create, general};
 use super::sync_tests::{Peer, Server};
 use super::tests::{PUBLIC_URL, state, state_with_mcp};
+use super::webhooks_tests::{delivering, signed_with, tasks, worker};
 use super::workspaces_tests::{Browser, Team, id, team};
 use super::*;
+use crate::webhooks::receiver::{Received, Receiver};
 
 /// Long enough for any step here; reaching it means something never came.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -1994,6 +1998,151 @@ async fn an_oauth_client_finds_the_server_from_mcp_and_acts_there_as_the_agent_c
         .await;
     assert_eq!(code, "insufficient_scope");
     reader.close().await;
+    finish(&state, server).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_s_claims_and_updates_reach_webhooks_and_integrations_show_as_members(
+    pool: PgPool,
+) {
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+    let (db, read) = tasks(&t.ada, &ws).await;
+    let reviewer = t
+        .ada
+        .post(
+            &format!("/api/v1/databases/{db}/properties"),
+            json!({"name": "Reviewer", "type": "person"}),
+        )
+        .await;
+    assert_eq!(reviewer.status, StatusCode::CREATED, "{}", reviewer.body);
+    let assignee = property(&read, "Assignee");
+
+    // A row that an incoming webhook makes, as the integration it acts as.
+    let made = hook(&t.ada, &ws, "Forms", &db, false).await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let integration = made.body["hook"]["integration"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let posted = send(
+        &app,
+        &path_of(&made),
+        &create_row(json!({"Name": "From the form"})),
+    )
+    .await;
+    assert_eq!(posted.status, StatusCode::OK, "{}", posted.body);
+    let task = posted.body["row"]["id"].as_str().expect("a row").to_owned();
+
+    // Over MCP, the integration is a member as the API shows it, and the row is its.
+    let (token, scout) = agent_of(&t.cy, &ws, "Scout").await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+    let listed = client.ok("list_members", json!({})).await;
+    let member = listed["members"]
+        .as_array()
+        .expect("members")
+        .iter()
+        .find(|member| member["user"]["id"] == integration.as_str())
+        .unwrap_or_else(|| panic!("the integration among {listed}"));
+    assert_eq!(member["user"]["kind"], "integration");
+    assert_eq!(member["user"]["display_name"], "Forms");
+    assert_eq!(member["user"]["owner"]["display_name"], "ada");
+    assert_eq!(member["role"], "member");
+    assert_eq!(member["suspended"], false);
+    let row = client.ok("read_page", json!({"page_id": task})).await;
+    assert_eq!(row["page"]["created_by"], integration.as_str(), "{row}");
+
+    // Scout's webhook, which asks for its own changes, and Ada's.
+    let scout_receiver = Receiver::start().await;
+    let ada_receiver = Receiver::start().await;
+    let registered =
+        t.cy.post(
+            &format!("/api/v1/workspaces/{ws}/webhooks"),
+            json!({
+                "user_id": scout,
+                "url": scout_receiver.url("/scout"),
+                "events": ["row.assigned", "row.status_changed"],
+                "include_own": true,
+            }),
+        )
+        .await;
+    assert_eq!(
+        registered.status,
+        StatusCode::CREATED,
+        "{}",
+        registered.body
+    );
+    let scout_secret = registered.body["secret"]
+        .as_str()
+        .expect("a secret")
+        .to_owned();
+    let ada = account_id(&t.ada).await;
+    let registered = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/webhooks"),
+            json!({
+                "user_id": ada,
+                "url": ada_receiver.url("/ada"),
+                "events": ["row.assigned"],
+            }),
+        )
+        .await;
+    assert_eq!(
+        registered.status,
+        StatusCode::CREATED,
+        "{}",
+        registered.body
+    );
+    let ada_secret = registered.body["secret"]
+        .as_str()
+        .expect("a secret")
+        .to_owned();
+    let worker = worker(&pool, &state).await;
+
+    // Scout claims the row: its webhook hears it was assigned and the status moved, signed.
+    client.ok("claim_task", json!({"row_id": task})).await;
+    let heard = scout_receiver.wait_for(2).await;
+    let mut kinds: Vec<String> = heard
+        .iter()
+        .map(|received| {
+            assert!(signed_with(received, &[&scout_secret]), "signed");
+            let body = received.json();
+            assert_eq!(body["identity"]["id"], scout.as_str());
+            assert_eq!(body["identity"]["kind"], "agent");
+            assert_eq!(body["row"]["id"], task.as_str());
+            body["type"].as_str().expect("a type").to_owned()
+        })
+        .collect();
+    kinds.sort();
+    assert_eq!(kinds, ["row.assigned", "row.status_changed"]);
+    let assigned = heard
+        .iter()
+        .map(Received::json)
+        .find(|body| body["type"] == "row.assigned")
+        .expect("assigned");
+    assert_eq!(assigned["property"]["id"], assignee.as_str());
+
+    // Scout names Ada its reviewer with update_row: Ada's webhook hears she was assigned.
+    client
+        .ok(
+            "update_row",
+            json!({"row_id": task, "values": {"Reviewer": [ada]}}),
+        )
+        .await;
+    let heard = ada_receiver.wait_for(1).await;
+    assert!(signed_with(&heard[0], &[&ada_secret]), "signed");
+    let body = heard[0].json();
+    assert_eq!(body["type"], "row.assigned");
+    assert_eq!(body["identity"]["id"], ada.as_str());
+    assert_eq!(body["property"]["name"], "Reviewer");
+    assert_eq!(body["row"]["id"], task.as_str());
+
+    worker.stop().await;
+    client.close().await;
     finish(&state, server).await;
 }
 

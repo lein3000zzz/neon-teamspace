@@ -54,8 +54,9 @@ it wants, at least one:
 | `row.status_changed` | The row's status property, the database's first property of type status, was set to another value, or cleared, while the identity is in one of the row's person properties after the change. A new row's status changes nothing. |
 
 Every change to a row's values counts, whoever makes it and however: in the web app, through
-the API, from an agent, or from an incoming webhook; moving a card on a board grouped by a
-person or a status changes values too. Changes to a database's schema, such as deleting a
+the API, from an agent over [MCP](/docs/guides/agents-over-mcp/), its `claim_task`,
+`create_row` and `update_row` included, or from an incoming webhook; moving a card on a
+board grouped by a person or a status changes values too. Changes to a database's schema, such as deleting a
 person property or one of its status's options, change no row's values in this sense and
 make no event. Integrations are never in person properties, so their webhooks hear nothing
 yet.
