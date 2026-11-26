@@ -59,6 +59,7 @@ import { FRAGMENT, useSyncSession, type SyncSession } from "./connection";
 import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
 import { EditorPageContext, useEditorPage, type EditorPage } from "./editor-page";
+import { formattingToolbarOptions } from "./floating";
 import { pasteFits } from "./paste";
 import { schema } from "./schema";
 
@@ -274,6 +275,11 @@ function LiveEditor({
       editorRef.current = null;
     };
   }, [editor]);
+
+  const toolbarOptions = useMemo(
+    () => formattingToolbarOptions(() => editor.domElement ?? undefined),
+    [editor],
+  );
 
   useEffect(() => {
     focusRef.current = () => editor.focus();
@@ -493,7 +499,10 @@ function LiveEditor({
         >
           <SuggestionMenuController triggerCharacter="/" getItems={slashItems} />
           <SuggestionMenuController triggerCharacter="@" getItems={mentionItems} />
-          <FormattingToolbarController formattingToolbar={ToolbarWithComment} />
+          <FormattingToolbarController
+            formattingToolbar={ToolbarWithComment}
+            floatingUIOptions={toolbarOptions}
+          />
         </BlockNoteView>
       </EditorPageContext>
     </section>
