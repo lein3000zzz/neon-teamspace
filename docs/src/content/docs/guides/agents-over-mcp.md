@@ -104,7 +104,10 @@ was asked, it answers a tool error. Its text says why, and its structured conten
 and for what the caller may not see, alike. Others are `forbidden`, `invalid_input`,
 `insufficient_scope` for a change made with a token without `write`, and
 `invalid_arguments`. Each tool publishes the JSON schema of its arguments, and refuses
-unknown fields, missing ones and values of the wrong type with `invalid_arguments`.
+unknown fields, missing ones and values of the wrong type with `invalid_arguments`. Its
+annotations tell a client whether it only reads, and whether it may overwrite or remove what
+is there, as `edit_page`, `move_page`, `trash_page`, `update_row` and `claim_task` may, so a
+client that asks before such a call asks before these.
 
 The tools work in the token's workspace. An id of something in another workspace answers
 `not_found`.

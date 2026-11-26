@@ -100,7 +100,8 @@ pub(crate) struct Spec {
     description: &'static str,
     /// Needs the write scope; otherwise the tool only reads.
     writes: bool,
-    /// May remove or overwrite what is there, rather than only add.
+    /// May remove or overwrite what is there, rather than only add: values, a status, a
+    /// page's place.
     destructive: bool,
     /// Called again with the same arguments, changes nothing more.
     idempotent: bool,
@@ -219,7 +220,7 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       true), placed among its new siblings. Rows move within their database \
                       only.",
         writes: true,
-        destructive: false,
+        destructive: true,
         idempotent: true,
         schema: schema::<MoveArguments>,
     },
@@ -297,7 +298,7 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       or by database_id and its unique id such as NW-42; null clears one, and \
                       the others stay.",
         writes: true,
-        destructive: false,
+        destructive: true,
         idempotent: true,
         schema: schema::<UpdateRowArguments>,
     },
@@ -310,7 +311,7 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       holds it, and changes nothing. Name the row by row_id, or by database_id \
                       and its unique id such as NW-42.",
         writes: true,
-        destructive: false,
+        destructive: true,
         idempotent: false,
         schema: schema::<ClaimArguments>,
     },

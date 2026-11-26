@@ -123,6 +123,31 @@ fn tools_publish_their_schemas_and_what_they_change() {
         );
         assert!(tool.description.as_ref().is_some_and(|d| d.len() > 40));
     }
+    // What each tool that writes may do to what is there: only add, or also overwrite or
+    // remove.
+    let destructive: Vec<(&str, bool)> = TOOLS
+        .iter()
+        .filter(|spec| spec.writes)
+        .map(|spec| {
+            let tool = spec.tool();
+            let hint = tool.annotations.and_then(|annotations| annotations.destructive_hint);
+            (spec.name, hint.expect("a destructive hint"))
+        })
+        .collect();
+    assert_eq!(
+        destructive,
+        [
+            ("create_page", false),
+            ("edit_page", true),
+            ("move_page", true),
+            ("trash_page", true),
+            ("restore_page", false),
+            ("create_database", false),
+            ("create_row", false),
+            ("update_row", true),
+            ("claim_task", true),
+        ]
+    );
     let required = |name: &str| -> Vec<String> {
         let tool = find(name).expect("a tool").tool();
         tool.input_schema
