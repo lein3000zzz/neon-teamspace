@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { strings } from "@/lib/strings";
 import { Sidebar } from "./sidebar";
+import { useMe } from "./signed-in";
 
 /**
  * Notion's layout: a sidebar on the left and the page on the dot grid beside
@@ -21,11 +22,12 @@ import { Sidebar } from "./sidebar";
  * live feed stays open while it shows, for the sidebar's count.
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  const me = useMe();
   const [drawerOpen, setDrawerOpen] = useState(false);
   useInboxFeed();
 
   return (
-    <PageNavProvider>
+    <PageNavProvider userId={me.id}>
       <QuickSearchProvider>
         <div className="min-h-dvh md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
           <WorkspaceAccent />

@@ -244,3 +244,55 @@ test("an agent cut short in a table's column keeps its name, and tells the rest 
   expect(await cell.getByText(/^· via Namer /).evaluate(cut)).toBe(true);
   expect(await cell.getByText("Scout", { exact: true }).evaluate(cut)).toBe(false);
 });
+
+test("the sidebar keeps to its column with a long page title, and a teamspace stays folded", async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { page, workspace } = await sprintOf(browser, "wirer", {
+    context: { viewport: { width: 1440, height: 900 } },
+  });
+  try {
+    const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    await callApi(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Sensor wiring notes" },
+      201,
+    );
+
+    await page.goto("/inbox");
+    const sidebar = page.getByRole("complementary");
+    const row = sidebar.getByRole("link", { name: "Sensor wiring notes" });
+    await expect(row).toBeVisible();
+    const widths = () =>
+      sidebar.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    const fits = async () => {
+      const { scroll, client } = await widths();
+      expect(scroll, "nothing in the sidebar is wider than it").toBe(client);
+    };
+    await fits();
+    // The row's actions show on hover, inside the column.
+    await row.hover();
+    const more = sidebar.getByRole("button", { name: "More for Sensor wiring notes" });
+    await expect(more).toBeVisible();
+    const column = await sidebar.boundingBox();
+    const box = await more.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+      (column?.x ?? 0) + (column?.width ?? 0),
+    );
+    await fits();
+
+    // Folded, General stays folded after a reload.
+    await sidebar.getByRole("button", { name: "Collapse General" }).click();
+    await expect(row).toBeHidden();
+    await page.reload();
+    await expect(sidebar.getByRole("button", { name: "Expand General" })).toBeVisible();
+    await expect(row).toBeHidden();
+  } finally {
+    await page.context().close();
+  }
+});

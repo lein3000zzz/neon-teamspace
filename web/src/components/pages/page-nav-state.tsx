@@ -1,4 +1,13 @@
-import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { browserStorage } from "@/theme/preferences";
 
 /** A page being dragged in the sidebar, and what it may not be dropped on. */
 export type DraggedPage = {
@@ -32,14 +41,44 @@ type PageNavState = {
 
 const PageNavContext = createContext<PageNavState | null>(null);
 
+/** One entry per account, so people sharing a browser each keep their own. */
+const foldedKey = (userId: string) => `neon.folded.${userId}`;
+
+/** The sections the user folded, as this browser keeps them; none where storage is refused. */
+function storedFolded(userId: string): ReadonlySet<string> {
+  try {
+    const parsed: unknown = JSON.parse(browserStorage()?.getItem(foldedKey(userId)) ?? "[]");
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function storeFolded(userId: string, folded: ReadonlySet<string>) {
+  try {
+    browserStorage()?.setItem(foldedKey(userId), JSON.stringify([...folded]));
+  } catch {
+    // Kept while the app runs, in state.
+  }
+}
+
+type PageNavProviderProps = {
+  /** Whose sidebar it is: the sections they fold stay folded in this browser. */
+  userId: string;
+  children: ReactNode;
+};
+
 /**
  * What the page trees in the sidebar keep while the app runs: which pages are
- * open, which sections folded, the page being dragged, and the last notice.
- * The column and the drawer show the same sidebar, so they share it.
+ * open, which sections folded, which this browser also keeps for next time,
+ * the page being dragged, and the last notice. The column and the drawer show
+ * the same sidebar, so they share it.
  */
-export function PageNavProvider({ children }: { children: ReactNode }) {
+export function PageNavProvider({ userId, children }: PageNavProviderProps) {
   const [open, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [folded, setFoldedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [folded, setFoldedIds] = useState<ReadonlySet<string>>(() => storedFolded(userId));
   const [dragged, setDragged] = useState<DraggedPage | null>(null);
   const [notice, setNotice] = useState<NavNotice | null>(null);
 
@@ -54,6 +93,7 @@ export function PageNavProvider({ children }: { children: ReactNode }) {
   const setFolded = useCallback((section: string, next: boolean) => {
     setFoldedIds((current) => toggled(current, section, next));
   }, []);
+  useEffect(() => storeFolded(userId, folded), [userId, folded]);
 
   const value = useMemo(
     () => ({
