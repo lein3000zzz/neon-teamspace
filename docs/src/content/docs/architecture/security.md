@@ -379,8 +379,10 @@ as a page of that origin, whatever its bytes are.
 - **Bounded uploads.** The rules, the caller's rate and a full workspace refuse an upload
   before the server reads its body. The upload then streams to the store, and the server
   counts its bytes as they come, whatever the client declared, stopping at the largest file a
-  setting allows. The server adds its row with the workspace's row locked, so uploads at once
-  cannot pass the storage limit together. An upload may take 15 minutes, the one route whose
+  setting allows. The form around the file is bounded too: its file must start within its
+  first 64 KiB, so a body that never gets to its boundary or ends its part headers is refused
+  with `413` once past them, rather than held. The server adds its row with the workspace's
+  row locked, so uploads at once cannot pass the storage limit together. An upload may take 15 minutes, the one route whose
   time limit is longer than 30 seconds.
 - **Keys of the server's own.** The server keeps files under keys it makes from the
   workspace's id and the file's, so no name a client sends reaches a path on disk or a key in
@@ -403,7 +405,9 @@ largest count of every end record a reader might use, and refuses more than 2000
 a zip with an entry whose path starts at a root, `/` or a drive letter, or climbs out with
 `..`, or holds a NUL, with backslashes taken as slashes. It reads only the deflated or stored
 markdown files, at most 4 MiB each and 64 MiB together, and stops reading a file at its limit
-whatever size the zip states. A page's document may be at most 16 MiB. The work that unpacks
+whatever size the zip states. The other files its pages link to are unpacked as uploads,
+each at most the largest file and all of them at most 256 MiB together, the budget left
+bounding each one as it is read. A page's document may be at most 16 MiB. The work that unpacks
 and parses runs off the async threads, and both imports and exports stop after 20 seconds.
 Nothing is made unless all of it can be.
 
