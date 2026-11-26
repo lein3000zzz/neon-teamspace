@@ -18,10 +18,13 @@ guest, and of its default teamspace, as everyone but guests is. It has no addres
 password, never signs in, and is never invited anywhere: it belongs to the workspace it was
 made in, for good.
 
-Integrations are the same kind of member, made by incoming webhooks: an integration delivers
-what its webhook's sender posts, for the person who made it. Everything on this page about
-access, suspension and naming holds for integrations too. They have no API tokens, and the
-switches below that turn agents off leave them alone.
+Integrations are the same kind of member, made by [incoming
+webhooks](/docs/guides/webhooks/#incoming-webhooks): an integration delivers what its
+webhook's sender posts, for the person who made it. Everything on this page about access,
+suspension and naming holds for integrations too, but that an integration joins no
+teamspace, not even the default one: its webhook shares its target with it to edit, the one
+page it works on. They have no API tokens, and the switches below that turn agents off leave
+them alone.
 
 ## Who makes agents
 

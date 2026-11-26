@@ -1,4 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { KeyRound } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import type { ApiToken } from "@/api/account";
@@ -338,6 +339,16 @@ function AgentCard({ agent, onDone }: { agent: Agent; onDone: (message: string) 
       </div>
       {live && (own || managing) && (
         <ItemActions>
+          <Button variant="outline" size="sm" asChild>
+            <Link
+              to="/w/$slug/settings/webhooks"
+              params={{ slug: workspace.slug }}
+              search={{ for: agent.id }}
+              aria-label={copy.webhooksLabel(agent.name)}
+            >
+              {copy.webhooks}
+            </Link>
+          </Button>
           {own && open?.kind !== "edit" && (
             <Button
               variant="outline"

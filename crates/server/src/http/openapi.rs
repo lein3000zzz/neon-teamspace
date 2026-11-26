@@ -41,6 +41,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "workspaces", description = "Workspaces, their members, invitations and invite links."),
         (name = "agents", description = "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."),
         (name = "oauth", description = "The OAuth 2.1 authorization server MCP clients and other programs connect through: client registration, the authorization code flow with PKCE, tokens, revocation, the consent page's requests, and connected apps. Its metadata is at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, which the docs describe."),
+        (name = "webhooks", description = "Outgoing webhooks, which tell a URL, signed, of what happens to the rows an identity is assigned to, with their delivery logs; and incoming webhooks, which act as an integration on a database or page with what is posted to their URL, `POST /hooks/in/{token}`, which the docs describe."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),

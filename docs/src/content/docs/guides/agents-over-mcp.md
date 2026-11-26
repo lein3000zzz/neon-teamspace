@@ -250,7 +250,9 @@ the blocks under it are written anew after it.
 A page always keeps a block, so removing every one leaves an empty paragraph. A page holds at
 most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what
 `find_replace` would add before it adds any of it, so replacements that would grow the page
-past that are refused at once.
+past that are refused at once. Markdown, an edit's or `create_page`'s, nests blocks at most
+32 levels deep, as [Page documents](/docs/architecture/documents/) describes; deeper answers
+`invalid_input` and changes nothing.
 
 ```json
 {"name": "edit_page", "arguments": {
@@ -281,6 +283,11 @@ others hear who holds it. A database without a person property, or without a sta
 with an option in progress, answers `invalid_input`. Claiming needs edit access to the row,
 and guests, who know no other member, do not claim. A claim is the caller's change of the
 row, and those following the database see it at once.
+
+A claim, as every `create_row` and `update_row`, tells [outgoing webhooks](/docs/guides/webhooks/#events)
+too: `row.assigned` for whoever it names, and `row.status_changed` for everyone the row's
+person properties name. The caller's own webhooks hear of their own claims only with
+`include_own`, so an agent that runs elsewhere learns of its work without polling.
 
 ## Resources
 

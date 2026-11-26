@@ -10,7 +10,6 @@ use neon_app::pages::{
     Location, MAX_RECENT, NewPage, PageUpdate, PageView, TrashList as AppTrashList, Tree,
     TreePage as AppTreePage,
 };
-use neon_blocks::markdown::from_markdown;
 use neon_domain::pages as domain;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -360,7 +359,7 @@ pub struct CreatePage {
     request_body = CreatePage,
     responses(
         (status = CREATED, description = "The page.", body = Page),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, or a placement beside a page that is not a sibling.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, a placement beside a page that is not a sibling, or markdown nesting blocks more than 32 levels deep.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace, teamspace or parent, or none the caller may see.", body = ErrorBody),
@@ -378,7 +377,9 @@ pub(super) async fn create_page(
 ) -> Result<(StatusCode, Json<Page>), ApiError> {
     let location = location(body.parent_id, body.teamspace_id, body.private)?;
     let content = match &body.markdown {
-        Some(markdown) => state.sync.first_snapshot(&from_markdown(markdown))?,
+        Some(markdown) => state
+            .sync
+            .first_snapshot(&super::content::read_markdown(markdown)?)?,
         None => None,
     };
     let defaults = domain::PageStyle::default();

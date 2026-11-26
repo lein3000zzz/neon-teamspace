@@ -23,6 +23,12 @@
 //!   those that got it back. Every connection is looked at so again every
 //!   [`Limits::revalidate_interval`], for what no change tells of, such as a session
 //!   expiring.
+//! - **The server's own edits.** [`SyncService::edit`] makes the edits of the API's markdown
+//!   routes and MCP, and [`SyncService::append`] adds blocks to a page as an incoming
+//!   webhook does, each through the page's live document, loaded for it if nobody has it
+//!   open: the editors see them at once and they merge with what is being typed. An
+//!   append is logged before the call answers, or, when the database fails then, kept and
+//!   logged later as every edit is.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -77,7 +83,7 @@ pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
 pub use content::{ContentError, Edited, MAX_EDITS, changes_document};
-pub use document::{LoadError, READ_ONLY};
+pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 
 /// RED subsystem of the sync's work: loading, logging and compacting documents.
@@ -472,6 +478,56 @@ impl SyncService {
         let fragment = neon_blocks::fragment(&doc);
         let read = neon_blocks::read_lenient(&doc.transact(), &fragment);
         Ok(readable(page_id, read))
+    }
+
+    /// Adds blocks after the last one of a page's document, as the principal, for those who
+    /// may edit it: through its live document, loaded for this if nobody has it open, so
+    /// everyone editing sees them at once and they merge with what is being typed. Once this
+    /// answers, the change is logged, or kept in memory to log again when the database
+    /// failed; a page deleted meanwhile answers not found.
+    pub async fn append(
+        &self,
+        principal: &Principal,
+        page_id: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+    ) -> Result<(), PageError> {
+        let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.access != PageAccess::Edit {
+            return Err(PageError::Forbidden("you may view this page, not edit it"));
+        }
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        for _ in 0..JOIN_ATTEMPTS {
+            let commands = self
+                .document(page_id, view.page.workspace_id)
+                .map_err(|reason| {
+                    PageError::Internal(format!("the document: {}", reason.name()))
+                })?;
+            let (done, answer) = oneshot::channel();
+            let command = Command::Append {
+                author: principal.user.id,
+                blocks: blocks.clone(),
+                done,
+            };
+            if commands.send(command).await.is_err() {
+                continue;
+            }
+            // Dropped unanswered, the document unloaded under the command: open it again.
+            if let Ok(appended) = answer.await {
+                return appended.map_err(|error| match error {
+                    AppendError::Gone => PageError::NotFound("no such page"),
+                    AppendError::TooLarge => PageError::InvalidInput(format!(
+                        "the page would hold more than {} bytes",
+                        self.inner.limits.max_document
+                    )),
+                    AppendError::NotADocument => PageError::Internal(error.to_string()),
+                });
+            }
+        }
+        Err(PageError::Internal(
+            "the page's document kept unloading".to_owned(),
+        ))
     }
 
     /// Stops: every live document closes its connections and is saved, then the access

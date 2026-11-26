@@ -1908,6 +1908,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "governor",
+ "hmac",
  "metrics",
  "metrics-util",
  "neon-blocks",
@@ -1999,6 +2000,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.23.1",
+ "bytes",
  "clap",
  "figment",
  "futures-util",
@@ -2036,6 +2038,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "uuid",
+ "webpki-roots",
  "yrs",
  "zip",
 ]

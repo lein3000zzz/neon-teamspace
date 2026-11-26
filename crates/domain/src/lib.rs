@@ -16,4 +16,5 @@ pub mod mail;
 pub mod oauth;
 pub mod pages;
 pub mod settings;
+pub mod webhooks;
 pub mod workspaces;

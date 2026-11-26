@@ -138,7 +138,7 @@ configure. Under it:
 | `/api/v1` | The JSON API. Its description is at `/api/v1/openapi.json`. |
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
 | `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
-| `/hooks/*` | Incoming webhooks, **planned**. |
+| `/hooks/*` | Incoming webhooks, each at `/hooks/in/{token}`; see [Webhooks](/docs/guides/webhooks/#incoming-webhooks). |
 | `/.well-known/oauth-*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). |
 | `/docs` | These docs. |
 | Anything else | The web app. |

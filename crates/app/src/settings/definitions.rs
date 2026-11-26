@@ -122,6 +122,15 @@ pub mod oauth {
     pub const UNUSED_CLIENT_TTL: Key<Duration> = Key::new("oauth.unused_client_ttl");
 }
 
+/// Outgoing webhooks: where they may go.
+pub mod webhooks {
+    use neon_domain::settings::Key;
+
+    /// Webhooks may reach the addresses of a private network: loopback, private, shared,
+    /// link-local and unique-local ones.
+    pub const ALLOW_PRIVATE: Key<bool> = Key::new("webhooks.allow_private");
+}
+
 /// Pages: how long the trash keeps them.
 pub mod pages {
     use std::time::Duration;
@@ -536,6 +545,20 @@ pub fn registry() -> Registry {
             )),
         )
         .define(
+            Definition::bool(
+                webhooks::ALLOW_PRIVATE,
+                false,
+                "Lets outgoing webhooks reach the addresses of a private network: loopback \
+                 (127.0.0.0/8, ::1), private (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), \
+                 shared (100.64.0.0/10), link-local (169.254.0.0/16, fe80::/10) and \
+                 unique-local (fc00::/7) ones, such as a service beside the server. Off, a \
+                 webhook whose host resolves to one is refused when it is registered and at \
+                 every delivery. Cloud metadata, multicast, broadcast, reserved and \
+                 unspecified addresses stay refused either way.",
+            )
+            .browser_only(),
+        )
+        .define(
             Definition::duration(
                 pages::TRASH_RETENTION,
                 Duration::from_secs(30 * 24 * 3600),
@@ -700,6 +723,7 @@ mod tests {
             *snapshot.get(oauth::UNUSED_CLIENT_TTL),
             Duration::from_secs(24 * 3600)
         );
+        assert!(!*snapshot.get(webhooks::ALLOW_PRIVATE));
         assert_eq!(
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
@@ -820,7 +844,8 @@ mod tests {
                 "mail.password",
                 "mail.port",
                 "mail.tls",
-                "mail.username"
+                "mail.username",
+                "webhooks.allow_private"
             ]
         );
     }

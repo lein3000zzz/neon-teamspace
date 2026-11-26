@@ -151,3 +151,7 @@ settings:
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d
+  webhooks:
+    # Let outgoing webhooks reach a private network's addresses, such as a service beside
+    # the server. Cloud metadata, multicast and reserved addresses stay refused.
+    # allow_private: false

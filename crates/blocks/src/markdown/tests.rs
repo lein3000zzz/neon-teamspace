@@ -1,4 +1,7 @@
-use super::{from_markdown, to_markdown, to_markdown_with_ids};
+use super::parse::bound_markers;
+use super::{
+    MAX_DEPTH, TooDeep, from_markdown, to_markdown, to_markdown_with_ids, try_from_markdown,
+};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     Block, BlockKind, CheckListItemProps, CodeBlockProps, DatabaseProps, Document, FileProps,
@@ -673,6 +676,178 @@ fn a_toggle_title_that_is_another_block_is_text() {
         from_markdown(":::toggle - not a list\n:::"),
         doc(vec![toggle(text("- not a list"))])
     );
+}
+
+/// How many levels a document's blocks nest.
+fn depth(document: &Document) -> usize {
+    let mut deepest = 0;
+    let mut stack: Vec<(&Block, usize)> = document.blocks.iter().map(|block| (block, 1)).collect();
+    while let Some((block, level)) = stack.pop() {
+        deepest = deepest.max(level);
+        stack.extend(block.children.iter().map(|child| (child, level + 1)));
+    }
+    deepest
+}
+
+/// The texts of a document's blocks, parents before their children.
+fn texts(document: &Document) -> Vec<String> {
+    document
+        .walk()
+        .map(|block| match &block.kind {
+            BlockKind::Paragraph { content, .. }
+            | BlockKind::Quote { content, .. }
+            | BlockKind::BulletListItem { content, .. }
+            | BlockKind::ToggleListItem { content, .. } => content
+                .iter()
+                .map(|inline| match inline {
+                    Inline::Text(text) => text.text.clone(),
+                    Inline::Link(link) => format!("{link:?}"),
+                })
+                .collect(),
+            other => format!("{other:?}"),
+        })
+        .collect()
+}
+
+/// Markdown nesting `levels` blocks of one shape, the innermost one saying `inner`.
+fn nested(shape: &str, levels: usize) -> String {
+    match shape {
+        "quote" => format!("{}inner", "> ".repeat(levels)),
+        "list" => (0..levels)
+            .map(|level| format!("{}- item {level}\n", "  ".repeat(level)))
+            .collect::<String>()
+            .replace(&format!("item {}", levels - 1), "inner"),
+        "toggle" => format!(
+            "{}inner\n\n{}",
+            ":::toggle t\n\n".repeat(levels - 1),
+            ":::\n\n".repeat(levels - 1)
+        ),
+        // Toggles holding quotes: half of each.
+        _ => format!(
+            "{}{}inner\n\n{}",
+            ":::toggle t\n\n".repeat(levels / 2),
+            "> ".repeat(levels - levels / 2),
+            ":::\n\n".repeat(levels / 2)
+        ),
+    }
+}
+
+#[test]
+fn blocks_nest_up_to_the_limit() {
+    for shape in ["quote", "list", "toggle", "toggled quotes"] {
+        let markdown = nested(shape, MAX_DEPTH);
+        let read = try_from_markdown(&markdown).unwrap_or_else(|_| panic!("{shape}: refused"));
+        assert_eq!(depth(&read), MAX_DEPTH, "{shape}");
+        assert_eq!(from_markdown(&markdown), read, "{shape}");
+        assert!(texts(&read).iter().any(|text| text == "inner"), "{shape}");
+    }
+}
+
+#[test]
+fn deeper_blocks_are_read_at_the_last_level_or_refused() {
+    for shape in ["quote", "list", "toggle", "toggled quotes"] {
+        let markdown = nested(shape, MAX_DEPTH + 1);
+        assert_eq!(try_from_markdown(&markdown), Err(TooDeep), "{shape}");
+        let read = from_markdown(&markdown);
+        assert_eq!(depth(&read), MAX_DEPTH, "{shape}");
+        assert!(
+            texts(&read).iter().any(|text| text.contains("inner")),
+            "{shape}: {:?}",
+            texts(&read)
+        );
+    }
+    assert_eq!(
+        TooDeep.to_string(),
+        format!("blocks nest at most {MAX_DEPTH} levels deep")
+    );
+}
+
+#[test]
+fn a_childless_toggle_at_the_last_level_is_not_too_deep() {
+    let markdown = format!(
+        "{}:::toggle last\n\n:::\n\n{}",
+        ":::toggle t\n\n".repeat(MAX_DEPTH - 1),
+        ":::\n\n".repeat(MAX_DEPTH - 1)
+    );
+    let read = try_from_markdown(&markdown).expect("within the limit");
+    assert_eq!(depth(&read), MAX_DEPTH);
+}
+
+#[test]
+fn markdown_nested_thousands_deep_reads_on_a_workers_stack() {
+    let inputs = [
+        "> ".repeat(5000),
+        "- ".repeat(5000) + "x",
+        "1. ".repeat(5000) + "x",
+        "> - ".repeat(2500) + "x",
+        ":::toggle t\n\n".repeat(20_000),
+        ":::toggle t\n\n".repeat(20) + &"> ".repeat(5000),
+    ];
+    // Two MiB, as each of an async runtime's worker threads has.
+    let read = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || {
+            inputs
+                .iter()
+                .map(|markdown| {
+                    let read = from_markdown(markdown);
+                    (depth(&read), try_from_markdown(markdown).is_err())
+                })
+                .collect::<Vec<_>>()
+        })
+        .expect("a thread")
+        .join()
+        .expect("read without overflowing the stack");
+    for (index, (depth, refused)) in read.into_iter().enumerate() {
+        assert_eq!(depth, MAX_DEPTH, "input {index}");
+        assert!(refused, "input {index}");
+    }
+}
+
+#[test]
+fn a_line_opens_a_bounded_number_of_containers() {
+    let markers = MAX_DEPTH + 1;
+    for marker in ["> ", ">", "- ", "* ", "+\t", "1. ", "12) "] {
+        let line = format!("{}text\n", marker.repeat(markers + 5));
+        let (bounded, escaped) = bound_markers(&line);
+        assert!(escaped, "{marker:?}");
+        let cut = marker.len() * markers;
+        let at = if marker.starts_with(char::is_numeric) {
+            cut + marker.find(['.', ')']).expect("a delimiter")
+        } else {
+            cut
+        };
+        assert_eq!(&bounded[..at], &line[..at], "{marker:?}");
+        assert_eq!(&bounded[at..at + 1], "\\", "{marker:?}");
+        assert_eq!(&bounded[at + 1..], &line[at..], "{marker:?}");
+    }
+
+    let within = format!("{}text\n", "> ".repeat(markers));
+    assert_eq!(bound_markers(&within), (within.as_str().into(), false));
+    // A long thematic break, text that only looks like markers, and every other line, stay.
+    for kept in [
+        "- ".repeat(100),
+        "* ".repeat(100),
+        format!("{}x", "-".repeat(100)),
+        format!("{}x", "1.".repeat(100)),
+        "plain text".to_owned(),
+    ] {
+        assert_eq!(
+            bound_markers(&kept),
+            (kept.as_str().into(), false),
+            "{kept}"
+        );
+    }
+
+    // Each line is bounded on its own, and the lines that continue one are kept.
+    let lines = format!("{}a\nb\n{}c\n", "> ".repeat(100), "- ".repeat(100));
+    let (bounded, escaped) = bound_markers(&lines);
+    assert!(escaped);
+    assert_eq!(bounded.matches('\\').count(), 2);
+    assert!(bounded.contains("\nb\n"));
+    let read = from_markdown(&lines);
+    assert_eq!(depth(&read), MAX_DEPTH);
+    assert!(texts(&read).iter().any(|text| text.ends_with("> > a b")));
 }
 
 #[test]

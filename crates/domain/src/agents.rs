@@ -9,7 +9,9 @@
 //!   teamspaces and the pages shared with it, and no more than its owner may do: the
 //!   permission rules ask both, see [`authorize`](crate::workspaces::authorize). It joins
 //!   teamspaces as a person does, and is a teamspace member, never a teamspace owner. It
-//!   has no private pages of its own: its owner could not see them.
+//!   has no private pages of its own: its owner could not see them. An integration joins
+//!   no teamspace, not even the default one: its incoming webhook shares its target with
+//!   it, the one page it works on.
 //! - **Suspension** is worked out each time, never stored: one is suspended while its owner
 //!   is out of its workspace, a guest there or disabled, or its owner's account is gone. A
 //!   guest owns no agent, as nobody hands one to a guest. Its tokens are refused meanwhile,

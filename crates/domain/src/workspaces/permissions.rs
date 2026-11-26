@@ -33,6 +33,10 @@
 //! it: they change no member, teamspace setting or agent, invite nobody and make nothing
 //! that would make them an owner.
 //!
+//! Webhooks: the workspace's owners and admins make its incoming webhooks, and register
+//! outgoing ones for anyone in it; everyone else but guests registers them for themselves
+//! and for their own agents and integrations, and manages those alone.
+//!
 //! Instance admins have no part inside a workspace: being one counts only for the
 //! instance's own actions, listing workspaces, setting their limits and deleting them.
 //! In a workspace they are whatever their membership makes them, which may be nothing.
@@ -134,6 +138,20 @@ pub enum Resource {
     },
     /// One agent or integration of the workspace, and whether the actor owns it.
     Agent { kind: UserKind, own: bool },
+    /// The outgoing webhooks of one identity of the workspace, as the actor stands to it.
+    Webhook { subject: WebhookSubject },
+}
+
+/// Whose events an outgoing webhook delivers, as the actor stands to that identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebhookSubject {
+    /// The actor themself.
+    Itself,
+    /// An agent or integration the actor owns.
+    OwnDelegate,
+    /// Anyone else of the workspace: another person, or someone else's agent or
+    /// integration.
+    Other,
 }
 
 /// Someone added to a teamspace.
@@ -267,6 +285,17 @@ pub enum Action {
     CreateAgentToken,
     /// From a browser session.
     RevokeAgentToken,
+
+    // On the workspace's incoming webhooks, on the workspace as a whole.
+    /// Listing, making, changing and deleting incoming webhooks, each of which acts as an
+    /// integration its maker owns.
+    ManageIncomingWebhooks,
+
+    // On an identity's outgoing webhooks.
+    /// Making an outgoing webhook that delivers the identity's events.
+    RegisterWebhook,
+    /// Reading, changing, testing and deleting one, with its delivery log.
+    ManageWebhook,
 }
 
 /// Why an action is refused.
@@ -349,6 +378,9 @@ fn delegates_never(action: Action) -> bool {
             | Action::ListAgentTokens
             | Action::CreateAgentToken
             | Action::RevokeAgentToken
+            | Action::ManageIncomingWebhooks
+            | Action::RegisterWebhook
+            | Action::ManageWebhook
     )
 }
 
@@ -446,6 +478,7 @@ fn decide(actor: Actor, action: Action, resource: Resource) -> Result<(), Denied
         Resource::Agent { kind, own } => {
             on_agent(member(actor)?, actor.via_session, action, kind, own)
         }
+        Resource::Webhook { subject } => on_webhook(member(actor)?, action, subject),
     }
 }
 
@@ -497,9 +530,10 @@ fn on_workspace(
 
     match action {
         Action::ViewWorkspace | Action::Leave => Ok(()),
-        Action::UpdateWorkspace | Action::ManageInvitations | Action::ManageInviteLinks => {
-            allow_if(role.manages(), MANAGERS_ONLY)
-        }
+        Action::UpdateWorkspace
+        | Action::ManageInvitations
+        | Action::ManageInviteLinks
+        | Action::ManageIncomingWebhooks => allow_if(role.manages(), MANAGERS_ONLY),
         Action::DeleteWorkspace => {
             allow_if(
                 role == Owner,
@@ -889,6 +923,44 @@ fn on_agent(
         Action::RevokeAgentToken => {
             allow_if(own || role.manages(), OWNER_OR_MANAGERS)?;
             needs_session(via_session, TOKENS_NEED_SESSION)
+        }
+        _ => Err(NOT_APPLICABLE),
+    }
+}
+
+/// An identity's outgoing webhooks: the workspace's owners and admins register and manage
+/// anyone's; everyone else but guests their own and their agents' and integrations'. A
+/// guest registers none, and knows of none.
+fn on_webhook(role: WorkspaceRole, action: Action, subject: WebhookSubject) -> Result<(), Denied> {
+    let mine = matches!(
+        subject,
+        WebhookSubject::Itself | WebhookSubject::OwnDelegate
+    );
+    match action {
+        Action::RegisterWebhook => {
+            if role.manages() {
+                Ok(())
+            } else if !role.joins_teamspaces() {
+                if mine {
+                    Err(Forbidden("guests register no webhooks"))
+                } else {
+                    Err(Hidden)
+                }
+            } else {
+                allow_if(
+                    mine,
+                    Forbidden(
+                        "only the workspace's owners and admins register webhooks for others",
+                    ),
+                )
+            }
+        }
+        Action::ManageWebhook => {
+            if role.manages() || (mine && role.joins_teamspaces()) {
+                Ok(())
+            } else {
+                Err(Hidden)
+            }
         }
         _ => Err(NOT_APPLICABLE),
     }

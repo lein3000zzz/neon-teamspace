@@ -6,10 +6,11 @@ use neon_domain::pages::{PageAccess, Share};
 use neon_domain::workspaces::{Action, Person};
 use neon_store::page_shares::{self as repo, ALREADY_SHARED};
 use neon_store::{is_unique_violation, workspaces};
+use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{AccessChange, PageError, PageService};
+use super::{AccessChange, Context, PageError, PageService};
 
 const NO_MEMBER: &str = "no such member: a page is shared with people in its workspace";
 const NO_SHARE: &str = "the page itself is not shared with this person";
@@ -81,23 +82,9 @@ impl PageService {
             let member = workspaces::member(&mut *tx, workspace_id, user_id)
                 .await?
                 .ok_or(PageError::NotFound(NO_MEMBER))?;
-            let now = self.now();
-            let share = Share {
-                page_id,
-                workspace_id,
-                user_id,
-                access,
-                created_by: Some(principal.user.id),
-                created_at: now,
-                updated_at: now,
-            };
-            repo::insert(&mut *tx, &share).await.map_err(|error| {
-                if is_unique_violation(&error, ALREADY_SHARED) {
-                    PageError::AlreadyShared
-                } else {
-                    PageError::Database(error)
-                }
-            })?;
+            let (share, change) = self
+                .insert_share(&mut tx, principal, &context, user_id, access)
+                .await?;
             tx.commit().await?;
             info!(
                 actor_id = %principal.user.id,
@@ -106,11 +93,7 @@ impl PageService {
                 access = %access,
                 "page shared"
             );
-            self.changed(AccessChange::Pages {
-                workspace_id,
-                page_id,
-                user_id: Some(user_id),
-            });
+            self.changed(change);
             Ok(ListedShare {
                 set_on: Some(share.page_id),
                 share,
@@ -119,6 +102,50 @@ impl PageService {
             })
         })
         .await
+    }
+
+    /// Shares the page of `context`, read on `conn`, with `user_id` of its workspace, as the
+    /// principal, whom the caller found may share it: for this use case, and for those that
+    /// share a page as part of their own change. Answers the share, and the access change to
+    /// report with [`report_access`](Self::report_access) once the transaction commits.
+    pub(crate) async fn insert_share(
+        &self,
+        conn: &mut PgConnection,
+        principal: &Principal,
+        context: &Context,
+        user_id: Uuid,
+        access: PageAccess,
+    ) -> Result<(Share, AccessChange), PageError> {
+        let now = self.now();
+        let page = context.page();
+        let share = Share {
+            page_id: page.id,
+            workspace_id: page.workspace_id,
+            user_id,
+            access,
+            created_by: Some(principal.user.id),
+            created_at: now,
+            updated_at: now,
+        };
+        repo::insert(&mut *conn, &share).await.map_err(|error| {
+            if is_unique_violation(&error, ALREADY_SHARED) {
+                PageError::AlreadyShared
+            } else {
+                PageError::Database(error)
+            }
+        })?;
+        let change = AccessChange::Pages {
+            workspace_id: page.workspace_id,
+            page_id: page.id,
+            user_id: Some(user_id),
+        };
+        Ok((share, change))
+    }
+
+    /// Tells the port of a change to who may see pages that another use case made on its
+    /// own transaction, once that committed.
+    pub(crate) fn report_access(&self, change: AccessChange) {
+        self.changed(change);
     }
 
     /// Changes what a share on the page itself gives.

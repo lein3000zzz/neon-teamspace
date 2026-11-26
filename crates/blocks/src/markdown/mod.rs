@@ -101,6 +101,11 @@
 //! - A numbered list item that restarts at 1 right after another numbered list.
 //! - Whitespace at the edges of bold, italic and strikethrough text, which is written
 //!   outside the style.
+//! - Nesting deeper than [`MAX_DEPTH`] levels of blocks. Reading, a quote or list item that
+//!   would be deeper is left out, its content read at its parent's level; a toggle, quote or
+//!   list item at the last level holds no children, which follow it there instead; and a line
+//!   that starts with more than `MAX_DEPTH + 1` quote or list markers reads the rest as text.
+//!   [`try_from_markdown`] refuses such markdown.
 //!
 //! Reading markdown, a soft line break is a space, as CommonMark has it; raw HTML other than
 //! the tags above is kept as text; and an image inside a paragraph splits it, as images are
@@ -109,7 +114,7 @@
 mod parse;
 mod write;
 
-pub use parse::from_markdown;
+pub use parse::{MAX_DEPTH, TooDeep, from_markdown, try_from_markdown};
 pub(crate) use write::{encode_id, holds_children};
 pub use write::{to_markdown, to_markdown_with_ids};
 

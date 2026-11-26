@@ -16,6 +16,7 @@ use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
 use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
+use neon_app::webhooks::{IncomingError, WebhookError};
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
@@ -365,6 +366,52 @@ impl From<OAuthError> for ApiError {
         };
         let mut api = Self::new(status, error.code(), error.to_string());
         if let OAuthError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<WebhookError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret or a URL.
+    /// Others are logged with their cause, and answer as internal errors.
+    fn from(error: WebhookError) -> Self {
+        let status = match &error {
+            WebhookError::InvalidInput(_)
+            | WebhookError::InvalidUrl(_)
+            | WebhookError::AddressRefused(_) => StatusCode::BAD_REQUEST,
+            WebhookError::Forbidden(_) => StatusCode::FORBIDDEN,
+            WebhookError::NotFound(_) => StatusCode::NOT_FOUND,
+            WebhookError::NoSecretKey
+            | WebhookError::AgentLimit { .. }
+            | WebhookError::WebhookLimit { .. }
+            | WebhookError::SetterLapsed(_) => StatusCode::CONFLICT,
+            WebhookError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WebhookError::Database(_) | WebhookError::Internal(_) => {
+                tracing::error!(error = %error, "a webhook use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let WebhookError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<IncomingError> for ApiError {
+    /// Expected errors answer with their message, which never holds the URL's token, a
+    /// secret or the body. Others are logged with their cause, and answer as internal
+    /// errors.
+    fn from(error: IncomingError) -> Self {
+        if !error.is_expected() {
+            tracing::error!(error = %error, "an incoming webhook's request failed");
+            return Self::internal();
+        }
+        let status = StatusCode::from_u16(error.status()).unwrap_or(StatusCode::BAD_REQUEST);
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let IncomingError::RateLimited { retry_after } = error {
             api.retry_after = Some(retry_after);
         }
         api

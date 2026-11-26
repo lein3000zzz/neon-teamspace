@@ -14,6 +14,8 @@ pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+mod hooks;
+mod incoming_webhooks;
 mod meta;
 mod oauth;
 mod openapi;
@@ -24,6 +26,7 @@ mod sync;
 pub(crate) mod teamspaces;
 mod transfer;
 pub(crate) mod web;
+mod webhooks;
 pub(crate) mod whoami;
 pub(crate) mod workspaces;
 
@@ -37,7 +40,7 @@ use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::oauth::OAuthService;
@@ -45,6 +48,7 @@ use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
+use neon_app::webhooks::WebhookService;
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
 use neon_domain::oauth::{
@@ -80,6 +84,7 @@ pub struct AppState {
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub transfer: TransferService,
+    pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
     pub mcp: crate::mcp::Mcp,
 }
@@ -177,6 +182,30 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(oauth::disconnect_app))
         .routes(routes!(oauth::list_workspace_apps))
         .routes(routes!(oauth::disconnect_workspace_app))
+        .routes(routes!(webhooks::list_webhooks, webhooks::create_webhook))
+        .routes(routes!(
+            webhooks::get_webhook,
+            webhooks::update_webhook,
+            webhooks::delete_webhook
+        ))
+        .routes(routes!(webhooks::rotate_webhook_secret))
+        .routes(routes!(webhooks::webhook_deliveries))
+        .routes(routes!(webhooks::test_webhook))
+        .routes(routes!(
+            incoming_webhooks::list_incoming_webhooks,
+            incoming_webhooks::create_incoming_webhook
+        ))
+        .routes(routes!(
+            incoming_webhooks::get_incoming_webhook,
+            incoming_webhooks::update_incoming_webhook,
+            incoming_webhooks::delete_incoming_webhook
+        ))
+        .routes(routes!(incoming_webhooks::rotate_incoming_token))
+        .routes(routes!(
+            incoming_webhooks::rotate_incoming_secret,
+            incoming_webhooks::remove_incoming_secret
+        ))
+        .routes(routes!(incoming_webhooks::incoming_webhook_requests))
         .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
@@ -274,8 +303,9 @@ fn api() -> OpenApiRouter<AppState> {
         .route(RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
         .route(MCP_RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
         .route(API_RESOURCE_METADATA_PATH, get(oauth::api_metadata));
-    // Real-time sync speaks WebSocket, which the API's description has no words for; the
-    // docs describe it.
+    // Real-time sync speaks WebSocket, which the API's description has no words for, and
+    // incoming webhooks take what their senders post, outside the API; the docs describe
+    // both.
     OpenApiRouter::with_openapi(openapi::base())
         .nest("/api/v1", routes)
         .merge(discovery)
@@ -284,6 +314,7 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        .route("/hooks/in/{token}", post(hooks::receive_hook))
         // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
         // resources.
         .route(crate::mcp::PATH, any(crate::mcp::serve))
@@ -407,6 +438,8 @@ mod content_tests;
 #[cfg(test)]
 mod databases_tests;
 #[cfg(test)]
+mod incoming_tests;
+#[cfg(test)]
 mod mcp_tests;
 #[cfg(test)]
 mod oauth_tests;
@@ -418,5 +451,7 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(test)]
+mod webhooks_tests;
 #[cfg(test)]
 mod workspaces_tests;

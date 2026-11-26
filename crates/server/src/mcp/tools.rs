@@ -15,7 +15,6 @@ use std::sync::Arc;
 use neon_app::databases::{DatabaseError, NewDatabase, NewRow, QueryInput};
 use neon_app::pages::NewPage;
 use neon_blocks::edit::Edit;
-use neon_blocks::markdown::from_markdown;
 use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::PageStyle;
 use rmcp::handler::server::common::schema_for_input;
@@ -28,7 +27,7 @@ use uuid::Uuid;
 
 use super::Services;
 use crate::http::ApiError;
-use crate::http::content::{EditOperation, EditedPage, page_markdown};
+use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
 use crate::http::databases::{Database, Filter, Sort};
 use crate::http::pages::{Page, Placement, TreePage, location};
@@ -193,8 +192,9 @@ pub(crate) const TOOLS: [Spec; 16] = [
         title: "Create a page",
         description: "A page under another page (parent_id), at the top of a teamspace \
                       (teamspace_id), or among your private pages (private: true): name one. \
-                      It starts with the blocks of `markdown`. Answers with its markdown and \
-                      block ids. Rows of a database are made with create_row.",
+                      It starts with the blocks of `markdown`, nested at most 32 levels deep. \
+                      Answers with its markdown and block ids. Rows of a database are made \
+                      with create_row.",
         writes: true,
         destructive: false,
         idempotent: false,
@@ -208,7 +208,7 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       append, insert_after a block, replace_range of sibling blocks (empty \
                       markdown removes them), find_replace of text within one line (once, unless \
                       all), replace_body (blocks that stay the same are kept). Blocks are named \
-                      by the ids read_page shows.",
+                      by the ids read_page shows; markdown nests at most 32 levels deep.",
         writes: true,
         destructive: true,
         idempotent: false,
@@ -410,7 +410,10 @@ pub(crate) async fn call(
                 page_id,
                 operations,
             } = arguments(given)?;
-            let edits = operations.into_iter().map(Edit::from).collect();
+            let edits = operations
+                .into_iter()
+                .map(Edit::try_from)
+                .collect::<Result<_, _>>()?;
             let edited = s
                 .sync
                 .edit(principal, page_id, edits)
@@ -759,7 +762,7 @@ async fn create_page(
     let content = match &given.markdown {
         Some(markdown) => s
             .sync
-            .first_snapshot(&from_markdown(markdown))
+            .first_snapshot(&read_markdown(markdown)?)
             .map_err(refused)?,
         None => None,
     };

@@ -32,6 +32,8 @@ owner, **Yours** for the caller's own, when it was made, and its status:
 
 What the card offers depends on who looks:
 
+- Its owner and the workspace's owners and admins open its **Webhooks**: its outgoing
+  [webhooks](/docs/workspace-settings/webhooks/), with the form ready to register one for it.
 - Its owner **renames or recolours** it: a name, and a hue from its id or pinned.
 - The workspace's owners and admins **hand it over** to another person of the workspace,
   neither a guest nor disabled, after a question: it acts for them from then on, and its

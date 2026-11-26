@@ -103,7 +103,7 @@ app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
 who owns it. It joins teamspaces as a person does and may do what both it and its owner may,
 never more than its owner. Its work is shown as its name, `via` its owner, and it is
 suspended when its owner leaves. Agents are not a side door. The permission rules, limits and
-attribution that hold for people hold for them. **Planned.**
+attribution that hold for people hold for them; [Agents](/docs/guides/agents/) has how.
 
 **MCP inside the server.** The MCP endpoint, `/mcp`, is served by the server itself, with
 `rmcp` over Streamable HTTP, not by a service of its own. An agent then reaches the same use
@@ -115,15 +115,16 @@ is one, and its consent page asks whether the client acts as the person or as on
 agents. Agents that run on their own, with no browser to sign in from, use a bearer token
 instead. A token belongs to one workspace, has the scope read, write or admin, and never does
 more than its owner's role allows. Tokens are random and kept as hashes, rather than signed
-tokens checked without a lookup, so revoking one stops it at once. **Planned.**
+tokens checked without a lookup, so revoking one stops it at once;
+[Connecting apps over OAuth](/docs/guides/oauth/) has the flow.
 
 **Everything MCP does, the API does.** Each MCP tool has an HTTP endpoint with the same
 tokens, for scripts and bots that do not speak MCP, and a test holds the table of them.
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
 assigned or mentioned, without polling. Incoming webhooks are members of kind integration,
-so what they write carries the same attribution, permissions and limits as an agent's.
-**Planned.**
+so what they write carries the same attribution, permissions and limits as an agent's;
+[Webhooks](/docs/guides/webhooks/) has both.
 
 ## One process, no Redis
 

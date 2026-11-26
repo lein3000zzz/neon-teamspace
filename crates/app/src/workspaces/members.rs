@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::{
     AccessChange, Membership, WorkspaceError, WorkspaceService, locked_membership, membership,
 };
+use crate::webhooks;
 
 const NO_MEMBER: &str = "no such member";
 
@@ -96,7 +97,8 @@ impl WorkspaceService {
 
     /// Changes a member's role. Owners change anyone's; admins anyone's but an owner's,
     /// and make no owners. The last owner keeps the role. A member who becomes a guest
-    /// leaves every teamspace; a guest who becomes more joins the default one.
+    /// leaves every teamspace; a guest who becomes more joins the default one. The webhooks
+    /// whose URL they set that their new role may not register turn off.
     pub async fn change_member_role(
         &self,
         principal: &Principal,
@@ -145,7 +147,8 @@ impl WorkspaceService {
     }
 
     /// Takes a member out of the workspace and its teamspaces. Owners remove anyone;
-    /// admins anyone but an owner. Nobody removes themselves: they leave.
+    /// admins anyone but an owner. Nobody removes themselves: they leave. Their webhooks
+    /// go, and those whose URL they set for others turn off.
     pub async fn remove_member(
         &self,
         principal: &Principal,
@@ -161,6 +164,7 @@ impl WorkspaceService {
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
             check_owner_remains(owners, target.role == WorkspaceRole::Owner, false)?;
             repo::remove_member(&mut *tx, workspace_id, user_id).await?;
+            webhooks::lapse(&mut tx, workspace_id, user_id, self.now()).await?;
             tx.commit().await?;
             info!(
                 actor_id = %principal.user.id,
@@ -174,10 +178,10 @@ impl WorkspaceService {
         .await
     }
 
-    /// Leaves a workspace and its teamspaces. The last owner cannot: they make another
-    /// owner first, or delete the workspace. Nor can the last owner of one of its
-    /// teamspaces, unless they own or administer the workspace, as leaving it would leave
-    /// the teamspace without an owner.
+    /// Leaves a workspace and its teamspaces, as removing a member does, webhooks included.
+    /// The last owner cannot: they make another owner first, or delete the workspace. Nor
+    /// can the last owner of one of its teamspaces, unless they own or administer the
+    /// workspace, as leaving it would leave the teamspace without an owner.
     pub async fn leave_workspace(
         &self,
         principal: &Principal,
@@ -197,6 +201,7 @@ impl WorkspaceService {
                 check_teamspace_owner_remains(owners, true, false, role.manages())?;
             }
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
+            webhooks::lapse(&mut tx, workspace_id, principal.user.id, self.now()).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %workspace_id, "workspace left");
             self.member_changed(workspace_id, principal.user.id);
@@ -262,6 +267,7 @@ impl WorkspaceService {
         to: WorkspaceRole,
     ) -> Result<(), WorkspaceError> {
         repo::set_member_role(&mut *conn, workspace_id, user_id, to).await?;
+        webhooks::lapse(&mut *conn, workspace_id, user_id, self.now()).await?;
         if from.joins_teamspaces() && !to.joins_teamspaces() {
             teamspaces::leave_all(&mut *conn, workspace_id, user_id).await?;
         } else if !from.joins_teamspaces() && to.joins_teamspaces() {

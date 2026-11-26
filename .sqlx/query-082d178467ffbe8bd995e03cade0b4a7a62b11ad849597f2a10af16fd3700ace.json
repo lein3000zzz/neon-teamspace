@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH before AS (SELECT disabled_at FROM webhooks WHERE id = $1 FOR UPDATE)\n           UPDATE webhooks w\n           SET failures = w.failures + 1,\n               disabled_at = CASE WHEN w.disabled_at IS NULL AND w.failures + 1 >= $2\n                                  THEN $4 ELSE w.disabled_at END,\n               disabled_reason = CASE WHEN w.disabled_at IS NULL AND w.failures + 1 >= $2\n                                      THEN $3 ELSE w.disabled_reason END\n           FROM before\n           WHERE w.id = $1\n           RETURNING w.failures, (before.disabled_at IS NULL AND w.disabled_at IS NOT NULL)\n                     AS \"disabled!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "failures",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "webhooks",
+            "name": "failures"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "disabled!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "082d178467ffbe8bd995e03cade0b4a7a62b11ad849597f2a10af16fd3700ace"
+}

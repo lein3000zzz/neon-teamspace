@@ -21,6 +21,13 @@ pub trait Handler: Send + Sync + 'static {
         true
     }
 
+    /// The most of its jobs one worker runs at once, out of its concurrency. A kind that may
+    /// have many jobs, such as webhook deliveries, takes a share of the slots so the others
+    /// always find one free. `None`, as by default, lets it take every slot.
+    fn max_running(&self) -> Option<usize> {
+        None
+    }
+
     async fn run(&self, job: &Job) -> Result<(), JobError>;
 }
 

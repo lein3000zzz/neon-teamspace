@@ -219,7 +219,12 @@ fn arguments_are_read_as_their_schema_has_them() {
         ],
     })))
     .expect("valid");
-    let edits: Vec<Edit> = edit.operations.into_iter().map(Edit::from).collect();
+    let edits: Vec<Edit> = edit
+        .operations
+        .into_iter()
+        .map(Edit::try_from)
+        .collect::<Result<_, _>>()
+        .expect("markdown that nests nothing");
     assert_eq!(
         edits.iter().map(Edit::name).collect::<Vec<_>>(),
         [

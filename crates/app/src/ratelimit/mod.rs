@@ -1,8 +1,8 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
 //! pages, edits of pages' content from the API and MCP, requests to the MCP server, by
-//! identity and by person, OAuth clients registering themselves, and the exchanges of each
-//! OAuth grant.
+//! identity and by person, OAuth clients registering themselves, the exchanges of each
+//! OAuth grant, webhooks' test events, and the requests incoming webhooks take.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -35,6 +35,19 @@ pub const STANDARD: Quota = Quota {
 pub const ACCOUNT: Quota = Quota {
     burst: 50,
     every: Duration::from_secs(6),
+};
+
+/// Sixty requests, then one a second: what each incoming webhook takes.
+pub const HOOK: Quota = Quota {
+    burst: 60,
+    every: Duration::from_secs(1),
+};
+
+/// A hundred and twenty requests, then two a second: what one client sends to incoming
+/// webhooks together, whether their URLs work or not.
+pub const HOOK_CLIENT: Quota = Quota {
+    burst: 120,
+    every: Duration::from_millis(500),
 };
 
 /// Two hundred requests, then four a second: one identity's requests to the MCP server,
@@ -102,10 +115,16 @@ pub enum Bucket {
     /// Exchanging an OAuth code or refresh token, by grant: each exchange keeps the
     /// refresh token it spent until it expires, to catch a second use.
     OAuthToken,
+    /// Requests to incoming webhooks from one IP, checked before their URL is looked up.
+    IncomingClient,
+    /// Requests to one incoming webhook, by webhook.
+    IncomingHook,
+    /// Test events sent to outgoing webhooks, by user: each is a request to a URL.
+    WebhookTest,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 22] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -125,6 +144,9 @@ impl Bucket {
         Self::McpPerson,
         Self::OAuthRegister,
         Self::OAuthToken,
+        Self::IncomingClient,
+        Self::IncomingHook,
+        Self::WebhookTest,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -149,6 +171,9 @@ impl Bucket {
             Self::McpPerson => "mcp:person:",
             Self::OAuthRegister => "oauth-register:source:",
             Self::OAuthToken => "oauth-token:grant:",
+            Self::IncomingClient => "hook-in:ip:",
+            Self::IncomingHook => "hook-in:hook:",
+            Self::WebhookTest => "webhook-test:user:",
         }
     }
 
@@ -158,6 +183,8 @@ impl Bucket {
             Self::PageEdit => EDITS,
             Self::Mcp => MCP,
             Self::McpPerson => MCP_PERSON,
+            Self::IncomingClient => HOOK_CLIENT,
+            Self::IncomingHook => HOOK,
             _ => STANDARD,
         }
     }
@@ -191,13 +218,15 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_edit_and_mcp_buckets_are_looser() {
+    fn only_the_cross_ip_edit_mcp_and_incoming_webhook_buckets_are_looser() {
         for bucket in Bucket::ALL {
             let want = match bucket {
                 Bucket::LoginEmail => ACCOUNT,
                 Bucket::PageEdit => EDITS,
                 Bucket::Mcp => MCP,
                 Bucket::McpPerson => MCP_PERSON,
+                Bucket::IncomingClient => HOOK_CLIENT,
+                Bucket::IncomingHook => HOOK,
                 _ => STANDARD,
             };
             assert_eq!(bucket.quota(), want, "{bucket:?}");

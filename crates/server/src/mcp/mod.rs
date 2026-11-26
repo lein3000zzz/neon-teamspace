@@ -296,7 +296,7 @@ fn own_origin(web: &WebConfig, origin: &str, headers: &HeaderMap) -> bool {
     if !web.same_origin(origin, headers) {
         return false;
     }
-    if web.knows_its_origin() {
+    if web.configured_origin().is_some() {
         return true;
     }
     url::Url::parse(origin).is_ok_and(|url| match url.host() {

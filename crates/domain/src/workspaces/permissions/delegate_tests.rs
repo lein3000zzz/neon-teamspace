@@ -133,6 +133,7 @@ fn workspace_tables() -> Vec<(Action, &'static str)> {
         (Action::ManageInvitations, "all f f f f"),
         (Action::ManageInviteLinks, "all f f f f"),
         (Action::CreateTeamspace, "all f f f f"),
+        (Action::ManageIncomingWebhooks, "all f f f f"),
     ];
     for role in [R::Owner, R::Admin, R::Member, R::Guest] {
         tables.push((Action::Invite { role }, "all f f f f"));
@@ -998,6 +999,45 @@ fn delegates_make_and_manage_no_agent() {
     }
 }
 
+// Webhooks: a delegate registers and manages none, its own included. A row per webhook
+// by whose it is, as the delegate and its owner stand to that identity.
+
+#[test]
+fn delegates_register_and_manage_no_webhook() {
+    use WebhookSubject::{Itself, Other, OwnDelegate};
+
+    let rows = [
+        (
+            "its own",
+            Itself,
+            OwnDelegate,
+            ['f'; 4],
+            ['f', 'f', 'f', 'h'],
+        ),
+        ("its owner's", Other, Itself, ['f'; 4], ['h'; 4]),
+        (
+            "its owner's other agent's",
+            Other,
+            OwnDelegate,
+            ['f'; 4],
+            ['h'; 4],
+        ),
+        (
+            "someone else's",
+            Other,
+            Other,
+            ['f', 'f', 'f', 'h'],
+            ['h'; 4],
+        ),
+    ];
+    for (label, mine, theirs, register, manage) in rows {
+        let mine = Resource::Webhook { subject: mine };
+        let theirs = Resource::Webhook { subject: theirs };
+        check(Action::RegisterWebhook, mine, |_| theirs, register, label);
+        check(Action::ManageWebhook, mine, |_| theirs, manage, label);
+    }
+}
+
 #[test]
 fn delegates_never_act_on_the_instance() {
     for creation in WorkspaceCreation::ALL {
@@ -1159,6 +1199,18 @@ fn resource_pairs() -> Vec<(Resource, Resource)> {
             ));
         }
     }
+    for mine in [WebhookSubject::Itself, WebhookSubject::Other] {
+        for theirs in [
+            WebhookSubject::Itself,
+            WebhookSubject::OwnDelegate,
+            WebhookSubject::Other,
+        ] {
+            pairs.push((
+                Resource::Webhook { subject: mine },
+                Resource::Webhook { subject: theirs },
+            ));
+        }
+    }
     pairs
 }
 
@@ -1203,6 +1255,9 @@ fn all_actions() -> Vec<Action> {
         Action::ListAgentTokens,
         Action::CreateAgentToken,
         Action::RevokeAgentToken,
+        Action::ManageIncomingWebhooks,
+        Action::RegisterWebhook,
+        Action::ManageWebhook,
     ];
     for role in ROLES {
         actions.push(Action::Invite { role });
@@ -1249,11 +1304,13 @@ fn every_action_has_its_table() {
             Action::ListAgentTokens,
             Action::CreateAgentToken,
             Action::RevokeAgentToken,
+            Action::RegisterWebhook,
+            Action::ManageWebhook,
         ])
         .collect();
     let all = all_actions();
 
-    assert_eq!(all.len(), 60);
+    assert_eq!(all.len(), 63);
     for action in &all {
         assert_eq!(
             tabled.iter().filter(|tabled| *tabled == action).count(),

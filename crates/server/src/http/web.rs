@@ -7,9 +7,11 @@
 //! - A request with an unsafe method and no `Authorization` header must come from the
 //!   server's own origin: its `Origin`, or else its `Referer`, must match
 //!   `server.public_url`, or the `Host` it was sent to when that is unset. Bearer requests
-//!   are exempt, as browsers never add that header on their own. When a browser sends
-//!   neither header, `SameSite=Lax` on the cookie is the remaining guard: it keeps the
-//!   cookie off cross-site posts.
+//!   are exempt, as browsers never add that header on their own, and so are posts to an
+//!   incoming webhook's URL, under `/hooks/in/`, which take no cookie at all: the token in
+//!   the path is what says who sends them. When a browser sends neither header,
+//!   `SameSite=Lax` on the cookie is the remaining guard: it keeps the cookie off cross-site
+//!   posts.
 //! - A WebSocket upgrade, a `GET`, must come from the same origin as well, whenever it
 //!   sends `Origin`, as browsers do.
 //! - OAuth's registration, token and revocation endpoints are spared the origin check:
@@ -59,6 +61,11 @@ impl WebConfig {
             secure: public_url.is_some_and(|url| url.scheme() == "https"),
             trusted_proxies,
         }
+    }
+
+    /// `server.public_url`'s origin, such as `https://neon.example.com`, when it is set.
+    pub fn configured_origin(&self) -> Option<&str> {
+        self.origin.as_deref()
     }
 
     pub fn cookie_name(&self) -> &'static str {
@@ -173,12 +180,6 @@ impl WebConfig {
         self.public_origin(peer, &parts.headers)
     }
 
-    /// Whether `server.public_url` names the server's origin, rather than each request's
-    /// `Host` standing in for it.
-    pub(crate) fn knows_its_origin(&self) -> bool {
-        self.origin.is_some()
-    }
-
     /// Whether `origin`, as an `Origin` header has it, is the server's own.
     pub(crate) fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
         if let Some(own) = &self.origin {
@@ -263,6 +264,7 @@ pub(super) async fn same_origin_only(
     let safe = method.is_safe();
     if safe
         || request.headers().contains_key(AUTHORIZATION)
+        || request.uri().path().starts_with(super::hooks::PREFIX)
         || COOKIELESS_PATHS.contains(&request.uri().path())
     {
         return next.run(request).await;

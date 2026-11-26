@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use super::events::{Event, Snapshot};
 use super::rows::{
-    Changes, check_people, lock_row, patch, people_in, row_check, row_context, schema_of,
+    Changes, Written, check_people, lock_row, patch, people_in, row_check, row_context, schema_of,
     snapshot_view,
 };
 use super::schema::member_names;
@@ -191,7 +191,18 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            let cells = patch(&mut tx, row_id, &changes).await?;
+            let cells = patch(
+                &mut tx,
+                Written {
+                    page: &page,
+                    database_id: data.database_id,
+                    actor: principal.user.id,
+                    schema: &schema,
+                    before: &data.cells,
+                },
+                &changes,
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,

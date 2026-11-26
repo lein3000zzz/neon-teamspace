@@ -20,9 +20,12 @@ the same features from the side of the people using them.
 | Mailed links | SHA-256 of the link's token. |
 | Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
+| Outgoing webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated out is kept while it still signs, a day, and forgotten by the hourly cleanup after. |
+| Incoming webhooks' URL tokens | SHA-256 of the token. |
+| Incoming webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated out is kept while it still verifies, a day, and forgotten by the hourly cleanup after. |
 
-Session tokens, API tokens, OAuth codes and tokens, made invite codes, invite links and
-mailed links are 32 random bytes from a
+Session tokens, API tokens, OAuth codes and tokens, made invite codes, invite links, mailed
+links, incoming webhooks' URL tokens and webhooks' signing secrets are 32 random bytes from a
 CSPRNG, written in base64url. A fast hash is enough for values that random, so they need no
 salt and no stretching. Someone who reads the database learns no token that works.
 
@@ -128,7 +131,10 @@ to. Anything else gets `403`, and the server logs the origin it refused.
 Bearer requests are exempt because browsers never add an `Authorization` header on their
 own. So are OAuth's registration, token and revocation endpoints, which clients in
 browsers of any origin post to and which never read the session cookie, only what the
-request carries. A request with neither header passes. Browsers send `Origin` on every cross-site
+request carries; and posts to an incoming webhook's URL, under `/hooks/in/`: that path takes
+no cookie and no `Authorization` header, only the token in it, so a page elsewhere gains
+nothing by a visitor's browser posting there. Nothing else is exempt there: its rate limits,
+body limit and time limit hold. A request with neither header passes. Browsers send `Origin` on every cross-site
 request that changes something, and `SameSite=Lax` keeps the session cookie off cross-site
 posts besides.
 
@@ -178,6 +184,9 @@ attempts, then one more every 30 seconds:
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
 | `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
 | `oauth-token:grant:` | Exchanges of OAuth codes and refresh tokens, by grant. |
+| `hook-in:ip:` | Requests to incoming webhooks from one IP, before their URL is looked up: 120, then two a second. |
+| `hook-in:hook:` | Requests to one incoming webhook, from anyone: 60, then one a second. |
+| `webhook-test:user:` | Test events sent to outgoing webhooks, by user. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -209,7 +218,7 @@ master key wraps. The sealed value names its master key, so keys rotate: put a n
 and keep the old ones listed until nothing sealed with them is left.
 
 Each sealed value is bound to where it belongs by its associated data, `invite:<id>`,
-`workspace-invite-link:<id>` or `setting:<key>`. A sealed value copied to another row does not open there. A value that does
+`workspace-invite-link:<id>`, `setting:<key>`, `webhook:<id>` or `incoming-webhook:<id>`. A sealed value copied to another row does not open there. A value that does
 not open is skipped with a warning naming its row, never its contents.
 
 [Configuration](/docs/self-hosting/configuration/#secret-keys) shows how to make keys.
@@ -280,6 +289,41 @@ MCP clients and other programs connect through an OAuth 2.1 server, which
   after a while.
 - **Small requests.** The endpoints anyone may call read no more than a request of theirs
   needs: 64 KiB of a registration, 16 KiB and 16 parameters of a form.
+
+## Webhooks
+
+Outgoing webhooks connect from inside the server's network to a URL someone chose, so where
+they may go is checked, at registration and again before every delivery, never only once.
+The server resolves the URL's host itself, checks every address against the ranges the
+[Webhooks](/docs/guides/webhooks/#where-webhooks-may-go) guide lists, refusing them all if
+one is refused, and connects to an address it checked, without resolving again: DNS
+rebinding cannot swap in another address between the check and the connection. IPv4 hosts
+in every form a browser reads, and IPv6 addresses that carry an IPv4 one, are checked as the
+address they are. Redirects are never followed. Connecting may take 5 seconds, the whole
+exchange 10, and at most 64 KiB of an answer is read; resolving a host may take 5 seconds,
+at registration too. An identity has at most 10 webhooks and a workspace 200, so a change
+fans out to a bounded number of deliveries, which run in slots of their own in the job
+worker, never in mail's. Private ranges open only with
+`webhooks.allow_private`, which changes only from a browser session; metadata services and
+reserved ranges never do.
+
+Deliveries are signed with HMAC-SHA256 over a timestamp and the body, with a secret per
+webhook that the server makes, shows once and keeps sealed; receivers refuse timestamps more
+than 5 minutes off, which stops replays. A delivery goes out only if its identity may still
+see the row, as the rules say when it is sent, and so may whoever set the webhook's URL, who
+must also still be allowed to register it; otherwise nothing about the row is sent. So
+registering a webhook for someone else, or pointing theirs elsewhere, reveals nothing its
+setter could not read, and nobody keeps hearing through a webhook after losing the right to
+it. No
+log line or span holds a secret, a URL, a payload or an answer's body; the delivery log
+keeps the first 256 bytes of an answer and nothing of what was sent.
+
+An incoming webhook is reached by a 256-bit token in its URL, kept as its SHA-256, and may
+check signatures in the same scheme. Its body is read only after the client's and the
+webhook's rate limits, up to 256 KiB, and only while the webhook is on and its integration
+works. Its integration joins no teamspace and gets its target shared with it, so it edits
+its target alone, and the rules bound it by its owner's access as every agent's. Its log
+keeps the client's address and the outcome of each request, never its body.
 
 ## The last admin
 

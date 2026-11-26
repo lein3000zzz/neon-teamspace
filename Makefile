@@ -201,8 +201,9 @@ e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromiu
 		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
 	$(E2E_COMPOSE) up --detach --build --wait; \
 	address="$$($(E2E_COMPOSE) port web 80)"; \
+	receiver="$$($(E2E_COMPOSE) port receiver 8080)"; \
 	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
-	(cd e2e && E2E_BASE_URL="http://$$address" $(BUN) run test)
+	(cd e2e && E2E_BASE_URL="http://$$address" E2E_RECEIVER_URL="http://$$receiver" $(BUN) run test)
 
 ## Block fixtures (tools/blocknote-fixtures/)
 

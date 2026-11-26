@@ -20,6 +20,7 @@ export function WorkspaceSettingsLayout() {
       ? ([
           { to: "/w/$slug/settings/members", params, label: copy.tabs.members },
           { to: "/w/$slug/settings/agents", params, label: copy.tabs.agents },
+          { to: "/w/$slug/settings/webhooks", params, label: copy.tabs.webhooks },
           { to: "/w/$slug/settings/teamspaces", params, label: copy.tabs.teamspaces },
         ] satisfies SectionLink[])
       : []),

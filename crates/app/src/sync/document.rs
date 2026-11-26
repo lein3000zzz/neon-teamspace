@@ -68,12 +68,31 @@ pub(crate) enum Command {
     Read {
         done: oneshot::Sender<neon_blocks::Lenient>,
     },
+    /// Blocks to add after the last one, as `author`, told to every connection and logged
+    /// at once, or kept to log later when the database fails. The answer is dropped, rather
+    /// than sent, when the document is unloading, as for a join.
+    Append {
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        done: oneshot::Sender<Result<(), AppendError>>,
+    },
     /// Edits of the document's blocks, made by `author` from the server, all or none.
     Edit {
         author: Uuid,
         edits: Vec<Edit>,
         done: oneshot::Sender<Result<Vec<Applied>, Unedited>>,
     },
+}
+
+/// Why blocks were not added to a live document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AppendError {
+    #[error("the page is gone")]
+    Gone,
+    #[error("the page's content would be larger than it may be")]
+    TooLarge,
+    #[error("the page's content is not a document of blocks")]
+    NotADocument,
 }
 
 /// Why a live document made none of an edit's parts.
@@ -402,6 +421,14 @@ impl Document {
                 let txn = self.awareness.doc().transact();
                 let _ = done.send(neon_blocks::read_lenient(&txn, &self.fragment));
             }
+            Command::Append {
+                author,
+                blocks,
+                done,
+            } => {
+                let appended = self.append(author, &blocks).await;
+                let _ = done.send(appended);
+            }
             Command::Edit {
                 author,
                 edits,
@@ -411,6 +438,63 @@ impl Document {
                 let _ = done.send(edited);
             }
         }
+    }
+
+    /// Adds blocks after the document's last one, as `author`: every connection gets the
+    /// update, and it is logged at once rather than after the usual pause, so it is kept
+    /// once the caller hears it was added; when the database fails then, it stays in memory
+    /// and is logged again later, as every edit is. Refused when it would take the document
+    /// past its size limit, which is told before anything changes, and when the page turns
+    /// out to be gone as it is logged.
+    async fn append(
+        &mut self,
+        author: Uuid,
+        blocks: &[neon_blocks::Block],
+    ) -> Result<(), AppendError> {
+        if self.gone {
+            return Err(AppendError::Gone);
+        }
+        let max = self.inner.limits.max_document;
+        let estimate = {
+            let scratch = Doc::new();
+            let fragment = neon_blocks::fragment(&scratch);
+            let mut txn = scratch.transact_mut();
+            let mut ids = || Uuid::now_v7().to_string();
+            neon_blocks::append(&mut txn, &fragment, blocks, &mut ids)
+                .map_err(|_| AppendError::NotADocument)?;
+            txn.encode_update_v1().len()
+        };
+        if self.storage.size() + estimate > max {
+            if self.storage.needs_snapshot() {
+                self.compact().await;
+            }
+            if self.gone {
+                return Err(AppendError::Gone);
+            }
+            if self.storage.size() + estimate > max {
+                return Err(AppendError::TooLarge);
+            }
+        }
+        let changed = {
+            let mut txn = self.awareness.doc().transact_mut();
+            let mut ids = || Uuid::now_v7().to_string();
+            neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)
+                .map_err(|_| AppendError::NotADocument)?;
+            txn.encode_update_v1()
+        };
+        if changed.as_slice() != Update::EMPTY_V1 {
+            let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
+            self.inner
+                .broadcaster
+                .broadcast(Room::Page(self.page_id), message, None);
+            self.queue(changed, author);
+            self.flush().await;
+            if self.gone {
+                return Err(AppendError::Gone);
+            }
+        }
+        debug!(%author, blocks = blocks.len(), "blocks appended");
+        Ok(())
     }
 
     /// Makes edits of the server's, as one change everyone connected gets at once and the
