@@ -62,8 +62,13 @@ pub struct ImportForm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SkipReason {
-    /// Not a markdown file, such as an image: attachments are not imported yet.
+    /// Not a markdown file, such as an image, and no page links to it by a relative path.
     Attachment,
+    /// A file a page links to whose type its block does not take, such as a PDF in an
+    /// image.
+    UnsupportedType,
+    /// A file a page links to that is larger than an upload may be.
+    TooLarge,
     /// Its name, or a folder's it is in, starts with a dot.
     Hidden,
     /// A symbolic link.
@@ -82,6 +87,8 @@ impl From<AppSkipReason> for SkipReason {
     fn from(reason: AppSkipReason) -> Self {
         match reason {
             AppSkipReason::Attachment => Self::Attachment,
+            AppSkipReason::UnsupportedType => Self::UnsupportedType,
+            AppSkipReason::TooLarge => Self::TooLarge,
             AppSkipReason::Hidden => Self::Hidden,
             AppSkipReason::Link => Self::Link,
             AppSkipReason::Encrypted => Self::Encrypted,
@@ -313,16 +320,29 @@ fn download(export: Export) -> Response {
         CONTENT_TYPE,
         HeaderValue::from_static(export.format.content_type()),
     );
-    if let Ok(value) = HeaderValue::from_str(&disposition(&export.name)) {
+    if let Ok(value) = HeaderValue::from_str(&disposition(Disposition::Attachment, &export.name)) {
         headers.insert(CONTENT_DISPOSITION, value);
     }
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
-/// `Content-Disposition` for a file to save as `name`: in ASCII for old clients, `_` in
-/// place of what ASCII lacks, and in full by RFC 6266's `filename*`, percent-encoded.
-fn disposition(name: &str) -> String {
+/// How a browser takes a file it is sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Disposition {
+    /// Shown in place.
+    Inline,
+    /// Saved.
+    Attachment,
+}
+
+/// `Content-Disposition` for a file named `name`: in ASCII for old clients, `_` in place of
+/// what ASCII lacks, and in full by RFC 6266's `filename*`, percent-encoded.
+pub(super) fn disposition(how: Disposition, name: &str) -> String {
+    let how = match how {
+        Disposition::Inline => "inline",
+        Disposition::Attachment => "attachment",
+    };
     let ascii: String = name
         .chars()
         .map(|c| match c {
@@ -338,7 +358,7 @@ fn disposition(name: &str) -> String {
             encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
+    format!("{how}; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
 
 #[cfg(test)]
@@ -347,9 +367,14 @@ mod tests {
 
     #[test]
     fn file_names_survive_the_header() {
+        let disposition = |name| disposition(Disposition::Attachment, name);
         assert_eq!(
             disposition("Roadmap.md"),
             "attachment; filename=\"Roadmap.md\"; filename*=UTF-8''Roadmap.md"
+        );
+        assert_eq!(
+            super::disposition(Disposition::Inline, "photo.png"),
+            "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png"
         );
         assert_eq!(
             disposition("Q1 Planung für 2027.zip"),

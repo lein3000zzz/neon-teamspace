@@ -46,6 +46,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "webhooks", description = "Outgoing webhooks, which tell a URL, signed, of what happens to the rows an identity is assigned to, with their delivery logs; and incoming webhooks, which act as an integration on a database or page with what is posted to their URL, `POST /hooks/in/{token}`, which the docs describe."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
+        (name = "files", description = "Attachments: files uploaded to a page for its image, video, audio and file blocks and its cover, and read back at the path documents refer to them by, `/api/v1/files/{id}`."),
         (name = "search", description = "Searching a workspace's pages, databases and rows by their titles, text, rows' values and comments, among those the caller may see."),
         (name = "history", description = "Pages' versions: listing them, reading one, comparing one with the page as it is, and restoring one through the page's live document."),
         (name = "comments", description = "Threads of comments on pages, on a page as a whole or on a range of its text, their replies, following a page's comments, and what a mention may name. Open pages' editors hear that a thread changed over `GET /ws/pages/{id}`, which the docs describe."),

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO version_file_refs (version_id, file_id)\n         SELECT $1, id FROM UNNEST($2::uuid[]) AS ids (id)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6081ee8c1066dc6ed27e3d9d3c1cfd01f275213b8a89f79441c36c53801c635b"
+}

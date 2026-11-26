@@ -157,12 +157,30 @@ The crate's functions:
 | `anchors::resolve(txn, fragment, anchors)` | Where each inline thread's relative positions are now: the block its range starts in, or that it is detached. |
 | `anchors::block_anchor(txn, fragment, id)` | Relative positions over the whole text of one block, for a thread on it. |
 | `diff::diff(before, after)` | Each block of two documents compared: the same, changed, added or removed, in the later one's order, the earlier one's removed blocks where they were. `diff::Summary` counts them, for a page's history. |
+| `Document::files()` | Each image, video, audio and file block with the URL of the file it shows, in document order. |
+| `Document::map_files(map)` | Gives those blocks the URLs `map` returns, as exports and imports rewrite their links. |
+| `Document::links()` | The target of each link of the text, in blocks and table cells, in document order. Mentions are not links. |
+| `Document::map_links(map)` | Gives those links the targets `map` returns, as exports and imports rewrite them. |
 
 Writing gives each block without an id one from the `IdSource` it is passed, parents before
 their children. The crate has no source of randomness of its own. The server passes one that
 makes random ids, and tests pass a `SequentialIds`, which counts `block-1`, `block-2` and on,
 so what they write is the same on every run. Writing a document and reading it back gives the
 same document.
+
+### Files
+
+An image, video, audio or file block keeps its file's URL in its `url` prop, and its name in
+`name`. A file uploaded to the server is kept there as the path the server reads it at,
+`/api/v1/files/<id>`, on the same origin, so the editor loads it with the reader's session
+and the rules see every read; a URL of another site is a file the block only links to. The
+crate does not tell the two apart: the server finds its own files by their paths in the
+blocks `Document::files()` lists and in the links of the text `Document::links()` lists,
+records them with each snapshot, and rewrites them as paths inside a zip on export and back
+on import. Nothing in the schema changes for them, so
+BlockNote's own image, video, audio and file blocks hold them, and the fixtures' `file-blocks`
+and `file-links` samples test them with such paths.
+[Attachments](/docs/guides/attachments/) covers uploading and serving them.
 
 ## Markdown
 

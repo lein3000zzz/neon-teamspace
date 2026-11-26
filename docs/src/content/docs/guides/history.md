@@ -81,6 +81,16 @@ What happens with edits made around the restore:
   version saved before the restore either, as the server had not received them. The editor
   shows the restored block right away, so the person typing sees the change.
 
+### Files
+
+A version keeps the files it shows, those of its image, video, audio and file blocks and
+those its text links to: the hourly cleanup deletes no file a kept version shows, so
+restoring a version shows its files again, however long ago they were taken out of the page.
+Once the history thins out every version that shows a file the page no longer shows, the file
+waits out [`attachments.orphan_grace`](/docs/reference/settings/) and goes, as
+[Attachments](/docs/guides/attachments/#when-files-are-deleted) has it. Until then it counts
+against the workspace's storage.
+
 ### Comments and mentions
 
 A version holds the page's blocks and nothing else, so restoring one leaves the page's

@@ -21,7 +21,7 @@ pub const DEFAULT_PAGE: i64 = 50;
 pub struct Usage {
     /// People, guests included.
     pub members: i64,
-    /// Bytes of attachments, which do not exist yet: always 0 for now.
+    /// Bytes of attachments, together.
     pub storage_bytes: i64,
     /// Agents and integrations, deleted ones left out.
     pub agents: i64,
@@ -81,6 +81,11 @@ impl WorkspaceService {
             listed.truncate(page);
             let ids: Vec<Uuid> = listed.iter().map(|listed| listed.workspace.id).collect();
             let mut owners = repo::owners_of(&mut *conn, &ids).await?;
+            let storage: std::collections::HashMap<Uuid, i64> =
+                neon_store::files::usage_of(&mut *conn, &ids)
+                    .await?
+                    .into_iter()
+                    .collect();
             let workspaces: Vec<AdminWorkspace> = listed
                 .into_iter()
                 .map(|listed| {
@@ -94,7 +99,7 @@ impl WorkspaceService {
                         overrides: listed.limits,
                         usage: Usage {
                             members: listed.people,
-                            storage_bytes: 0,
+                            storage_bytes: storage.get(&listed.workspace.id).copied().unwrap_or(0),
                             agents: listed.agents,
                         },
                         workspace: listed.workspace,
@@ -147,7 +152,7 @@ impl WorkspaceService {
             repo::set_limits(&mut *tx, id, overrides, self.now()).await?;
             let usage = Usage {
                 members: repo::count_members(&mut *tx, id).await?,
-                storage_bytes: 0,
+                storage_bytes: neon_store::files::usage(&mut *tx, id).await?,
                 agents: neon_store::agents::count_live(&mut *tx, id).await?,
             };
             let owners = repo::owners_of(&mut *tx, &[id])

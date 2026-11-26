@@ -23,9 +23,18 @@ import {
 import { BlockNoteView } from "@blocknote/shadcn";
 import { useQueryClient } from "@tanstack/react-query";
 import { Database, FileText, MessageSquarePlus, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { mentionsQuery } from "@/api/comments";
 import { useCreateDatabase } from "@/api/databases";
+import { fileKindOf, uploadFile } from "@/api/files";
 import type { Person } from "@/api/workspaces";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { HueDot } from "@/components/nodes/hue-dot";
@@ -207,6 +216,9 @@ function LiveEditor({
   const [refused, setRefused] = useState(false);
   const [creating, setCreating] = useState<ReadonlySet<string>>(() => new Set());
   const [notMade, setNotMade] = useState<unknown>(null);
+  const [notUploaded, setNotUploaded] = useState<unknown>(null);
+  // The editor, for the upload hook, which BlockNote takes before it makes the editor.
+  const editorRef = useRef<{ getBlock: (id: string) => { type: string } | undefined } | null>(null);
   const { handlers } = comments;
   const editor = useCreateBlockNote(
     {
@@ -220,6 +232,20 @@ function LiveEditor({
           showCursorLabels: "activity",
         },
       }),
+      // Images, videos, audio and other files, picked in a block's panel, dropped or
+      // pasted, go to the server as files of the page, and their blocks keep the path it
+      // serves them at. What the server refuses leaves the block empty, and says why.
+      uploadFile: async (file: File, blockId?: string) => {
+        const block = blockId === undefined ? undefined : editorRef.current?.getBlock(blockId);
+        setNotUploaded(null);
+        try {
+          const uploaded = await uploadFile(pageId, fileKindOf(block?.type, file), file);
+          return uploaded.url;
+        } catch (error) {
+          setNotUploaded(error);
+          throw error;
+        }
+      },
       // The server refuses a message over its limit, and the paste would be lost.
       pasteHandler: ({ event, defaultPasteHandler }) => {
         if (event.clipboardData !== null && !pasteFits(event.clipboardData)) {
@@ -230,7 +256,7 @@ function LiveEditor({
         return defaultPasteHandler();
       },
     },
-    [session],
+    [session, pageId],
   );
 
   // Registered once the editor is made: given among its options, an extension
@@ -241,6 +267,13 @@ function LiveEditor({
       editor.unregisterExtension(COMMENT_HIGHLIGHTS);
     };
   }, [editor, handlers]);
+
+  useEffect(() => {
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor]);
 
   useEffect(() => {
     focusRef.current = () => editor.focus();
@@ -439,6 +472,15 @@ function LiveEditor({
       {notMade !== null && (
         <div style={{ paddingInline: "var(--page-inset)" }}>
           <ErrorNotice error={notMade} title={copy.databaseFailed} />
+        </div>
+      )}
+      {notUploaded !== null && (
+        <div style={{ paddingInline: "var(--page-inset)" }}>
+          <ErrorNotice error={notUploaded} title={copy.uploadFailed}>
+            <Button variant="ghost" size="sm" onClick={() => setNotUploaded(null)}>
+              {copy.dismiss}
+            </Button>
+          </ErrorNotice>
         </div>
       )}
       <EditorPageContext value={page}>

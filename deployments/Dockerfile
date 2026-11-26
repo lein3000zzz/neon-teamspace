@@ -115,13 +115,17 @@ COPY .sqlx ./.sqlx
 ENV SQLX_OFFLINE=true
 RUN . /cross.env \
     && cargo build --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server --bin neon \
-    && cp "target/$RUST_TARGET/$CARGO_PROFILE/neon" /neon
+    && cp "target/$RUST_TARGET/$CARGO_PROFILE/neon" /neon \
+    && mkdir /data
 
 # glibc, libgcc and CA certificates, no shell, running as the unprivileged user nonroot.
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:29ee70762214fe8190cea04ef1c0a84a8365879e047ce8f911ae5a5ab2355fa2
 
 COPY --from=build /neon /usr/local/bin/neon
 COPY --from=notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
+# The data directory, attachments on local disk among it, owned by nonroot. A volume mounted
+# there takes its owner from it the first time.
+COPY --from=build --chown=65532:65532 /data /var/lib/neon
 
 LABEL org.opencontainers.image.title="neon-teamspace-server" \
       org.opencontainers.image.description="Neon Teamspace's server, the neon binary" \
@@ -131,6 +135,7 @@ LABEL org.opencontainers.image.title="neon-teamspace-server" \
 # Heap profiling switched on in jemalloc, which reads this once as the process starts. It costs
 # little until profiling.profiles lists heap; see the observability docs.
 ENV _RJEM_MALLOC_CONF=prof:true,prof_active:true,lg_prof_sample:19
+ENV NEON_SERVER__DATA_DIR=/var/lib/neon
 
 # 8080 is the HTTP API, for the web image's Caddy to reach. 9090 is the admin listener, with
 # metrics, health checks and profiles. It stays on 127.0.0.1 unless

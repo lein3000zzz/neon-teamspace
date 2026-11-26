@@ -22,6 +22,10 @@ server:
   trusted_proxies:
     - 127.0.0.0/8
     - ::1/128
+  # Where the server keeps what is not in Postgres: attachments, in its attachments folder,
+  # while the setting attachments.storage is local. Relative to the working directory unless
+  # absolute; made if it is missing. Back it up with the database.
+  data_dir: data
 
 database:
   # The Postgres URL. Required, and better set as NEON_DATABASE__URL, since it holds a
@@ -99,6 +103,24 @@ settings:
   instance:
     # The instance's name, shown in the interface and in mail.
     # name: Neon Teamspace
+  attachments:
+    # Where uploaded files are kept: local, in server.data_dir's attachments folder, or s3,
+    # a bucket of an S3-compatible store such as SeaweedFS.
+    # storage: local
+    # The store's URL, empty for Amazon S3; its bucket, which must exist, and region; and
+    # whether the bucket goes in the URL's path, as most stores but Amazon's want. Keep the
+    # secret in NEON_SETTINGS__ATTACHMENTS__S3__SECRET_ACCESS_KEY, or save it on the admin page.
+    # s3:
+      # endpoint:
+      # bucket:
+      # region: us-east-1
+      # access_key_id:
+      # secret_access_key:
+      # path_style: true
+    # The largest file one upload takes, in bytes, and how long a file no page and no kept
+    # version shows any more is kept before it is deleted.
+    # max_file_bytes: 52428800
+    # orphan_grace: 30d
   auth:
     # Who may create an account: open, invite or closed.
     # registration: invite
@@ -188,7 +210,8 @@ settings:
     # Who may create a workspace: anyone or admins.
     # creation: anyone
     # What a workspace may hold unless an instance admin sets its own limits; 0 is no
-    # limit. Agents and integrations count against agents together, people against members.
+    # limit. Agents and integrations count against agents together, people against members,
+    # and attachments against storage_bytes.
     # limits:
       # members: 0
       # agents: 0

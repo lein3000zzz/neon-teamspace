@@ -17,6 +17,7 @@ mod align;
 pub mod anchors;
 pub mod diff;
 pub mod edit;
+mod files;
 mod ids;
 mod inline;
 pub mod markdown;

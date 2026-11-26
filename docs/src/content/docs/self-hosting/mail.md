@@ -225,7 +225,7 @@ must come from that origin.
 
 In the Docker stack, the `mail` profile runs Mailpit at `mailpit:1025` inside the stack's
 network, with its inbox on `http://127.0.0.1:8025/`; see
-[Development profiles](/docs/self-hosting/install/#development-profiles). Point the server
+[Profiles](/docs/self-hosting/install/#profiles). Point the server
 at it in `deployments/server.env`, with host `mailpit`, port `1025` and TLS `none`.
 
 ## When mail does not arrive

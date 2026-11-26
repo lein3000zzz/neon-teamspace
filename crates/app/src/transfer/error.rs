@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use neon_domain::duration;
 
+use crate::attachments::AttachmentError;
 use crate::databases::DatabaseError;
 use crate::pages::PageError;
 use crate::sync::LoadError;
@@ -30,6 +31,9 @@ pub enum TransferError {
     /// A database's rows or a row's properties could not be read for the caller.
     #[error(transparent)]
     Database(#[from] DatabaseError),
+    /// A file could not be written or read, or the workspace has no room for them.
+    #[error(transparent)]
+    Attachment(#[from] AttachmentError),
     /// A page's saved document could not be read.
     #[error("page {page_id}: {error}")]
     Content {
@@ -54,6 +58,7 @@ impl TransferError {
             Self::RateLimited { .. } => "rate_limited",
             Self::Page(error) => error.code(),
             Self::Database(error) => error.code(),
+            Self::Attachment(error) => error.code(),
             Self::Content { .. } | Self::Internal(_) => "internal",
         }
     }
@@ -64,6 +69,7 @@ impl TransferError {
         match self {
             Self::Page(error) => error.is_expected(),
             Self::Database(error) => error.is_expected(),
+            Self::Attachment(error) => error.is_expected(),
             Self::Content { .. } | Self::Internal(_) => false,
             _ => true,
         }

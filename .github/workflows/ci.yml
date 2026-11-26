@@ -209,6 +209,9 @@ jobs:
         run: make migrate
       - name: Tests
         run: make test
+      # The S3 blob store against SeaweedFS in a container, with the test binary just built.
+      - name: S3 blob store
+        run: make test-s3
       # With the neon binary the tests built, as cargo builds it for the server's integration
       # tests. make api-check alone would compile it again: built from the query cache, and
       # without the features the tests' dependencies turn on, it shares little with their build.

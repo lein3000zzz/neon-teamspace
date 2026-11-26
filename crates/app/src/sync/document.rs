@@ -1158,19 +1158,20 @@ impl Document {
     }
 
     /// Saves the whole document as the page's snapshot, in one transaction with deleting
-    /// the updates it takes in, recording its text and latest change on the page, and
-    /// keeping its blocks as a version when they changed, and recording whom it mentions,
-    /// which tells those it mentions for the first time, each as from whoever wrote their
-    /// mention. The mentions are recorded in a savepoint of their own: should that fail,
+    /// the updates it takes in, recording its text, the files it shows and its latest change
+    /// on the page, keeping its blocks as a version when they changed, and recording whom it
+    /// mentions, which tells those it mentions for the first time, each as from whoever
+    /// wrote their mention. The mentions are recorded in a savepoint of their own: should that fail,
     /// which is logged, the snapshot is saved without them. Returns whether it was saved. A
     /// failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text, document, mentioned) = {
+        let (state, state_vector, text, files, document, mentioned) = {
             let txn = self.awareness.doc().transact();
-            let (text, document, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
+            let (text, files, document, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
                 Ok(document) => (
                     Some(document.plain_text()),
+                    Some(crate::attachments::shown_files(&document)),
                     document,
                     neon_blocks::mention_items(&txn, &self.fragment)
                         .ok()
@@ -1178,8 +1179,12 @@ impl Document {
                 ),
                 Err(error) => {
                     // Its structure, never its content.
-                    warn!(%error, "the document does not read as blocks; its search text stays");
+                    warn!(
+                        %error,
+                        "the document does not read as blocks; its search text and files stay"
+                    );
                     (
+                        None,
                         None,
                         neon_blocks::read_lenient(&txn, &self.fragment).document,
                         None,
@@ -1190,6 +1195,7 @@ impl Document {
                 txn.encode_state_as_update_v1(&StateVector::default()),
                 txn.state_vector().encode_v1(),
                 text,
+                files,
                 document,
                 mentioned,
             )
@@ -1218,6 +1224,9 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            if let Some(files) = &files {
+                neon_store::files::set_page_refs(&mut *tx, page_id, files).await?;
+            }
             let versioned = record::record(
                 &mut tx,
                 record::Snapshot {

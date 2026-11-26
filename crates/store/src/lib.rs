@@ -11,6 +11,7 @@ pub mod databases;
 pub mod documents;
 pub mod email_tokens;
 pub mod favorites;
+pub mod files;
 pub mod incoming_webhooks;
 pub mod invites;
 pub mod jobs;

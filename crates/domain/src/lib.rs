@@ -7,6 +7,7 @@
 mod text_enum;
 
 pub mod agents;
+pub mod attachments;
 pub mod auth;
 pub mod comments;
 pub mod databases;

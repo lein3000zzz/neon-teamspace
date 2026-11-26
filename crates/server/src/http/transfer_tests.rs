@@ -25,13 +25,13 @@ use super::tests::{state, state_with};
 use super::workspaces_tests::{Browser, team};
 use super::*;
 
-const BOUNDARY: &str = "neon-test-form";
+pub(super) const BOUNDARY: &str = "neon-test-form";
 
 /// A part of a form: its field's name, its file's name if any, and its content.
-type Part<'a> = (&'a str, Option<&'a str>, &'a [u8]);
+pub(super) type Part<'a> = (&'a str, Option<&'a str>, &'a [u8]);
 
 /// A `multipart/form-data` body of `parts`.
-fn form(parts: &[Part<'_>]) -> Vec<u8> {
+pub(super) fn form(parts: &[Part<'_>]) -> Vec<u8> {
     let mut body = Vec::new();
     for (field, file, content) in parts {
         body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
@@ -49,26 +49,26 @@ fn form(parts: &[Part<'_>]) -> Vec<u8> {
 }
 
 /// What a request answered: its status, headers and body as they came.
-struct Raw {
-    status: StatusCode,
-    headers: HeaderMap,
-    body: Bytes,
+pub(super) struct Raw {
+    pub(super) status: StatusCode,
+    pub(super) headers: HeaderMap,
+    pub(super) body: Bytes,
 }
 
 impl Raw {
-    fn json(&self) -> Value {
+    pub(super) fn json(&self) -> Value {
         serde_json::from_slice(&self.body)
             .unwrap_or_else(|_| panic!("not JSON: {}", String::from_utf8_lossy(&self.body)))
     }
 
-    fn code(&self) -> String {
+    pub(super) fn code(&self) -> String {
         self.json()["error"]["code"]
             .as_str()
             .unwrap_or_else(|| panic!("not the error shape: {}", self.json()))
             .to_owned()
     }
 
-    fn header(&self, name: impl axum::http::header::AsHeaderName) -> &str {
+    pub(super) fn header(&self, name: impl axum::http::header::AsHeaderName) -> &str {
         self.headers
             .get(name)
             .and_then(|value| value.to_str().ok())
@@ -76,7 +76,7 @@ impl Raw {
     }
 }
 
-async fn send(
+pub(super) async fn send(
     app: &Router,
     method: Method,
     uri: &str,
@@ -112,7 +112,12 @@ async fn send(
 }
 
 /// Posts a form of `parts` to import into the place `query` names.
-async fn import(by: &Browser<'_>, workspace: &str, query: &str, parts: &[Part<'_>]) -> Raw {
+pub(super) async fn import(
+    by: &Browser<'_>,
+    workspace: &str,
+    query: &str,
+    parts: &[Part<'_>],
+) -> Raw {
     send(
         by.app(),
         Method::POST,
@@ -124,7 +129,7 @@ async fn import(by: &Browser<'_>, workspace: &str, query: &str, parts: &[Part<'_
     .await
 }
 
-async fn download(by: &Browser<'_>, uri: &str) -> Raw {
+pub(super) async fn download(by: &Browser<'_>, uri: &str) -> Raw {
     send(
         by.app(),
         Method::GET,
@@ -137,7 +142,7 @@ async fn download(by: &Browser<'_>, uri: &str) -> Raw {
 }
 
 /// A zip of `files`, each a name and its content.
-fn zipped(files: &[(&str, &[u8])]) -> Vec<u8> {
+pub(super) fn zipped(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     for (name, content) in files {
         writer
@@ -148,7 +153,7 @@ fn zipped(files: &[(&str, &[u8])]) -> Vec<u8> {
     writer.finish().expect("finished").into_inner()
 }
 
-fn unzipped(bytes: &[u8]) -> BTreeMap<String, String> {
+pub(super) fn unzipped(bytes: &[u8]) -> BTreeMap<String, String> {
     let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("a zip");
     (0..zip.len())
         .map(|i| {

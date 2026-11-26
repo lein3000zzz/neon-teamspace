@@ -2,10 +2,11 @@
 //! and the paths of an archive's entries, which an import must keep inside the archive.
 //!
 //! An export writes each page as a markdown file named after its title, and the pages under
-//! it in a folder of the same name beside the file. File systems refuse some characters and
-//! names, and some do not tell upper from lower case, so names are cleaned and kept apart
-//! among siblings ignoring case. An import reads the same layout back: a folder is a page,
-//! and a markdown file with the folder's name beside it is that page's content.
+//! it in a folder of the same name beside the file, with the files its blocks show. File
+//! systems refuse some characters and names, and some do not tell upper from lower case, so
+//! names are cleaned and kept apart among siblings ignoring case. An import reads the same
+//! layout back: a folder is a page, a markdown file with the folder's name beside it is that
+//! page's content, and the other files are those its pages show.
 
 use std::collections::HashSet;
 
@@ -95,6 +96,38 @@ impl Names {
             n += 1;
             claimed = format!("{name} ({n})");
         }
+    }
+}
+
+impl Names {
+    /// A free name for an attachment in the folder, from the file's own: `name`, or
+    /// `stem (2).ext`, `stem (3).ext`, ..., which is then taken, so neither another file nor
+    /// a page's folder or file takes it. A name that would read as markdown gets `.txt`
+    /// after it, as an import makes a page of a markdown file.
+    pub fn claim_file(&mut self, name: &str) -> String {
+        let cleaned = file_name(name);
+        let markdown = cleaned.rsplit_once('.').is_some_and(|(_, ext)| {
+            ["md", "markdown"]
+                .iter()
+                .any(|md| ext.eq_ignore_ascii_case(md))
+        });
+        let name = if markdown {
+            format!("{cleaned}.txt")
+        } else {
+            cleaned
+        };
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() => (stem.to_owned(), format!(".{ext}")),
+            _ => (name.clone(), String::new()),
+        };
+        let mut claimed = name;
+        let mut n = 1;
+        while self.taken.contains(&claimed.to_lowercase()) {
+            n += 1;
+            claimed = format!("{stem} ({n}){ext}");
+        }
+        self.taken.insert(claimed.to_lowercase());
+        claimed
     }
 }
 
@@ -193,6 +226,22 @@ mod tests {
         assert_eq!(names.claim("other.MD"), "other.MD (2)");
         assert_eq!(names.claim("Plan.md"), "Plan.md");
         assert_eq!(names.claim("Plan"), "Plan (2)");
+    }
+
+    #[test]
+    fn attachments_get_names_of_their_own_beside_pages() {
+        let mut names = Names::default();
+        assert_eq!(names.claim_file("diagram.png"), "diagram.png");
+        assert_eq!(names.claim_file("Diagram.PNG"), "Diagram (2).PNG");
+        assert_eq!(names.claim("diagram.png"), "diagram.png (2)");
+        assert_eq!(names.claim("Notes"), "Notes");
+        assert_eq!(names.claim_file("notes"), "notes (2)");
+        assert_eq!(names.claim_file("notes.md"), "notes.md.txt");
+        assert_eq!(names.claim_file("README.markdown"), "README.markdown.txt");
+        assert_eq!(names.claim_file("a/b: c?.pdf"), "a b c .pdf");
+        assert_eq!(names.claim_file(".env"), "env");
+        assert_eq!(names.claim_file(""), UNTITLED);
+        assert_eq!(names.claim_file("con.txt"), "_con.txt");
     }
 
     #[test]

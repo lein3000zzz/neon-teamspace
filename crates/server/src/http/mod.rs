@@ -15,6 +15,7 @@ pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+mod files;
 pub(crate) mod history;
 mod hooks;
 pub(crate) mod inbox;
@@ -40,12 +41,13 @@ use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Request};
+use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
+use neon_app::attachments::{AttachmentService, UPLOAD_TIME_LIMIT};
 use neon_app::auth::AuthService;
 use neon_app::comments::CommentService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
@@ -98,6 +100,7 @@ pub struct AppState {
     pub inbox: InboxService,
     pub inbox_feeds: InboxFeeds,
     pub transfer: TransferService,
+    pub attachments: AttachmentService,
     pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
     pub mcp: crate::mcp::Mcp,
@@ -316,6 +319,13 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(database_rows::list_tasks))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
+        .routes(routes!(files::read_file))
+        // An upload streams, its largest file bounding it as it comes.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(files::upload_file))
+                .layer(files::upload_body_limit()),
+        )
         // Uploads are larger than the bodies of other routes.
         .merge(
             OpenApiRouter::new()
@@ -374,8 +384,10 @@ struct Limits {
     /// The largest body an extractor reads. Larger ones are refused with 413.
     body: usize,
     /// How long a handler may take to answer. Responses that stream, like server-sent
-    /// events, are only bound until their headers are sent.
+    /// events and files, are only bound until their headers are sent.
     timeout: Duration,
+    /// How long an upload of a file may take, its body included.
+    upload: Duration,
 }
 
 impl Default for Limits {
@@ -383,6 +395,7 @@ impl Default for Limits {
         Self {
             body: 2 * 1024 * 1024,
             timeout: Duration::from_secs(30),
+            upload: UPLOAD_TIME_LIMIT,
         }
     }
 }
@@ -426,7 +439,16 @@ fn app(
                 .layer(SetSensitiveResponseHeadersLayer::new([SET_COOKIE]))
                 .layer(CatchPanicLayer::custom(error::panicked))
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
-                    time_limit(limits.timeout, request, next)
+                    let uploads = request
+                        .extensions()
+                        .get::<MatchedPath>()
+                        .is_some_and(|path| path.as_str() == files::UPLOAD_ROUTE);
+                    let timeout = if uploads {
+                        limits.upload
+                    } else {
+                        limits.timeout
+                    };
+                    time_limit(timeout, request, next)
                 }))
                 // Around the routes' methods and the fallback that refuses the others, so
                 // that it answers the preflights of OAuth's endpoints for clients.
@@ -479,6 +501,8 @@ mod comments_tests;
 mod content_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod files_tests;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]

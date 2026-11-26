@@ -16,8 +16,8 @@ it gets **Workspace not found**, as anyone outside would.
 - how many people are in it, guests included, and when it was made;
 - each limit with its usage: **Members**, **Storage** and **Agents**, as used of the limit,
   and whether the limit is the workspace's own or the instance default. Members are people,
-  guests included; agents are its agents and integrations together, deleted ones left out.
-  Storage counts from 0 until attachments exist, **planned**.
+  guests included; agents are its agents and integrations together, deleted ones left out;
+  storage is the bytes its [attachments](/docs/guides/attachments/) take together.
 
 ## Limits
 

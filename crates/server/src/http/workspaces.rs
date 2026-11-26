@@ -148,6 +148,10 @@ pub struct Workspace {
     pub member_count: Option<i64>,
     pub agents: WorkspaceAgents,
     pub limits: EffectiveLimits,
+    /// The bytes its attachments take together, as `limits.storage_bytes` counts them.
+    /// Absent for a guest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_bytes: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -165,6 +169,7 @@ impl From<WorkspaceDetails> for Workspace {
                 count: details.agents,
             },
             limits: details.limits.into(),
+            storage_bytes: details.storage_bytes,
             updated_at: details.workspace.updated_at,
         }
     }

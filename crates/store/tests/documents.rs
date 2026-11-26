@@ -80,6 +80,7 @@ async fn page(pool: &PgPool) -> (Uuid, Uuid) {
         title: String::new(),
         icon: None,
         cover: None,
+        cover_image: None,
         style: PageStyle::default(),
         created_by: Some(ada),
         last_edited_by: Some(ada),

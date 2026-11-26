@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { HueControl } from "@/components/workspaces/hue-control";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
-import { formatDate } from "@/lib/format";
+import { formatBytes, formatDate } from "@/lib/format";
 import { strings } from "@/lib/strings";
 import { iconProblem, nameProblem, slugProblem } from "@/lib/validation";
 import { manages } from "@/lib/workspace-rules";
@@ -326,11 +326,20 @@ function LimitsSection({ workspace }: { workspace: Workspace }) {
   const max = workspace.limits.members;
   const limit = max === undefined || max === null ? copy.noLimit : String(max);
   const count = workspace.member_count;
+  const maxBytes = workspace.limits.storage_bytes;
+  const bytesLimit =
+    maxBytes === undefined || maxBytes === null ? copy.noLimit : formatBytes(maxBytes);
+  const used = workspace.storage_bytes;
   return (
     <PageSection title={copy.limits} hint={copy.limitsHint}>
       <KeyValueList className="max-w-xl text-sm">
         <KeyValueRow label={strings.admin.workspaces.kinds.members}>
           {count === undefined || count === null ? limit : copy.memberLimit(count, limit)}
+        </KeyValueRow>
+        <KeyValueRow label={copy.storage}>
+          {used === undefined || used === null
+            ? bytesLimit
+            : copy.storageUsed(formatBytes(used), bytesLimit)}
         </KeyValueRow>
       </KeyValueList>
     </PageSection>

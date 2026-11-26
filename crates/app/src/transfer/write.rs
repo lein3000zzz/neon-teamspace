@@ -1,10 +1,11 @@
 //! Writing an export's zip, in memory: each page's markdown file named after its title, and
-//! the pages under a page in a folder of the same name beside its file, as an import reads
-//! them back.
+//! the pages under a page, with the files its blocks show, in a folder of the same name
+//! beside its file, as an import reads them back.
 
 use std::collections::HashMap;
 use std::io::{Cursor, Write as _};
 
+use neon_domain::attachments::{File, MediaType};
 use neon_domain::pages::files::{Names, file_name};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -27,6 +28,16 @@ pub(super) struct ZipExport {
     max_bytes: usize,
 }
 
+/// Where a page's markdown file goes in the zip.
+pub(super) struct Placed {
+    /// The file's path.
+    file: String,
+    /// The folders it is in, which its links start from.
+    pub(super) folder: Vec<String>,
+    /// When the page's content last changed, which dates its file.
+    changed: OffsetDateTime,
+}
+
 impl ZipExport {
     pub(super) fn new(max_bytes: usize) -> Self {
         Self {
@@ -40,7 +51,60 @@ impl ZipExport {
 
     /// Adds a page's file, in the folder of the page it is under when that was added, else
     /// at the top.
+    #[cfg(test)]
     pub(super) fn add(&mut self, page: &OutlinePage, markdown: &str) -> Result<(), TransferError> {
+        let placed = self.place(page);
+        self.write(&placed, markdown)
+    }
+
+    /// Names a page's file, in the folder of the page it is under when that was placed, else
+    /// at the top, and gives it a folder of its own for the pages under it and its files.
+    pub(super) fn place(&mut self, page: &OutlinePage) -> Placed {
+        let (folder, names) = match page.parent_id.and_then(|id| self.folders.get_mut(&id)) {
+            Some((folder, names)) => (folder.clone(), names),
+            None => (String::new(), &mut self.top),
+        };
+        let name = names.claim(&file_name(&page.title));
+        self.folders
+            .insert(page.id, (format!("{folder}{name}/"), Names::default()));
+        Placed {
+            file: format!("{folder}{name}.md"),
+            folder: folder
+                .split('/')
+                .filter(|part| !part.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            changed: page.content_updated_at,
+        }
+    }
+
+    /// Adds a file a page shows to the page's folder, named after it, and gives its path in
+    /// the zip. Place the page first.
+    pub(super) fn attach(
+        &mut self,
+        page_id: Uuid,
+        file: &File,
+        bytes: &[u8],
+    ) -> Result<String, TransferError> {
+        let (folder, names) = self
+            .folders
+            .get_mut(&page_id)
+            .ok_or_else(|| TransferError::Internal("a file of a page not placed".to_owned()))?;
+        let path = format!("{folder}{}", names.claim_file(&file.name));
+        let options = options(file.created_at).compression_method(if compressed(file.media) {
+            CompressionMethod::Stored
+        } else {
+            CompressionMethod::Deflated
+        });
+        self.writer
+            .start_file(path.as_str(), options)
+            .and_then(|()| Ok(self.writer.write_all(bytes)?))
+            .map_err(|error| TransferError::Internal(format!("writing the zip: {error}")))?;
+        Ok(path)
+    }
+
+    /// Writes a placed page's markdown file.
+    pub(super) fn write(&mut self, placed: &Placed, markdown: &str) -> Result<(), TransferError> {
         self.bytes += markdown.len();
         if self.bytes > self.max_bytes {
             return Err(TransferError::too_large(format!(
@@ -49,16 +113,8 @@ impl ZipExport {
                 size(self.max_bytes)
             )));
         }
-        let (folder, names) = match page.parent_id.and_then(|id| self.folders.get_mut(&id)) {
-            Some((folder, names)) => (folder.as_str(), names),
-            None => ("", &mut self.top),
-        };
-        let name = names.claim(&file_name(&page.title));
-        let file = format!("{folder}{name}.md");
-        let own = format!("{folder}{name}/");
-        self.folders.insert(page.id, (own, Names::default()));
         self.writer
-            .start_file(file, options(page.content_updated_at))
+            .start_file(placed.file.as_str(), options(placed.changed))
             .and_then(|()| Ok(self.writer.write_all(markdown.as_bytes())?))
             .map_err(|error| TransferError::Internal(format!("writing the zip: {error}")))
     }
@@ -70,6 +126,16 @@ impl ZipExport {
             .map(Cursor::into_inner)
             .map_err(|error| TransferError::Internal(format!("writing the zip: {error}")))
     }
+}
+
+/// Whether a file's bytes are compressed already, as media and archives are, so deflating
+/// them again gains nothing.
+fn compressed(media: MediaType) -> bool {
+    use MediaType as M;
+    !matches!(
+        media,
+        M::Svg | M::Html | M::Xml | M::Text | M::Unknown | M::Wav
+    )
 }
 
 /// A file deflated, readable by everyone, dated when its page's content last changed, as
@@ -156,6 +222,63 @@ mod tests {
             ]
         );
         assert_eq!(written[1].1, "# Q1: Goals\n");
+    }
+
+    #[test]
+    fn files_go_in_their_page_s_folder_beside_its_pages() {
+        let mut export = ZipExport::new(1 << 20);
+        let roadmap = page(1, None, "Roadmap");
+        let placed = export.place(&roadmap);
+        assert!(placed.folder.is_empty());
+        let file = |name: &str, media| File {
+            id: Uuid::from_u128(9),
+            workspace_id: Uuid::from_u128(8),
+            page_id: roadmap.id,
+            uploaded_by: None,
+            kind: neon_domain::attachments::FileKind::File,
+            key: "k".to_owned(),
+            name: name.to_owned(),
+            media,
+            size: 3,
+            sha256: [0; 32],
+            dimensions: None,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        assert_eq!(
+            export
+                .attach(roadmap.id, &file("diagram.png", MediaType::Png), b"png")
+                .expect("attached"),
+            "Roadmap/diagram.png"
+        );
+        assert_eq!(
+            export
+                .attach(roadmap.id, &file("notes.md", MediaType::Text), b"txt")
+                .expect("attached"),
+            "Roadmap/notes.md.txt"
+        );
+        export.write(&placed, "# Roadmap\n").expect("written");
+        let child = export.place(&page(2, Some(1), "diagram.png"));
+        assert_eq!(child.folder, ["Roadmap"]);
+        export.write(&child, "# child\n").expect("written");
+        assert!(
+            export
+                .attach(Uuid::from_u128(7), &file("x.png", MediaType::Png), b"x")
+                .is_err(),
+            "a page not placed has no folder"
+        );
+        let names: Vec<String> = files(export.finish().expect("finished"))
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Roadmap/diagram.png",
+                "Roadmap/notes.md.txt",
+                "Roadmap.md",
+                "Roadmap/diagram.png (2).md"
+            ]
+        );
     }
 
     #[test]

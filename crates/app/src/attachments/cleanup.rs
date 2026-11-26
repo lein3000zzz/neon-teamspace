@@ -1,0 +1,151 @@
+//! The hourly cleanup of attachments: files no page shows any more, past their grace, and
+//! the blobs of files deleted.
+//!
+//! A page's last snapshot names the files its document shows, each version the history
+//! keeps those it shows, and a cover the file it shows. A document with updates logged since its snapshot may show more, and so may one
+//! open now, so the cleanup reads each such document of the workspaces it looks at, as it
+//! is now. A file shown
+//! nowhere is marked, then deleted once it has stayed so for `attachments.orphan_grace`; a
+//! file shown again is unmarked, and starts over the next time it is shown nowhere. When a
+//! document cannot be read, its workspace's files wait for the next run. The blobs of files
+//! deleted, by the run or before it, are deleted a batch after another, for as long as
+//! [`SWEEP_TIME`] allows.
+
+use std::collections::{BTreeSet, HashSet};
+use std::time::{Duration, Instant};
+
+use neon_store::files::{self, Unreferenced};
+use tracing::{info, warn};
+use uuid::Uuid;
+
+use super::{AttachmentError, AttachmentService, shown_files};
+use crate::settings::attachments as keys;
+
+/// How many files one run looks at, at most, and how many blobs it reads to delete at once.
+/// The next run takes the rest of the files.
+const BATCH: i64 = 1000;
+
+/// How long one run goes on deleting blobs, a batch after another, once their files are
+/// gone: those still due then wait for the next run.
+const SWEEP_TIME: Duration = Duration::from_secs(10 * 60);
+
+/// What one run did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CleanupReport {
+    /// Files found shown nowhere, from now.
+    pub marked: u64,
+    /// Files shown again.
+    pub unmarked: u64,
+    /// Files deleted, shown nowhere for their grace.
+    pub deleted: u64,
+    /// Blobs deleted from the store.
+    pub blobs: u64,
+}
+
+impl AttachmentService {
+    /// Marks, unmarks and deletes files as the module docs describe, then deletes the blobs
+    /// of files deleted. The hourly cleanup runs it.
+    pub async fn cleanup(&self) -> Result<CleanupReport, AttachmentError> {
+        self.observe("cleanup", async {
+            let now = self.now();
+            let grace = *self.settings().get(keys::ORPHAN_GRACE);
+            let before = now - grace;
+            let mut candidates = files::unreferenced(self.pool(), None, BATCH).await?;
+            candidates.extend(files::unreferenced(self.pool(), Some(before), BATCH).await?);
+            let (shown, unsure) = self.shown_since_snapshots(&candidates).await?;
+            let shown_ids: Vec<Uuid> = shown.iter().copied().collect();
+            let mut report = CleanupReport {
+                unmarked: files::unmark_referenced(self.pool(), &shown_ids).await?,
+                ..CleanupReport::default()
+            };
+            let orphans: Vec<&Unreferenced> = candidates
+                .iter()
+                .filter(|file| !shown.contains(&file.id) && !unsure.contains(&file.workspace_id))
+                .collect();
+            let fresh: Vec<Uuid> = orphans
+                .iter()
+                .filter(|file| file.since.is_none())
+                .map(|file| file.id)
+                .collect();
+            report.marked = files::mark_unreferenced(self.pool(), &fresh, now).await?;
+            let due: Vec<Uuid> = orphans
+                .iter()
+                .filter(|file| file.since.is_some_and(|since| since < before))
+                .map(|file| file.id)
+                .collect();
+            report.deleted = files::delete_unreferenced(self.pool(), &due, before).await?;
+            report.blobs = self.sweep(now).await?;
+            if report != CleanupReport::default() {
+                info!(
+                    marked = report.marked,
+                    unmarked = report.unmarked,
+                    deleted = report.deleted,
+                    blobs = report.blobs,
+                    "attachments cleaned up"
+                );
+            }
+            Ok(report)
+        })
+        .await
+    }
+
+    /// The files the documents of the candidates' workspaces show that their last
+    /// snapshots may not, and the workspaces one of whose documents did not read.
+    async fn shown_since_snapshots(
+        &self,
+        candidates: &[Unreferenced],
+    ) -> Result<(HashSet<Uuid>, HashSet<Uuid>), AttachmentError> {
+        let workspaces: Vec<Uuid> = candidates
+            .iter()
+            .map(|file| file.workspace_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let (mut shown, mut unsure) = (HashSet::new(), HashSet::new());
+        if workspaces.is_empty() {
+            return Ok((shown, unsure));
+        }
+        let open = self.inner.sync.open_pages();
+        for (page_id, workspace_id) in files::pages_to_read(self.pool(), &workspaces, &open).await?
+        {
+            match self.inner.sync.content(page_id).await {
+                Ok(document) => shown.extend(shown_files(&document)),
+                Err(error) => {
+                    warn!(%error, %page_id, "a document did not read; its workspace's files wait");
+                    unsure.insert(workspace_id);
+                }
+            }
+        }
+        Ok((shown, unsure))
+    }
+
+    /// Deletes the blobs due to be, a batch after another, until none are left, or a batch
+    /// deletes none, or [`SWEEP_TIME`] is spent; says how many went. One the store does not
+    /// delete stays for the next run.
+    async fn sweep(&self, now: time::OffsetDateTime) -> Result<u64, AttachmentError> {
+        let started = Instant::now();
+        let mut deleted = 0;
+        loop {
+            let keys = files::due_blobs(self.pool(), now, BATCH).await?;
+            if keys.is_empty() {
+                return Ok(deleted);
+            }
+            let store = self.blobs()?;
+            let full = i64::try_from(keys.len()).unwrap_or(i64::MAX) >= BATCH;
+            let mut batch = 0;
+            for key in keys {
+                match store.delete(&key).await {
+                    Ok(()) => {
+                        files::blob_deleted(self.pool(), &key).await?;
+                        batch += 1;
+                    }
+                    Err(error) => warn!(%error, "a blob stays to delete at the next cleanup"),
+                }
+            }
+            deleted += batch;
+            if !full || batch == 0 || started.elapsed() >= SWEEP_TIME {
+                return Ok(deleted);
+            }
+        }
+    }
+}

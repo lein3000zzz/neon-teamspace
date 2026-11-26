@@ -33,6 +33,7 @@ pub(crate) struct PageColumns {
     pub(crate) title: String,
     pub(crate) icon: Option<String>,
     pub(crate) cover: Option<String>,
+    pub(crate) cover_file_id: Option<Uuid>,
     pub(crate) font: String,
     pub(crate) small_text: bool,
     pub(crate) full_width: bool,
@@ -76,6 +77,7 @@ impl TryFrom<PageColumns> for Page {
                         .ok_or_else(|| decode_error(format!("unknown cover {cover:?}")))
                 })
                 .transpose()?,
+            cover_image: row.cover_file_id,
             style: PageStyle {
                 font: Font::parse(&row.font)
                     .ok_or_else(|| decode_error(format!("unknown font {:?}", row.font)))?,
@@ -133,10 +135,11 @@ pub async fn lock_tree(executor: impl PgExecutor<'_>, workspace_id: Uuid) -> sql
 pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO pages (id, workspace_id, kind, teamspace_id, owner_id, parent_id, position,
-                            title, icon, cover, font, small_text, full_width, created_by,
-                            last_edited_by, created_at, updated_at, content_updated_at)
+                            title, icon, cover, cover_file_id, font, small_text, full_width,
+                            created_by, last_edited_by, created_at, updated_at,
+                            content_updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                 $18)",
+                 $18, $19)",
         page.id,
         page.workspace_id,
         page.kind.as_str(),
@@ -147,6 +150,7 @@ pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<
         page.title,
         page.icon,
         page.cover.map(Cover::as_str),
+        page.cover_image,
         page.style.font.as_str(),
         page.style.small_text,
         page.style.full_width,
@@ -165,8 +169,8 @@ pub async fn get(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option
     sqlx::query_as!(
         PageColumns,
         "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
-                cover, font, small_text, full_width, created_by, last_edited_by, created_at,
-                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
+                cover, cover_file_id, font, small_text, full_width, created_by, last_edited_by,
+                created_at, updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages WHERE id = $1",
         id,
     )
@@ -192,9 +196,8 @@ pub async fn chain(
                WHERE c.depth < $3
            )
            SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
-                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,
-                  p.created_by,
-                  p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,
+                  p.position, p.title, p.icon, p.cover, p.cover_file_id, p.font, p.small_text,
+                  p.full_width, p.created_by, p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,
                   p.trashed_at, p.trashed_by, p.trashed_with, s.access AS "shared?"
            FROM chain c
            JOIN pages p ON p.id = c.id
@@ -220,6 +223,7 @@ pub async fn chain(
             title: row.title,
             icon: row.icon,
             cover: row.cover,
+            cover_file_id: row.cover_file_id,
             font: row.font,
             small_text: row.small_text,
             full_width: row.full_width,
@@ -271,7 +275,8 @@ pub async fn facts(
            SELECT p.id AS "id!", p.workspace_id AS "workspace_id!", p.kind AS "kind!",
                   p.teamspace_id,
                   p.owner_id, p.parent_id, p.position AS "position!", p.title AS "title!",
-                  p.icon, p.cover, p.font AS "font!", p.small_text AS "small_text!",
+                  p.icon, p.cover, p.cover_file_id, p.font AS "font!",
+                  p.small_text AS "small_text!",
                   p.full_width AS "full_width!", p.created_by, p.last_edited_by,
                   p.created_at AS "created_at!", p.updated_at AS "updated_at!",
                   p.content_updated_at AS "content_updated_at!", p.trashed_at, p.trashed_by,
@@ -302,6 +307,7 @@ pub async fn facts(
             title: row.title,
             icon: row.icon,
             cover: row.cover,
+            cover_file_id: row.cover_file_id,
             font: row.font,
             small_text: row.small_text,
             full_width: row.full_width,
@@ -344,8 +350,8 @@ pub async fn facts(
 pub async fn update(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         "UPDATE pages
-         SET title = $2, icon = $3, cover = $4, font = $5, small_text = $6, full_width = $7,
-             last_edited_by = $8, updated_at = $9
+         SET title = $2, icon = $3, cover = $4, cover_file_id = $10, font = $5,
+             small_text = $6, full_width = $7, last_edited_by = $8, updated_at = $9
          WHERE id = $1",
         page.id,
         page.title,
@@ -356,6 +362,7 @@ pub async fn update(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<
         page.style.full_width,
         page.last_edited_by,
         page.updated_at,
+        page.cover_image,
     )
     .execute(executor)
     .await?;
@@ -700,8 +707,8 @@ pub async fn trashed(
     sqlx::query_as!(
         PageColumns,
         "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
-                cover, font, small_text, full_width, created_by, last_edited_by, created_at,
-                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
+                cover, cover_file_id, font, small_text, full_width, created_by, last_edited_by,
+                created_at, updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages
          WHERE workspace_id = $1 AND trashed_at IS NOT NULL AND trashed_with = id
            AND ($2::timestamptz IS NULL OR (trashed_at, id) < ($2, $3::uuid))

@@ -85,6 +85,10 @@ Neon Teamspace is in early development, before its first release. What exists:
 - Search of pages, databases and rows by their titles, text, values and comments, among
   what the searcher may see, in the quick search, a search page, the API and MCP; see
   [Search](/docs/guides/search/).
+- Attachments: images, video, audio and other files in pages and as covers, pasted or
+  dropped in the editor, kept on local disk or in an S3-compatible store, within each
+  workspace's storage limit; see [Attachments](/docs/guides/attachments/) and
+  [File storage](/docs/self-hosting/storage/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -96,9 +100,8 @@ Neon Teamspace is in early development, before its first release. What exists:
 These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Attachments, with the MCP tools and webhook events that need them.
-2. Signed releases and the first version, 0.1.0.
-3. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Signed releases and the first version, 0.1.0.
+2. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

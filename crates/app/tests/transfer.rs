@@ -12,6 +12,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::attachments::{AttachmentService, ObjectBlobs};
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::pages::{Location, NewPage, PageError, Tree};
 use neon_app::ratelimit::{Bucket, RateLimiter};
@@ -21,11 +22,14 @@ use neon_app::transfer::{
     Upload,
 };
 use neon_app::workspaces::NewTeamspace;
+use neon_blocks::edit::Edit;
 use neon_blocks::{Block, SequentialIds};
+use neon_domain::attachments::FileKind;
 use neon_domain::auth::Principal;
 use neon_domain::databases::PropertyKind;
 use neon_domain::pages::{MAX_DEPTH, PageAccess, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, WorkspaceRole};
+use serde_json::json;
 use sqlx::PgPool;
 use support::Harness;
 use tokio::time::timeout;
@@ -47,6 +51,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 struct Team {
     h: Harness,
     sync: SyncService,
+    attachments: AttachmentService,
     transfer: TransferService,
     workspace: Uuid,
     general: Uuid,
@@ -89,13 +94,30 @@ async fn team_with(pool: PgPool, limits: Limits) -> Team {
             ..SyncLimits::default()
         })
         .build();
-    let transfer = TransferService::builder(h.pages.clone(), sync.clone(), h.databases.clone())
-        .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
-        .limits(limits)
-        .build();
+    let attachments = AttachmentService::builder_with_store(
+        h.pool.clone(),
+        Arc::clone(&h.settings),
+        h.pages.clone(),
+        sync.clone(),
+        Arc::new(ObjectBlobs::new(Arc::new(
+            object_store::memory::InMemory::new(),
+        ))),
+    )
+    .clock(h.time.clock())
+    .build();
+    let transfer = TransferService::builder(
+        h.pages.clone(),
+        sync.clone(),
+        h.databases.clone(),
+        attachments.clone(),
+    )
+    .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
+    .limits(limits)
+    .build();
     Team {
         h,
         sync,
+        attachments,
         transfer,
         workspace,
         general,
@@ -495,12 +517,17 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
         .expect("a turn came free");
 
     // The server's places are taken once the upload is in, not while it comes.
-    let full = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
-        .limits(Limits {
-            parallel: 0,
-            ..Limits::default()
-        })
-        .build();
+    let full = TransferService::builder(
+        t.h.pages.clone(),
+        t.sync.clone(),
+        t.h.databases.clone(),
+        t.attachments.clone(),
+    )
+    .limits(Limits {
+        parallel: 0,
+        ..Limits::default()
+    })
+    .build();
     let ticket = full
         .admit_import(&t.ada, t.workspace, general)
         .await
@@ -539,12 +566,17 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
     assert!(t.h.limiter.seen().contains(&key));
 
     // Past its time, an import stops and makes nothing.
-    let slow = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
-        .limits(Limits {
-            time_limit: Duration::ZERO,
-            ..Limits::default()
-        })
-        .build();
+    let slow = TransferService::builder(
+        t.h.pages.clone(),
+        t.sync.clone(),
+        t.h.databases.clone(),
+        t.attachments.clone(),
+    )
+    .limits(Limits {
+        time_limit: Duration::ZERO,
+        ..Limits::default()
+    })
+    .build();
     let ticket = slow
         .admit_import(&t.ada, t.workspace, general)
         .await
@@ -838,12 +870,17 @@ async fn exports_keep_to_their_limits(pool: PgPool) {
         .await
         .expect("three pages fit");
 
-    let small = TransferService::builder(t.h.pages.clone(), t.sync.clone(), t.h.databases.clone())
-        .limits(Limits {
-            max_export_bytes: 40,
-            ..Limits::default()
-        })
-        .build();
+    let small = TransferService::builder(
+        t.h.pages.clone(),
+        t.sync.clone(),
+        t.h.databases.clone(),
+        t.attachments.clone(),
+    )
+    .limits(Limits {
+        max_export_bytes: 40,
+        ..Limits::default()
+    })
+    .build();
     let large = small.export_page(&t.ada, roadmap, true).await;
     assert_eq!(
         large.map(|_| ()).map_err(|error| error.code()),
@@ -1113,4 +1150,392 @@ fn operations(snapshotter: &Snapshotter) -> BTreeMap<String, u64> {
         }
     }
     ran
+}
+
+/// A PNG header that says its size, and some bytes of it.
+fn png() -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    bytes.extend(8u32.to_be_bytes());
+    bytes.extend(8u32.to_be_bytes());
+    bytes.extend([8, 6, 0, 0, 0, 0, 0, 0, 0]);
+    bytes.extend(b"pixels");
+    bytes
+}
+
+/// Every entry of a zip, its bytes as they are.
+fn entries(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("a zip");
+    (0..zip.len())
+        .map(|i| {
+            let mut file = zip.by_index(i).expect("an entry");
+            let mut content = Vec::new();
+            file.read_to_end(&mut content).expect("read");
+            (file.name().expect("a name").into_owned(), content)
+        })
+        .collect()
+}
+
+/// A zip of `files`, each a name and its bytes.
+fn zipped_bytes(files: &[(&str, &[u8])]) -> Bytes {
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, content) in files {
+        writer
+            .start_file(*name, SimpleFileOptions::default())
+            .expect("a file");
+        writer.write_all(content).expect("written");
+    }
+    Bytes::from(writer.finish().expect("finished").into_inner())
+}
+
+impl Team {
+    async fn upload(
+        &self,
+        page: Uuid,
+        kind: FileKind,
+        name: &str,
+        content: Vec<u8>,
+    ) -> neon_domain::attachments::File {
+        let ticket = self
+            .attachments
+            .admit_upload(&self.ada, page, kind, None, 0)
+            .await
+            .expect("let in");
+        let body = futures_util::stream::iter([Ok::<_, String>(Bytes::from(content))]);
+        self.attachments
+            .upload(ticket, name, body)
+            .await
+            .expect("uploaded")
+    }
+
+    async fn bytes_of(&self, file: Uuid) -> Vec<u8> {
+        let readable = self.attachments.file(&self.ada, file).await.expect("seen");
+        let mut read = self
+            .attachments
+            .read(&readable, None)
+            .await
+            .expect("read")
+            .bytes;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = futures_util::StreamExt::next(&mut read).await {
+            bytes.extend_from_slice(&chunk.expect("a chunk"));
+        }
+        bytes
+    }
+
+    /// The files of a page, by name, with their paths.
+    async fn files_of(&self, page: Uuid) -> BTreeMap<String, (Uuid, Vec<u8>)> {
+        let rows: Vec<(Uuid, String, Vec<u8>)> =
+            sqlx::query_as("SELECT id, name, sha256 FROM files WHERE page_id = $1")
+                .bind(page)
+                .fetch_all(&self.h.pool)
+                .await
+                .expect("listed");
+        rows.into_iter()
+            .map(|(id, name, sha256)| (name, (id, sha256)))
+            .collect()
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn files_go_out_in_the_zip_and_come_back_with_their_pages(pool: PgPool) {
+    let t = team(pool).await;
+    let plan =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".to_owned(),
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("made")
+            .page
+            .id;
+    let image = t.upload(plan, FileKind::Image, "diagram.png", png()).await;
+    let pdf = t
+        .upload(
+            plan,
+            FileKind::File,
+            "Quarterly report.pdf",
+            b"%PDF-1.7\nbody".to_vec(),
+        )
+        .await;
+    let markdown = format!(
+        "![The diagram]({})\n\n:::file [Quarterly report.pdf]({})\n\n![](https://example.com/far.png)\n",
+        neon_domain::attachments::path(image.id),
+        neon_domain::attachments::path(pdf.id),
+    );
+    let blocks = neon_blocks::markdown::from_markdown(&markdown).blocks;
+    t.sync
+        .edit(&t.ada, plan, vec![Edit::Append { blocks }], None)
+        .await
+        .expect("edited");
+
+    // Out: the files in the page's folder, its links to them relative.
+    let export = t.export(plan, true).await;
+    let files = entries(&export.bytes);
+    assert_eq!(
+        files.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["Plan.md", "Plan/Quarterly report.pdf", "Plan/diagram.png"]
+    );
+    assert_eq!(files["Plan/diagram.png"], png());
+    assert_eq!(files["Plan/Quarterly report.pdf"], b"%PDF-1.7\nbody");
+    assert_eq!(
+        String::from_utf8(files["Plan.md"].clone()).expect("text"),
+        "# Plan\n\n![The diagram](Plan/diagram.png)\n\n\
+         :::file [Quarterly report.pdf](Plan/Quarterly%20report.pdf)\n\n\
+         ![](https://example.com/far.png)\n"
+    );
+    // A page alone is one markdown file, its links the files' paths on the server.
+    let alone = String::from_utf8(t.export(plan, false).await.bytes).expect("text");
+    assert!(
+        alone.contains(&neon_domain::attachments::path(image.id)),
+        "{alone}"
+    );
+
+    // In: the files become the new page's, its links their paths.
+    let copy = teamspace(&t.h, &t.ada, t.workspace, "Copy", TeamspaceAccess::Open).await;
+    let report = t
+        .import(
+            &t.ada,
+            Location::Teamspace(copy),
+            &export.name,
+            Bytes::from(export.bytes.clone()),
+        )
+        .await
+        .expect("imported");
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let copied = report.pages[0].page.id;
+    let made = t.files_of(copied).await;
+    assert_eq!(
+        made.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["Quarterly report.pdf", "diagram.png"]
+    );
+    let (new_image, sha) = &made["diagram.png"];
+    assert_ne!(*new_image, image.id, "a file of its own");
+    assert_eq!(sha.as_slice(), image.sha256.as_slice());
+    assert_eq!(t.bytes_of(*new_image).await, png());
+    let document = t.sync.content(copied).await.expect("read");
+    let urls: Vec<&str> = document.files().map(|(_, url)| url).collect();
+    let new_pdf = made["Quarterly report.pdf"].0;
+    assert_eq!(
+        urls,
+        [
+            neon_domain::attachments::path(*new_image).as_str(),
+            neon_domain::attachments::path(new_pdf).as_str(),
+            "https://example.com/far.png",
+        ]
+    );
+    assert_eq!(
+        page_refs(&t.h.pool, copied).await.expect("read").len(),
+        2,
+        "its first snapshot names them"
+    );
+    // And out again, the same zip.
+    let again = t.export(copied, true).await;
+    assert_eq!(entries(&again.bytes), files);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_file_the_text_links_to_goes_out_and_comes_back_with_its_page(pool: PgPool) {
+    let t = team(pool).await;
+    let plan =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".to_owned(),
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("made")
+            .page
+            .id;
+    let notes = t
+        .upload(plan, FileKind::File, "notes.txt", b"the notes".to_vec())
+        .await;
+    let markdown = format!(
+        "See [the notes]({}) first.\n\n| File |\n|---|\n| [again]({}) |\n",
+        neon_domain::attachments::path(notes.id),
+        neon_domain::attachments::path(notes.id),
+    );
+    let blocks = neon_blocks::markdown::from_markdown(&markdown).blocks;
+    t.sync
+        .edit(&t.ada, plan, vec![Edit::Append { blocks }], None)
+        .await
+        .expect("edited");
+
+    let export = t.export(plan, true).await;
+    let files = entries(&export.bytes);
+    assert_eq!(
+        files.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["Plan.md", "Plan/notes.txt"]
+    );
+    assert_eq!(files["Plan/notes.txt"], b"the notes");
+    let written = String::from_utf8(files["Plan.md"].clone()).expect("text");
+    assert!(
+        written.contains("See [the notes](Plan/notes.txt) first.")
+            && written.contains("[again](Plan/notes.txt)"),
+        "{written}"
+    );
+
+    let copy = teamspace(&t.h, &t.ada, t.workspace, "Copy", TeamspaceAccess::Open).await;
+    let report = t
+        .import(
+            &t.ada,
+            Location::Teamspace(copy),
+            &export.name,
+            Bytes::from(export.bytes.clone()),
+        )
+        .await
+        .expect("imported");
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let copied = report.pages[0].page.id;
+    let made = t.files_of(copied).await;
+    let (new_notes, _) = &made["notes.txt"];
+    assert_eq!(t.bytes_of(*new_notes).await, b"the notes");
+    let document = t.sync.content(copied).await.expect("read");
+    let path = neon_domain::attachments::path(*new_notes);
+    assert_eq!(
+        document.links().collect::<Vec<_>>(),
+        [path.as_str(), path.as_str()]
+    );
+    assert_eq!(
+        page_refs(&t.h.pool, copied).await.expect("read"),
+        [*new_notes],
+        "its first snapshot names it"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_import_takes_the_files_its_pages_show_within_their_rules(pool: PgPool) {
+    let t = team(pool).await;
+    let archive = zipped_bytes(&[
+        (
+            "Notes.md",
+            b"# Notes\n\n![chart](Notes/chart.png)\n\n![not an image](Notes/fake.png)\n\n:::file [spec](../outside.pdf)\n",
+        ),
+        ("Notes/chart.png", &png()),
+        ("Notes/fake.png", b"<html>no image</html>"),
+        ("Notes/unused.txt", b"nobody links here"),
+    ]);
+    let report = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            archive.clone(),
+        )
+        .await
+        .expect("imported");
+    assert_eq!(
+        report.skipped,
+        [
+            Skipped {
+                path: "Notes/fake.png".to_owned(),
+                reason: SkipReason::UnsupportedType,
+            },
+            Skipped {
+                path: "Notes/unused.txt".to_owned(),
+                reason: SkipReason::Attachment,
+            },
+        ]
+    );
+    let notes = report.pages[0].page.id;
+    let made = t.files_of(notes).await;
+    assert_eq!(
+        made.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["chart.png"]
+    );
+    let document = t.sync.content(notes).await.expect("read");
+    let urls: Vec<&str> = document.files().map(|(_, url)| url).collect();
+    assert_eq!(
+        urls,
+        [
+            neon_domain::attachments::path(made["chart.png"].0).as_str(),
+            "Notes/fake.png",
+            "../outside.pdf"
+        ],
+        "links to what was not imported stay as they were"
+    );
+
+    // Past the workspace's storage limit, nothing is made, and what was written goes.
+    t.h.set("workspaces.limits.storage_bytes", json!(10)).await;
+    let full = t
+        .import(&t.ada, Location::Teamspace(t.general), "notes.zip", archive)
+        .await
+        .expect_err("no room");
+    assert_eq!(full.code(), "storage_limit");
+    let pages: i64 =
+        t.h.scalar("SELECT count(*) FROM pages WHERE title = 'Notes'")
+            .await;
+    assert_eq!(pages, 1);
+    let left: i64 = t.h.scalar("SELECT count(*) FROM blob_deletions").await;
+    assert_eq!(left, 0, "the blob written for it was deleted");
+    let files: i64 = t.h.scalar("SELECT count(*) FROM files").await;
+    assert_eq!(files, 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_files_of_an_import_unpack_within_its_budget(pool: PgPool) {
+    let t = team_with(
+        pool,
+        Limits {
+            max_files_unpacked: 6000,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let notes = |second: usize| {
+        zipped_bytes(&[
+            (
+                "Notes.md",
+                b":::file [a](Notes/a.txt)\n\n:::file [b](Notes/b.txt)\n",
+            ),
+            ("Notes/a.txt", &[b'a'; 4000]),
+            ("Notes/b.txt", &vec![b'b'; second]),
+        ])
+    };
+    let fits = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            notes(2000),
+        )
+        .await
+        .expect("imported");
+    assert_eq!(t.files_of(fits.pages[0].page.id).await.len(), 2);
+
+    let over = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            notes(2001),
+        )
+        .await
+        .expect_err("past the budget");
+    assert_eq!(over.code(), "too_large");
+    assert!(over.to_string().contains("unpack to more than"), "{over}");
+    let files: i64 = t.h.scalar("SELECT count(*) FROM files").await;
+    assert_eq!(files, 2, "nothing of the second import is kept");
+    let left: i64 = t.h.scalar("SELECT count(*) FROM blob_deletions").await;
+    assert_eq!(left, 0, "the blob written for it was deleted");
+}
+
+/// The files a page's last snapshot names, by id.
+async fn page_refs(pool: &PgPool, page: Uuid) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar("SELECT file_id FROM page_file_refs WHERE page_id = $1 ORDER BY file_id")
+        .bind(page)
+        .fetch_all(pool)
+        .await
 }

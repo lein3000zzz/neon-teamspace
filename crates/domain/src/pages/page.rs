@@ -24,8 +24,8 @@ text_enum! {
 
 text_enum! {
     /// A cover drawn from the theme's tokens: a hue, or a gradient between two, at the
-    /// lightness and chroma the reader's palette and mode set, like the accent. Image covers
-    /// are not built yet.
+    /// lightness and chroma the reader's palette and mode set, like the accent. A page may
+    /// have an image of its own as its cover instead, [`Page::cover_image`].
     Cover {
         /// The reader's accent.
         Accent => "accent",
@@ -162,6 +162,9 @@ pub struct Page {
     pub title: String,
     pub icon: Option<String>,
     pub cover: Option<Cover>,
+    /// One of the page's own files, an image, shown as its cover in place of `cover`: at
+    /// most one of the two is set.
+    pub cover_image: Option<Uuid>,
     pub style: PageStyle,
     pub created_by: Option<Uuid>,
     /// Who changed it last, its content included.
@@ -294,6 +297,7 @@ mod tests {
             title: String::new(),
             icon: None,
             cover: None,
+            cover_image: None,
             style: PageStyle::default(),
             created_by: None,
             last_edited_by: None,

@@ -95,8 +95,8 @@ answers `403 forbidden`, and the web app offers no such filter to them.
 Other values of a row, such as numbers, selects and dates, are not read. Nor are the files a
 page links to. Of a page's content, search reads
 what [plain text](/docs/architecture/documents/#the-model) gives: each block's words,
-tables' cells, the names and captions of images and files, and each mention as `@` and the
-label it was written with, so a page that mentions `@Dee Diaz` is found by `diaz`. Of a
+tables' cells, the names and captions of images, video, audio and files, but not what is
+inside a file nor its path, and each mention as `@` and the label it was written with, so a page that mentions `@Dee Diaz` is found by `diaz`. Of a
 comment, it reads the same: its text without styles or link targets, and its mentions by
 their labels. It reads at most the first 100,000 characters of a page's text, of a row's
 values and of its comments' words, the newest comments first. A URL in a row's value is read

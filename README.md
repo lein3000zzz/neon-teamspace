@@ -75,7 +75,10 @@ published images, domains and TLS, upgrades, stopping, and where the data lives.
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the
 observability stack on its own, beside `make run`; see
-[its page](docs/src/content/docs/self-hosting/observability.md).
+[its page](docs/src/content/docs/self-hosting/observability.md). The profile `seaweedfs` runs
+SeaweedFS, an S3-compatible store for attachments, which are kept in the server's data volume
+otherwise; [File storage](docs/src/content/docs/self-hosting/storage.md) covers both and
+their backups.
 
 `make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
 the Playwright tests in `e2e/` against it, and removes it, leaving the report in
@@ -158,11 +161,14 @@ crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse qu
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
 one. The Rust tests and the query cache check need Postgres. Each database test creates a
-fresh database through `DATABASE_URL`.
+fresh database through `DATABASE_URL`. The S3 blob store's test runs against an S3-compatible
+server that `NEON_TEST_S3_ENDPOINT` names, and is skipped without one; `make test-s3` starts
+SeaweedFS in a throwaway container for it, which needs Docker.
 
 ```sh
 make check
 make test
+make test-s3
 make sqlx-check
 ```
 
@@ -202,7 +208,7 @@ GitHub Actions runs three workflows.
 - **CI** runs on every pull request into `dev` or `main` and on every push to them. A newer push cancels the older run on the same branch or pull request.
   - A changes job starts only the jobs the changed files affect. A change to the Makefile or to a workflow starts all of them.
   - **Rust lint:** `make fmt-check`, `cargo deny check`, `make migrate`, `make lint` and `make sqlx-check`, against a Postgres 18 service container.
-  - **Rust tests:** `make migrate`, `make test`, and `make api-check` with the `neon` binary the tests built, against a Postgres 18 service container of their own, beside the lint job.
+  - **Rust tests:** `make migrate`, `make test`, `make test-s3`, and `make api-check` with the `neon` binary the tests built, against a Postgres 18 service container of their own, beside the lint job.
   - **Web app:** `make web-install web-check web-build` and the license check for `web/`. `web-check` runs the tests of `scripts/` too, among them the Claude Code plugin's check, so the job also runs when the plugin or the MCP server's code changes.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.

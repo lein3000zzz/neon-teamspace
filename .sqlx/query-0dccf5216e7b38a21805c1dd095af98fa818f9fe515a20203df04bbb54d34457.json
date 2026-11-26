@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH gone AS (\n             DELETE FROM page_file_refs WHERE page_id = $1 AND NOT (file_id = ANY($2))\n         )\n         INSERT INTO page_file_refs (page_id, file_id)\n         SELECT $1, id FROM UNNEST($2::uuid[]) AS ids (id)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0dccf5216e7b38a21805c1dd095af98fa818f9fe515a20203df04bbb54d34457"
+}

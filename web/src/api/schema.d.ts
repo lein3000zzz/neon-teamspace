@@ -1117,6 +1117,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A file
+         * @description The file's bytes, for those who see the page it was uploaded to: a page in the trash shows to those who could edit it. Images, video and audio that run no script come inline; anything else, SVG and HTML among them, as a download. A `Range` of bytes answers `206` with that part, as media players ask; `If-None-Match` with the file's ETag answers `304`. The answer may be kept by the caller's browser alone, which asks again each time.
+         */
+        get: operations["read_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inbox": {
         parameters: {
             query?: never;
@@ -1458,6 +1478,26 @@ export interface paths {
         get: operations["export_page"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file to a page
+         * @description Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second; an upload may take 15 minutes.
+         */
+        post: operations["upload_file"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3934,6 +3974,54 @@ export interface components {
             /** @description In the caller's order. */
             pages: components["schemas"]["Page"][];
         };
+        /** @description A file uploaded to a page. */
+        File: {
+            /**
+             * @description Its type, as its bytes say.
+             * @example image/png
+             */
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            height?: number | null;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["FileKind"];
+            /**
+             * @description The name it was uploaded with, which a download is saved as.
+             * @example diagram.png
+             */
+            name: string;
+            /**
+             * Format: uuid
+             * @description The page it was uploaded to, whose access it follows.
+             */
+            page_id: string;
+            /** @description The SHA-256 of its bytes, in hex. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description Its size in bytes.
+             */
+            size: number;
+            /**
+             * @description Where it is read, which documents refer to it by: the URL of an image, video, audio
+             *     or file block, or of markdown's link.
+             * @example /api/v1/files/0193a5b2-0000-7000-8000-0000000000f1
+             */
+            url: string;
+            /**
+             * Format: int32
+             * @description An image's width in pixels, when its header says.
+             */
+            width?: number | null;
+        };
+        /**
+         * @description What a file is uploaded for.
+         * @enum {string}
+         */
+        FileKind: "image" | "video" | "audio" | "file";
         /**
          * @description A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
          *     `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
@@ -4569,6 +4657,12 @@ export interface components {
              */
             content_updated_at: string;
             cover?: components["schemas"]["Cover"] | null;
+            /**
+             * Format: uuid
+             * @description An image uploaded to the page, shown as its cover in place of `cover`, whose bytes
+             *     are at `/api/v1/files/{cover_image}`.
+             */
+            cover_image?: string | null;
             /** Format: date-time */
             created_at: string;
             /**
@@ -5208,7 +5302,7 @@ export interface components {
          * @description Why a file of a zip was left out.
          * @enum {string}
          */
-        SkipReason: "attachment" | "hidden" | "link" | "encrypted" | "unsupported_compression" | "not_text" | "duplicate";
+        SkipReason: "attachment" | "unsupported_type" | "too_large" | "hidden" | "link" | "encrypted" | "unsupported_compression" | "not_text" | "duplicate";
         /** @description A file of a zip left out of an import. */
         SkippedFile: {
             /**
@@ -5539,6 +5633,12 @@ export interface components {
         };
         UpdatePage: {
             cover?: components["schemas"]["Cover"] | null;
+            /**
+             * Format: uuid
+             * @description An image uploaded to the page, with `kind=image`, to show as its cover; null removes
+             *     it. Setting it takes `cover` off.
+             */
+            cover_image?: string | null;
             /** @description Null removes it. */
             icon?: string | null;
             style?: components["schemas"]["StyleChange"];
@@ -5805,6 +5905,12 @@ export interface components {
             member_count?: number | null;
             /** @description Members, besides owners and admins, may create teamspaces. */
             members_can_create_teamspaces: boolean;
+            /**
+             * Format: int64
+             * @description The bytes its attachments take together, as `limits.storage_bytes` counts them.
+             *     Absent for a guest.
+             */
+            storage_bytes?: number | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -5889,7 +5995,7 @@ export interface components {
             members: number;
             /**
              * Format: int64
-             * @description Always 0 until attachments exist.
+             * @description The bytes its attachments take together, as its storage limit counts them.
              */
             storage_bytes: number;
         };
@@ -9989,6 +10095,99 @@ export interface operations {
             };
         };
     };
+    read_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The file's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description The part of it the Range asked for. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description The file is the one the ETag names. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such file, or none the caller may see; file_missing: its bytes are gone from the file store. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Range starts past the file's end. */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description storage_unavailable: the file store did not answer. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_inbox: {
         parameters: {
             query?: {
@@ -10909,7 +11108,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
-            /** @description invalid_input. */
+            /** @description invalid_input: a title or icon out of bounds, both covers at once, or a cover_image that is not an image uploaded to the page. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11248,6 +11447,129 @@ export interface operations {
                 };
             };
             /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upload_file: {
+        parameters: {
+            query: {
+                /** @description The kind of block the file is for, whose types it must be of. */
+                kind: components["schemas"]["FileKind"];
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** @description The file, its name as the part's filename. At most `attachments.max_file_bytes`. */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The file. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description invalid_input: a form whose first part is not `file`; or invalid_body, a form that cannot be read or stopped short. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description storage_limit: the workspace has no room for the file. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description file_too_large: past attachments.max_file_bytes, said as it arrives or as declared; or payload_too_large, a form whose file does not start within its first 64 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unsupported_type: the file's bytes are of a type the kind does not take. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description storage_unavailable: the file store did not answer. */
             503: {
                 headers: {
                     [name: string]: unknown;

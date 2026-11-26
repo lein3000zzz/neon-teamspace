@@ -1251,6 +1251,7 @@ async fn a_page_made_with_text_tells_whom_it_mentions_and_an_import_tells_nobody
             vec![ImportedPage {
                 title: "Old notes".into(),
                 content: ImportedContent::of(&from_markdown(&format!("Ask {}", mention(&t.cy)))),
+                files: Vec::new(),
                 children: Vec::new(),
             }],
         )

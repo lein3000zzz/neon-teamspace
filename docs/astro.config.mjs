@@ -107,6 +107,7 @@ export default defineConfig({
             'guides/pages',
             'guides/comments-and-mentions',
             'guides/inbox',
+            'guides/attachments',
             'guides/history',
             'guides/search',
             'guides/databases-and-boards',
@@ -133,6 +134,7 @@ export default defineConfig({
           items: [
             'self-hosting/install',
             'self-hosting/configuration',
+            'self-hosting/storage',
             'self-hosting/mail',
             'self-hosting/observability',
           ],

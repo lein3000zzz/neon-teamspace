@@ -21,10 +21,10 @@ work in the API and the web app, with tokens their owners make or apps connected
 [Agents over MCP](/docs/guides/agents-over-mcp/) has it, and through
 [webhooks](/docs/guides/webhooks/) both ways, and pages have comments, mentions and an inbox,
 as [Comments and mentions](/docs/guides/comments-and-mentions/) has it, a history, as
-[Page history](/docs/guides/history/) has it, and search, as [Search](/docs/guides/search/)
-has it. What is marked **planned** is not built yet: attachments, which come next, and
-the desktop and mobile apps. It describes the design the code is being built toward, so the
-details may still change.
+[Page history](/docs/guides/history/) has it, search, as [Search](/docs/guides/search/) has
+it, and attachments, as [Attachments](/docs/guides/attachments/) has it. What is marked
+**planned** is not built yet: the desktop and mobile apps. It describes the design the code
+is being built toward, so the details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -58,8 +58,8 @@ and usage, and nothing inside it unless they are a member themselves.
 Limits cap a workspace's members, storage and agents. Each is unlimited unless an instance
 admin sets an instance-wide default or a workspace's own limit. A workspace at its member
 limit takes no more invitations or joins, and nobody already in it is removed; one at its
-agent limit makes no more agents or incoming webhooks. The storage limit will hold once
-attachments, **planned**, exist. There is no billing.
+agent limit makes no more agents or incoming webhooks, and one at its storage limit takes no
+more uploads. There is no billing.
 
 ## Workspaces
 
@@ -118,8 +118,9 @@ agent or a page inline, and tells the one it names. **Planned:** callouts.
 zip of markdown files, in the web app and through the API; see
 [Import and export](/docs/guides/import-export/).
 
-A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
-full width. Members can mark pages as favorites. Trashed pages go to the trash with the
+A page has an icon and a cover, a preset or an image of its own, and a font: Default, Serif
+or Mono, with small text or full width. Its images, video, audio and other files are
+[attachments](/docs/guides/attachments/), uploaded to it, pasted or dropped in the editor. Members can mark pages as favorites. Trashed pages go to the trash with the
 pages under them, where those who could edit them restore them for 30 days unless the
 instance keeps them for another time. A page's [history](/docs/guides/history/) keeps
 earlier versions to look at and restore, and [search](/docs/guides/search/) finds pages,

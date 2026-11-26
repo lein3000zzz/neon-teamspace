@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,\n                cover, font, small_text, full_width, created_by, last_edited_by, created_at,\n                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with\n         FROM pages\n         WHERE workspace_id = $1 AND trashed_at IS NOT NULL AND trashed_with = id\n           AND ($2::timestamptz IS NULL OR (trashed_at, id) < ($2, $3::uuid))\n         ORDER BY trashed_at DESC, id DESC\n         LIMIT $4",
+  "query": "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,\n                cover, cover_file_id, font, small_text, full_width, created_by, last_edited_by,\n                created_at, updated_at, content_updated_at, trashed_at, trashed_by, trashed_with\n         FROM pages WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,17 @@
       },
       {
         "ordinal": 10,
+        "name": "cover_file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "cover_file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
         "name": "font",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "small_text",
         "type_info": "Bool",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "full_width",
         "type_info": "Bool",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_by",
         "type_info": "Uuid",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "last_edited_by",
         "type_info": "Uuid",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "trashed_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "trashed_by",
         "type_info": "Uuid",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "trashed_with",
         "type_info": "Uuid",
         "origin": {
@@ -237,10 +248,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Timestamptz",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -252,6 +260,7 @@
       true,
       false,
       false,
+      true,
       true,
       true,
       false,
@@ -267,5 +276,5 @@
       true
     ]
   },
-  "hash": "91fd6790942659f8e9e42ee575fff7c9fcacf9b07823db329bbfe27a0392f6ba"
+  "hash": "a697b6c3d11f6b86326d1ae115fd27ae5f1dce9bc6708bb2a4fd4ea600227061"
 }

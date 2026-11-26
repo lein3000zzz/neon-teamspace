@@ -131,6 +131,41 @@ pub mod webhooks {
     pub const ALLOW_PRIVATE: Key<bool> = Key::new("webhooks.allow_private");
 }
 
+/// Attachments: where their bytes are kept, how large one may be, and how long one that no
+/// page shows any more is kept.
+pub mod attachments {
+    use std::time::Duration;
+
+    use neon_domain::settings::{Key, Secret};
+
+    /// Where files are kept: `local`, a directory under the server's data directory, or
+    /// `s3`, a bucket of an S3-compatible store.
+    pub const STORAGE: Key<str> = Key::new("attachments.storage");
+    /// The S3-compatible store's URL; empty for Amazon S3.
+    pub const S3_ENDPOINT: Key<str> = Key::new("attachments.s3.endpoint");
+    pub const S3_BUCKET: Key<str> = Key::new("attachments.s3.bucket");
+    pub const S3_REGION: Key<str> = Key::new("attachments.s3.region");
+    pub const S3_ACCESS_KEY_ID: Key<str> = Key::new("attachments.s3.access_key_id");
+    pub const S3_SECRET_ACCESS_KEY: Key<Secret> = Key::new("attachments.s3.secret_access_key");
+    /// Buckets in the URL's path rather than its host.
+    pub const S3_PATH_STYLE: Key<bool> = Key::new("attachments.s3.path_style");
+    /// The largest file one upload takes, in bytes.
+    pub const MAX_FILE_BYTES: Key<i64> = Key::new("attachments.max_file_bytes");
+    /// How long a file no page's document, cover or kept version shows is kept before it is
+    /// deleted.
+    pub const ORPHAN_GRACE: Key<Duration> = Key::new("attachments.orphan_grace");
+}
+
+/// What `attachments.storage` may be.
+pub const STORAGE_OPTIONS: &[&str] = &["local", "s3"];
+
+/// The bounds of the largest file an upload takes: 1 KiB to 5 GiB.
+const MAX_FILE_BYTES_BOUNDS: (i64, i64) = (1024, 5 * 1024 * 1024 * 1024);
+
+/// The shortest and longest a file no page shows is kept.
+const MIN_ORPHAN_GRACE: Duration = Duration::from_secs(3600);
+const MAX_ORPHAN_GRACE: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
+
 /// Pages: how long the trash keeps them.
 pub mod pages {
     use std::time::Duration;
@@ -436,8 +471,10 @@ pub fn registry() -> Registry {
             Definition::integer(
                 workspaces::LIMIT_STORAGE_BYTES,
                 0,
-                "The most bytes a workspace's attachments take, unless an instance admin sets \
-                 its own limit; 0 is no limit. Kept for attachments, which are not built yet.",
+                "The most bytes a workspace's attachments take together, unless an instance \
+                 admin sets its own limit; 0 is no limit. A workspace at its limit refuses \
+                 uploads, and imports that bring files; nothing in it is removed, and its \
+                 pages stay editable.",
             )
             .check(not_negative),
         )
@@ -665,6 +702,109 @@ pub fn registry() -> Registry {
                 Duration::from_secs(7 * 24 * 3600),
             )),
         )
+        .define(
+            Definition::enumeration(
+                attachments::STORAGE,
+                STORAGE_OPTIONS,
+                "local",
+                "Where uploaded files are kept: local, in the attachments directory under \
+                 server.data_dir, or s3, in the bucket attachments.s3.bucket of an \
+                 S3-compatible store such as SeaweedFS. Applies to files uploaded from now; \
+                 the files kept before stay where they were, so move them with it.",
+            )
+            .browser_only(),
+        )
+        .define(
+            Definition::string(
+                attachments::S3_ENDPOINT,
+                "",
+                "The S3-compatible store's URL, such as http://seaweedfs:8333; empty for \
+                 Amazon S3, whose endpoint comes from attachments.s3.region. http is for a \
+                 store on a network you trust.",
+            )
+            .check(check_endpoint)
+            .browser_only(),
+        )
+        .define(
+            Definition::string(
+                attachments::S3_BUCKET,
+                "",
+                "The bucket files are kept in, which must exist. Needed while \
+                 attachments.storage is s3.",
+            )
+            .check(checks::max_chars(63))
+            .check(no_control)
+            .browser_only(),
+        )
+        .define(
+            Definition::string(
+                attachments::S3_REGION,
+                "us-east-1",
+                "The bucket's region. Stores other than Amazon's take any, usually \
+                 us-east-1.",
+            )
+            .check(checks::non_blank)
+            .check(checks::max_chars(64))
+            .browser_only(),
+        )
+        .define(
+            Definition::string(
+                attachments::S3_ACCESS_KEY_ID,
+                "",
+                "The access key that signs requests to the store, with \
+                 attachments.s3.secret_access_key.",
+            )
+            .check(no_control)
+            .browser_only(),
+        )
+        .define(Definition::secret(
+            attachments::S3_SECRET_ACCESS_KEY,
+            "The secret of that access key. Saved here, it is kept encrypted, which needs \
+             secrets.keys.",
+        ))
+        .define(
+            Definition::bool(
+                attachments::S3_PATH_STYLE,
+                true,
+                "Names the bucket in the URL's path, http://store/bucket/key, as SeaweedFS, \
+                 MinIO and most other stores want. Off, it names it in the host, \
+                 http://bucket.store/key, as Amazon S3 prefers.",
+            )
+            .browser_only(),
+        )
+        .define(
+            Definition::integer(
+                attachments::MAX_FILE_BYTES,
+                50 * 1024 * 1024,
+                "The largest file one upload takes, in bytes. A larger one is refused as \
+                 it arrives; files uploaded before stay.",
+            )
+            .check(between_counts(
+                MAX_FILE_BYTES_BOUNDS.0,
+                MAX_FILE_BYTES_BOUNDS.1,
+            )),
+        )
+        .define(
+            Definition::duration(
+                attachments::ORPHAN_GRACE,
+                Duration::from_secs(30 * 24 * 3600),
+                "How long a file that no page's content, no cover and no version the page \
+                 history keeps shows any more is kept, from when the hourly cleanup first \
+                 finds it so, before it is deleted for good. Undoing the removal within it \
+                 keeps the file; restoring a kept version always does.",
+            )
+            .check(between(MIN_ORPHAN_GRACE, MAX_ORPHAN_GRACE)),
+        )
+        // An S3 store needs a bucket.
+        .rule(attachments::S3_BUCKET.name(), |settings| {
+            if settings.get(attachments::STORAGE) == "s3"
+                && settings.get(attachments::S3_BUCKET).is_empty()
+            {
+                Err("must name a bucket while attachments.storage is s3".to_owned())
+            } else {
+                Ok(())
+            }
+        })
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
@@ -730,6 +870,25 @@ fn no_control(value: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Refuses an S3 endpoint that is not an http or https URL without a path, query or
+/// credentials; empty is Amazon's.
+fn check_endpoint(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Ok(());
+    }
+    let refused =
+        || "want an http or https URL of the store alone, such as http://seaweedfs:8333".to_owned();
+    let url = url::Url::parse(value).map_err(|_| refused())?;
+    let plain = matches!(url.scheme(), "http" | "https")
+        && url.host().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "" | "/");
+    if plain { Ok(()) } else { Err(refused()) }
 }
 
 /// Refuses limits below 0, which is no limit.
@@ -836,6 +995,18 @@ mod tests {
             Duration::from_secs(24 * 3600)
         );
         assert!(!*snapshot.get(webhooks::ALLOW_PRIVATE));
+        assert_eq!(snapshot.get(attachments::STORAGE), "local");
+        assert_eq!(snapshot.get(attachments::S3_ENDPOINT), "");
+        assert_eq!(snapshot.get(attachments::S3_BUCKET), "");
+        assert_eq!(snapshot.get(attachments::S3_REGION), "us-east-1");
+        assert_eq!(snapshot.get(attachments::S3_ACCESS_KEY_ID), "");
+        assert_eq!(snapshot.get(attachments::S3_SECRET_ACCESS_KEY).expose(), "");
+        assert!(*snapshot.get(attachments::S3_PATH_STYLE));
+        assert_eq!(*snapshot.get(attachments::MAX_FILE_BYTES), 50 * 1024 * 1024);
+        assert_eq!(
+            *snapshot.get(attachments::ORPHAN_GRACE),
+            Duration::from_secs(30 * 24 * 3600)
+        );
         assert_eq!(
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
@@ -926,6 +1097,40 @@ mod tests {
         );
         assert_eq!(refuse("mail.tls", "ssl"), "want one of starttls, tls, none");
         assert_eq!(
+            refuse("attachments.storage", "disk"),
+            "want one of local, s3"
+        );
+        assert_eq!(
+            refuse("attachments.max_file_bytes", "1023"),
+            "must be between 1024 and 5368709120"
+        );
+        assert_eq!(
+            refuse("attachments.orphan_grace", "30m"),
+            "must be between 1h and 3650d"
+        );
+        for endpoint in [
+            "seaweedfs:8333",
+            "ftp://store.example.com",
+            "https://key:secret@store.example.com",
+            "https://store.example.com/bucket",
+            "https://store.example.com/?x=1",
+        ] {
+            assert!(
+                refuse("attachments.s3.endpoint", endpoint).starts_with("want an http"),
+                "{endpoint}"
+            );
+        }
+        for endpoint in ["http://seaweedfs:8333", "https://s3.example.com/", ""] {
+            assert!(
+                registry
+                    .get("attachments.s3.endpoint")
+                    .expect("defined")
+                    .parse_text(endpoint)
+                    .is_ok(),
+                "{endpoint}"
+            );
+        }
+        assert_eq!(
             refuse("mcp.identities", "user,people"),
             "want a list of some of user, agent"
         );
@@ -952,6 +1157,13 @@ mod tests {
         assert_eq!(
             only,
             [
+                "attachments.s3.access_key_id",
+                "attachments.s3.bucket",
+                "attachments.s3.endpoint",
+                "attachments.s3.path_style",
+                "attachments.s3.region",
+                "attachments.s3.secret_access_key",
+                "attachments.storage",
                 "mail.host",
                 "mail.password",
                 "mail.port",
@@ -1062,6 +1274,23 @@ mod tests {
             ]),
             Ok(())
         );
+    }
+
+    #[test]
+    fn an_s3_store_needs_a_bucket() {
+        let s3 = ("attachments.storage", Value::String("s3".into()));
+        assert_eq!(
+            check(std::slice::from_ref(&s3)),
+            Err(vec![Problem::new(
+                "attachments.s3.bucket",
+                "must name a bucket while attachments.storage is s3"
+            )])
+        );
+        assert_eq!(
+            check(&[s3, ("attachments.s3.bucket", Value::String("neon".into()))]),
+            Ok(())
+        );
+        assert_eq!(check(&[]), Ok(()), "local disk needs none");
     }
 
     #[test]

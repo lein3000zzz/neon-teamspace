@@ -4,9 +4,10 @@ description: Importing markdown files and zips of them as pages, exporting a pag
 ---
 
 Pages come in as markdown and go out as markdown. An import takes one `.md` file, or a zip
-of them whose folders become pages with subpages. An export gives one page as a `.md` file,
-or a page with the pages under it, or a whole teamspace, as a zip laid out the same way. A
-zip that one export writes imports back as the same pages with the same markdown.
+of them whose folders become pages with subpages, and the images and other files their
+pages link to. An export gives one page as a `.md` file, or a page with the pages under it,
+or a whole teamspace, as a zip laid out the same way, with the files its pages show. A zip
+that one export writes imports back as the same pages with the same markdown and files.
 
 :::note[What is built]
 Both work in the web app, as [below](#in-the-web-app), and through the API.
@@ -87,7 +88,9 @@ it can be: an import that breaks a rule or a limit makes no page at all.
 
 | `reason` | The file |
 |---|---|
-| `attachment` | Not a markdown file, such as an image or a PDF. Attachments are **planned**. |
+| `attachment` | Not a markdown file, such as an image or a PDF, and no page of the zip links to it. |
+| `unsupported_type` | A file a page links to whose type its block does not take, such as a PDF in an image; see [Files](#files). |
+| `too_large` | A file a page links to that is larger than an upload may be, `attachments.max_file_bytes`. |
 | `hidden` | Its name, or a folder's it is in, starts with a dot, such as `.obsidian/`. |
 | `link` | A symbolic link. |
 | `encrypted` | Encrypted with a password. |
@@ -136,11 +139,54 @@ The headings keep the titles as they are.
 The answers carry `Content-Disposition: attachment` with the file's name, and
 `Cache-Control: no-store`.
 
+## Files
+
+A zip holds the [attachments](/docs/guides/attachments/) its pages show, in their blocks or
+as links of their text. Each file sits in the
+folder of the page that shows it first, beside the files of the pages under it, under the name
+it was uploaded with. The page links to it by a path relative to the page's file, each part
+percent-encoded. A page Roadmap with an image, a PDF and a subpage Hiring comes out as:
+
+```txt
+Roadmap.md
+Roadmap/
+  diagram.png
+  Q1 plan.pdf
+  Hiring.md
+```
+
+with these links in `Roadmap.md`:
+
+```markdown
+![Diagram](Roadmap/diagram.png)
+
+:::file [Q1 plan.pdf](Roadmap/Q1%20plan.pdf)
+```
+
+Only the files the exporter may read go in, those of pages they see. Links to the others stay
+the files' paths on the server. A name a sibling already took, ignoring case, gets ` (2)` before
+its extension. A name that would read as markdown, such as `notes.md`, gets `.txt` after it,
+since an import would make a page of it. A page exported alone, as one `.md` file, links its
+files by their paths on the server.
+
+An import does the reverse. When an image, video, audio or file block links to a file of the
+zip by a path relative to its markdown file, the import uploads that file as the block's kind
+and rewrites the link to the file's path on the server. A link in the text, such as
+`[the notes](Roadmap/notes.txt)`, brings its file in the same way, as a file to download. The
+file belongs to the first page that shows it, and other pages that link to it show it too. A
+file, video or audio block's name becomes the file's name; an image, and a link of the text,
+keep the name the file has in the zip.
+
+A file the block's kind does not take, or one larger than an upload may be, stays out and is
+listed, and its link stays as it was. Files no page links to are listed as `attachment`. The
+files count against the workspace's [storage limit](/docs/guides/attachments/#limits). An
+import that would pass it makes nothing, and answers `409 storage_limit`.
+
 ## Round trips
 
 Exporting a zip and importing it gives the same pages in the same order, with the same
-titles, and exporting those gives the same files. Icons, covers, styles and shares do not go
-into markdown, and what markdown loses of the content is listed on
+titles, and exporting those gives the same files, attachments included. Icons, covers,
+styles and shares do not go into markdown, and what markdown loses of the content is listed on
 [Page documents](/docs/architecture/documents/#what-markdown-loses). Two more things change:
 
 - A page without a title comes back titled `Untitled`, after its file.
@@ -160,6 +206,8 @@ into markdown, and what markdown loses of the content is listed on
 | Pages one export holds, rows of databases aside | 5000 |
 | Rows of databases one export holds besides its pages | 10,000 |
 | Markdown one export holds, before it is zipped | 128 MiB |
+| Files one export holds, which it reads whole | 128 MiB |
+| What the files a zip's pages show unpack to, together; each at most `attachments.max_file_bytes` | 256 MiB |
 | How long an import or export takes, after the upload | 20 seconds |
 | Imports and exports running at once on the server, once their file is uploaded | 4 |
 | Imports and exports one person runs at once, an import's upload included | 2 |
@@ -188,6 +236,7 @@ the file or limit at fault.
 | `403` | `forbidden` | The caller may not add pages there: they view the parent and do not edit it, are not in the teamspace, or are a guest. Or `insufficient_scope`, a token without `write`, to import. |
 | `404` | `not_found` | No such workspace, teamspace or page, or none the caller sees. |
 | `409` | `too_deep` | The pages would nest deeper than 100 levels. |
+| `409` | `storage_limit` | The zip's files would take the workspace past its storage limit. |
 | `413` | `too_large` | Past one of the limits above. A body larger than the largest upload gets `payload_too_large`. |
 | `429` | `rate_limited` | Too many imports or exports. |
 | `503` | `busy` | Four imports and exports are running already, or the caller runs two. Try again after `Retry-After`. |

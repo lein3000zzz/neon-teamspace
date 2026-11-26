@@ -21,6 +21,7 @@ import {
   type Thread,
 } from "@/api/comments";
 import { databaseQuery } from "@/api/databases";
+import { useUploadCover } from "@/api/files";
 import { hasCode } from "@/api/errors";
 import { keys } from "@/api/keys";
 import {
@@ -32,6 +33,7 @@ import {
   useRemoveFavorite,
   useRestorePage,
   useUpdatePage,
+  type Cover,
   type Page,
   type UpdatePage,
 } from "@/api/pages";
@@ -148,6 +150,14 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
   const trashed = (page.trashed_at ?? null) !== null;
   const editable = edits(page.access) && !trashed;
   const set = (body: UpdatePage) => update.mutate(body);
+  const coverUpload = useUploadCover(workspace.id, page.id);
+  const covered = Boolean(page.cover ?? page.cover_image);
+  // A preset takes an image's place, which the server takes off; none removes either. Either
+  // way, why an upload failed is no longer news.
+  const pickCover = (cover: Cover | null) => {
+    coverUpload.reset();
+    set(cover === null ? { cover: null, cover_image: null } : { cover });
+  };
   const people = useWorkspacePeople(workspace.id, seesTeamspaces(workspace.role));
   // A peek shows the row's content alone: its comments open with the full page.
   const commented = !peek && !trashed;
@@ -242,12 +252,31 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
       <ConnectionClosed connection={connection} onReconnect={reconnect} />
 
       <header className="grid gap-3">
-        {page.cover && (
-          <CoverBand cover={page.cover}>
+        {coverUpload.isError && (
+          <ErrorNotice error={coverUpload.error} title={copy.coverNotUploaded}>
+            <div>
+              <Button variant="ghost" size="sm" onClick={() => coverUpload.reset()}>
+                {copy.dismissCover}
+              </Button>
+            </div>
+          </ErrorNotice>
+        )}
+        {covered && (
+          <CoverBand cover={page.cover} image={page.cover_image}>
             {editable && (
-              <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
-                <Button variant="outline" size="sm" className="bg-background">
-                  {copy.changeCover}
+              <CoverPicker
+                cover={page.cover}
+                covered={covered}
+                onPick={pickCover}
+                onUpload={(file) => coverUpload.mutate(file)}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-background"
+                  disabled={coverUpload.isPending}
+                >
+                  {coverUpload.isPending ? copy.uploadingCover : copy.changeCover}
                 </Button>
               </CoverPicker>
             )}
@@ -257,7 +286,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
           {page.icon && (
             <PageIcon page={page} editable={editable} onPick={(icon) => set({ icon })} />
           )}
-          {editable && (!page.icon || !page.cover) && (
+          {editable && (!page.icon || !covered) && (
             <div className="flex flex-wrap gap-1">
               {!page.icon && (
                 <IconPicker icon={page.icon} onPick={(icon) => set({ icon })}>
@@ -267,11 +296,16 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
                   </Button>
                 </IconPicker>
               )}
-              {!page.cover && (
-                <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
-                  <Button variant="ghost" size="sm">
+              {!covered && (
+                <CoverPicker
+                  cover={page.cover}
+                  covered={covered}
+                  onPick={pickCover}
+                  onUpload={(file) => coverUpload.mutate(file)}
+                >
+                  <Button variant="ghost" size="sm" disabled={coverUpload.isPending}>
                     <ImagePlus aria-hidden />
-                    {copy.addCover}
+                    {coverUpload.isPending ? copy.uploadingCover : copy.addCover}
                   </Button>
                 </CoverPicker>
               )}

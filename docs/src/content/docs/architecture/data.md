@@ -8,9 +8,9 @@ queue, accounts, sessions, invites, workspaces with their members, teamspaces, i
 and invite links, pages with their shares and favorites, and, as it arrives, their content,
 and databases with their properties, views and rows' values.
 There is no
-cache server and no message broker beside it. Attachments are the one exception, **planned**:
-they go to local disk or an S3-compatible store, as files are better kept outside the
-database.
+cache server and no message broker beside it. Attachments' bytes are the one exception: they
+go to local disk or an S3-compatible store, as files are better kept outside the database,
+while Postgres keeps what each file is.
 
 ## Postgres
 
@@ -237,7 +237,7 @@ is listed or counted.
 ## Content
 
 Content is stored according to how it is edited. Pages' documents, their history, databases'
-properties and search are kept as below; attachments are **planned**.
+properties, search and attachments are kept as below.
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
   numbered in order with their authors, and the latest snapshot of the whole document,
@@ -253,8 +253,19 @@ properties and search are kept as below; attachments are **planned**.
 - **Search** is Postgres full-text search with the `simple` configuration, which does not
   stem words and so works the same for any language, together with `pg_trgm` for titles
   typed loosely; see [Search](#search).
-- **Attachments** go through an object store: a directory on local disk by default, or any
-  S3-compatible service, such as SeaweedFS. They count toward the workspace's storage limit.
+- **Attachments** are rows of `files`, each with its page, workspace, uploader, kind, name,
+  type, size, SHA-256 and an image's width and height, and its bytes in the
+  [blob store](/docs/self-hosting/storage/) under `storage_key`, made for it alone. A file
+  belongs to its page and goes with it, by the foreign key; a workspace's storage is the sum
+  of its files' sizes, which every upload checks against its limit with the workspace's row
+  locked, so uploads at once cannot together pass it. `pages.cover_file_id` names a page's
+  cover image, one of its own files. Each snapshot of a page records the files its
+  document shows in `page_file_refs`, by the ids in their paths, in the same transaction, and
+  each version the history keeps those it shows in `version_file_refs`, which go with the
+  version, for the cleanup to keep them. A file's row going, however it goes, leaves its key in
+  `blob_deletions` through a trigger, and so does an upload as it starts, due half an hour
+  later and taken out once its row is in; the hourly cleanup deletes the blobs due, then
+  their rows. [Attachments](/docs/guides/attachments/#when-files-are-deleted) has the rules.
 
 The reasons are in [Key decisions](/docs/architecture/decisions/#content).
 
@@ -331,6 +342,6 @@ moment waits and writes its own after.
 
 ## Backups
 
-A backup is a `pg_dump` of the database and, once attachments exist, a copy of their
-directory or bucket. The server migrates the schema forward as a new version starts, and
+A backup is a `pg_dump` of the database and a copy of the attachments' directory or bucket,
+taken after it, as [File storage](/docs/self-hosting/storage/#backups) describes. The server migrates the schema forward as a new version starts, and
 migrations cannot be undone, so back up before upgrading.

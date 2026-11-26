@@ -1,0 +1,25 @@
+[
+  { "type": "paragraph", "content": "Files the server keeps, by their paths on it:" },
+  {
+    "type": "image",
+    "props": {
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1",
+      "name": "Team photo.jpg",
+      "caption": "At the offsite",
+      "previewWidth": 480
+    }
+  },
+  {
+    "type": "video",
+    "props": { "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f4", "name": "demo (final).mp4" }
+  },
+  {
+    "type": "audio",
+    "props": { "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f5", "name": "stand-up.m4a", "caption": "Monday" }
+  },
+  {
+    "type": "file",
+    "props": { "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3", "name": "Quarterly report.pdf" }
+  },
+  { "type": "file", "props": { "name": "not uploaded yet" } }
+]

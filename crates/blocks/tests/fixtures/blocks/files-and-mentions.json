@@ -1,0 +1,58 @@
+[
+  {
+    "type": "paragraph",
+    "content": [
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } },
+      { "type": "text", "text": " posted ", "styles": {} },
+      {
+        "type": "link",
+        "href": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3",
+        "content": [{ "type": "text", "text": "the report", "styles": { "bold": true } }]
+      },
+      { "type": "text", "text": " for ", "styles": {} },
+      { "type": "mention", "props": { "kind": "page", "target": "0193a5b2-0000-7000-8000-0000000000b1", "label": "Plan" } }
+    ]
+  },
+  {
+    "type": "image",
+    "props": {
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1",
+      "name": "Whiteboard.png",
+      "caption": "Ada's sketch"
+    },
+    "children": [
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Drawn by ", "styles": {} },
+          { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a2", "label": "Scout" } }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "file",
+    "props": { "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f2", "name": "@Ada's notes.pdf" }
+  },
+  {
+    "type": "table",
+    "content": {
+      "type": "tableContent",
+      "rows": [
+        { "cells": [[{ "type": "text", "text": "Owner", "styles": {} }], [{ "type": "text", "text": "File", "styles": {} }]] },
+        {
+          "cells": [
+            [{ "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } }],
+            [
+              {
+                "type": "link",
+                "href": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f4",
+                "content": [{ "type": "text", "text": "sheet.csv", "styles": {} }]
+              }
+            ]
+          ]
+        }
+      ]
+    }
+  }
+]

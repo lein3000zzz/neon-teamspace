@@ -225,10 +225,14 @@ pub(crate) const TOOLS: [Spec; 23] = [
         description: "A page's blocks as markdown, each block's id on a line of its own before \
                       it, `<!-- block <id> -->`, which edit_page names; the revision they are \
                       at, which edit_page takes as base; and for a row of a database, its \
-                      properties with their values. A database itself has no body: use \
-                      get_database and query_database. With version_id, a version of the page \
-                      from list_versions instead, read-only: its markdown, with no revision to \
-                      edit from, for a connection that may edit the page.",
+                      properties with their values. Images are `![name](url)` and other files \
+                      `:::file [name](url)`, `:::video` or `:::audio`; a url \
+                      /api/v1/files/{id} is a file kept on this server, which GET with the same \
+                      token reads. Upload one with POST /api/v1/pages/{id}/files. A database \
+                      itself has no body: use get_database and query_database. With \
+                      version_id, a version of the page from list_versions instead, read-only: \
+                      its markdown, with no revision to edit from, for a connection that may \
+                      edit the page.",
         writes: false,
         destructive: false,
         idempotent: true,

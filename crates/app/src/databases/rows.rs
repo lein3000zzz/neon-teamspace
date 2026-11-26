@@ -384,6 +384,7 @@ impl DatabaseService {
                 title: changes.title.clone().unwrap_or_default(),
                 icon: None,
                 cover: None,
+                cover_image: None,
                 style: PageStyle::default(),
                 created_by: Some(user),
                 last_edited_by: Some(user),

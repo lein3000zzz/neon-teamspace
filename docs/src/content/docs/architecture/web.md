@@ -170,6 +170,12 @@ document, to the `XmlFragment` named `document-store` that
   changes kept until the connection is back.
 - A paste whose text, with what its blocks cost, comes to more than 3 MiB is refused
   before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
+- Files go through BlockNote's `uploadFile` hook, whether picked in a block's panel, pasted
+  or dropped: each is uploaded to the page as the kind of its block (`api/files.ts`), and
+  the block keeps the path the server answers, `/api/v1/files/{id}`, which the editor loads
+  on the same origin with the session. An upload the server refuses leaves its block empty
+  and shows why above the editor. A cover image is uploaded the same way, then set as the
+  page's `cover_image`, and drawn as the band's background.
 - The editor's schema (`schema.ts`) is BlockNote's default blocks and the app's database
   block, and its default inline content and the app's mention, each made from its config in
   `custom-blocks.ts`, as [Page documents](/docs/architecture/documents/#block-types)

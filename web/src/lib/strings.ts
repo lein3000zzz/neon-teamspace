@@ -412,10 +412,6 @@ export const strings = {
       unlimited: "no limit",
       own: "Set for this workspace",
       byDefault: "Instance default",
-      notYet: {
-        storage_bytes: "Counted once attachments exist.",
-        agents: "Counted once agents exist.",
-      },
       edit: "Edit limits",
       editLabel: (name: string) => `Edit the limits of ${name}`,
       editTitle: (name: string) => `Limits of ${name}`,
@@ -1038,8 +1034,11 @@ export const strings = {
       saved: "Saved.",
       slugTaken: "Another workspace has this address.",
       limits: "Limits",
-      limitsHint: "Instance admins set these. A workspace at its member limit takes in nobody new.",
+      limitsHint:
+        "Instance admins set these. A workspace at its member limit takes in nobody new, and one at its storage limit takes no more uploads; its pages stay editable.",
       memberLimit: (n: number, max: string) => `${n} of ${max}`,
+      storage: "Storage",
+      storageUsed: (used: string, max: string) => `${used} of ${max}`,
       noLimit: "no limit",
       leave: "Leave workspace",
       leaveHint:
@@ -1306,7 +1305,9 @@ export const strings = {
           ? "1 file of the zip was left out:"
           : `${count} files of the zip were left out:`,
       reasons: {
-        attachment: "not markdown; attachments come later",
+        attachment: "not markdown, and no page shows it",
+        unsupported_type: "a file of a type its block does not take",
+        too_large: "larger than an upload may be",
         hidden: "hidden",
         link: "a symbolic link",
         encrypted: "encrypted",
@@ -1345,6 +1346,9 @@ export const strings = {
       editedBy: "Last edited by",
       addIcon: "Add icon",
       addCover: "Add cover",
+      uploadingCover: "Uploading the cover…",
+      coverNotUploaded: "The cover could not be uploaded.",
+      dismissCover: "Dismiss",
       changeIcon: "Change icon",
       changeCover: "Change cover",
     },
@@ -1363,6 +1367,9 @@ export const strings = {
       title: "Cover",
       lede: "Colours from the theme, so they suit every palette and mode.",
       remove: "Remove cover",
+      upload: "Upload an image",
+      uploadLabel: "An image for the cover",
+      uploadHint: "PNG, JPEG, GIF, WebP, AVIF or SVG, kept with the page.",
       names: {
         accent: "Accent",
         "accent-gradient": "Accent gradient",
@@ -1443,6 +1450,7 @@ export const strings = {
         subtext: "A table, board or list of pages, inside this page",
       },
       databaseFailed: "The database could not be made.",
+      uploadFailed: "The file could not be uploaded.",
       states: {
         connecting: "Connecting",
         connected: "Connected",

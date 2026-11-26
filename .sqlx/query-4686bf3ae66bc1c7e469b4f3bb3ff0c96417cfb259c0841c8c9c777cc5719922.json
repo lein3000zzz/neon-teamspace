@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id, f.workspace_id, f.unreferenced_since\n         FROM files f\n         WHERE ($1::timestamptz IS NULL AND f.unreferenced_since IS NULL\n                OR f.unreferenced_since < $1)\n           AND NOT EXISTS (SELECT 1 FROM page_file_refs r WHERE r.file_id = f.id)\n           AND NOT EXISTS (SELECT 1 FROM version_file_refs v WHERE v.file_id = f.id)\n           AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.cover_file_id = f.id)\n         ORDER BY f.unreferenced_since NULLS FIRST, f.created_at, f.id\n         LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "unreferenced_since",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "unreferenced_since"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4686bf3ae66bc1c7e469b4f3bb3ff0c96417cfb259c0841c8c9c777cc5719922"
+}
