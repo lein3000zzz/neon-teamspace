@@ -54,6 +54,7 @@ mod content;
 mod document;
 mod limits;
 mod protocol;
+mod writers;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;

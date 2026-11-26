@@ -284,6 +284,35 @@ async fn the_inbox_is_read_counted_and_marked(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_made_with_a_mention_tells_it_at_once_as_from_its_maker(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let cy = me(&t.cy).await;
+    let created = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/pages"),
+            json!({
+                "teamspace_id": general,
+                "title": "Plan",
+                "markdown": format!("Ask {}", mention(&cy, "cy")),
+            }),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let inbox = t.cy.get("/api/v1/inbox").await;
+    let first = &inbox.body["notifications"][0];
+    assert_eq!(first["kind"], "mention");
+    assert_eq!(first["page"]["id"], created.body["id"]);
+    assert_eq!(first["actor"]["display_name"], "ada");
+    assert_eq!(first["comment_id"], Value::Null);
+    assert!(first["block_id"].is_string(), "{first}");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn the_link_in_a_mail_stops_it_without_signing_in(pool: PgPool) {
     let state = state_with(pool, keyed(), WebConfig::new(None, Vec::new())).await;
     let app = router(state.clone(), false);

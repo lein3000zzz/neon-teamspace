@@ -30,6 +30,6 @@ pub use model::{
     TextProps,
 };
 pub use ydoc::{
-    FRAGMENT, Lenient, NotADocument, ReadError, append, fragment, read, read_doc, read_lenient,
-    replace,
+    FRAGMENT, Lenient, MentionItem, NotADocument, ReadError, append, fragment, mention_items, read,
+    read_doc, read_lenient, replace,
 };

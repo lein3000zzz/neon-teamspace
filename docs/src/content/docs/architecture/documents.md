@@ -152,6 +152,7 @@ The crate's functions:
 | `markdown::from_markdown(text)` | The blocks of a markdown text, without ids. |
 | `Document::plain_text()` | The words of the document, for search. Database blocks are left out, as they hold no words of their own; a mention counts as `@` and its label. |
 | `Document::mentions()` | Each mention in the document's text, with the block it is in. |
+| `mention_items(&txn, &fragment)` | The same mentions read from the Yjs document, each with the Yjs id of its element, which tells whose change wrote it. |
 | `markdown::inline_from_markdown(text)` | The inline content of a comment's markdown: text, styles, links and mentions, block syntax kept as text. |
 | `anchors::resolve(txn, fragment, anchors)` | Where each inline thread's relative positions are now: the block its range starts in, or that it is detached. |
 | `anchors::block_anchor(txn, fragment, id)` | Relative positions over the whole text of one block, for a thread on it. |

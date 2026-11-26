@@ -196,6 +196,51 @@ impl Team {
         .expect("counted")
     }
 
+    /// The notifications of mentions in pages' text made for someone, oldest first: the
+    /// page, who it is from and the block it is in.
+    async fn text_mentions(&self, who: &Principal) -> Vec<(Uuid, Option<Uuid>, Option<String>)> {
+        sqlx::query_as(
+            "SELECT page_id, actor_id, block_id FROM notifications
+             WHERE user_id = $1 AND kind = 'mention' AND comment_id IS NULL ORDER BY id",
+        )
+        .bind(who.user.id)
+        .fetch_all(&self.h.pool)
+        .await
+        .expect("listed")
+    }
+
+    /// The webhooks' service, whose deliveries all arrive.
+    fn webhooks(&self) -> WebhookService {
+        WebhookService::builder(
+            self.h.pool.clone(),
+            std::sync::Arc::clone(&self.h.settings),
+            Services {
+                workspaces: self.h.workspaces.clone(),
+                agents: self.h.agents.clone(),
+                pages: self.h.pages.clone(),
+                databases: self.h.databases.clone(),
+                sync: self.sync.clone(),
+                comments: self.comments.clone(),
+            },
+            std::sync::Arc::new(Accepting),
+        )
+        .envelope(envelope())
+        .build()
+    }
+
+    /// A live documents' service of its own, with these limits.
+    fn sync_with(&self, limits: Limits) -> SyncService {
+        let (_, feed) = access_feed();
+        SyncService::builder(
+            self.h.pool.clone(),
+            self.h.pages.clone(),
+            self.h.auth.clone(),
+            feed,
+        )
+        .limits(limits)
+        .build()
+    }
+
     async fn post(&self, who: &Principal, markdown: &str) -> neon_app::comments::Posted {
         self.comments
             .start_thread(who, self.page, markdown, Placing::Page)
@@ -942,22 +987,7 @@ async fn an_unsubscribe_link_works_only_as_signed(pool: PgPool) {
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn mentions_and_replies_reach_webhooks_that_ask_for_them(pool: PgPool) {
     let t = team(pool).await;
-    let webhooks = WebhookService::builder(
-        t.h.pool.clone(),
-        std::sync::Arc::clone(&t.h.settings),
-        Services {
-            workspaces: t.h.workspaces.clone(),
-            agents: t.h.agents.clone(),
-            pages: t.h.pages.clone(),
-            databases: t.h.databases.clone(),
-            sync: t.sync.clone(),
-            comments: t.comments.clone(),
-        },
-        std::sync::Arc::new(Accepting),
-    )
-    .envelope(envelope())
-    .build();
-    webhooks
+    t.webhooks()
         .create_webhook(
             &t.bea,
             t.workspace,
@@ -1001,4 +1031,269 @@ async fn mentions_and_replies_reach_webhooks_that_ask_for_them(pool: PgPool) {
         })
         .collect();
     assert_eq!(kinds, ["page.mentioned", "comment.replied"]);
+}
+
+/// Limits under which a document is saved only once its service stops, so every change
+/// before then is in the one snapshot.
+fn saved_at_the_end() -> Limits {
+    Limits {
+        persist_delay: Duration::from_millis(5),
+        idle_unload: Duration::from_secs(3600),
+        mention_settle: Duration::from_secs(3600),
+        ..Limits::default()
+    }
+}
+
+fn text(markdown: &str) -> Vec<neon_blocks::Block> {
+    from_markdown(markdown).blocks
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_in_a_pages_text_is_from_whoever_wrote_it(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync_with(saved_at_the_end());
+    // Ada mentions Bea; before the text is saved, Bea mentions Cy and both write on, so
+    // neither the last change nor the one mentioned says whom each mention is from.
+    for (who, markdown) in [
+        (&t.ada, format!("Ask {}", mention(&t.bea))),
+        (&t.bea, format!("And {}", mention(&t.cy))),
+        (&t.ada, "More".to_owned()),
+        (&t.bea, "Even more".to_owned()),
+    ] {
+        sync.append(who, t.page, text(&markdown))
+            .await
+            .expect("appended");
+    }
+    sync.shutdown().await;
+    let from = |told: Vec<(Uuid, Option<Uuid>, Option<String>)>| -> Vec<Option<Uuid>> {
+        told.into_iter().map(|(_, actor, _)| actor).collect()
+    };
+    assert_eq!(
+        from(t.text_mentions(&t.bea).await),
+        [Some(t.ada.user.id)],
+        "Bea is told, though she changed the page since"
+    );
+    assert_eq!(from(t.text_mentions(&t.cy).await), [Some(t.bea.user.id)]);
+    assert_eq!(t.made(&t.ada).await, 0);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_logged_before_a_restart_is_still_from_its_writer(pool: PgPool) {
+    let t = team(pool).await;
+    // Bea's change was logged by a server that stopped before saving it.
+    let update = {
+        let doc = yrs::Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        let mut txn = yrs::Transact::transact_mut(&doc);
+        neon_blocks::append(
+            &mut txn,
+            &fragment,
+            &text(&format!("For {}", mention(&t.cy))),
+            &mut neon_blocks::SequentialIds::new("b"),
+        )
+        .expect("appended");
+        txn.encode_update_v1()
+    };
+    neon_store::documents::append(
+        &t.h.pool,
+        t.page,
+        &[neon_store::documents::NewUpdate {
+            update: &update,
+            author_id: t.bea.user.id,
+            created_at: support::start(),
+        }],
+    )
+    .await
+    .expect("logged");
+    let sync = t.sync_with(saved_at_the_end());
+    sync.append(&t.ada, t.page, text("Ada's line"))
+        .await
+        .expect("appended");
+    sync.shutdown().await;
+    let told = t.text_mentions(&t.cy).await;
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].1, Some(t.bea.user.id));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_made_with_text_tells_whom_it_mentions_and_an_import_tells_nobody(pool: PgPool) {
+    use neon_app::pages::{ImportedContent, ImportedPage};
+
+    let t = team(pool).await;
+    let content = t
+        .sync
+        .first_snapshot(&from_markdown(&format!(
+            "Ask {} and {}",
+            mention(&t.bea),
+            mention(&t.ada)
+        )))
+        .expect("fits");
+    let made =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".into(),
+                    content,
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("created")
+            .page
+            .id;
+    let told = t.text_mentions(&t.bea).await;
+    assert_eq!(told.len(), 1, "told as the page is made");
+    assert_eq!((told[0].0, told[0].1), (made, Some(t.ada.user.id)));
+    assert!(told[0].2.is_some(), "at its block");
+    assert_eq!(t.made(&t.ada).await, 0);
+
+    let imported = t
+        .h
+        .pages
+        .import_pages(
+            &t.ada,
+            t.workspace,
+            Location::Teamspace(t.general),
+            vec![ImportedPage {
+                title: "Old notes".into(),
+                content: ImportedContent::of(&from_markdown(&format!("Ask {}", mention(&t.cy)))),
+                children: Vec::new(),
+            }],
+        )
+        .await
+        .expect("imported")
+        .pages[0]
+        .page
+        .id;
+    assert_eq!(t.made(&t.cy).await, 0, "imported text tells nobody");
+    let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM page_mentions WHERE page_id = $1")
+        .bind(imported)
+        .fetch_one(&t.h.pool)
+        .await
+        .expect("counted");
+    assert_eq!(recorded, 1);
+
+    // Cy writes on both and they are saved: nobody is told again, nor as from Cy.
+    t.sync
+        .append(&t.cy, made, text("More"))
+        .await
+        .expect("appended");
+    t.sync
+        .append(&t.cy, imported, text("More"))
+        .await
+        .expect("appended");
+    t.sync.shutdown().await;
+    assert_eq!(t.text_mentions(&t.bea).await, told);
+    assert_eq!(t.made(&t.cy).await, 0);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_in_a_block_of_a_long_id_is_told_without_it_and_the_page_saved(pool: PgPool) {
+    let t = team(pool).await;
+    let long = "L".repeat(200);
+    let blocks: Vec<neon_blocks::Block> =
+        text(&format!("Quarterly zebra findings, {}", mention(&t.cy)))
+            .into_iter()
+            .map(|block| block.with_id(long.clone()))
+            .collect();
+    t.sync
+        .append(&t.bea, t.page, blocks)
+        .await
+        .expect("appended");
+    t.sync.shutdown().await;
+    let (snapshots, logged, search): (i64, i64, Option<String>) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM page_snapshots WHERE page_id = $1),
+                (SELECT count(*) FROM page_updates WHERE page_id = $1),
+                (SELECT search_text FROM pages WHERE id = $1)",
+    )
+    .bind(t.page)
+    .fetch_one(&t.h.pool)
+    .await
+    .expect("read");
+    assert_eq!((snapshots, logged), (1, 0), "saved as a snapshot");
+    assert!(search.is_some_and(|text| text.contains("zebra")));
+    assert_eq!(
+        t.text_mentions(&t.cy).await,
+        [(t.page, Some(t.bea.user.id), None)]
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_written_again_while_the_first_waits_unread_still_reaches_webhooks(pool: PgPool) {
+    let t = team(pool).await;
+    t.webhooks()
+        .create_webhook(
+            &t.bea,
+            t.workspace,
+            NewWebhook {
+                user_id: t.bea.user.id,
+                url: "https://hooks.example.com/bea".into(),
+                events: vec!["page.mentioned".into()],
+                include_own: false,
+            },
+        )
+        .await
+        .expect("registered");
+    // Each change saved at once.
+    let sync = t.sync_with(Limits {
+        compact_updates: 1,
+        ..saved_at_the_end()
+    });
+    let mentioned = text(&format!("Ask {}", mention(&t.bea)));
+    let events = async || {
+        t.jobs(neon_app::webhooks::DELIVERY_KIND)
+            .await
+            .iter()
+            .map(|job| {
+                job.payload["event"]["type"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    sync.append(&t.ada, t.page, mentioned.clone())
+        .await
+        .expect("appended");
+    assert_eq!(events().await, ["page.mentioned"]);
+    // Taken out, saved, and written again while Bea has not read the first.
+    let (_, document) = sync.read(&t.ada, t.page).await.expect("read");
+    sync.edit(
+        &t.ada,
+        t.page,
+        vec![neon_blocks::edit::Edit::ReplaceBody {
+            blocks: text("Nobody"),
+        }],
+        Some(neon_app::sync::revision(&document)),
+    )
+    .await
+    .expect("edited");
+    let deadline = Instant::now() + PATIENCE;
+    while sqlx::query_scalar::<_, i64>("SELECT count(*) FROM page_mentions WHERE page_id = $1")
+        .bind(t.page)
+        .fetch_one(&t.h.pool)
+        .await
+        .expect("counted")
+        > 0
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the text without the mention never saved"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    sync.append(&t.ada, t.page, mentioned)
+        .await
+        .expect("appended");
+    sync.shutdown().await;
+    assert_eq!(events().await, ["page.mentioned"], "told again");
+    assert_eq!(
+        t.made(&t.bea).await,
+        1,
+        "one notification while it waits unread"
+    );
 }

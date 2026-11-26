@@ -15,6 +15,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use neon_blocks::edit::{self, Applied, Edit, EditError};
 use neon_domain::auth::UserKind;
+use neon_domain::notifications::{PageMention, TextMention, page_mentions};
 use neon_domain::pages::PageAccess;
 use neon_store::documents::{self, Edited, LoggedUpdate, NewSnapshot, NewUpdate, Snapshot};
 use tokio::sync::{mpsc, oneshot};
@@ -33,8 +34,9 @@ use yrs::{
 use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
 use super::protocol::{self, encode};
+use super::writers::Writers;
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
-use crate::notifications::mentions::{self, Mentions};
+use crate::notifications::mentions::{self, Mentions, mentioned_user};
 use crate::notifications::notify::Notifier;
 
 /// What the server tells a connection that may no longer edit, in y-protocols' auth
@@ -242,6 +244,9 @@ struct Document {
     /// When the document will have gone [`Limits::mention_settle`](super::Limits) without a
     /// change, to look at its mentions then.
     settle_at: Option<Instant>,
+    /// Who wrote what the document gained since its latest snapshot, which credits each new
+    /// mention to its writer.
+    writers: Writers,
 }
 
 /// What the database holds of the document, and what waits to be written.
@@ -355,7 +360,8 @@ impl Document {
         }
         .await
         .and_then(|(snapshot, after, updates, mentions)| {
-            let doc = assemble(snapshot.as_ref(), &updates)?;
+            let mut writers = Writers::default();
+            let doc = assemble_into(snapshot.as_ref(), &updates, &mut writers)?;
             let fragment = neon_blocks::fragment(&doc);
             let storage = Storage {
                 last_seq: updates.last().map_or(after, |last| last.seq.max(after)),
@@ -369,10 +375,10 @@ impl Document {
                 ..Storage::default()
             };
             let mentions = mentions.into_iter().map(|(user, _)| user).collect();
-            Ok((doc, fragment, storage, mentions))
+            Ok((doc, fragment, storage, mentions, writers))
         });
         match loaded {
-            Ok((doc, fragment, storage, mentions)) => {
+            Ok((doc, fragment, storage, mentions, writers)) => {
                 guard.ok();
                 info!(
                     bytes = storage.size(),
@@ -392,6 +398,7 @@ impl Document {
                     gone: false,
                     mentions,
                     settle_at: None,
+                    writers,
                 })
             }
             Err(error) => {
@@ -513,18 +520,20 @@ impl Document {
                 return Err(AppendError::TooLarge);
             }
         }
-        let changed = {
+        let (changed, before, after) = {
             let mut txn = self.awareness.doc().transact_mut();
+            let before = txn.state_vector();
             let mut ids = || Uuid::now_v7().to_string();
             neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)
                 .map_err(|_| AppendError::NotADocument)?;
-            txn.encode_update_v1()
+            (txn.encode_update_v1(), before, txn.state_vector())
         };
         if changed.as_slice() != Update::EMPTY_V1 {
             let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
             self.inner
                 .broadcaster
                 .broadcast(Room::Page(self.page_id), message, None);
+            self.writers.add(&before, &after, Some(author));
             self.queue(changed, author);
             self.flush().await;
             if self.gone {
@@ -573,10 +582,11 @@ impl Document {
             return Err(Unedited::Conflict);
         }
         let room = self.room();
-        let (made, changed) = {
+        let (made, changed, before, after) = {
             let mut txn = self.awareness.doc().transact_mut();
+            let before = txn.state_vector();
             let made = make(&mut txn, &self.fragment, edits, room);
-            (made, txn.encode_update_v1())
+            (made, txn.encode_update_v1(), before, txn.state_vector())
         };
         // A part the trial made and this did not still leaves the parts before it, which
         // the others and the log must have too.
@@ -585,6 +595,7 @@ impl Document {
             self.inner
                 .broadcaster
                 .broadcast(Room::Page(self.page_id), message, None);
+            self.writers.add(&before, &after, Some(author));
             self.queue(changed, author);
         }
         if let Err(refused) = &made {
@@ -798,11 +809,18 @@ impl Document {
                 return Err(CloseReason::DocumentTooLarge);
             }
         }
-        let (applied, changed, stranded) = {
+        let (applied, changed, stranded, before, after) = {
             let mut txn = self.awareness.doc().transact_mut();
+            let before = txn.state_vector();
             let applied = txn.apply_update(update);
             let stranded = txn.prune_pending().is_some();
-            (applied, txn.encode_update_v1(), stranded)
+            (
+                applied,
+                txn.encode_update_v1(),
+                stranded,
+                before,
+                txn.state_vector(),
+            )
         };
         // Even an update that failed may have changed some of the document, which the
         // others and the log must have too.
@@ -811,6 +829,7 @@ impl Document {
             self.inner
                 .broadcaster
                 .broadcast(Room::Page(self.page_id), message, Some(id));
+            self.writers.add(&before, &after, Some(author));
             self.queue(changed, author);
         }
         applied.map_err(|error| {
@@ -1032,16 +1051,15 @@ impl Document {
     /// enough changes come or it unloads.
     async fn settle(&mut self) {
         self.settle_at = None;
-        let mentioned = {
+        let now = {
             let txn = self.awareness.doc().transact();
             neon_blocks::read(&txn, &self.fragment)
                 .ok()
-                .map(|document| mentioned_people(&document))
+                .map(|document| mentioned_users(&document))
         };
-        let Some(mentioned) = mentioned else {
+        let Some(now) = now else {
             return;
         };
-        let now: HashSet<Uuid> = mentioned.iter().map(|(user, _)| *user).collect();
         if !now.is_subset(&self.mentions) && self.storage.needs_snapshot() {
             debug!(
                 mentions = now.len(),
@@ -1051,9 +1069,23 @@ impl Document {
         }
     }
 
+    /// Whom the document's mentions name, each as from whoever wrote it, as far as the
+    /// changes since the latest snapshot tell.
+    fn credited(&self, items: Vec<neon_blocks::MentionItem>) -> Vec<PageMention> {
+        page_mentions(items.into_iter().filter_map(|item| {
+            Some(TextMention {
+                user: mentioned_user(&item.mention)?,
+                block_id: item.block_id,
+                writer: item.id.and_then(|id| self.writers.of(&id)),
+            })
+        }))
+    }
+
     /// Saves the whole document as the page's snapshot, in one transaction with deleting
     /// the updates it takes in, recording its text and latest change on the page, and
-    /// recording whom it mentions, which tells those it mentions for the first time.
+    /// recording whom it mentions, which tells those it mentions for the first time, each
+    /// as from whoever wrote their mention. The mentions are recorded in a savepoint of
+    /// their own: should that fail, which is logged, the snapshot is saved without them.
     /// Returns whether it was saved. A failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
@@ -1062,7 +1094,9 @@ impl Document {
             let (text, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
                 Ok(document) => (
                     Some(document.plain_text()),
-                    Some(mentioned_people(&document)),
+                    neon_blocks::mention_items(&txn, &self.fragment)
+                        .ok()
+                        .map(|items| self.credited(items)),
                 ),
                 Err(error) => {
                     // Its structure, never its content.
@@ -1082,7 +1116,7 @@ impl Document {
         let edited = self.storage.edited;
         let at = self.inner.clock.now();
         let pool = &self.inner.pool;
-        let mut notifier = Notifier::of(&self.inner.pages);
+        let pages = &self.inner.pages;
         let saved = async {
             let mut tx = pool.begin().await?;
             documents::save_snapshot(
@@ -1098,30 +1132,42 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            let mut recorded = None;
             if let Some(mentioned) = &mentioned {
-                let author = edited.and_then(|edited| edited.by);
+                let mut savepoint = sqlx::Acquire::begin(&mut tx).await?;
+                let mut notifier = Notifier::of(pages);
                 let mentions = Mentions {
                     page_id,
                     mentioned,
-                    author,
                     at,
                 };
-                mentions::page_text(&mut tx, &self.inner.pages, &mut notifier, mentions).await?;
+                match mentions::page_text(&mut savepoint, pages, &mut notifier, mentions).await {
+                    Ok(()) => {
+                        savepoint.commit().await?;
+                        recorded = Some(notifier);
+                    }
+                    Err(error) => {
+                        savepoint.rollback().await?;
+                        // What failed, never what the page says.
+                        error!(%error, "cannot record whom the document mentions; it is saved without");
+                    }
+                }
             }
             tx.commit().await?;
-            Ok::<_, sqlx::Error>(deleted)
+            Ok::<_, sqlx::Error>((deleted, recorded))
         }
         .instrument(info_span!("sync compact", bytes = state.len()))
         .await;
         match saved {
-            Ok(deleted) => {
+            Ok((deleted, recorded)) => {
                 guard.ok();
                 info!(bytes = state.len(), updates = deleted, "document compacted");
                 self.storage.compacted(state.len());
-                if let Some(mentioned) = mentioned {
-                    self.mentions = mentioned.into_iter().map(|(user, _)| user).collect();
+                self.writers.clear();
+                if let (Some(mentioned), Some(notifier)) = (mentioned, recorded) {
+                    self.mentions = mentioned.into_iter().map(|mention| mention.user).collect();
+                    notifier.tell();
                 }
-                notifier.tell();
                 true
             }
             Err(error) if documents::is_page_gone(&error) => {
@@ -1217,21 +1263,13 @@ fn make(
     Ok(made)
 }
 
-/// The people, agents and integrations a document mentions, each once, with the first
-/// block that does.
-fn mentioned_people(document: &neon_blocks::Document) -> Vec<(Uuid, Option<String>)> {
-    let mut found: Vec<(Uuid, Option<String>)> = Vec::new();
-    for (block, mention) in document.mentions() {
-        if mention.props.kind != neon_blocks::MentionKind::User {
-            continue;
-        }
-        if let Ok(user) = Uuid::try_parse(&mention.props.target)
-            && !found.iter().any(|(seen, _)| *seen == user)
-        {
-            found.push((user, block.map(str::to_owned)));
-        }
-    }
-    found
+/// The people, agents and integrations a document mentions.
+fn mentioned_users(document: &neon_blocks::Document) -> HashSet<Uuid> {
+    document
+        .mentions()
+        .into_iter()
+        .filter_map(|(_, mention)| mentioned_user(mention))
+        .collect()
 }
 
 /// The id of a block the server adds.
@@ -1246,18 +1284,30 @@ pub(crate) fn assemble(
     snapshot: Option<&Snapshot>,
     updates: &[LoggedUpdate],
 ) -> Result<Doc, LoadError> {
+    assemble_into(snapshot, updates, &mut Writers::default())
+}
+
+/// [`assemble`], noting who wrote what each logged update added in `writers`.
+fn assemble_into(
+    snapshot: Option<&Snapshot>,
+    updates: &[LoggedUpdate],
+    writers: &mut Writers,
+) -> Result<Doc, LoadError> {
     let doc = Doc::new();
-    {
+    if let Some(snapshot) = snapshot {
+        doc.transact_mut()
+            .apply_update(Update::decode_v1(&snapshot.state)?)?;
+    }
+    // Each in a transaction of its own, so what each added shows; what one needs of a
+    // later one waits for it, as it would in one transaction.
+    for logged in updates {
         let mut txn = doc.transact_mut();
-        if let Some(snapshot) = snapshot {
-            txn.apply_update(Update::decode_v1(&snapshot.state)?)?;
-        }
-        for logged in updates {
-            txn.apply_update(Update::decode_v1(&logged.update)?)?;
-        }
-        if txn.prune_pending().is_some() {
-            warn!("a saved document holds changes that need others it lacks; left out");
-        }
+        let before = txn.state_vector();
+        txn.apply_update(Update::decode_v1(&logged.update)?)?;
+        writers.add(&before, &txn.state_vector(), logged.author_id);
+    }
+    if doc.transact_mut().prune_pending().is_some() {
+        warn!("a saved document holds changes that need others it lacks; left out");
     }
     Ok(doc)
 }

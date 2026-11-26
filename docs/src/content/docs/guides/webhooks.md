@@ -54,7 +54,7 @@ it wants, at least one:
 |---|---|
 | `row.assigned` | The identity was added to a person property of a row, a new row's included: once for each property it is added to. |
 | `row.status_changed` | The row's status property, the database's first property of type status, was set to another value, or cleared, while the identity is in one of the row's person properties after the change. A new row's status changes nothing. |
-| `page.mentioned` | A comment mentions the identity, or a change to a page's text mentions them where it did not before, once the change is stored. A comment changed later tells only those it mentions anew. |
+| `page.mentioned` | A comment mentions the identity, or a change to a page's text mentions them where it did not before, once the change is stored, a page made with text included. A comment changed later tells only those it mentions anew. A mention in a page's text removed and written again tells again, read or not. |
 | `comment.replied` | Someone replied in a thread the identity wrote in before. |
 
 [Comments and mentions](/docs/guides/comments-and-mentions/) has when a mention counts: never

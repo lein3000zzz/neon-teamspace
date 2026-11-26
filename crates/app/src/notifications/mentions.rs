@@ -1,12 +1,14 @@
 //! Who hears of what is written and assigned: the mentions in a page's text once it is
-//! stored, the mentions, replies and comments of a comment, and the people a row's change
-//! assigns, each in the transaction that stores it.
+//! stored, each from whoever wrote it, the mentions, replies and comments of a comment, and
+//! the people a row's change assigns, each in the transaction that stores it.
 
 use std::collections::HashMap;
 
-use neon_blocks::{Inline, MentionKind};
+use neon_blocks::{Document, Inline, Mention, MentionKind};
 use neon_domain::databases::Schema;
-use neon_domain::notifications::{CommentAudience, NotificationKind, comment_audience};
+use neon_domain::notifications::{
+    CommentAudience, Credit, NotificationKind, PageMention, TextMention, comment_audience,
+};
 use neon_domain::webhooks::EventType;
 use neon_store::comments::{self as comments_repo, Comment, Thread};
 use neon_store::notifications::{self as repo, Notification};
@@ -30,8 +32,7 @@ pub(crate) fn mentioned_in_content(content: &[Inline]) -> Vec<Uuid> {
     let mut found = Vec::new();
     for run in content {
         if let Inline::Mention(mention) = run
-            && mention.props.kind == MentionKind::User
-            && let Ok(user) = Uuid::try_parse(&mention.props.target)
+            && let Some(user) = mentioned_user(mention)
             && !found.contains(&user)
         {
             found.push(user);
@@ -40,27 +41,63 @@ pub(crate) fn mentioned_in_content(content: &[Inline]) -> Vec<Uuid> {
     found
 }
 
-/// A page's text as a snapshot stores it: whom it mentions, each with their first block,
-/// who changed it last, and when.
+/// Whom a mention names, when it names a person, an agent or an integration.
+pub(crate) fn mentioned_user(mention: &Mention) -> Option<Uuid> {
+    (mention.props.kind == MentionKind::User)
+        .then(|| Uuid::try_parse(&mention.props.target).ok())
+        .flatten()
+}
+
+/// The mentions of a document's text that name people, agents and integrations, in order,
+/// each with its block, whoever wrote them not known.
+pub(crate) fn in_document(document: &Document) -> Vec<TextMention> {
+    document
+        .mentions()
+        .into_iter()
+        .filter_map(|(block, mention)| {
+            Some(TextMention {
+                user: mentioned_user(mention)?,
+                block_id: block.map(str::to_owned),
+                writer: None,
+            })
+        })
+        .collect()
+}
+
+/// A page's text as a snapshot stores it: whom it mentions, each with their block and whom
+/// their mention is from, and when.
 pub(crate) struct Mentions<'a> {
     pub(crate) page_id: Uuid,
-    pub(crate) mentioned: &'a [(Uuid, Option<String>)],
-    pub(crate) author: Option<Uuid>,
+    pub(crate) mentioned: &'a [PageMention],
     pub(crate) at: OffsetDateTime,
 }
 
+/// Records whom a page's text mentions now, telling nobody, as an import of the text does:
+/// those it did not mention before, each with their block.
+pub(crate) async fn record(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+    mentioned: &[PageMention],
+) -> sqlx::Result<Vec<(Uuid, Option<String>)>> {
+    let pairs: Vec<(Uuid, Option<String>)> = mentioned
+        .iter()
+        .map(|mention| (mention.user, mention.block_id.clone()))
+        .collect();
+    comments_repo::set_page_mentions(&mut *conn, page_id, &pairs).await
+}
+
 /// Records whom a page's text mentions now, and tells each it mentions for the first time,
-/// who may see the page, but its last author: a notification, unless one of a mention on
-/// the page waits unread, and the `page.mentioned` event. They follow the page's comments
-/// from then on, unless they stopped.
+/// who may see the page, but those who wrote every mention of themselves: the
+/// `page.mentioned` event, and a notification from the mention's writer unless one of a
+/// mention on the page waits unread. They follow the page's comments from then on, unless
+/// they stopped.
 pub(crate) async fn page_text(
     conn: &mut PgConnection,
     pages: &PageService,
     notifier: &mut Notifier,
     mentions: Mentions<'_>,
 ) -> sqlx::Result<()> {
-    let new =
-        comments_repo::set_page_mentions(&mut *conn, mentions.page_id, mentions.mentioned).await?;
+    let new = record(&mut *conn, mentions.page_id, mentions.mentioned).await?;
     if new.is_empty() {
         return Ok(());
     }
@@ -69,24 +106,34 @@ pub(crate) async fn page_text(
     };
     let mut followers = Vec::new();
     for (user, block_id) in new {
-        if Some(user) == mentions.author
-            || !sees(pages, &mut *conn, user, page.workspace_id, page.id)
-                .await
-                .map_err(into_sqlx)?
-            || repo::has_unread(&mut *conn, user, NotificationKind::Mention, page.id, None).await?
+        let credit = mentions
+            .mentioned
+            .iter()
+            .find(|mention| mention.user == user)
+            .map_or(Credit::Unknown, |mention| mention.credit);
+        let actor = match credit {
+            Credit::Themselves => continue,
+            Credit::Writer(writer) => Some(writer),
+            Credit::Unknown => None,
+        };
+        if !sees(pages, &mut *conn, user, page.workspace_id, page.id)
+            .await
+            .map_err(into_sqlx)?
         {
             continue;
         }
-        let mut notification = Notification::new(
-            user,
-            page.workspace_id,
-            NotificationKind::Mention,
-            mentions.at,
-        );
-        notification.actor_id = mentions.author;
-        notification.page_id = Some(page.id);
-        notification.block_id = block_id;
-        notifier.record(&mut *conn, &notification).await?;
+        if !repo::has_unread(&mut *conn, user, NotificationKind::Mention, page.id, None).await? {
+            let mut notification = Notification::new(
+                user,
+                page.workspace_id,
+                NotificationKind::Mention,
+                mentions.at,
+            );
+            notification.actor_id = actor;
+            notification.page_id = Some(page.id);
+            notification.block_id = block_id;
+            notifier.record(&mut *conn, &notification).await?;
+        }
         webhooks::queue_page(
             &mut *conn,
             PageChange {
@@ -94,7 +141,7 @@ pub(crate) async fn page_text(
                 workspace_id: page.workspace_id,
                 page_id: page.id,
                 identity: user,
-                actor: mentions.author,
+                actor,
                 thread_id: None,
                 comment_id: None,
                 at: mentions.at,

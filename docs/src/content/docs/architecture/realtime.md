@@ -214,6 +214,15 @@ someone typing a name is not told of every letter, the document waits until it h
 seconds without a change, then saves a snapshot early if its text mentions someone it did
 not when last saved.
 
+Each mention is told as from whoever wrote it. Every Yjs item has an id, the client that
+made it and a count of that client's items, and every change the document takes, a client's
+update or an edit of the server's, adds a range of those counts; the document keeps, until
+the next snapshot, which ranges each change's author added, rebuilt from the log when it
+loads. A mention's element falls in one of them. Recording the mentions runs in a savepoint
+of the snapshot's transaction: should it fail, the snapshot and the search text are saved
+without it, and the failure is logged. A page the API or MCP makes with content records its
+mentions as it is made, from its maker; an import records them and tells nobody.
+
 ## Saving
 
 An update the server applies waits a quarter of a second, or until 256 KiB of them wait, and

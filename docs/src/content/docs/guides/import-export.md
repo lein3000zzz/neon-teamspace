@@ -79,8 +79,9 @@ folder's name. A block of YAML front matter at the very top, `---` and `key: val
 the next `---`, is left out, as note apps and site generators write it.
 
 Each page's content becomes the first snapshot of its document, with fresh block ids, and its
-text the page's search text. Nothing is made unless all of it can be: an import that breaks a
-rule or a limit makes no page at all.
+text the page's search text. [Mentions](/docs/guides/comments-and-mentions/#mentions) in it
+are recorded and tell nobody, then or at the page's next edit. Nothing is made unless all of
+it can be: an import that breaks a rule or a limit makes no page at all.
 
 ### What a zip leaves out
 

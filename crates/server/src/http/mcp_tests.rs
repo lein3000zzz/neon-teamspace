@@ -2715,6 +2715,23 @@ async fn an_agent_comments_reads_its_inbox_and_hears_it_change(pool: PgPool) {
         .await;
     assert_eq!(open["threads"].as_array().map(Vec::len), Some(1));
 
+    // A page it makes with a mention tells the one it names at once, as from the agent.
+    let made = agent
+        .ok(
+            "create_page",
+            json!({
+                "teamspace_id": general(&t.ada, ws).await,
+                "title": "Follow-up",
+                "markdown": format!("@[ada](user:{}) see this", account_id(&t.ada).await),
+            }),
+        )
+        .await;
+    let ada_inbox = t.ada.get("/api/v1/inbox").await;
+    let mentioned = &ada_inbox.body["notifications"][0];
+    assert_eq!(mentioned["kind"], "mention");
+    assert_eq!(mentioned["page"]["id"], made["page"]["id"]);
+    assert_eq!(mentioned["actor"]["id"], scout.as_str());
+
     let marked = agent.ok("mark_read", json!({"all": true})).await;
     assert_eq!(marked, json!({"marked": 1}));
     let inbox = agent.ok("get_inbox", json!({"unread": true})).await;

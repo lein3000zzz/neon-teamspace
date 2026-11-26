@@ -89,7 +89,18 @@ first.
 - **In a page's text**, it tells them once the text has settled: ten seconds after the last
   change to the page, the server saves its document and tells everyone it now mentions who
   it did not before. A mention that stays tells nobody again however the page changes; one
-  removed and written again later tells again, unless its last is still unread.
+  removed and written again later tells again: its webhook event each time, and the inbox
+  once more unless its last notification there is still unread.
+- **In a new page's text**, as the API or MCP makes a page with content, it tells them as the
+  page is made. Text an [import](/docs/guides/import-export/) brings tells nobody, then or
+  later: it was written elsewhere, before.
+
+A mention in a page's text is from whoever wrote it, whoever changed the page after them:
+the server knows whose change added each part of the document since it was last saved, and
+the mention's notification and event name that writer. Someone mentioned is told even when
+they changed the page themselves before it was saved, unless every mention of them is their
+own. One the server cannot tell the writer of, as of text saved before it knew, comes from
+nobody named.
 
 Someone mentioned on a page, who may see it, follows its comments from then on, unless they
 chose not to.

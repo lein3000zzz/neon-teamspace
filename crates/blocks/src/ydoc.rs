@@ -152,6 +152,63 @@ pub fn read_lenient<T: ReadTxn>(txn: &T, fragment: &XmlFragmentRef) -> Lenient {
     }
 }
 
+/// A mention in a document's text, as its Yjs document holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MentionItem {
+    /// The block it is in.
+    pub block_id: Option<String>,
+    pub mention: Mention,
+    /// The Yjs id of its element: the client that made it and where in that client's
+    /// clock, which tells whose change wrote it.
+    pub id: Option<yrs::ID>,
+}
+
+/// Every mention of a fragment's text, table cells included, in document order, as
+/// [`Document::mentions`] lists them, each with the Yjs id of its element. A mention whose
+/// attributes do not read fails as [`read`] does.
+pub fn mention_items<T: ReadTxn>(
+    txn: &T,
+    fragment: &XmlFragmentRef,
+) -> Result<Vec<MentionItem>, ReadError> {
+    fn walk<T: ReadTxn>(
+        txn: &T,
+        children: impl Iterator<Item = XmlOut>,
+        block_id: Option<&str>,
+        found: &mut Vec<MentionItem>,
+    ) -> Result<(), ReadError> {
+        for child in children {
+            let XmlOut::Element(element) = child else {
+                continue;
+            };
+            match element.tag().as_ref() {
+                MENTION => {
+                    let branch: &yrs::branch::Branch = element.as_ref();
+                    found.push(MentionItem {
+                        block_id: block_id.map(str::to_owned),
+                        mention: read_mention(txn, &element)?,
+                        id: match branch.id() {
+                            yrs::BranchID::Nested(id) => Some(id),
+                            yrs::BranchID::Root(_) => None,
+                        },
+                    });
+                }
+                BLOCK_CONTAINER => {
+                    let id = match element.get_attribute(txn, "id") {
+                        Some(Out::Any(Any::String(id))) => Some(id.to_string()),
+                        _ => None,
+                    };
+                    walk(txn, element.children(txn), id.as_deref(), found)?;
+                }
+                _ => walk(txn, element.children(txn), block_id, found)?,
+            }
+        }
+        Ok(())
+    }
+    let mut found = Vec::new();
+    walk(txn, fragment.children(txn), None, &mut found)?;
+    Ok(found)
+}
+
 /// Replaces everything in the fragment with `document`. Blocks without an id get one from
 /// `ids`, parents before their children, in document order. The top-level block group is
 /// kept when there is one, so the editor's binding to it stays.
@@ -1121,6 +1178,80 @@ mod tests {
     fn an_empty_fragment_is_an_empty_document() {
         let doc = Doc::new();
         assert_eq!(read_doc(&doc), Ok(Document::default()));
+    }
+
+    #[test]
+    fn mention_items_name_each_mentions_block_and_the_client_that_wrote_it() {
+        use yrs::updates::decoder::Decode as _;
+
+        let written = crate::markdown::from_markdown(
+            "Ask @[Bea](user:b1)\n\n- and @[Cy](user:c1)\n  - under @[Plan](page:p1)",
+        );
+        let first = Doc::with_client_id(1);
+        let fragment_one = fragment(&first);
+        {
+            let mut txn = first.transact_mut();
+            replace(
+                &mut txn,
+                &fragment_one,
+                &written,
+                &mut SequentialIds::new("one"),
+            );
+        }
+        // A second client adds a block of its own.
+        let second = Doc::with_client_id(2);
+        let fragment_two = fragment(&second);
+        let update = {
+            let txn = first.transact();
+            txn.encode_state_as_update_v1(&yrs::StateVector::default())
+        };
+        let added = {
+            let mut txn = second.transact_mut();
+            txn.apply_update(yrs::Update::decode_v1(&update).expect("an update"))
+                .expect("applies");
+            append(
+                &mut txn,
+                &fragment_two,
+                &crate::markdown::from_markdown("Also @[Dee](user:d1)").blocks,
+                &mut SequentialIds::new("two"),
+            )
+            .expect("appended");
+            txn.encode_update_v1()
+        };
+        first
+            .transact_mut()
+            .apply_update(yrs::Update::decode_v1(&added).expect("an update"))
+            .expect("applies");
+
+        let txn = first.transact();
+        let items = mention_items(&txn, &fragment_one).expect("read");
+        let seen: Vec<(Option<&str>, &str, Option<u64>)> = items
+            .iter()
+            .map(|item| {
+                (
+                    item.block_id.as_deref(),
+                    item.mention.props.target.as_str(),
+                    item.id.map(|id| id.client.get()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (Some("one-1"), "b1", Some(1)),
+                (Some("one-2"), "c1", Some(1)),
+                (Some("one-3"), "p1", Some(1)),
+                (Some("two-1"), "d1", Some(2)),
+            ]
+        );
+        // The same mentions, in the same order, as the typed document lists them.
+        let document = read(&txn, &fragment_one).expect("blocks");
+        let typed: Vec<(Option<&str>, &Mention)> = document.mentions();
+        let walked: Vec<(Option<&str>, &Mention)> = items
+            .iter()
+            .map(|item| (item.block_id.as_deref(), &item.mention))
+            .collect();
+        assert_eq!(walked, typed);
     }
 
     #[test]
