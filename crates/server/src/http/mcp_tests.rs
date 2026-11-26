@@ -630,8 +630,13 @@ async fn raw(
     let mut request = Request::builder()
         .method(method)
         .uri("/mcp")
-        .header("host", "neon.example.com")
         .header("accept", "application/json, text/event-stream");
+    if !headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("host"))
+    {
+        request = request.header("host", "neon.example.com");
+    }
     for (name, value) in headers {
         request = request.header(*name, *value);
     }
@@ -805,6 +810,59 @@ async fn the_gate_wants_a_token_bound_to_a_workspace_on_every_request(pool: PgPo
     let (status, _, body) = raw(&app, Method::POST, &[auth], Some(initialize())).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(code_of(&body), "identity_not_allowed");
+    state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn without_a_public_url_only_an_address_or_localhost_stands_in_for_the_origin(pool: PgPool) {
+    let state = state_with_mcp(
+        pool,
+        WebConfig::new(None, Vec::new()),
+        neon_app::sync::Limits::default(),
+        Arc::new(MemoryLimiter::new()),
+    )
+    .await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let token = format!(
+        "Bearer {}",
+        bound_token(&t.ada, &t.workspace, &["read"]).await
+    );
+    // A page that rebinds a name of its own to the server sends that name as Host too.
+    for (host, origin, allowed) in [
+        ("rebound.example:8080", "http://rebound.example:8080", false),
+        ("127.0.0.1:8080", "http://evil.example", false),
+        ("127.0.0.1:8080", "http://127.0.0.1:8080", true),
+        ("[::1]:8080", "http://[::1]:8080", true),
+        ("localhost:5173", "http://localhost:5173", true),
+    ] {
+        let (status, _, body) = raw(
+            &app,
+            Method::POST,
+            &[
+                ("authorization", &token),
+                ("host", host),
+                ("origin", origin),
+            ],
+            Some(initialize()),
+        )
+        .await;
+        let expected = if allowed {
+            StatusCode::OK
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(status, expected, "{origin} to {host}: {body}");
+    }
+    // A client that is no browser sends no Origin, and needs no public URL.
+    let (status, _, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &token), ("host", "neon.example.com")],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
     state.mcp.shutdown().await;
 }
 

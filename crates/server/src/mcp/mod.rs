@@ -6,7 +6,7 @@
 //!   2025-11-25 have it: a client's `initialize` opens a session named by `Mcp-Session-Id`,
 //!   each request is a `POST` answered with JSON or server-sent events, a `GET` opens the
 //!   stream of notifications, and a `DELETE` ends the session. A request whose `Origin` is
-//!   not the server's own is refused with 403, against DNS rebinding.
+//!   not the server's own is refused with 403, against DNS rebinding: see [`own_origin`].
 //! - **Authentication.** Every request, not only the first, carries `Authorization: Bearer`
 //!   and is authenticated as the API routes authenticate it; a session cookie is not taken.
 //!   One without a working token gets 401 and a `WWW-Authenticate` header naming the
@@ -61,7 +61,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use crate::http::{ApiError, AppState};
+use crate::http::{ApiError, AppState, WebConfig};
 use server::Server;
 use sessions::{Activity, Sessions};
 
@@ -187,7 +187,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
     let headers = &parts.headers;
     if let Some(origin) = headers.get(ORIGIN) {
         let origin = origin.to_str().unwrap_or_default();
-        if !state.web.same_origin(origin, headers) {
+        if !own_origin(&state.web, origin, headers) {
             warn!(origin, "cross-origin MCP request refused");
             return ApiError::forbidden("MCP requests from another origin are refused")
                 .into_response();
@@ -291,6 +291,24 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
         opening.open(id, principal);
     }
     track(response, activity)
+}
+
+/// Whether a request's `Origin` is the server's own: `server.public_url`'s, or else the
+/// `Host`'s while that names this machine or an address. A page that points a name of its
+/// own at the server's address sends that name as both, so without `server.public_url` an
+/// origin named by a domain is refused.
+fn own_origin(web: &WebConfig, origin: &str, headers: &HeaderMap) -> bool {
+    if !web.same_origin(origin, headers) {
+        return false;
+    }
+    if web.knows_its_origin() {
+        return true;
+    }
+    url::Url::parse(origin).is_ok_and(|url| match url.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
+        None => false,
+    })
 }
 
 /// Whether a request's body is a JSON-RPC `initialize` request.

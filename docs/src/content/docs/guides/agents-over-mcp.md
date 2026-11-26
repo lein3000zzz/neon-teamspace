@@ -76,7 +76,10 @@ the session.
 - **Outside a session**, the server takes only `initialize`, and anything else gets
   `400 session_required`.
 - **Origin.** The server refuses a request whose `Origin` is not its own with `403`, so a
-  web page cannot reach a server on the visitor's machine by rebinding its name.
+  web page cannot reach a server on the visitor's machine by rebinding its name. Without
+  `server.public_url`, the request's `Host` stands in for the server's origin only when it
+  is `localhost` or an address, since a page that rebinds a name of its own sends that name
+  as the `Host` too. Clients that are not browsers send no `Origin`, and pass either way.
 - **Bounds.** The server holds at most `mcp.max_sessions` sessions, and
   `mcp.max_sessions_per_identity` of one person or agent. One more `initialize` gets
   `429 too_many_sessions`. A session ends with its subscriptions after

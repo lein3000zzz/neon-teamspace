@@ -99,7 +99,9 @@ requests, and takes no cookie, so a web page a person visits cannot use their se
 there. The token must be bound to one workspace, and the server refuses one across the
 instance with `token_not_bound`. A request without a working token answers `401` with a
 `WWW-Authenticate` header that names the resource's metadata, as RFC 9728 has it. Against
-DNS rebinding, the server refuses with `403` a request whose `Origin` is not its own.
+DNS rebinding, the server refuses with `403` a request whose `Origin` is not its own. Without
+`server.public_url`, a browser's request must also come from `localhost` or an address: a
+page that rebinds a name of its own sends it as both `Origin` and `Host`.
 
 Each session belongs to the identity and workspace that opened it, and another identity's
 request on it finds no session. The server checks the token on every request. It ends a

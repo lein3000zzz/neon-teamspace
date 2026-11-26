@@ -136,6 +136,12 @@ impl WebConfig {
         }
     }
 
+    /// Whether `server.public_url` names the server's origin, rather than each request's
+    /// `Host` standing in for it.
+    pub(crate) fn knows_its_origin(&self) -> bool {
+        self.origin.is_some()
+    }
+
     /// Whether `origin`, as an `Origin` header has it, is the server's own.
     pub(crate) fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
         if let Some(own) = &self.origin {
