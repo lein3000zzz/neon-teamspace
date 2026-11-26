@@ -40,7 +40,7 @@ describe("the live editor", () => {
     renderApp(PATH);
 
     expect(await indicator("Connected")).toBeInTheDocument();
-    expect(sync.urls).toEqual([`ws://localhost:3000/ws/pages/${PAGE_IDS.roadmap}`]);
+    expect(sync.urls).toEqual([`ws://localhost:3000/ws/pages/${PAGE_IDS.roadmap}?comments=true`]);
     await waitFor(async () => expect(await content()).toHaveAttribute("contenteditable", "true"));
   });
 

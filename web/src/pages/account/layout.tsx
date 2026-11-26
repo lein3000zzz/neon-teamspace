@@ -15,6 +15,7 @@ export function AccountLayout() {
         links={[
           { to: "/account", label: copy.tabs.profile },
           { to: "/account/invitations", label: copy.tabs.invitations },
+          { to: "/account/notifications", label: copy.tabs.notifications },
           { to: "/account/sessions", label: copy.tabs.sessions },
           { to: "/account/tokens", label: copy.tabs.tokens },
           { to: "/account/apps", label: copy.tabs.apps },

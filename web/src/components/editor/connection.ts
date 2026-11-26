@@ -23,6 +23,13 @@ export const FRAGMENT = "document-store";
 /** y-protocols' auth message for access given, which the server sends and y-protocols only names the other of. */
 const messagePermissionGranted = 1;
 
+/**
+ * The server's own message type, beside y-protocols': a thread of the page's
+ * comments changed. Its payload is JSON, `{"type":"comments","thread_id"}`;
+ * the server sends it to connections that ask, with `?comments=true`.
+ */
+export const messageComments = 100;
+
 /** The first pause after the server asked for one, doubled each time up to the longest. */
 const FIRST_PAUSE_MS = 1000;
 const LONGEST_PAUSE_MS = 30 * 1000;
@@ -84,7 +91,12 @@ const CLOSED_SNAPSHOT: Snapshot = { session: null, connection: STARTING };
  * Tabs never sync with each other directly: every change goes through the
  * server, which checks what the user may do.
  */
-function syncSource(pageId: string, selfId: string, onAccessChanged: () => void) {
+function syncSource(
+  pageId: string,
+  selfId: string,
+  onAccessChanged: () => void,
+  onComments: () => void,
+) {
   let snapshot = CLOSED_SNAPSHOT;
   return {
     snapshot: () => snapshot,
@@ -92,6 +104,7 @@ function syncSource(pageId: string, selfId: string, onAccessChanged: () => void)
       const doc = new Y.Doc();
       const provider = new WebsocketProvider(syncServer(window.location), pageId, doc, {
         disableBc: true,
+        params: { comments: "true" },
         shouldReconnect: (event) => afterClose(event.code) === "again",
       });
       const session = { doc, provider };
@@ -154,6 +167,11 @@ function syncSource(pageId: string, selfId: string, onAccessChanged: () => void)
         }
         onAccessChanged();
       };
+      // A thread changed: the comments are read again, whatever the message says.
+      provider.messageHandlers[messageComments] = (_encoder, decoder) => {
+        decoding.readVarUint8Array(decoder);
+        onComments();
+      };
       // Others' presence is cleaned before the editor sees it: see cleanState.
       provider.messageHandlers[messageAwareness] = (_encoder, decoder, from) => {
         const update = decoding.readVarUint8Array(decoder);
@@ -213,17 +231,19 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
  * Opens a page's document and its live connection, and closes both when the
  * page goes or changes. `onAccessChanged` runs when the server says the user
  * may now do more or less with the page, or ends the connection for good, so
- * the page can read again what the user may do with it; a new one opens the
- * connection afresh, so it should keep its identity.
+ * the page can read again what the user may do with it, and `onComments`
+ * when a thread of its comments changed; a new one opens the connection
+ * afresh, so each should keep its identity.
  */
 export function useSyncSession(
   pageId: string,
   selfId: string,
   onAccessChanged: () => void,
+  onComments: () => void,
 ): Snapshot {
   const source = useMemo(
-    () => syncSource(pageId, selfId, onAccessChanged),
-    [pageId, selfId, onAccessChanged],
+    () => syncSource(pageId, selfId, onAccessChanged, onComments),
+    [pageId, selfId, onAccessChanged, onComments],
   );
   return useSyncExternalStore(source.subscribe, source.snapshot);
 }

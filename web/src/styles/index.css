@@ -196,6 +196,27 @@
   }
 }
 
+/* The comments panel sits over the page's right edge; where the screen is wide
+   enough for both, the page moves clear of it. */
+@media (width >= 80rem) {
+  body:has([data-comments-panel]) #main {
+    padding-right: calc(24rem + 1.5rem);
+  }
+}
+
+/* A mention, in the editor and in comments: in the accent, someone by their
+   dot and name, a page as a link. */
+.mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  padding-inline: 0.2rem;
+  color: var(--neon);
+  background-color: var(--neon-soft);
+  text-decoration: none;
+}
+
 /* The actions of a row in the page trees show on hover or focus where every
    pointer can hover, and always where one cannot, as on a touch screen, so
    none is reachable only by hovering. */
