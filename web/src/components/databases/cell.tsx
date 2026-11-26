@@ -35,7 +35,8 @@ type CellProps = {
  * to: a checkbox toggles in place, any other value opens its editor in a
  * popover over the cell. Computed values, and people for guests, only show.
  * In a table, a value wider than its column is cut at the column's edge, and
- * tells itself in full on hover.
+ * tells itself in full on hover. In a row's properties, every value starts on
+ * the same line, editable or not.
  */
 export function Cell({ property, row, variant }: CellProps) {
   const workspace = useWorkspace();
@@ -57,9 +58,7 @@ export function Cell({ property, row, variant }: CellProps) {
 
   if (property.type === "checkbox") {
     return (
-      <span
-        className={cn("flex items-center", inline ? "min-h-(--tap-sm) px-2" : "min-h-(--tap-sm)")}
-      >
+      <span className={cn("flex min-h-(--tap-sm) items-center", inline ? "px-2" : "px-1.5")}>
         <Checkbox
           aria-label={label}
           checked={value === true}
@@ -75,7 +74,7 @@ export function Cell({ property, row, variant }: CellProps) {
         title={full}
         className={cn(
           "flex min-h-(--tap-sm) min-w-0 items-center text-sm",
-          inline ? "overflow-hidden px-2" : "py-1",
+          inline ? "overflow-hidden px-2" : "px-1.5 py-1",
           isComputed(property.type) && "text-muted-foreground",
         )}
       >

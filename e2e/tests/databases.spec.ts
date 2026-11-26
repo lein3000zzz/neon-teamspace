@@ -372,3 +372,68 @@ test("a database with four views fits a phone's screen, its tabs scrolling on th
     }
   }
 });
+
+test("a row's properties start on one line, editable or not", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const run = String(Date.now());
+  const owner = account("aligner", run);
+  const adminContext = await browser.newContext();
+  try {
+    await makeAccounts(await adminContext.newPage(), [owner]);
+  } finally {
+    await adminContext.close();
+  }
+  await page.goto("/login");
+  await signIn(page, owner.email, PASSWORD);
+  await expect(page.getByRole("complementary")).toBeVisible();
+  const workspace = await callApi<Workspace>(
+    page,
+    "POST",
+    "/api/v1/workspaces",
+    { name: `Aligned ${run}` },
+    201,
+  );
+  const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+  const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+  const general = teamspaces.find((teamspace) => teamspace.access === "default");
+  const database = await callApi<{ page: { id: string } }>(
+    page,
+    "POST",
+    `/api/v1/workspaces/${workspace.id}/databases`,
+    { teamspace_id: general?.id, title: "Sprint" },
+    201,
+  );
+  const at = `/api/v1/databases/${database.page.id}`;
+  for (const property of [
+    { name: "ID", type: "unique_id", prefix: "NW" },
+    { name: "Due", type: "date" },
+    { name: "Created by", type: "created_by" },
+  ]) {
+    await callApi(page, "POST", `${at}/properties`, property, 201);
+  }
+  const row = await callApi<{ id: string }>(
+    page,
+    "POST",
+    `${at}/rows`,
+    { values: { Name: "Benchmark search", Status: "In progress", Due: { start: "2026-11-28" } } },
+    201,
+  );
+
+  // The id and who made the row only show; the status and the day are buttons. Each value
+  // starts where the others do.
+  await page.goto(`/w/${workspace.slug}/p/${row.id}`);
+  const properties = page.getByRole("region", { name: "Properties" });
+  await expect(properties.getByText("NW-1")).toBeVisible();
+  const starts = await properties.evaluate((region) =>
+    [...region.querySelectorAll("dd")].map((value) => {
+      // The left edge of what shows of the value, inside the box that holds it.
+      const shown = [...value.querySelectorAll(":scope > * > *")]
+        .filter((element) => !element.classList.contains("sr-only"))
+        .map((element) => element.getBoundingClientRect())
+        .filter((box) => box.width > 1);
+      return Math.round(Math.min(...shown.map((box) => box.left)));
+    }),
+  );
+  expect(starts).toHaveLength(4);
+  expect(new Set(starts).size, `the values start at ${starts.join(", ")}`).toBe(1);
+});
