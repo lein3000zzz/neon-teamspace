@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { PlaywrightWorkerArgs } from "@playwright/test";
 import { account, callApi, clientAddress, makeAccounts, PASSWORD } from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
+import { McpClient } from "./mcp-client";
 
 /** The test stack's webhook receiver, as the tests reach it; make e2e sets it. */
 const RECEIVER = process.env.E2E_RECEIVER_URL ?? "";
@@ -13,7 +15,7 @@ test.skip(
   "needs the first admin and the webhook receiver that make e2e sets up",
 );
 
-test.use({ extraHTTPHeaders: clientAddress(16) });
+test.use({ extraHTTPHeaders: clientAddress(19) });
 
 type Workspace = { id: string; slug: string };
 type Teamspaces = { teamspaces: { id: string; access: string }[] };
@@ -22,6 +24,12 @@ type Agent = { id: string; name: string };
 type Delivery = { path: string; headers: Record<string, string>; body: string };
 type Webhooks = { webhooks: { id: string; url: string }[] };
 type DeliveryLog = { attempts: { outcome: string; event_type: string }[] };
+type Payload = {
+  type: string;
+  identity: { id: string; kind: string };
+  row: { id: string; unique_id: string; title: string; database: { title: string } };
+  property: { name: string };
+};
 
 /** Whether a delivery is signed with `secret`, within five minutes, as the docs check it. */
 function signedWith(delivery: Delivery, secret: string): boolean {
@@ -40,6 +48,36 @@ function signedWith(delivery: Delivery, secret: string): boolean {
       timingSafeEqual(Buffer.from(hex, "hex"), expected)
     );
   });
+}
+
+/** The first delivery the receiver got at `path` of the event `event`, once it has one. */
+async function deliveredAt(
+  playwright: PlaywrightWorkerArgs["playwright"],
+  path: string,
+  event: string,
+): Promise<Delivery> {
+  const receiver = await playwright.request.newContext({ baseURL: RECEIVER });
+  let delivery: Delivery | undefined;
+  try {
+    await expect
+      .poll(
+        async () => {
+          const got = (await (await receiver.get("/deliveries")).json()) as Delivery[];
+          delivery = got.find(
+            (entry) => entry.path === path && entry.headers["neon-webhook-event"] === event,
+          );
+          return delivery !== undefined;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+  } finally {
+    await receiver.dispose();
+  }
+  if (delivery === undefined) {
+    throw new Error(`no ${event} delivery at ${path}`);
+  }
+  return delivery;
 }
 
 test("a row an incoming webhook makes, once assigned to an agent, reaches its webhook signed", async ({
@@ -129,34 +167,10 @@ test("a row an incoming webhook makes, once assigned to an agent, reaches its we
     { values: { Assignee: [scout.id] } },
     200,
   );
-  const receiver = await playwright.request.newContext({ baseURL: RECEIVER });
-  let delivery: Delivery | undefined;
-  await expect
-    .poll(
-      async () => {
-        const got = (await (await receiver.get("/deliveries")).json()) as Delivery[];
-        delivery = got.find(
-          (entry) =>
-            entry.path === `/scout-${run}` &&
-            entry.headers["neon-webhook-event"] === "row.assigned",
-        );
-        return delivery !== undefined;
-      },
-      { timeout: 60_000 },
-    )
-    .toBe(true);
-  await receiver.dispose();
-  if (delivery === undefined) {
-    throw new Error("no delivery");
-  }
+  const delivery = await deliveredAt(playwright, `/scout-${run}`, "row.assigned");
   expect(signedWith(delivery, secret), "signed with the webhook's secret").toBe(true);
   expect(signedWith(delivery, `whsec_${"x".repeat(43)}`)).toBe(false);
-  const payload = JSON.parse(delivery.body) as {
-    type: string;
-    identity: { id: string; kind: string };
-    row: { id: string; unique_id: string; title: string; database: { title: string } };
-    property: { name: string };
-  };
+  const payload = JSON.parse(delivery.body) as Payload;
   expect(payload.type).toBe("row.assigned");
   expect(payload.identity).toMatchObject({ id: scout.id, kind: "agent" });
   expect(payload.row).toMatchObject({
@@ -194,4 +208,47 @@ test("a row an incoming webhook makes, once assigned to an agent, reaches its we
   const hook = page.getByRole("listitem", { name: "Forms", exact: true });
   await hook.getByRole("button", { name: "Requests of Forms" }).click();
   await expect(hook.getByText("create_row", { exact: true })).toBeVisible();
+
+  // The agent's MCP client claims another row the form made: a webhook of the agent's that
+  // asks for its own changes hears of the claim, signed.
+  const claims = await callApi<{ secret: string }>(
+    page,
+    "POST",
+    `${base}/webhooks`,
+    {
+      user_id: scout.id,
+      url: `${RECEIVER_ON_STACK}/claims-${run}`,
+      events: ["row.assigned"],
+      include_own: true,
+    },
+    201,
+  );
+  const { token } = await callApi<{ token: string }>(
+    page,
+    "POST",
+    `${base}/agents/${scout.id}/tokens`,
+    { name: "mcp", scopes: ["read", "write"] },
+    201,
+  );
+  const again = await playwright.request.newContext();
+  const second = await again.post(hookUrl, {
+    data: { version: 1, action: "create_row", values: { Name: `Claimed over MCP ${run}` } },
+  });
+  expect(second.status(), await second.text()).toBe(200);
+  const claimed = ((await second.json()) as { row: { id: string } }).row.id;
+  await again.dispose();
+  const http = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const client = new McpClient(http, token);
+    await client.initialize();
+    await client.tool("claim_task", { row_id: claimed });
+  } finally {
+    await http.dispose();
+  }
+  const told = await deliveredAt(playwright, `/claims-${run}`, "row.assigned");
+  expect(signedWith(told, claims.secret), "signed with the claims webhook's secret").toBe(true);
+  const claim = JSON.parse(told.body) as Payload;
+  expect(claim.identity).toMatchObject({ id: scout.id, kind: "agent" });
+  expect(claim.row).toMatchObject({ id: claimed, title: `Claimed over MCP ${run}` });
+  expect(claim.property.name).toBe("Assignee");
 });
