@@ -176,7 +176,8 @@ and the [MCP tools](/docs/guides/agents-over-mcp/#editing-a-page). Such an edit 
 the page's live document, which opens for it if nobody has the page open, and through the
 same queue as clients' messages. The document task first makes the edit on a copy, so an
 edit of several parts makes all or none, and the size limit applies before the document
-grows. Then it makes the edit on the document in one transaction. The update goes to every
+grows. Each part's find and replace is given the room the limit leaves, less what the parts
+before it added, so none grows even the copy far past the limit. Then it makes the edit on the document in one transaction. The update goes to every
 connection at once and the log records it as the editor's, like a client's. A document
 opened for an edit alone stays open its while, as one whose last connection left does, then
 saves and unloads.

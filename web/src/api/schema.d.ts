@@ -8414,7 +8414,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page or there more than once, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;

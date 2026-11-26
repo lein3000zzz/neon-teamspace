@@ -32,9 +32,20 @@ fn page_with(doc: Doc, blocks: Vec<Block>) -> Doc {
 }
 
 fn edit(doc: &Doc, edit: &Edit) -> Result<Applied, EditError> {
+    edit_in(doc, edit, usize::MAX)
+}
+
+/// An edit given `room` bytes of text to add by replacing.
+fn edit_in(doc: &Doc, edit: &Edit, room: usize) -> Result<Applied, EditError> {
     let fragment = fragment(doc);
     let mut txn = doc.transact_mut();
-    apply(&mut txn, &fragment, edit, &mut SequentialIds::new("new"))
+    apply(
+        &mut txn,
+        &fragment,
+        edit,
+        &mut SequentialIds::new("new"),
+        room,
+    )
 }
 
 fn read(doc: &Doc) -> Document {
@@ -390,6 +401,82 @@ fn a_replacement_takes_the_styles_of_the_first_character_it_replaces() {
     // Emptied, the text goes, and the styles around stay.
     edit(&doc, &find("N-ST", "", false)).expect("removed");
     assert_eq!(md(&doc), "plai**ong** tail\n");
+}
+
+#[test]
+fn every_replacement_takes_the_styles_of_what_it_replaces() {
+    let doc = page(vec![Block::new(BlockKind::Paragraph {
+        props: TextProps::default(),
+        content: vec![
+            styled("xa ", Styles::default()),
+            styled("xb xc", bold()),
+            styled(" xd", Styles::default()),
+        ],
+    })]);
+    let applied = edit(&doc, &find("x", "yy", true)).expect("replaced");
+
+    assert_eq!(applied.replaced, 4);
+    assert_eq!(md(&doc), "yya **yyb yyc** yyd\n");
+}
+
+#[test]
+fn find_and_replace_replaces_at_most_its_limit() {
+    let text = |times: usize| vec!["ox"; times].join(" ");
+    let doc = page(vec![Block::paragraph(text(MAX_REPLACEMENTS + 1))]);
+    let before = state(&doc);
+
+    assert_eq!(
+        edit(&doc, &find("x", "y", true)),
+        Err(EditError::TooManyMatches(MAX_REPLACEMENTS + 1))
+    );
+    assert_eq!(state(&doc), before);
+    let doc = page(vec![Block::paragraph(text(MAX_REPLACEMENTS))]);
+    let applied = edit(&doc, &find("x", "y", true)).expect("replaced");
+    assert_eq!(applied.replaced, MAX_REPLACEMENTS);
+    assert_eq!(
+        md(&doc),
+        format!("{}\n", vec!["oy"; MAX_REPLACEMENTS].join(" "))
+    );
+}
+
+#[test]
+fn replacements_that_add_more_than_the_room_are_refused() {
+    let doc = page(vec![Block::paragraph("a or a")]);
+    let before = state(&doc);
+    let longer = find("a", "four", true);
+
+    assert_eq!(edit_in(&doc, &longer, 7), Err(EditError::TooLarge));
+    assert_eq!(state(&doc), before);
+    let applied = edit_in(&doc, &longer, 8).expect("room enough");
+    assert_eq!(longer.replaced_bytes(&applied), 8);
+    assert_eq!(md(&doc), "four or four\n");
+    // Removing adds nothing, whatever the room.
+    edit_in(&doc, &find("four ", "", true), 0).expect("removed");
+    assert_eq!(md(&doc), "or four\n");
+}
+
+#[test]
+fn text_that_grows_by_replacing_it_again_and_again_stops_at_the_limit() {
+    // Each pass makes ten of every x: the work it takes grows with the matches, not with
+    // their square, so the passes up to the limit are quick and the next is refused.
+    let doc = page(vec![Block::paragraph("x")]);
+    let tenfold = find("x", "xxxxxxxxxx", true);
+    let started = std::time::Instant::now();
+    for times in [1, 10, 100, 1000, 10_000] {
+        assert_eq!(edit(&doc, &tenfold).expect("replaced").replaced, times);
+    }
+    let before = state(&doc);
+    assert_eq!(
+        edit(&doc, &tenfold),
+        Err(EditError::TooManyMatches(100_000))
+    );
+    assert_eq!(state(&doc), before);
+    assert_eq!(md(&doc).trim_end().len(), 100_000);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "took {:?}",
+        started.elapsed()
+    );
 }
 
 #[test]

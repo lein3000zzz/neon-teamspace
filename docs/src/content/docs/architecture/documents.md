@@ -267,7 +267,9 @@ The crate also edits a page's Yjs document in place, for the server's tools. Its
   a block;
 - replacing a range of sibling blocks;
 - replacing text within one line of a block's text, table cells and code included, the
-  replacement taking the styles of the first character it replaces;
+  replacement taking the styles of the first character it replaces. It replaces at most
+  10000 times, rewrites each text node in one pass, and refuses replacements that would add
+  more text than the room it is given;
 - replacing the whole body. A block that writes the same markdown as one of the new ones, in
   order, stays, with its id, colours and whatever is typed in it.
 

@@ -97,7 +97,7 @@ pub enum EditOperation {
     },
     /// Replaces `find`, matched exactly within one line of a block's text, with
     /// `replace`, which takes the styles of the first character it replaces. Unless `all`,
-    /// `find` must be in the page once.
+    /// `find` must be in the page once; with `all`, it is replaced at most 10000 times.
     FindReplace {
         find: String,
         replace: String,
@@ -238,7 +238,7 @@ pub(super) async fn get_markdown(
     request_body = EditPage,
     responses(
         (status = OK, description = "What each operation did.", body = EditedPage),
-        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page or there more than once, and nothing changed.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),

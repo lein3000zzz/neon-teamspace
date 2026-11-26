@@ -16,7 +16,10 @@
 //!   cells and code included. The text is matched exactly, character for character, within
 //!   one line: it holds no line break, nor does its replacement. The replacement takes the
 //!   styles and link of the first character it replaces. Unless every occurrence is to be
-//!   replaced, the text must occur once in the page.
+//!   replaced, the text must occur once in the page; it is replaced at most
+//!   [`MAX_REPLACEMENTS`] times, and never so that the replacements add more text than the
+//!   room the edit is given. Each text node is rewritten in one pass, however many times its
+//!   text occurs in it.
 //! - **Replace the body** replaces every block, but those that write the same markdown as
 //!   one of the blocks given, in the same order: they stay as they are, with their ids, their
 //!   colours and whatever is typed in them meanwhile.
@@ -25,8 +28,8 @@
 //! paragraph, as the editor does. Each edit checks what it needs before it changes
 //! anything, so one that fails changes nothing.
 
-use yrs::types::Attrs;
 use yrs::types::text::YChange;
+use yrs::types::{Attrs, Delta};
 use yrs::{
     Any, OffsetKind, Out, ReadTxn, Text, TransactionMut, Xml, XmlElementPrelim, XmlElementRef,
     XmlFragment, XmlFragmentRef, XmlOut, XmlTextRef,
@@ -44,6 +47,9 @@ use crate::ydoc::{
 /// stay; past that, the blocks between those the old and new bodies start and end with are
 /// all replaced.
 const MAX_COMPARISONS: usize = 4_000_000;
+
+/// The most times one find and replace replaces its text.
+pub const MAX_REPLACEMENTS: usize = 10_000;
 
 /// A change to a page's blocks.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +87,15 @@ impl Edit {
             Self::ReplaceRange { .. } => "replace_range",
             Self::FindReplace { .. } => "find_replace",
             Self::ReplaceBody { .. } => "replace_body",
+        }
+    }
+
+    /// How many bytes of text this edit added by replacing, having done `applied`: what
+    /// counts against the room of the edits after it.
+    pub fn replaced_bytes(&self, applied: &Applied) -> usize {
+        match self {
+            Self::FindReplace { replace, .. } => applied.replaced.saturating_mul(replace.len()),
+            _ => 0,
         }
     }
 }
@@ -124,17 +139,27 @@ pub enum EditError {
          replace every occurrence"
     )]
     Ambiguous(usize),
+    #[error(
+        "the text to find is in the page {0} times, and find and replace replaces it at most \
+         {max} times: give more of it, or replace the blocks",
+        max = MAX_REPLACEMENTS
+    )]
+    TooManyMatches(usize),
+    #[error("the replacements would add more text than the page has room for")]
+    TooLarge,
     #[error(transparent)]
     NotADocument(#[from] NotADocument),
 }
 
 /// Applies an edit to the blocks of a fragment. New blocks get their ids from `ids`, parents
-/// before their children. Nothing changes when it fails.
+/// before their children. `room` is how many bytes of text find and replace may add: one
+/// that would add more is refused before it changes anything. Nothing changes when it fails.
 pub fn apply(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
     edit: &Edit,
     ids: &mut dyn IdSource,
+    room: usize,
 ) -> Result<Applied, EditError> {
     match edit {
         Edit::Append { blocks } => append(txn, fragment, blocks, ids),
@@ -145,7 +170,7 @@ pub fn apply(
             replace_range(txn, fragment, from, to, blocks, ids)
         }
         Edit::FindReplace { find, replace, all } => {
-            find_replace(txn, fragment, find, replace, *all)
+            find_replace(txn, fragment, find, replace, *all, room)
         }
         Edit::ReplaceBody { blocks } => replace_body(txn, fragment, blocks, ids),
     }
@@ -356,14 +381,26 @@ struct Run {
 }
 
 impl Run {
-    /// The styles of the character at `at`, a byte offset of `content`.
-    fn styles_at(&self, at: usize) -> Attrs {
-        self.styles
-            .iter()
-            .rev()
-            .find(|(start, _)| *start <= at)
-            .map(|(_, attrs)| attrs.clone())
-            .unwrap_or_default()
+    /// The styles of the characters at `at`, byte offsets of `content` in ascending order, in
+    /// one pass over the runs of styles.
+    fn styles_at(&self, at: &[usize]) -> Vec<Attrs> {
+        let mut style = 0;
+        at.iter()
+            .map(|&byte| {
+                while self
+                    .styles
+                    .get(style + 1)
+                    .is_some_and(|(start, _)| *start <= byte)
+                {
+                    style += 1;
+                }
+                self.styles
+                    .get(style)
+                    .filter(|(start, _)| *start <= byte)
+                    .map(|(_, attrs)| attrs.clone())
+                    .unwrap_or_default()
+            })
+            .collect()
     }
 }
 
@@ -449,6 +486,7 @@ fn find_replace(
     find: &str,
     replace: &str,
     all: bool,
+    room: usize,
 ) -> Result<Applied, EditError> {
     if find.is_empty() {
         return Err(EditError::EmptyFind);
@@ -475,16 +513,31 @@ fn find_replace(
         _ if all => {}
         _ => return Err(EditError::Ambiguous(count)),
     }
+    if count > MAX_REPLACEMENTS {
+        return Err(EditError::TooManyMatches(count));
+    }
+    if count.saturating_mul(replace.len()) > room {
+        return Err(EditError::TooLarge);
+    }
     let kind = txn.doc().offset_kind();
-    let (find_len, replace_len) = (units(find, kind), units(replace, kind));
+    let find_len = units(find, kind);
     for (run, at) in matches {
-        // From the last, so the offsets of those before stay.
-        for &byte in at.iter().rev() {
-            let index = units(&run.content[..byte], kind);
-            run.text
-                .insert_with_attributes(txn, index, replace, run.styles_at(byte));
-            run.text.remove_range(txn, index + replace_len, find_len);
+        // One pass over the node: what lies between the matches is kept, and each match
+        // makes way for its replacement, which goes in before it, as typing would.
+        let mut delta: Vec<Delta<Any>> = Vec::with_capacity(at.len() * 3);
+        let mut kept_from = 0;
+        for (&byte, styles) in at.iter().zip(run.styles_at(&at)) {
+            delta.push(Delta::Retain(
+                units(&run.content[kept_from..byte], kind),
+                None,
+            ));
+            if !replace.is_empty() {
+                delta.push(Delta::Inserted(Any::from(replace), Some(Box::new(styles))));
+            }
+            delta.push(Delta::Deleted(find_len));
+            kept_from = byte + find.len();
         }
+        run.text.apply_delta(txn, delta);
     }
     Ok(Applied {
         replaced: count,

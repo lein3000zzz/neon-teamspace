@@ -1178,3 +1178,65 @@ async fn a_new_page_starts_with_its_content(pool: PgPool) {
     assert_eq!(text_of(&sync, &t.dee, made.page.id).await, "Plan\none\ntwo");
     sync.shutdown().await;
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn replacing_text_that_multiplies_it_stops_at_the_limit_at_once(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    sync.edit(&t.ada, t.page, append("x"))
+        .await
+        .expect("edited");
+    let tenfold = Edit::FindReplace {
+        find: "x".to_owned(),
+        replace: "x".repeat(10),
+        all: true,
+    };
+
+    // Each part makes ten of every x: the sixth would replace a hundred thousand.
+    let started = std::time::Instant::now();
+    let refused = sync.edit(&t.ada, t.page, vec![tenfold; 7]).await;
+    match refused {
+        Err(ContentError::Refused { index, error }) => {
+            assert_eq!(index, 5);
+            assert_eq!(error, EditError::TooManyMatches(100_000));
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "x");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn replacements_past_the_size_a_document_keeps_are_refused_before_they_are_made(
+    pool: PgPool,
+) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_document: 64 * 1024,
+        ..quick()
+    });
+    sync.edit(&t.ada, t.page, append(&"x ".repeat(100)))
+        .await
+        .expect("edited");
+    let grown = Edit::FindReplace {
+        find: "x".to_owned(),
+        replace: "y".repeat(1024),
+        all: true,
+    };
+
+    let refused = sync.edit(&t.ada, t.page, vec![grown]).await;
+    assert!(
+        matches!(refused, Err(ContentError::TooLarge(65_536))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        text_of(&sync, &t.ada, t.page).await,
+        "x ".repeat(100).trim_end()
+    );
+    sync.shutdown().await;
+}

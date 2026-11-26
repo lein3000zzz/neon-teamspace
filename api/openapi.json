@@ -5731,7 +5731,7 @@
             }
           },
           "400": {
-            "description": "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page or there more than once, and nothing changed.",
+            "description": "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13250,7 +13250,7 @@
           },
           {
             "type": "object",
-            "description": "Replaces `find`, matched exactly within one line of a block's text, with\n`replace`, which takes the styles of the first character it replaces. Unless `all`,\n`find` must be in the page once.",
+            "description": "Replaces `find`, matched exactly within one line of a block's text, with\n`replace`, which takes the styles of the first character it replaces. Unless `all`,\n`find` must be in the page once; with `all`, it is replaced at most 10000 times.",
             "required": [
               "find",
               "replace",

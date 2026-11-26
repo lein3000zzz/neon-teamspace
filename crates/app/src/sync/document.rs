@@ -25,7 +25,10 @@ use yrs::block::ClientID;
 use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, Options, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
+use yrs::{
+    Doc, Options, ReadTxn, StateVector, Transact, TransactionMut, Update, WriteTxn as _,
+    XmlFragmentRef,
+};
 
 use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
@@ -417,38 +420,28 @@ impl Document {
         if self.gone {
             return Err(Unedited::Gone);
         }
-        let growth = self.trial(edits)?;
         let max = self.inner.limits.max_document;
-        if self.storage.size() + growth > max {
+        let mut tried = self.trial(edits);
+        let too_large = |tried: &Result<usize, Unedited>, size: usize| match tried {
+            Ok(growth) => size + growth > max,
+            Err(refused) => *refused == Unedited::TooLarge,
+        };
+        if too_large(&tried, self.storage.size()) && self.storage.needs_snapshot() {
             // The estimate errs large; a snapshot tells the size for sure.
-            if self.storage.needs_snapshot() {
-                self.compact().await;
-            }
+            self.compact().await;
             if self.gone {
                 return Err(Unedited::Gone);
             }
-            if self.storage.size() + growth > max {
-                return Err(Unedited::TooLarge);
-            }
+            tried = self.trial(edits);
         }
+        if too_large(&tried, self.storage.size()) {
+            return Err(Unedited::TooLarge);
+        }
+        tried?;
+        let room = self.room();
         let (made, changed) = {
             let mut txn = self.awareness.doc().transact_mut();
-            let mut ids = new_block_id;
-            let mut made = Vec::with_capacity(edits.len());
-            let mut refused = None;
-            for (index, part) in edits.iter().enumerate() {
-                match edit::apply(&mut txn, &self.fragment, part, &mut ids) {
-                    Ok(applied) => made.push(applied),
-                    Err(error) => {
-                        refused = Some(Unedited::Refused(index, error));
-                        break;
-                    }
-                }
-            }
-            let made = match refused {
-                None => Ok(made),
-                Some(refused) => Err(refused),
-            };
+            let made = make(&mut txn, &self.fragment, edits, room);
             (made, txn.encode_update_v1())
         };
         // A part the trial made and this did not still leaves the parts before it, which
@@ -460,14 +453,25 @@ impl Document {
                 .broadcast(Room::Page(self.page_id), message, None);
             self.queue(changed, author);
         }
-        if let Err(Unedited::Refused(index, error)) = &made {
-            error!(index, %error, "an edit refused on the document after its trial passed");
+        if let Err(refused) = &made {
+            error!(
+                ?refused,
+                "an edit refused on the document after its trial passed"
+            );
         }
         if self.clients.is_empty() {
             // Opened for the edit alone: it stays a while for the next.
             self.idle_since = Some(Instant::now());
         }
         made
+    }
+
+    /// How many bytes the document may grow by before it is larger than the server keeps.
+    fn room(&self) -> usize {
+        self.inner
+            .limits
+            .max_document
+            .saturating_sub(self.storage.size())
     }
 
     /// Makes the edits on a copy of the document, and says how large their update is.
@@ -494,11 +498,7 @@ impl Document {
             // document itself, whose size check then counts the rest.
             return Ok(0);
         }
-        let mut ids = new_block_id;
-        for (index, part) in edits.iter().enumerate() {
-            edit::apply(&mut txn, &fragment, part, &mut ids)
-                .map_err(|error| Unedited::Refused(index, error))?;
-        }
+        make(&mut txn, &fragment, edits, self.room())?;
         Ok(txn.encode_state_as_update_v1(&before).len())
     }
 
@@ -1002,6 +1002,31 @@ impl Document {
     }
 }
 
+/// Makes `edits` in `txn`, in order, until one is refused. What find and replace would add
+/// is weighed, before it is added, against the `room` the document has, less what the parts
+/// before added by replacing: so no part grows the document far past what it keeps, nor
+/// takes the time that would, before its size is checked.
+fn make(
+    txn: &mut TransactionMut,
+    fragment: &XmlFragmentRef,
+    edits: &[Edit],
+    mut room: usize,
+) -> Result<Vec<Applied>, Unedited> {
+    let mut ids = new_block_id;
+    let mut made = Vec::with_capacity(edits.len());
+    for (index, part) in edits.iter().enumerate() {
+        match edit::apply(txn, fragment, part, &mut ids, room) {
+            Ok(applied) => {
+                room = room.saturating_sub(part.replaced_bytes(&applied));
+                made.push(applied);
+            }
+            Err(EditError::TooLarge) => return Err(Unedited::TooLarge),
+            Err(error) => return Err(Unedited::Refused(index, error)),
+        }
+    }
+    Ok(made)
+}
+
 /// The id of a block the server adds.
 fn new_block_id() -> String {
     Uuid::now_v7().to_string()
@@ -1039,4 +1064,59 @@ pub enum LoadError {
     Decode(#[from] yrs::encoding::read::Error),
     #[error("a saved update does not apply: {0}")]
     Apply(#[from] yrs::error::UpdateError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn doc_of(text: &str) -> (Doc, XmlFragmentRef) {
+        let doc = Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            neon_blocks::append(
+                &mut txn,
+                &fragment,
+                &[neon_blocks::Block::paragraph(text)],
+                &mut neon_blocks::SequentialIds::new("b"),
+            )
+            .expect("a document");
+        }
+        (doc, fragment)
+    }
+
+    fn find(find: &str, replace: &str) -> Edit {
+        Edit::FindReplace {
+            find: find.to_owned(),
+            replace: replace.to_owned(),
+            all: true,
+        }
+    }
+
+    #[test]
+    fn what_each_part_adds_by_replacing_leaves_less_room_for_the_next() {
+        let (doc, fragment) = doc_of("a b");
+        let edits = [find("a", "1234"), find("b", "5678")];
+        let mut txn = doc.transact_mut();
+        assert_eq!(
+            make(&mut txn, &fragment, &edits, 7),
+            Err(Unedited::TooLarge)
+        );
+        drop(txn);
+        let (doc, fragment) = doc_of("a b");
+        let mut txn = doc.transact_mut();
+        let made = make(&mut txn, &fragment, &edits, 8).expect("room for both");
+        assert_eq!(made.len(), 2);
+        // A refusal of another kind names its part.
+        assert_eq!(
+            make(
+                &mut txn,
+                &fragment,
+                &[find("1", "one"), find("absent", "")],
+                8
+            ),
+            Err(Unedited::Refused(1, EditError::NotFound))
+        );
+    }
 }

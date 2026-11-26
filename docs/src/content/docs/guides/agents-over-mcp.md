@@ -210,12 +210,15 @@ merges with it and stays where they typed it, unless the operation removes that 
 `find_replace` matches the text exactly, character for character, case included, and within
 one line, so neither `find` nor `replace` may hold a line break. The replacement takes the
 styles and link of the first character it replaces. Unless `all` is set, the text must be in
-the page once, and a text found twice answers `edit_refused` saying how many times. Each
-operation answers what it did, with the ids of the blocks it `added`, how many it `removed`
-and how many times it `replaced` the text.
+the page once, and a text found twice answers `edit_refused` saying how many times. With
+`all`, it replaces the text at most 10000 times, and a text found more often answers
+`edit_refused` too. Each operation answers what it did, with the ids of the blocks it
+`added`, how many it `removed` and how many times it `replaced` the text.
 
 A page always keeps a block, so removing every one leaves an empty paragraph. A page holds at
-most 16 MiB, and an edit past that answers `document_too_large`.
+most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what
+`find_replace` would add before it adds any of it, so replacements that would grow the page
+past that are refused at once.
 
 ```json
 {"name": "edit_page", "arguments": {
