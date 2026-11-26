@@ -406,20 +406,19 @@ pub(super) async fn read_file(
         Ranged::Whole => (StatusCode::OK, None),
         Ranged::Part(range) => (StatusCode::PARTIAL_CONTENT, Some(range)),
         Ranged::Unsatisfiable => {
-            insert(
-                &mut answer,
-                CONTENT_RANGE,
-                &format!("bytes */{}", file.size),
-            );
-            let error = ApiError::new(
+            // An error of its own, not the file: none of the file's headers but its size.
+            let mut refused = ApiError::new(
                 StatusCode::RANGE_NOT_SATISFIABLE,
                 "range_not_satisfiable",
                 format!("the file has {} bytes", file.size),
-            );
-            return Ok((answer, error).into_response());
+            )
+            .into_response();
+            let headers = refused.headers_mut();
+            insert(headers, CONTENT_RANGE, &format!("bytes */{}", file.size));
+            insert(headers, X_CONTENT_TYPE_OPTIONS, "nosniff");
+            return Ok(refused);
         }
     };
-
     let length = match &range {
         Some(range) => {
             insert(

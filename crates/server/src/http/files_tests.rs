@@ -312,6 +312,9 @@ async fn ranges_serve_parts_of_a_file(pool: PgPool) {
     assert_eq!(beyond.status, StatusCode::RANGE_NOT_SATISFIABLE);
     assert_eq!(beyond.header("content-range"), format!("bytes */{size}"));
     assert_eq!(beyond.code(), "range_not_satisfiable");
+    assert_eq!(beyond.header("content-type"), "application/json");
+    assert_eq!(beyond.header("content-disposition"), "");
+    assert_eq!(beyond.header("x-content-type-options"), "nosniff");
 
     // Several ranges, or one that does not parse, answer the whole file.
     for range in ["bytes=0-1,5-6", "bytes=5-1", "lines=1-2"] {
