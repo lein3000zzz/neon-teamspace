@@ -335,6 +335,19 @@ describe("a page's comments", () => {
     expect(within(thread).getByText(/Resolved by Bob/)).toBeInTheDocument();
   });
 
+  it("opens at the block a link names, the cursor in it", async () => {
+    fakeWorkspaces();
+    fakePages();
+    pageWith(["Mentioned here"]);
+    fakeComments();
+    renderApp(`${PATH}?block=block-1`);
+    const editor = await content();
+
+    await waitFor(() => expect(editor).toHaveTextContent("Mentioned here"));
+    await waitFor(() => expect(editor).toHaveFocus());
+    expect(screen.queryByRole("complementary", { name: "Comments" })).toBeNull();
+  });
+
   it("comments on the text selected, where the server can find it again, and highlights it", async () => {
     fakeWorkspaces();
     fakePages();

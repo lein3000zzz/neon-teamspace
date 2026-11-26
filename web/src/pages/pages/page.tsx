@@ -39,7 +39,7 @@ import type {
 } from "@/components/editor/comment-highlights";
 import { ConnectionClosed, ConnectionIndicator } from "@/components/editor/connection-indicator";
 import { STARTING, type Connection } from "@/components/editor/connection-state";
-import type { EditorComments, EditorHandle } from "@/components/editor/page-editor";
+import type { EditorComments, EditorHandle, OpenAt } from "@/components/editor/page-editor";
 import { DatabaseView } from "@/components/databases/database-view";
 import { RowProperties } from "@/components/databases/row-properties";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
@@ -144,7 +144,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
   // A peek shows the row's content alone: its comments open with the full page.
   const commented = !peek && !trashed;
   const commentsButton = useRef<HTMLButtonElement>(null);
-  const comments = useComments(page, commented, connection, editorHandle, commentsButton);
+  const comments = useComments(page, commented, commentsButton);
 
   useEffect(() => {
     if (peek) {
@@ -301,6 +301,8 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
             comments={comments.editor}
             people={people}
             onUnseen={comments.unseenOne}
+            openAt={comments.openAt}
+            onOpened={comments.opened}
           />
         </Suspense>
       )}
@@ -333,16 +335,10 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
  * A page's comments as the page shows them: the panel, open or not, the
  * thread open in it and a range waiting for its first comment; the inline
  * threads its editor highlights; those a mention could not tell. A link to
- * a thread opens the panel at it and selects its text once the content came;
- * a link to a block puts the caret there.
+ * a thread opens the panel at it and has the editor select its text once the
+ * content came; a link to a block has it put the caret there.
  */
-function useComments(
-  page: Page,
-  enabled: boolean,
-  connection: Connection,
-  editorHandle: RefObject<EditorHandle | null>,
-  button: RefObject<HTMLButtonElement | null>,
-) {
+function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonElement | null>) {
   const workspace = useWorkspace();
   const queryClient = useQueryClient();
   const { comment: linkedThread, block: linkedBlock } = useSearch({ from: ROUTE });
@@ -354,7 +350,8 @@ function useComments(
   const [focusRequest, setFocusRequest] = useState<{ threadId: string } | null>(null);
   const [draft, setDraft] = useState<DraftAnchor | null>(null);
   const [unseen, setUnseen] = useState<readonly Person[]>([]);
-  const opened = useRef<string | null>(null);
+  // Whether the editor opened the page where the link says, which it does once.
+  const [opened, setOpened] = useState(false);
 
   const threads = list.data?.threads;
   const anchors = useMemo(
@@ -408,28 +405,22 @@ function useComments(
     [],
   );
 
-  // Once the content came, the linked thread's text is selected, or the linked block reached.
-  const target = thread ?? block;
-  const loaded = connection.loaded;
-  useEffect(() => {
-    if (target === undefined || !loaded || opened.current === target) {
-      return;
+  // Where the editor opens the page: the linked thread's text, while it has some, or the block.
+  const linkedAnchor = threads?.find((each) => each.id === thread)?.anchor ?? null;
+  const { start, end } = linkedAnchor ?? { start: undefined, end: undefined };
+  const reachable = linkedAnchor !== null && !linkedAnchor.detached;
+  const openAt: OpenAt | null = useMemo(() => {
+    if (opened) {
+      return null;
     }
-    if (block !== undefined) {
-      opened.current = target;
-      editorHandle.current?.showBlock(block);
-      return;
+    if (thread !== undefined) {
+      return reachable && start !== undefined && end !== undefined
+        ? { kind: "thread", anchor: { start, end } }
+        : null;
     }
-    const linked = threads?.find((each) => each.id === thread);
-    if (linked === undefined) {
-      return;
-    }
-    opened.current = target;
-    const anchor = linked.anchor ?? null;
-    if (anchor !== null && !anchor.detached) {
-      editorHandle.current?.reveal(anchor);
-    }
-  }, [target, thread, block, loaded, threads, editorHandle]);
+    return block === undefined ? null : { kind: "block", blockId: block };
+  }, [opened, thread, block, reachable, start, end]);
+  const markOpened = useCallback(() => setOpened(true), []);
 
   return {
     editor,
@@ -443,6 +434,8 @@ function useComments(
     openCount: (threads ?? []).filter((each) => (each.resolved_at ?? null) === null).length,
     openPanel: () => setPanelOpen(true),
     close,
+    openAt,
+    opened: markOpened,
     unseenOne,
     dismissUnseen: () => setUnseen([]),
   };

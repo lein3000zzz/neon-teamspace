@@ -55,15 +55,18 @@ import { schema } from "./schema";
 
 const copy = strings.pages.editor;
 
-/** What the page asks of its editor, for its comments and the links that open it. */
+/** What the page asks of its editor, for its comments. */
 export type EditorHandle = {
   /** The text selected, as an anchor to start a thread on; `null` without any. */
   selection: () => DraftAnchor | null;
   /** Selects a thread's text and scrolls to it; false once its text is gone. */
   reveal: (anchor: Pick<ThreadAnchor, "start" | "end">) => boolean;
-  /** Scrolls to a block and puts the caret at its start; false when the page holds none such. */
-  showBlock: (blockId: string) => boolean;
 };
+
+/** Where a link opens the page: at a thread's text, or at a block. */
+export type OpenAt =
+  | { kind: "thread"; anchor: Pick<ThreadAnchor, "start" | "end"> }
+  | { kind: "block"; blockId: string };
 
 /** The page's comments, as its editor shows them and tells of them. */
 export type EditorComments = {
@@ -102,6 +105,9 @@ export type PageEditorProps = {
   people: ReadonlyMap<string, Someone>;
   /** Someone was mentioned who may not see the page, and so is told nothing. */
   onUnseen: (person: Person) => void;
+  /** Where to open the page once its content is in the editor; `onOpened` runs once it did. */
+  openAt: OpenAt | null;
+  onOpened: () => void;
 };
 
 /**
@@ -126,6 +132,8 @@ export default function PageEditor({
   comments,
   people,
   onUnseen,
+  openAt,
+  onOpened,
 }: PageEditorProps) {
   const { changed } = comments;
   const { session, connection } = useSyncSession(pageId, user.id, onAccessChanged, changed);
@@ -153,6 +161,8 @@ export default function PageEditor({
       comments={comments}
       people={people}
       onUnseen={onUnseen}
+      openAt={connection.loaded ? openAt : null}
+      onOpened={onOpened}
     />
   );
 }
@@ -168,6 +178,9 @@ type LiveEditorProps = {
   comments: EditorComments;
   people: ReadonlyMap<string, Someone>;
   onUnseen: (person: Person) => void;
+  /** Where to open the page, once the document came from the server. */
+  openAt: OpenAt | null;
+  onOpened: () => void;
 };
 
 function LiveEditor({
@@ -181,6 +194,8 @@ function LiveEditor({
   comments,
   people,
   onUnseen,
+  openAt,
+  onOpened,
 }: LiveEditorProps) {
   const { mode } = useTheme();
   const workspace = useWorkspace();
@@ -235,28 +250,52 @@ function LiveEditor({
     handleRef.current = {
       selection: () => selectionAnchor(editor.prosemirrorView),
       reveal: (anchor) => revealThread(editor.prosemirrorView, anchor),
-      showBlock: (blockId) => {
-        if (editor.getBlock(blockId) === undefined) {
-          return false;
-        }
-        editor.setTextCursorPosition(blockId, "start");
-        const blocks = editor.domElement?.querySelectorAll("[data-node-type='blockOuter']") ?? [];
-        [...blocks]
-          .find((block) => block.getAttribute("data-id") === blockId)
-          ?.scrollIntoView({ block: "center" });
-        editor.focus();
-        return true;
-      },
     };
     return () => {
       handleRef.current = null;
     };
   }, [editor, handleRef]);
 
+  // Before the page opens at a thread: the highlights first, so the text selected is
+  // drawn in them.
   const { threads, active } = comments;
   useEffect(() => {
     showThreads(editor.prosemirrorView, threads, active);
   }, [editor, threads, active]);
+
+  // The document may reach the editor after it came from the server, as the editor's
+  // chunk loads: the page opens where the link says as soon as what it names is there.
+  useEffect(() => {
+    if (openAt === null) {
+      return;
+    }
+    let done = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const open = () => {
+      if (done) {
+        return;
+      }
+      const opened =
+        openAt.kind === "thread"
+          ? revealThread(editor.prosemirrorView, openAt.anchor)
+          : showBlock(editor, openAt.blockId);
+      if (opened) {
+        done = true;
+        onOpened();
+      }
+    };
+    open();
+    // Not from inside the change itself, which a new selection would be dispatched in.
+    const stop = editor.onChange(() => {
+      clearTimeout(pending);
+      pending = setTimeout(open, 0);
+    });
+    return () => {
+      done = true;
+      clearTimeout(pending);
+      stop();
+    };
+  }, [editor, openAt, onOpened]);
 
   const { mutateAsync: makeDatabase } = createDatabase;
   /** Makes an inline database under the page, and has the block show it once it is made. */
@@ -414,6 +453,20 @@ function LiveEditor({
       </EditorPageContext>
     </section>
   );
+}
+
+/** Puts the caret at a block's start and scrolls to it; false while the page holds none such. */
+function showBlock(editor: ReturnType<typeof useCreateBlockNote>, blockId: string): boolean {
+  if (editor.getBlock(blockId) === undefined) {
+    return false;
+  }
+  editor.setTextCursorPosition(blockId, "start");
+  const blocks = editor.domElement?.querySelectorAll("[data-node-type='blockOuter']") ?? [];
+  [...blocks]
+    .find((block) => block.getAttribute("data-id") === blockId)
+    ?.scrollIntoView({ block: "center" });
+  editor.focus();
+  return true;
 }
 
 /** BlockNote's formatting toolbar, and last the button to start a thread on the text selected. */
