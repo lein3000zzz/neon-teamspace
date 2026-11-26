@@ -1,0 +1,22 @@
+{
+  "name": "neon-teamspace",
+  "displayName": "Neon Teamspace",
+  "version": "0.1.0",
+  "description": "Connect Claude Code to your Neon Teamspace instance and work the cards assigned to you: claim one, do the work in your repository, write the results into the card and move it on to review.",
+  "author": {
+    "name": "lein3000zzz",
+    "url": "https://github.com/lein3000zzz"
+  },
+  "homepage": "https://github.com/lein3000zzz/neon-teamspace/blob/main/docs/src/content/docs/guides/claude-code-plugin.md",
+  "repository": "https://github.com/lein3000zzz/neon-teamspace",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": ["neon-teamspace", "tasks", "kanban", "mcp"],
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "Neon Teamspace address",
+      "description": "The address you open Neon Teamspace at, such as https://neon.example.com, with no slash at the end. The plugin connects to its /mcp.",
+      "required": true
+    }
+  }
+}

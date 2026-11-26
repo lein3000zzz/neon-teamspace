@@ -100,6 +100,7 @@ export default defineConfig({
             'guides/workspace-rules',
             'guides/agents',
             'guides/agents-over-mcp',
+            'guides/claude-code-plugin',
             'guides/oauth',
             'guides/webhooks',
             'guides/editing-pages',
