@@ -544,10 +544,10 @@ fn describe() {
     );
 }
 
-/// A timer that ticks every `every`, the first time an `every` from now, and after a tick
-/// it missed an `every` from when it ticked.
-fn every(every: Duration) -> Interval {
-    let mut timer = interval_at(Instant::now() + every, every);
+/// A timer that ticks every `period`, the first time a `period` from now, and after a tick
+/// it missed a `period` from when it ticked.
+fn every(period: Duration) -> Interval {
+    let mut timer = interval_at(Instant::now() + period, period);
     timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
     timer
 }
