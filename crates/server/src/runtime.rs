@@ -35,6 +35,7 @@ use neon_app::mail::{MailJob, MailQueue};
 use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
@@ -150,6 +151,32 @@ pub async fn migrate(loaded: Loaded) -> anyhow::Result<()> {
         applied
     })
     .await
+}
+
+/// Stores pages' text for search again, those whose text is missing or `all`, for `neon
+/// search reindex`, and says how many. Applies pending migrations first, as `serve` does.
+pub async fn reindex(loaded: Loaded, all: bool) -> anyhow::Result<u64> {
+    let mut stored = 0;
+    with_telemetry(loaded, |loaded, _| async {
+        let Loaded { config, .. } = loaded;
+        let pool = connect(&config.database, 2).await?;
+        let done = async {
+            if config.database.auto_migrate {
+                apply_migrations(&pool).await?;
+            }
+            SearchService::builder(pool.clone())
+                .build()
+                .reindex(all)
+                .await
+                .context("storing pages' search text")
+        }
+        .await;
+        pool.close().await;
+        stored = done?;
+        Ok(())
+    })
+    .await?;
+    Ok(stored)
 }
 
 /// Installs telemetry, runs `command`, then runs the shutdown registry, which stops what
@@ -288,6 +315,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         live.clone(),
     )
     .build();
+    let search = SearchService::builder(pool.clone()).build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
@@ -316,6 +344,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             pages: pages.clone(),
             sync: live.clone(),
             history: history.clone(),
+            search: search.clone(),
             databases: databases.clone(),
             broadcaster,
         },
@@ -356,6 +385,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             pages,
             sync: live,
             history,
+            search,
             databases,
             live: feeds,
             transfer,

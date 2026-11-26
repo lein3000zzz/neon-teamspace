@@ -23,6 +23,7 @@ mod openapi;
 mod page_shares;
 pub(crate) mod pages;
 pub(crate) mod principal;
+pub(crate) mod search;
 mod sync;
 pub(crate) mod teamspaces;
 mod transfer;
@@ -47,6 +48,7 @@ use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::history::HistoryService;
 use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
+use neon_app::search::SearchService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
@@ -84,6 +86,7 @@ pub struct AppState {
     pub pages: PageService,
     pub sync: SyncService,
     pub history: HistoryService,
+    pub search: SearchService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub transfer: TransferService,
@@ -244,6 +247,7 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(history::compare_version))
         .routes(routes!(history::restore_version))
         .routes(routes!(pages::recent_pages))
+        .routes(routes!(search::search_workspace))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -454,6 +458,8 @@ mod mcp_tests;
 mod oauth_tests;
 #[cfg(test)]
 mod pages_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

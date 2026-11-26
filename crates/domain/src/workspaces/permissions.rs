@@ -321,6 +321,38 @@ pub fn authorize(actor: Actor, action: Action, resource: Resource) -> Result<(),
     }
 }
 
+/// Whether a person with `role` in the workspace may see a page out of the trash in
+/// `space`, shared with them, on it or a page above it, for `shared`: what [`authorize`]
+/// answers a person for [`Action::ViewPage`].
+///
+/// Queries that list the pages someone may see among many, such as search, filter them in
+/// the database rather than one at a time, and they lean on what the tests prove of this:
+///
+/// - A page shows when its space alone shows it (`shared` being `None`), or when it is
+///   shared with them at all and a share alone shows a page: what the space gives and
+///   what a share gives add up, and any share shows what any other does.
+/// - An agent or integration sees a page when it sees it and its owner does, each as a
+///   person with their own role, standing to the page as each does.
+///
+/// So such a query asks this of each teamspace, of the person's own private pages and of
+/// shares once, for the actor and for an agent's owner, and keeps the pages both see.
+pub fn person_sees_page(
+    role: Option<WorkspaceRole>,
+    space: PageSpace,
+    shared: Option<PageAccess>,
+) -> bool {
+    decide(
+        Actor::person(false, false, role),
+        Action::ViewPage,
+        Resource::Page {
+            space,
+            shared,
+            trashed: false,
+        },
+    )
+    .is_ok()
+}
+
 const DELEGATES_MANAGE_NOTHING: Denied = Forbidden(
     "agents and integrations work in the workspace and never manage it, its members, its \
      teamspaces or its agents",
@@ -1014,3 +1046,5 @@ pub fn check_teamspace_owner_remains(
 mod delegate_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod visibility_tests;

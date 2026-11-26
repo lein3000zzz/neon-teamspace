@@ -14,6 +14,7 @@ pub mod oauth;
 pub mod pages;
 pub mod periodic;
 pub mod ratelimit;
+pub mod search;
 pub mod settings;
 mod standing;
 pub mod sync;

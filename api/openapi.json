@@ -12519,6 +12519,175 @@
         ]
       }
     },
+    "/api/v1/workspaces/{id}/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a workspace",
+        "description": "The pages, databases and rows of the workspace that the query finds, among those the caller may see, out of the trash, the best first: a match in a title ranks above one in a row's property values, which ranks above one in the text. Each comes with its title and a snippet, in runs that mark the matches. Read are titles, rows' text and URL values, and the text of pages and rows, as the server last saved it, which is a moment after an edit. Filters narrow it to a teamspace, a kind, who made or last changed it, and how recently it changed.",
+        "operationId": "search_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Words, all of which must be there, each of two characters or more also finding the\nwords it starts; \"quoted words\" in that order; -word to leave out what holds it; OR\nbetween two terms for either. Titles also match loosely, misspelled. At most 200\ncharacters. Empty or absent, the filters alone list what they let through, the most\nrecently changed first.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamspace_id",
+            "in": "query",
+            "description": "Only the pages of this teamspace.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Only pages, databases or rows.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PageKind"
+            }
+          },
+          {
+            "name": "created_by",
+            "in": "query",
+            "description": "Only those this member made. Guests cannot filter by member.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "edited_by",
+            "in": "query",
+            "description": "Only those this member changed last. Guests cannot filter by member.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "edited_within",
+            "in": "query",
+            "description": "Only those changed within this long, such as `7d` or `12h`, at most ten years.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "7d"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Where the part starts: the `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Results in the part, 1 to 50; 20 when absent. At most the best 1000 are reached.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The results, or a part of them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_search: a query too long, with more than 16 terms, or with only words to leave out; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: a guest filtering by member; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, or one the caller is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspaces/{id}/shared-pages": {
       "get": {
         "tags": [
@@ -19527,6 +19696,62 @@
           "admin"
         ]
       },
+      "SearchResult": {
+        "type": "object",
+        "description": "A page, database or row found.",
+        "required": [
+          "page",
+          "title",
+          "snippet",
+          "rank"
+        ],
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "rank": {
+            "type": "number",
+            "format": "double",
+            "description": "How well it matched, higher being better, as the results are ordered: worth\ncomparing within one search only. 0 without a query."
+          },
+          "snippet": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextRun"
+            },
+            "description": "A few words of a row's property values and the text around the matches, in runs\nthat mark them; empty without a query, or without text."
+          },
+          "title": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextRun"
+            },
+            "description": "Its title, in runs that mark what matched; empty without a query."
+          }
+        }
+      },
+      "SearchResults": {
+        "type": "object",
+        "description": "A part of the results, the best first.",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass it as `after` for the next part; absent on the last one."
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            }
+          }
+        }
+      },
       "SentInvitation": {
         "type": "object",
         "description": "An invitation a workspace sent, waiting for its answer.",
@@ -20217,6 +20442,23 @@
             "type": "string",
             "description": "The admin's own address.",
             "example": "admin@example.com"
+          }
+        }
+      },
+      "TextRun": {
+        "type": "object",
+        "description": "A run of text: a match of the query, or what is between.",
+        "required": [
+          "text",
+          "highlight"
+        ],
+        "properties": {
+          "highlight": {
+            "type": "boolean",
+            "description": "It is what the query matched."
+          },
+          "text": {
+            "type": "string"
           }
         }
       },
@@ -21516,6 +21758,10 @@
     {
       "name": "pages",
       "description": "Pages and their trees, sharing, and the trash."
+    },
+    {
+      "name": "search",
+      "description": "Searching a workspace's pages, databases and rows by their titles, text and rows' values, among those the caller may see."
     },
     {
       "name": "history",

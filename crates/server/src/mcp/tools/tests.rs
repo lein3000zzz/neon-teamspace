@@ -10,7 +10,7 @@ use crate::http::pages::PageKind;
 
 /// Each tool's routes of the API, which do what it does with the same tokens: method and
 /// path below `/api/v1`.
-const REST: [(&str, &[(&str, &str)]); 18] = [
+const REST: [(&str, &[(&str, &str)]); 19] = [
     ("whoami", &[("get", "/whoami")]),
     ("list_members", &[("get", "/workspaces/{id}/members")]),
     ("list_teamspaces", &[("get", "/workspaces/{id}/teamspaces")]),
@@ -21,6 +21,7 @@ const REST: [(&str, &[(&str, &str)]); 18] = [
             ("get", "/workspaces/{id}/private-pages"),
         ],
     ),
+    ("search", &[("get", "/workspaces/{id}/search")]),
     (
         "read_page",
         &[

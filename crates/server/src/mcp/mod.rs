@@ -55,6 +55,7 @@ use neon_app::databases::DatabaseService;
 use neon_app::history::HistoryService;
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{SettingsService, mcp as keys};
 use neon_app::sync::{Broadcaster, SyncService};
 use neon_app::workspaces::WorkspaceService;
@@ -95,6 +96,7 @@ pub struct Services {
     pub pages: PageService,
     pub sync: SyncService,
     pub history: HistoryService,
+    pub search: SearchService,
     pub databases: DatabaseService,
     /// Where pages' documents and databases tell of their changes, which subscriptions
     /// follow.

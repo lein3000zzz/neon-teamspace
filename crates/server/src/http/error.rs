@@ -15,6 +15,7 @@ use neon_app::databases::DatabaseError;
 use neon_app::history::HistoryError;
 use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
+use neon_app::search::SearchError;
 use neon_app::settings::UpdateError;
 use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
@@ -370,6 +371,27 @@ impl From<HistoryError> for ApiError {
             HistoryError::Database(_) | HistoryError::Internal(_) => {
                 tracing::error!(error = %error, "a history use case failed");
                 Self::internal()
+            }
+        }
+    }
+}
+
+impl From<SearchError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the query. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: SearchError) -> Self {
+        match error {
+            SearchError::Page(error) => error.into(),
+            SearchError::Database(_) => {
+                tracing::error!(error = %error, "a search failed");
+                Self::internal()
+            }
+            expected => {
+                let status = match &expected {
+                    SearchError::Forbidden(_) => StatusCode::FORBIDDEN,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                Self::new(status, expected.code(), expected.to_string())
             }
         }
     }

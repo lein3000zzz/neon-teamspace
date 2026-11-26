@@ -455,7 +455,7 @@ impl Facts {
 }
 
 /// Leaves out of each view the page it is under, when the principal may not see that page.
-async fn hide_parents(
+pub(crate) async fn hide_parents(
     conn: &mut PgConnection,
     principal: &Principal,
     views: &mut [PageView],

@@ -16,6 +16,7 @@ use neon_app::mail::MailQueue;
 use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
@@ -210,6 +211,9 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         sync.clone(),
     )
     .build();
+    let search = SearchService::builder(pool.clone())
+        .clock(clock.clone())
+        .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
@@ -239,6 +243,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
             pages: pages.clone(),
             sync: sync.clone(),
             history: history.clone(),
+            search: search.clone(),
             databases: databases.clone(),
             broadcaster,
         },
@@ -254,6 +259,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         pages,
         sync,
         history,
+        search,
         databases,
         live,
         transfer,

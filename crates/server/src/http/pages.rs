@@ -43,7 +43,7 @@ impl From<domain::PageAccess> for PageAccess {
 }
 
 /// What a page is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageKind {
     /// A document of blocks, which may have subpages.
@@ -53,6 +53,16 @@ pub enum PageKind {
     /// A row of the database it is under: a document of blocks with the database's
     /// properties; see `/rows/{id}`.
     Row,
+}
+
+impl From<PageKind> for domain::PageKind {
+    fn from(kind: PageKind) -> Self {
+        match kind {
+            PageKind::Page => Self::Page,
+            PageKind::Database => Self::Database,
+            PageKind::Row => Self::Row,
+        }
+    }
 }
 
 impl From<domain::PageKind> for PageKind {

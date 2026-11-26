@@ -42,6 +42,9 @@ enum Command {
     /// Runtime settings.
     #[command(subcommand)]
     Settings(SettingsCommand),
+    /// Search.
+    #[command(subcommand)]
+    Search(SearchCommand),
     /// The configuration from the config file and the environment.
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -74,6 +77,18 @@ enum AdminCommand {
 enum SettingsCommand {
     /// Print the settings reference as a markdown page.
     Docs,
+}
+
+#[derive(Debug, Subcommand)]
+enum SearchCommand {
+    /// Read pages' documents again and store their text for search: those whose text was
+    /// never stored, such as one whose server stopped before saving it, or with --all every
+    /// page. Applies pending migrations first, as serve does. Safe while servers run.
+    Reindex {
+        /// Every page with a document, not only those whose text is missing.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -114,6 +129,10 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             .with_context(|| format!("writing {}", path.display())),
         Command::Openapi { out: None } => print(&http::spec_json()),
         Command::Settings(SettingsCommand::Docs) => print(&registry().reference_markdown()),
+        Command::Search(SearchCommand::Reindex { all }) => {
+            let stored = runtime::reindex(config::load(&registry())?, all).await?;
+            print(&format!("stored the search text of {stored} pages\n"))
+        }
         Command::Config(ConfigCommand::Check) => {
             let registry = registry();
             let loaded = config::load(&registry)?;
@@ -171,6 +190,21 @@ mod tests {
         let cli = Cli::try_parse_from(["neon"]).expect("parses");
 
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn reindexing_stores_what_is_missing_unless_told_all() {
+        let missing = Cli::try_parse_from(["neon", "search", "reindex"]).expect("parses");
+        let all = Cli::try_parse_from(["neon", "search", "reindex", "--all"]).expect("parses");
+
+        assert!(matches!(
+            missing.command,
+            Some(Command::Search(SearchCommand::Reindex { all: false }))
+        ));
+        assert!(matches!(
+            all.command,
+            Some(Command::Search(SearchCommand::Reindex { all: true }))
+        ));
     }
 
     #[test]

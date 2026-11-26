@@ -35,6 +35,7 @@ use crate::http::databases::{
 };
 use crate::http::history::{PageVersion, VersionList};
 use crate::http::pages::{Page, Placement, TreePage, location};
+use crate::http::search::{SearchParams, SearchResults};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
 use crate::http::workspaces::{Member, MemberList};
@@ -152,7 +153,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 18] = [
+pub(crate) const TOOLS: [Spec; 19] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -194,6 +195,24 @@ pub(crate) const TOOLS: [Spec; 18] = [
         destructive: false,
         idempotent: true,
         schema: schema::<TreeArguments>,
+    },
+    Spec {
+        name: "search",
+        title: "Search the workspace",
+        description: "Pages, databases and rows this connection sees whose title, text or rows' \
+                      text values match the query, the best first, each with a snippet whose \
+                      runs mark the matches; a part at a time: pass `next` back as `after`. \
+                      Words must all be there (two characters or more also find the words they \
+                      start), \"quoted words\" in that order, -word leaves out, OR between two \
+                      terms finds either; titles also match misspelled. Filters: teamspace_id, \
+                      kind (page, database or row), created_by, edited_by (who changed it \
+                      last), edited_within such as 7d. Without a query, the filters list what \
+                      changed last. Text is found once the server saved the page, a moment \
+                      after an edit.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<SearchParams>,
     },
     Spec {
         name: "read_page",
@@ -465,6 +484,15 @@ pub(crate) async fn call(
             answer(TeamspaceList::from(list))
         }
         "get_page_tree" => tree(s, principal, arguments(given)?).await,
+        "search" => {
+            let params: SearchParams = arguments(given)?;
+            let results = s
+                .search
+                .search(principal, workspace(principal)?, params.input()?)
+                .await
+                .map_err(refused)?;
+            answer(SearchResults::from(results))
+        }
         "read_page" => {
             let ReadPageArguments {
                 page_id,

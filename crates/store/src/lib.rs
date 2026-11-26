@@ -18,6 +18,7 @@ pub mod oauth;
 pub mod page_shares;
 pub mod pages;
 mod pool;
+pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod teamspaces;

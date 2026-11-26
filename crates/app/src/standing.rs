@@ -89,6 +89,11 @@ impl Standing {
         self.owner.map(|owner| owner.id)
     }
 
+    /// An agent's or integration's owner and their role in the workspace, if they are in it.
+    pub(crate) fn owner(&self) -> Option<(Uuid, Option<WorkspaceRole>)> {
+        self.owner.map(|owner| (owner.id, owner.role))
+    }
+
     /// Whether what is shown leaves out who else is in the workspace: for a guest, and for
     /// an agent of a guest.
     pub(crate) fn members_hidden(&self) -> bool {

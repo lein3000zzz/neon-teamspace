@@ -2284,6 +2284,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search a workspace
+         * @description The pages, databases and rows of the workspace that the query finds, among those the caller may see, out of the trash, the best first: a match in a title ranks above one in a row's property values, which ranks above one in the text. Each comes with its title and a snippet, in runs that mark the matches. Read are titles, rows' text and URL values, and the text of pages and rows, as the server last saved it, which is a moment after an edit. Filters narrow it to a teamspace, a kind, who made or last changed it, and how recently it changed.
+         */
+        get: operations["search_workspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/shared-pages": {
         parameters: {
             query?: never;
@@ -4534,6 +4554,29 @@ export interface components {
          * @enum {string}
          */
         Scope: "read" | "write" | "admin";
+        /** @description A page, database or row found. */
+        SearchResult: {
+            page: components["schemas"]["Page"];
+            /**
+             * Format: double
+             * @description How well it matched, higher being better, as the results are ordered: worth
+             *     comparing within one search only. 0 without a query.
+             */
+            rank: number;
+            /**
+             * @description A few words of a row's property values and the text around the matches, in runs
+             *     that mark them; empty without a query, or without text.
+             */
+            snippet: components["schemas"]["TextRun"][];
+            /** @description Its title, in runs that mark what matched; empty without a query. */
+            title: components["schemas"]["TextRun"][];
+        };
+        /** @description A part of the results, the best first. */
+        SearchResults: {
+            /** @description Pass it as `after` for the next part; absent on the last one. */
+            next?: string | null;
+            results: components["schemas"]["SearchResult"][];
+        };
         /** @description An invitation a workspace sent, waiting for its answer. */
         SentInvitation: {
             /** Format: date-time */
@@ -4809,6 +4852,12 @@ export interface components {
              * @example admin@example.com
              */
             to: string;
+        };
+        /** @description A run of text: a match of the query, or what is between. */
+        TextRun: {
+            /** @description It is what the query matched. */
+            highlight: boolean;
+            text: string;
         };
         /** @description A row moving between groups of a view. */
         ToGroup: {
@@ -14467,6 +14516,100 @@ export interface operations {
                 };
             };
             /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, or one the caller is not in. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    search_workspace: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Words, all of which must be there, each of two characters or more also finding the
+                 *     words it starts; "quoted words" in that order; -word to leave out what holds it; OR
+                 *     between two terms for either. Titles also match loosely, misspelled. At most 200
+                 *     characters. Empty or absent, the filters alone list what they let through, the most
+                 *     recently changed first.
+                 */
+                query?: string;
+                /** @description Only the pages of this teamspace. */
+                teamspace_id?: string;
+                /** @description Only pages, databases or rows. */
+                kind?: components["schemas"]["PageKind"];
+                /** @description Only those this member made. Guests cannot filter by member. */
+                created_by?: string;
+                /** @description Only those this member changed last. Guests cannot filter by member. */
+                edited_by?: string;
+                /**
+                 * @description Only those changed within this long, such as `7d` or `12h`, at most ten years.
+                 * @example 7d
+                 */
+                edited_within?: string;
+                /** @description Where the part starts: the `next` of the part before. */
+                after?: string;
+                /** @description Results in the part, 1 to 50; 20 when absent. At most the best 1000 are reached. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The results, or a part of them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResults"];
+                };
+            };
+            /** @description invalid_search: a query too long, with more than 16 terms, or with only words to leave out; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: a guest filtering by member; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
