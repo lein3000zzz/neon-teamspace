@@ -342,6 +342,7 @@ async fn every_tool_acts_as_its_caller_sees(pool: PgPool) {
             "get_database",
             "query_database",
             "create_database",
+            "add_property",
             "create_row",
             "update_row",
             "claim_task",
@@ -1868,6 +1869,54 @@ async fn each_tool_call_is_a_red_operation_of_its_own(pool: PgPool) {
     assert_eq!(count("read_page", "ok"), 1);
     assert_eq!(count("read_page", "error"), 0);
     assert_eq!(count("list_resources", "ok"), 1);
+    client.close().await;
+    finish(&state, server).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_makes_a_board_it_claims_tasks_on(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let general = general(&t.ada, &t.workspace).await;
+    let (token, scout) = agent_of(&t.ada, &t.workspace, "Scout").await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+
+    let made = client
+        .ok(
+            "create_database",
+            json!({"teamspace_id": general, "title": "Jobs"}),
+        )
+        .await;
+    let database = made["page"]["id"].as_str().expect("an id").to_owned();
+    let row = client
+        .ok(
+            "create_row",
+            json!({"database_id": database, "values": {"Name": "Index the docs"}}),
+        )
+        .await;
+    let row = row["id"].as_str().expect("an id").to_owned();
+    // Without a person property there is nobody to name.
+    let (code, _) = client.refused("claim_task", json!({"row_id": row})).await;
+    assert_eq!(code, "invalid_input");
+    let assignee = client
+        .ok(
+            "add_property",
+            json!({"database_id": database, "name": "Assignee", "type": "person"}),
+        )
+        .await;
+    assert_eq!(assignee["type"], "person");
+    let claimed = client.ok("claim_task", json!({"row_id": row})).await;
+    let assignee = assignee["id"].as_str().expect("an id");
+    assert_eq!(claimed["values"][assignee], json!([scout]));
+    let (code, _) = client
+        .refused(
+            "add_property",
+            json!({"database_id": database, "name": "Assignee", "type": "text"}),
+        )
+        .await;
+    assert_eq!(code, "name_taken");
     client.close().await;
     finish(&state, server).await;
 }

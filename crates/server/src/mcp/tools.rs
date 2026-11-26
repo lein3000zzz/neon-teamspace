@@ -29,7 +29,10 @@ use super::Services;
 use crate::http::ApiError;
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
-use crate::http::databases::{Database, Filter, Sort, embed_in, embedding};
+use crate::http::databases::{
+    AddProperty, Database, Filter, NumberFormat, OptionChange, Property, PropertyKind, Sort,
+    embed_in, embedding,
+};
 use crate::http::pages::{Page, Placement, TreePage, location};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
@@ -148,7 +151,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 16] = [
+pub(crate) const TOOLS: [Spec; 17] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -307,6 +310,20 @@ pub(crate) const TOOLS: [Spec; 16] = [
         destructive: false,
         idempotent: false,
         schema: schema::<CreateDatabaseArguments>,
+    },
+    Spec {
+        name: "add_property",
+        title: "Add a property",
+        description: "Adds a property, a column, to a database: a type of title, text, \
+                      number, select, multi_select, status, date, person, checkbox, url, \
+                      unique_id, created_time or last_edited_time, as the databases reference \
+                      lists them, with options for a select, multi-select or status. A board \
+                      agents claim tasks on needs a person property, such as Assignee: \
+                      claim_task names whoever claims a row there.",
+        writes: true,
+        destructive: false,
+        idempotent: false,
+        schema: schema::<AddPropertyArguments>,
     },
     Spec {
         name: "create_row",
@@ -500,6 +517,33 @@ pub(crate) async fn call(
         }
         "query_database" => query(s, principal, arguments(given)?).await,
         "create_database" => create_database(s, principal, arguments(given)?).await,
+        "add_property" => {
+            let AddPropertyArguments {
+                database_id,
+                name,
+                kind,
+                number_format,
+                currency,
+                prefix,
+                options,
+                placement,
+            } = arguments(given)?;
+            let new = AddProperty {
+                name,
+                kind,
+                number_format,
+                currency,
+                prefix,
+                options,
+                placement,
+            };
+            let property = s
+                .databases
+                .add_property(principal, database_id, new.into())
+                .await
+                .map_err(refused)?;
+            answer(Property::from(property))
+        }
         "create_row" => {
             let CreateRowArguments {
                 database_id,
@@ -705,6 +749,34 @@ struct CreateDatabaseArguments {
     /// An emoji or up to 16 characters.
     #[serde(default)]
     icon: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddPropertyArguments {
+    /// The database's id, a UUID.
+    database_id: Uuid,
+    /// 1 to 100 characters, unique in the database, ignoring case.
+    name: String,
+    /// What it holds.
+    #[serde(rename = "type")]
+    kind: PropertyKind,
+    /// For a number: plain when absent.
+    #[serde(default)]
+    number_format: Option<NumberFormat>,
+    /// For a number in the currency format, such as EUR.
+    #[serde(default)]
+    currency: Option<String>,
+    /// For a unique id: 1 to 10 letters and digits, starting with a letter.
+    #[serde(default)]
+    prefix: Option<String>,
+    /// For a select, multi-select or status, at most 200; a status without them gets Not
+    /// started, In progress and Done.
+    #[serde(default)]
+    options: Option<Vec<OptionChange>>,
+    /// Among the properties; "last" when absent.
+    #[serde(default)]
+    placement: Option<Placement>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

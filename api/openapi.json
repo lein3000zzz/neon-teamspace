@@ -17832,6 +17832,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "0 to 359; none draws it in grey.",
             "maximum": 359,
             "minimum": 0
           },

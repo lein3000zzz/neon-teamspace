@@ -10,7 +10,7 @@ use crate::http::pages::PageKind;
 
 /// Each tool's routes of the API, which do what it does with the same tokens: method and
 /// path below `/api/v1`.
-const REST: [(&str, &[(&str, &str)]); 16] = [
+const REST: [(&str, &[(&str, &str)]); 17] = [
     ("whoami", &[("get", "/whoami")]),
     ("list_members", &[("get", "/workspaces/{id}/members")]),
     ("list_teamspaces", &[("get", "/workspaces/{id}/teamspaces")]),
@@ -30,6 +30,7 @@ const REST: [(&str, &[(&str, &str)]); 16] = [
     ("get_database", &[("get", "/databases/{id}")]),
     ("query_database", &[("post", "/databases/{id}/query")]),
     ("create_database", &[("post", "/workspaces/{id}/databases")]),
+    ("add_property", &[("post", "/databases/{id}/properties")]),
     ("create_row", &[("post", "/databases/{id}/rows")]),
     (
         "update_row",
@@ -145,6 +146,7 @@ fn tools_publish_their_schemas_and_what_they_change() {
             ("trash_page", true),
             ("restore_page", false),
             ("create_database", false),
+            ("add_property", false),
             ("create_row", false),
             ("update_row", true),
             ("claim_task", true),

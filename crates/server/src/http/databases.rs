@@ -28,7 +28,7 @@ use super::pages::{Page, Placement, location};
 use super::principal::Authenticated;
 
 /// What a property holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyKind {
     /// The row's title: its page's. Every database has exactly one.
@@ -98,7 +98,7 @@ mirror!(
 );
 
 /// How a number shows; values are any finite number whatever the format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NumberFormat {
     /// `1234.5`.
@@ -118,7 +118,7 @@ mirror!(
 );
 
 /// The group of a status option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StatusGroup {
     ToDo,
@@ -143,13 +143,14 @@ pub struct PropertyOption {
 }
 
 /// An option as a change lists it: an existing one by its id, a new one without.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OptionChange {
     #[serde(default)]
     pub id: Option<Uuid>,
     /// 1 to 100 characters, unique in the property, ignoring case.
     pub name: String,
+    /// 0 to 359; none draws it in grey.
     #[serde(default)]
     #[schema(minimum = 0, maximum = 359)]
     pub hue: Option<u16>,
@@ -805,21 +806,29 @@ pub(super) async fn add_property(
     Path(id): Path<Uuid>,
     Body(body): Body<AddProperty>,
 ) -> Result<(StatusCode, Body<Property>), ApiError> {
-    let new = NewProperty {
-        name: body.name,
-        spec: PropertySpec {
-            kind: body.kind.into(),
-            number_format: body.number_format.map(Into::into),
-            currency: body.currency,
-            prefix: body.prefix,
-        },
-        options: body
-            .options
-            .map(|options| options.into_iter().map(Into::into).collect()),
-        placement: body.placement.map(Into::into).unwrap_or_default(),
-    };
-    let property = state.databases.add_property(&principal, id, new).await?;
+    let property = state
+        .databases
+        .add_property(&principal, id, body.into())
+        .await?;
     Ok((StatusCode::CREATED, Body(property.into())))
+}
+
+impl From<AddProperty> for NewProperty {
+    fn from(body: AddProperty) -> Self {
+        Self {
+            name: body.name,
+            spec: PropertySpec {
+                kind: body.kind.into(),
+                number_format: body.number_format.map(Into::into),
+                currency: body.currency,
+                prefix: body.prefix,
+            },
+            options: body
+                .options
+                .map(|options| options.into_iter().map(Into::into).collect()),
+            placement: body.placement.map(Into::into).unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Deserialize, ToSchema)]

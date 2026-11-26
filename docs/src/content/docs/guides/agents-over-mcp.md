@@ -188,6 +188,7 @@ with `inline` and `embed` adds that line at the end of the parent page; without 
 | `get_database` | `database_id` | Its page, properties, each with `id`, `name`, `type` and options, and views, each with its filter, sorts and grouping. |
 | `query_database` | `database_id`; `view_id`, `filter`, `sorts`, `limit` 1 to 1000, `after`, `utc_offset_minutes` | Its rows, as a view has them or with a filter and sorts of the caller's, a part at a time. `next` passed as `after` gives the next part. |
 | `create_database` | one of `parent_id`, `teamspace_id`, `private: true`; `inline`, `embed`, `title`, `icon`, `placement` | Makes one with a `Name`, a `Status` and two views; inline under `parent_id`, with `embed` its block at the end of that page. |
+| `add_property` | `database_id`, `name`, `type`; `options`, `number_format`, `currency`, `prefix`, `placement` | Adds a property, as the [databases reference](/docs/reference/databases/) lists the types, such as a person property for a board an agent claims tasks on. |
 | `create_row` | `database_id`; `values`, `placement` | Adds a row with its values. |
 | `update_row` | `row_id`, or `database_id` and `unique_id`; `values` | Sets the values named; `null` clears one. |
 | `claim_task` | `row_id`, or `database_id` and `unique_id`; `person_property` | Claims the row; see [Claiming a task](#claiming-a-task). |
@@ -340,7 +341,8 @@ row.
 
 Claims of one row at the same time take their turn on it, so exactly one wins and the
 others hear who holds it. A database without a person property, or without a status property
-with an option in progress, answers `invalid_input`. Claiming needs edit access to the row,
+with an option in progress, answers `invalid_input`; a database an agent makes has a status
+but no person property, which `add_property` with `"type": "person"` adds. Claiming needs edit access to the row,
 and guests, who know no other member, do not claim. A claim is the caller's change of the
 row, and those following the database see it at once.
 
@@ -403,6 +405,7 @@ each tool does, with the same tokens.
 | `get_database`, `neon://database/{id}` | `GET /api/v1/databases/{id}` |
 | `query_database`, `neon://database/{id}/view/{view}` | `POST /api/v1/databases/{id}/query` |
 | `create_database` | `POST /api/v1/workspaces/{id}/databases` |
+| `add_property` | `POST /api/v1/databases/{id}/properties` |
 | `create_row` | `POST /api/v1/databases/{id}/rows` |
 | `update_row` | `PATCH /api/v1/rows/{id}`, `PATCH /api/v1/databases/{id}/rows/{unique_id}` |
 | `claim_task` | `POST /api/v1/rows/{id}/claim`, `POST /api/v1/databases/{id}/rows/{unique_id}/claim`, with `?person_property=` |

@@ -3924,7 +3924,10 @@ export interface components {
         /** @description An option as a change lists it: an existing one by its id, a new one without. */
         OptionChange: {
             group?: components["schemas"]["StatusGroup"] | null;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description 0 to 359; none draws it in grey.
+             */
             hue?: number | null;
             /** Format: uuid */
             id?: string | null;
