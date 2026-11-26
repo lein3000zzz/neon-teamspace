@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Search } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { PageKind } from "@/api/pages";
 import { searchQuery, type SearchFilters, type SearchResult } from "@/api/search";
 import { teamspacesQuery } from "@/api/teamspaces";
@@ -80,25 +80,45 @@ function filtersOf(search: SearchPageSearch): SearchFilters {
  * last changed a page and how recently, and the results the best first, a
  * part at a time. Everything is in the address, so a search can be shared and
  * the back button undoes a filter. Without a query, the filters list what
- * changed last. Guests, who know no other member, filter by no one.
+ * changed last. Guests, who know no other member, filter by no one. The field
+ * follows the address too, when a link, the quick search or the back button
+ * changes its query.
  */
 export function SearchPage() {
   const workspace = useWorkspace();
   const search = useSearch({ from: "/_app/w/$slug/search" });
   const navigate = useNavigate({ from: "/w/$slug/search" });
   const fieldId = useId();
-  const [typing, setTyping] = useState(search.q ?? "");
+  const q = search.q ?? "";
+  const [typing, setTyping] = useState(q);
   const typed = useDebounced(typing.trim(), TYPING_PAUSE_MS);
   const member = seesTeamspaces(workspace.role);
+  // The query the field last put in the address or took from it: another one there came
+  // from elsewhere.
+  const known = useRef(q);
+  // What the field had settled on last, so that only a change of it goes to the address.
+  const settled = useRef(typed);
 
   useEffect(() => {
-    if (typed !== (search.q ?? "")) {
+    if (q !== known.current) {
+      known.current = q;
+      setTyping(q);
+    }
+  }, [q]);
+
+  useEffect(() => {
+    if (typed === settled.current) {
+      return;
+    }
+    settled.current = typed;
+    if (typed !== known.current) {
+      known.current = typed;
       void navigate({
         search: (previous) => readSearch({ ...previous, q: typed }),
         replace: true,
       });
     }
-  }, [typed, search.q, navigate]);
+  }, [typed, navigate]);
 
   const results = useInfiniteQuery(searchQuery(workspace.id, search.q ?? "", filtersOf(search)));
   const found = results.data?.pages.flatMap((part) => part.results) ?? [];

@@ -1489,7 +1489,7 @@ export const strings = {
       within: "Edited",
       anyTime: "Any time",
       withins: {
-        "1d": "Today",
+        "1d": "In the last day",
         "7d": "In the last week",
         "30d": "In the last month",
         "365d": "In the last year",
@@ -1520,8 +1520,7 @@ export const strings = {
         .filter((part) => part !== "")
         .join(", ") || "No blocks changed",
     restoredFrom: (when: string) => `Restored from ${when}`,
-    by: "By",
-    pick: "Pick a version to see it and what changed since.",
+    tabsLabel: "Show",
     tabs: { changes: "Changes since", preview: "Preview" },
     changesLabel: "Changes from this version to now",
     sameAsNow: "The page is as this version has it.",

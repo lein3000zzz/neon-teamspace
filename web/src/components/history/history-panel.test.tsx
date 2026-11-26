@@ -55,7 +55,25 @@ describe("a page's history", () => {
 
     const panel = await openHistory(user);
     await user.click(await panel.findByRole("button", { name: /2 added/ }));
-    await user.click(panel.getByRole("tab", { name: "Preview" }));
+    // The tabs: one picked and reached by Tab, the arrow keys moving between them.
+    const tabs = within(panel.getByRole("tablist", { name: "Show" }));
+    const changes = tabs.getByRole("tab", { name: "Changes since" });
+    const previewTab = tabs.getByRole("tab", { name: "Preview" });
+    expect(changes).toHaveAttribute("aria-selected", "true");
+    expect(changes).toHaveAttribute("tabindex", "0");
+    expect(previewTab).toHaveAttribute("tabindex", "-1");
+    expect(panel.getByRole("tabpanel", { name: "Changes since" }).id).toBe(
+      changes.getAttribute("aria-controls"),
+    );
+    changes.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(previewTab).toHaveFocus();
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    expect(panel.getByRole("tabpanel", { name: "Preview" })).toBeInTheDocument();
+    await user.keyboard("{Home}");
+    expect(changes).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(previewTab).toHaveFocus();
     const preview = await panel.findByRole("region", { name: "This version, read-only" });
     await waitFor(() => expect(preview).toHaveTextContent("Kick-off in March"));
     expect(within(preview).getByRole("textbox")).toHaveAttribute("contenteditable", "false");

@@ -98,6 +98,54 @@ describe("the quick search", () => {
     expect(router.state.location.search).toEqual({ q: "road" });
   });
 
+  it("opens the first result of what was typed with Enter, however soon it is pressed", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSearch({
+      answers: {
+        road: [result(roadmap, "Road", "")],
+        launch: [result(launch, "Launch", "")],
+      },
+    });
+    const { user, router } = renderApp("/w/design");
+    await screen.findByRole("heading", { level: 1, name: "Design" });
+
+    // Typed and entered at once: not the page changed last, which the list shows meanwhile.
+    await user.keyboard("{Control>}k{/Control}");
+    const search = await dialog();
+    await search.findByRole("button", { name: /Roadmap/ });
+    await user.keyboard("launch{Enter}");
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/w/design/p/${PAGE_IDS.launch}`),
+    );
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+  });
+
+  it("opens with Enter no result of what was typed before, which the list keeps meanwhile", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSearch({
+      answers: {
+        road: [result(roadmap, "Road", "")],
+        launch: [result(launch, "Launch", "")],
+      },
+    });
+    const { user, router } = renderApp("/w/design");
+    await screen.findByRole("heading", { level: 1, name: "Design" });
+
+    await user.keyboard("{Control>}k{/Control}");
+    const search = await dialog();
+    await user.keyboard("road");
+    await within(await search.findByRole("region", { name: "Results" })).findByRole("button", {
+      name: /Roadmap/,
+    });
+    await user.clear(search.getByRole("searchbox", { name: "Search pages" }));
+    await user.keyboard("launch{Enter}");
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/w/design/p/${PAGE_IDS.launch}`),
+    );
+  });
+
   it("says when nothing matches, and closes with Escape", async () => {
     fakeWorkspaces();
     fakePages();

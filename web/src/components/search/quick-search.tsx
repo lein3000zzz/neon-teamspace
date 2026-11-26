@@ -4,6 +4,7 @@ import { FileText, Rows3, Search, Table2 } from "lucide-react";
 import {
   createContext,
   use,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -102,17 +103,25 @@ const glyphs: Record<PageKind, typeof FileText> = {
 /**
  * The quick search itself. Focus starts in the field; the arrow keys move it
  * down the results and back up to the field, Enter opens the result focused,
- * or from the field the first, and Escape closes it all.
+ * or from the field the first of what was typed, once its results came, and
+ * Escape closes it all.
  */
 function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onClose: () => void }) {
   const navigate = useNavigate();
   const field = useRef<HTMLInputElement>(null);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const [text, setText] = useState("");
-  const query = useDebounced(text.trim(), TYPING_PAUSE_MS);
+  const typed = text.trim();
+  const query = useDebounced(typed, TYPING_PAUSE_MS);
   const searching = query !== "";
   const recent = useQuery({ ...recentPagesQuery(workspace.id), enabled: !searching });
   const found = useQuery({ ...quickSearchQuery(workspace.id, query), enabled: searching });
+  // What was typed when Enter was pressed in the field before its results came, which then
+  // opens the first of them.
+  const [entered, setEntered] = useState<string | null>(null);
+  // The list is that of what is typed: not of what was typed before, or of nothing.
+  const settled =
+    query === typed && (searching ? found.isSuccess && !found.isPlaceholderData : recent.isSuccess);
 
   const options: Option[] = useMemo(() => {
     if (!searching) {
@@ -127,24 +136,34 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
     return [...pages, { kind: "everything", query }];
   }, [searching, recent.data, found.data, query]);
 
-  const choose = (option: Option | undefined) => {
-    if (option === undefined) {
-      return;
+  const choose = useCallback(
+    (option: Option | undefined) => {
+      if (option === undefined) {
+        return;
+      }
+      if (option.kind === "page") {
+        void navigate({
+          to: "/w/$slug/p/$pageId",
+          params: { slug: workspace.slug, pageId: option.page.id },
+        });
+      } else {
+        void navigate({
+          to: "/w/$slug/search",
+          params: { slug: workspace.slug },
+          search: { q: option.query },
+        });
+      }
+      onClose();
+    },
+    [navigate, workspace.slug, onClose],
+  );
+
+  // Choosing closes the quick search, which ends what was entered with it.
+  useEffect(() => {
+    if (entered !== null && entered === typed && settled) {
+      choose(options[0]);
     }
-    if (option.kind === "page") {
-      void navigate({
-        to: "/w/$slug/p/$pageId",
-        params: { slug: workspace.slug, pageId: option.page.id },
-      });
-    } else {
-      void navigate({
-        to: "/w/$slug/search",
-        params: { slug: workspace.slug },
-        search: { q: option.query },
-      });
-    }
-    onClose();
-  };
+  }, [entered, typed, settled, options, choose]);
 
   /** Moves focus to the result at `index`; above the first, to the field. */
   const focusAt = (index: number) => {
@@ -161,7 +180,11 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
       focusAt(0);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      choose(options[0]);
+      if (settled) {
+        choose(options[0]);
+      } else {
+        setEntered(typed);
+      }
     }
   };
 
@@ -193,7 +216,10 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
           aria-label={copy.label}
           placeholder={copy.placeholder}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value);
+            setEntered(null);
+          }}
           onKeyDown={onFieldKey}
           className="h-(--tap) min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
         />

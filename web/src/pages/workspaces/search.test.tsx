@@ -38,6 +38,35 @@ describe("the search page", () => {
     await waitFor(() => expect(router.state.location.search).toEqual({ q: "goals" }));
   });
 
+  it("takes a query the address gets from elsewhere, as the quick search gives it", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSearch({
+      answers: {
+        plan: [result(byId(PAGE_IDS.roadmap), "", "the quarterly plan")],
+        goals: [result(byId(PAGE_IDS.goals), "Goals", "")],
+        "goals now": [result(byId(PAGE_IDS.launch), "", "goals now")],
+      },
+    });
+    const { user, router } = renderApp("/w/design/search?q=plan");
+    await (await results()).findByRole("link", { name: /Roadmap/ });
+    const field = screen.getByRole("searchbox", { name: "Search" });
+
+    // Search everything for goals, from the quick search over this page.
+    await user.keyboard("{Control>}k{/Control}");
+    const quick = within(await screen.findByRole("dialog", { name: "Search" }));
+    await user.keyboard("goals");
+    await user.click(await quick.findByRole("button", { name: "Search everything for “goals”" }));
+    await waitFor(() => expect(field).toHaveValue("goals"));
+    expect(await (await results()).findByRole("link", { name: /Goals/ })).toBeInTheDocument();
+    expect(router.state.location.search).toEqual({ q: "goals" });
+
+    // What is typed after goes to the address as before.
+    await user.type(field, " now");
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: "goals now" }));
+    expect(await (await results()).findByRole("link", { name: /Launch/ })).toBeInTheDocument();
+  });
+
   it("narrows by the filters, which the address keeps", async () => {
     fakeWorkspaces();
     fakePages();
@@ -53,6 +82,8 @@ describe("the search page", () => {
     await user.selectOptions(filters.getByRole("combobox", { name: "Kind" }), "Rows");
     await user.selectOptions(filters.getByRole("combobox", { name: "Created by" }), "Cy");
     await user.selectOptions(filters.getByRole("combobox", { name: "Last edited by" }), "Bob");
+    // The server reads 1d as the last 24 hours, not as the day so far.
+    expect(filters.getByRole("option", { name: "In the last day" })).toHaveValue("1d");
     await user.selectOptions(filters.getByRole("combobox", { name: "Edited" }), "In the last week");
 
     await waitFor(() =>

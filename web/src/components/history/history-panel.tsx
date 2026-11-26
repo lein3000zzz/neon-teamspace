@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { cn } from "cn";
 import { History } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useId, useRef, useState, type KeyboardEvent } from "react";
 import { hasCode } from "@/api/errors";
 import {
   comparisonQuery,
@@ -164,7 +164,8 @@ function VersionItem({
   );
 }
 
-type Tab = "changes" | "preview";
+const TABS = ["changes", "preview"] as const;
+type Tab = (typeof TABS)[number];
 
 type VersionDetailProps = HistoryButtonProps & {
   version: Version;
@@ -178,6 +179,10 @@ type VersionDetailProps = HistoryButtonProps & {
 function VersionDetail({ page, version, editable, onPin }: VersionDetailProps) {
   const workspace = useWorkspace();
   const [tab, setTab] = useState<Tab>("changes");
+  const tabsId = useId();
+  const panelId = `${tabsId}-panel`;
+  const tabId = (each: Tab) => `${tabsId}-${each}`;
+  const tabs = useRef(new Map<Tab, HTMLButtonElement>());
   const [confirming, setConfirming] = useState(false);
   const [restored, setRestored] = useState(false);
   const comparison = useQuery(comparisonQuery(workspace.id, page.id, version.id));
@@ -187,6 +192,25 @@ function VersionDetail({ page, version, editable, onPin }: VersionDetailProps) {
   const differs =
     comparison.data !== undefined &&
     comparison.data.added + comparison.data.changed + comparison.data.removed > 0;
+
+  // The tab pattern: the arrow keys, Home and End move between the tabs, each picked as
+  // it is reached, and Tab goes from the one picked to its panel.
+  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    const target =
+      event.key === "Home"
+        ? TABS[0]
+        : event.key === "End"
+          ? TABS.at(-1)
+          : step === 0
+            ? undefined
+            : TABS[(index + step + TABS.length) % TABS.length];
+    if (target !== undefined) {
+      event.preventDefault();
+      setTab(target);
+      tabs.current.get(target)?.focus();
+    }
+  };
 
   const confirm = () => {
     setConfirming(false);
@@ -242,21 +266,32 @@ function VersionDetail({ page, version, editable, onPin }: VersionDetailProps) {
           <ErrorNotice error={restore.error} />
         ))}
 
-      <div role="tablist" className="flex gap-1">
-        {(["changes", "preview"] as const).map((each) => (
+      <div role="tablist" aria-label={copy.tabsLabel} className="flex gap-1">
+        {TABS.map((each, index) => (
           <Button
             key={each}
+            ref={(element) => {
+              if (element === null) {
+                tabs.current.delete(each);
+              } else {
+                tabs.current.set(each, element);
+              }
+            }}
+            id={tabId(each)}
             role="tab"
             aria-selected={tab === each}
+            aria-controls={panelId}
+            tabIndex={tab === each ? 0 : -1}
             variant={tab === each ? "outline" : "ghost"}
             size="sm"
             onClick={() => setTab(each)}
+            onKeyDown={(event) => onTabKey(event, index)}
           >
             {copy.tabs[each]}
           </Button>
         ))}
       </div>
-      <div role="tabpanel" aria-label={copy.tabs[tab]}>
+      <div role="tabpanel" id={panelId} aria-labelledby={tabId(tab)} tabIndex={0}>
         {tab === "changes" ? (
           <Changes comparison={comparison} />
         ) : (
