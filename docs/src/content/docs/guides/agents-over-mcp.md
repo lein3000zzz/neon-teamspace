@@ -280,6 +280,9 @@ row, and those following the database see it at once.
 | `neon://database/{id}/view/{view}` | The rows the view shows, in its order, as JSON, at most 1000. |
 | `neon://me/tasks` | The rows whose person properties name the caller, out of the trash, the most recently changed first, at most 100, each with its database's title and its status. |
 
+A URI writes its ids lowercase and hyphenated, as the server lists them and tells of their
+changes, and a URI that writes them another way is not found.
+
 `resources/list` gives `neon://me/tasks`, then the caller's favorites, at most 50, the 20
 pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
 own.

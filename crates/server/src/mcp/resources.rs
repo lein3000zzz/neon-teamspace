@@ -45,13 +45,15 @@ pub(crate) enum Resource {
 }
 
 impl Resource {
-    /// What a URI names; one the server has no resource at is not found.
+    /// What a URI names; one the server has no resource at is not found. A resource has one
+    /// URI, its ids lowercase and hyphenated, which subscriptions are told of changes by: any
+    /// other way of writing it is not found either.
     pub(crate) fn parse(uri: &str) -> Result<Self, ToolError> {
         let unknown = || ToolError::invalid("not_found", format!("there is no resource {uri}"));
         let path = uri.strip_prefix(SCHEME).ok_or_else(unknown)?;
         let parts: Vec<&str> = path.split('/').collect();
         let id = |text: &str| Uuid::try_parse(text).map_err(|_| unknown());
-        Ok(match parts.as_slice() {
+        let resource = match parts.as_slice() {
             ["page", page] => Self::Page(id(page)?),
             ["database", database] => Self::Database(id(database)?),
             ["database", database, "view", view] => Self::View {
@@ -60,7 +62,11 @@ impl Resource {
             },
             ["me", "tasks"] => Self::Tasks,
             _ => return Err(unknown()),
-        })
+        };
+        if resource.uri() != uri {
+            return Err(unknown());
+        }
+        Ok(resource)
     }
 
     pub(crate) fn uri(&self) -> String {
@@ -309,6 +315,12 @@ mod tests {
             "neon://me/inbox",
             "https://example.com/page/00000000-0000-0000-0000-000000000001",
             "",
+            // The ids written another way than the resource's own URI has them.
+            "neon://page/00000000-0000-0000-0000-00000000000A",
+            "neon://page/00000000000000000000000000000001",
+            "neon://page/{00000000-0000-0000-0000-000000000001}",
+            "neon://page/urn:uuid:00000000-0000-0000-0000-000000000001",
+            "neon://database/00000000-0000-0000-0000-000000000001/view/00000000-0000-0000-0000-00000000000B",
         ] {
             let error = Resource::parse(unknown).expect_err(unknown);
             assert_eq!(error.code, "not_found", "{unknown}");
