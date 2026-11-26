@@ -523,12 +523,121 @@ async fn dead_jobs_left_behind_are_deleted_by_maintenance(pool: PgPool) {
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn start_refuses_an_invalid_config(pool: PgPool) {
-    let config = WorkerConfig {
+    let none = WorkerConfig {
         concurrency: 0,
         ..config()
     };
 
-    let result = Worker::new(pool, config).start().await;
-
+    let result = Worker::new(pool.clone(), none).start().await;
     assert!(matches!(result, Err(StartError::Config(_))), "{result:?}");
+
+    let never = Worker::new(pool, config())
+        .handler(Gate::new(Some(0)))
+        .start()
+        .await;
+    assert!(matches!(never, Err(StartError::Config(_))), "{never:?}");
+}
+
+const GATED: &str = "test.gated";
+
+/// Runs jobs of [`GATED`], each until the gate opens, counting how many run at once.
+#[derive(Clone)]
+struct Gate {
+    share: Option<usize>,
+    started: Arc<AtomicUsize>,
+    running: Arc<AtomicUsize>,
+    most: Arc<AtomicUsize>,
+    open: tokio::sync::watch::Sender<bool>,
+}
+
+impl Gate {
+    fn new(share: Option<usize>) -> Self {
+        Self {
+            share,
+            started: Arc::default(),
+            running: Arc::default(),
+            most: Arc::default(),
+            open: tokio::sync::watch::Sender::new(false),
+        }
+    }
+
+    fn started(&self) -> usize {
+        self.started.load(Ordering::SeqCst)
+    }
+
+    fn most(&self) -> usize {
+        self.most.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl Handler for Gate {
+    fn kind(&self) -> &'static str {
+        GATED
+    }
+
+    fn max_running(&self) -> Option<usize> {
+        self.share
+    }
+
+    async fn run(&self, _job: &Job) -> Result<(), JobError> {
+        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most.fetch_max(now, Ordering::SeqCst);
+        self.started.fetch_add(1, Ordering::SeqCst);
+        let mut open = self.open.subscribe();
+        let opened = open.wait_for(|open| *open).await.map(|_| ());
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        opened.map_err(JobError::retry)
+    }
+}
+
+async fn queued_of(pool: &PgPool, kind: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = $1 AND status = 'queued'")
+        .bind(kind)
+        .fetch_one(pool)
+        .await
+        .expect("counted")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_kind_held_to_a_share_of_the_slots_leaves_the_rest_to_others(pool: PgPool) {
+    let gate = Gate::new(Some(1));
+    let recorder = Recorder::new(Behavior::Succeed);
+    let mut gated = Vec::new();
+    for _ in 0..3 {
+        gated.push(
+            enqueue(&pool, &NewJob::new(GATED, json!({})))
+                .await
+                .unwrap(),
+        );
+    }
+    let worker = Worker::new(
+        pool.clone(),
+        WorkerConfig {
+            concurrency: 2,
+            ..config()
+        },
+    )
+    .handler(gate.clone())
+    .handler(recorder.clone())
+    .start()
+    .await
+    .unwrap();
+    eventually("a gated job to start", || async { gate.started() == 1 }).await;
+
+    // Its share taken, the other slot is free for another kind's job.
+    let other = enqueue(&pool, &job()).await.unwrap();
+    wait_for_status(&pool, other, "done").await;
+    assert_eq!(recorder.runs().len(), 1);
+    assert_eq!(gate.started(), 1);
+    assert_eq!(queued_of(&pool, GATED).await, 2);
+
+    // Let through, the gated jobs run one at a time.
+    gate.open.send_replace(true);
+    for id in gated {
+        wait_for_status(&pool, id, "done").await;
+    }
+    worker.stop().await;
+    assert_eq!(gate.started(), 3);
+    assert_eq!(gate.most(), 1);
 }

@@ -147,6 +147,15 @@ impl Worker {
     /// Listens for queued jobs and starts claiming them.
     pub async fn start(self) -> Result<WorkerHandle, StartError> {
         self.config.validate().map_err(StartError::Config)?;
+        if let Some(kind) = self
+            .handlers
+            .iter()
+            .find_map(|(kind, handler)| (handler.max_running() == Some(0)).then_some(kind))
+        {
+            return Err(StartError::Config(format!(
+                "the jobs of {kind} would never run: a share of the slots is at least one"
+            )));
+        }
 
         let id = format!("{}-{}", std::process::id(), Uuid::now_v7().simple());
         let mut kinds: Vec<String> = self.handlers.keys().map(|&k| k.to_owned()).collect();
@@ -293,20 +302,27 @@ impl Inner {
         loop {
             if maybe_due && tasks.len() < self.config.concurrency {
                 let free = self.config.concurrency - tasks.len();
-                let claimed = self.claim(free).await;
+                let claimed = self.claim(free, &running).await;
                 // A claim that filled every free slot may have left more behind.
                 maybe_due = claimed.len() == free;
                 for job in claimed {
                     let job_id = job.id;
+                    let kind = job.kind.clone();
                     let span = (self.span)(&job);
                     let task = tasks.spawn(Arc::clone(&self).execute(job).instrument(span));
-                    running.insert(task.id(), job_id);
+                    running.insert(task.id(), (job_id, kind));
                 }
             }
 
             tokio::select! {
                 () = stop.cancelled() => break,
-                Some(joined) = tasks.join_next_with_id() => finished(joined, &mut running),
+                Some(joined) = tasks.join_next_with_id() => {
+                    // A kind held to its share may have jobs waiting for the slot it left.
+                    let kind = finished(joined, &mut running);
+                    if kind.is_some_and(|kind| self.share(&kind).is_some()) {
+                        maybe_due = true;
+                    }
+                }
                 () = wake.notified() => maybe_due = true,
                 _ = poll.tick() => maybe_due = true,
                 _ = maintenance.tick() => {
@@ -319,12 +335,42 @@ impl Inner {
         self.drain(tasks, running).await;
     }
 
-    async fn claim(&self, limit: usize) -> Vec<Job> {
-        if self.kinds.is_empty() {
+    /// Claims up to `free` due jobs: of the kinds that may take every slot first, then of
+    /// each held to a share, as many as its share has room for beside those `running`.
+    async fn claim(&self, free: usize, running: &Running) -> Vec<Job> {
+        let shared: Vec<String> = self
+            .kinds
+            .iter()
+            .filter(|kind| self.share(kind).is_none())
+            .cloned()
+            .collect();
+        let mut claimed = self.claim_of(&shared, free).await;
+        for kind in &self.kinds {
+            let Some(share) = self.share(kind) else {
+                continue;
+            };
+            let busy = running.values().filter(|(_, of)| of == kind).count();
+            let room = share
+                .saturating_sub(busy)
+                .min(free.saturating_sub(claimed.len()));
+            claimed.extend(self.claim_of(std::slice::from_ref(kind), room).await);
+        }
+        claimed
+    }
+
+    /// The share of the slots a kind's jobs may take, when it is held to one.
+    fn share(&self, kind: &str) -> Option<usize> {
+        self.handlers
+            .get(kind)
+            .and_then(|handler| handler.max_running())
+    }
+
+    async fn claim_of(&self, kinds: &[String], limit: usize) -> Vec<Job> {
+        if kinds.is_empty() || limit == 0 {
             return Vec::new();
         }
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        jobs::claim(&self.pool, &self.id, &self.kinds, limit)
+        jobs::claim(&self.pool, &self.id, kinds, limit)
             .await
             .unwrap_or_else(|error| {
                 warn!(%error, "could not claim jobs");
@@ -436,7 +482,7 @@ impl Inner {
         }
     }
 
-    async fn drain(&self, mut tasks: JoinSet<()>, mut running: HashMap<Id, Uuid>) {
+    async fn drain(&self, mut tasks: JoinSet<()>, mut running: Running) {
         if tasks.is_empty() {
             return;
         }
@@ -447,7 +493,9 @@ impl Inner {
         loop {
             tokio::select! {
                 joined = tasks.join_next_with_id() => match joined {
-                    Some(joined) => finished(joined, &mut running),
+                    Some(joined) => {
+                        finished(joined, &mut running);
+                    }
                     None => return,
                 },
                 () = &mut deadline => break,
@@ -462,7 +510,7 @@ impl Inner {
             }
         }
 
-        let cancelled: Vec<Uuid> = running.into_values().collect();
+        let cancelled: Vec<Uuid> = running.into_values().map(|(id, _)| id).collect();
         match jobs::release(&self.pool, &self.id, &cancelled).await {
             Ok(count) => warn!(
                 jobs = count,
@@ -475,14 +523,17 @@ impl Inner {
     }
 }
 
-fn finished(joined: Result<(Id, ()), JoinError>, running: &mut HashMap<Id, Uuid>) {
+/// The jobs running, by their task: each job's id and kind.
+type Running = HashMap<Id, (Uuid, String)>;
+
+/// Forgets a job whose task ended, answering its kind.
+fn finished(joined: Result<(Id, ()), JoinError>, running: &mut Running) -> Option<String> {
     match joined {
-        Ok((task, ())) => {
-            running.remove(&task);
-        }
+        Ok((task, ())) => running.remove(&task).map(|(_, kind)| kind),
         Err(error) => {
             let job = running.remove(&error.id());
             error!(%error, ?job, "job task failed; the job runs again once its claim expires");
+            job.map(|(_, kind)| kind)
         }
     }
 }
