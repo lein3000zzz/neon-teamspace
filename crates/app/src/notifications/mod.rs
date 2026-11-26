@@ -303,6 +303,33 @@ impl InboxService {
         .await
     }
 
+    /// Marks the principal's notifications of `ids` read, or unread, all or none: one that
+    /// is not theirs, or not in their reach, refuses the lot, as not found. Says how many.
+    pub async fn mark_many(
+        &self,
+        principal: &Principal,
+        ids: &[Uuid],
+        read: bool,
+    ) -> Result<u64, InboxError> {
+        self.observe("mark_many", async {
+            let mut tx = self.pool().begin().await?;
+            for id in ids {
+                repo::get(&mut *tx, principal.user.id, *id)
+                    .await?
+                    .filter(|notification| reaches(principal, notification))
+                    .ok_or(InboxError::NotFound(NO_NOTIFICATION))?;
+            }
+            let now = self.now();
+            for id in ids {
+                repo::mark(&mut *tx, principal.user.id, *id, Some(read), None, now).await?;
+            }
+            tx.commit().await?;
+            self.changed(principal.user.id);
+            Ok(u64::try_from(ids.len()).unwrap_or(u64::MAX))
+        })
+        .await
+    }
+
     /// Marks read every notification of the principal's inbox, of one workspace or all.
     /// Says how many.
     pub async fn mark_all_read(

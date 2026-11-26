@@ -411,7 +411,8 @@ pub(crate) const TOOLS: [Spec; 21] = [
         name: "mark_read",
         title: "Mark notifications read",
         description: "Marks notifications of your inbox read, by their ids, or all of them \
-                      (all: true); read: false marks the ones named unread again.",
+                      (all: true); read: false marks the ones named unread again. Ids are \
+                      marked all or none: one not found marks nothing.",
         writes: true,
         destructive: false,
         idempotent: true,
@@ -691,13 +692,10 @@ pub(crate) async fn call(
                         "name the notifications to mark, or all: true",
                     ));
                 }
-                for id in &notification_ids {
-                    s.inbox
-                        .mark(principal, *id, Some(read), None)
-                        .await
-                        .map_err(refused)?;
-                }
-                u64::try_from(notification_ids.len()).unwrap_or(u64::MAX)
+                s.inbox
+                    .mark_many(principal, &notification_ids, read)
+                    .await
+                    .map_err(refused)?
             };
             answer(Marked { marked })
         }

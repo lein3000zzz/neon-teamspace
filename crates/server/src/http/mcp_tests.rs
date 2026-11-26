@@ -2762,6 +2762,17 @@ async fn an_agent_comments_reads_its_inbox_and_hears_it_change(pool: PgPool) {
     assert_eq!(mentioned["page"]["id"], made["page"]["id"]);
     assert_eq!(mentioned["actor"]["id"], scout.as_str());
 
+    // Ids are marked all or none: an unknown one among them marks nothing.
+    let mention = inbox["notifications"][0]["id"].clone();
+    let (code, _) = agent
+        .refused(
+            "mark_read",
+            json!({"notification_ids": [mention, "0193a5b2-0000-7000-8000-00000000dead"]}),
+        )
+        .await;
+    assert_eq!(code, "not_found");
+    let unread = agent.ok("get_inbox", json!({"unread": true})).await;
+    assert_eq!(unread["notifications"][0]["id"], mention);
     let marked = agent.ok("mark_read", json!({"all": true})).await;
     assert_eq!(marked, json!({"marked": 1}));
     let inbox = agent.ok("get_inbox", json!({"unread": true})).await;
