@@ -33,6 +33,7 @@ mod export;
 mod live;
 mod rows;
 mod schema;
+mod tasks;
 mod views;
 
 use std::collections::HashMap;
@@ -59,8 +60,9 @@ use crate::pages::{Context, PageError, PageService, PageView, key_among, renumbe
 pub use error::DatabaseError;
 pub use export::{ExportRow, ExportTable};
 pub use live::{Admission, Follow, LiveDatabases, LiveDatabasesBuilder, LiveLimits};
-pub use rows::{GroupMove, NewRow, QueryInput, QueryResult, RowMove};
+pub use rows::{DEFAULT_PAGE, GroupMove, MAX_PAGE, NewRow, QueryInput, QueryResult, RowMove};
 pub use schema::{NewDatabase, NewProperty, PropertyChange, PropertySpec};
+pub use tasks::{Holder, MAX_TASKS, RowDetails, Task, TaskStatus};
 pub use views::{NewView, ViewChange};
 
 /// RED subsystem of the database use cases.

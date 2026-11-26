@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
@@ -10,6 +10,138 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/account/connected-apps": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "List the connected apps",
+        "description": "The clients the person connected over OAuth, as themselves or as their agents, each in one workspace with its scopes. Needs a session or an API token across the instance with the read scope.",
+        "operationId": "list_connected_apps",
+        "responses": {
+          "200": {
+            "description": "The connected apps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectedAppList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope, or token_bound.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/account/connected-apps/{id}": {
+      "delete": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Disconnect an app",
+        "description": "Revokes one of the person's grants: every token of it stops working at once. From a browser session alone.",
+        "operationId": "disconnect_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The connected app's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/account/favorites": {
       "get": {
         "tags": [
@@ -4320,6 +4452,245 @@
             "api_token": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "databases"
+        ],
+        "summary": "Change a row's values by its unique id",
+        "description": "As `PATCH /rows/{id}`, for the row whose unique id is `NW-42`, its prefix in any case, or `42` alone.",
+        "operationId": "change_row_by_unique_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The database's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unique_id",
+            "in": "path",
+            "description": "The row's unique id, such as NW-42.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRow"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The row.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Row"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: not a unique id of this database, or the values as for `PATCH /rows/{id}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for `PATCH /rows/{id}`; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: the database, or no row of it has the id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "limit_reached: the row's values would take more than 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/databases/{id}/rows/{unique_id}/claim": {
+      "post": {
+        "tags": [
+          "databases"
+        ],
+        "summary": "Claim a row by its unique id",
+        "description": "As `POST /rows/{id}/claim`, for the row whose unique id is `NW-42`, its prefix in any case, or `42` alone.",
+        "operationId": "claim_row_by_unique_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The database's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unique_id",
+            "in": "path",
+            "description": "The row's unique id, such as NW-42.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "person_property",
+            "in": "query",
+            "description": "The person property to name the caller in, by id or name; the database's first\nperson property when absent.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The row, claimed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Row"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: not a unique id of this database, or as for `POST /rows/{id}/claim`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for `POST /rows/{id}/claim`; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: the database, or no row of it has the id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_claimed, naming who holds it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
       }
     },
     "/api/v1/databases/{id}/views": {
@@ -4905,6 +5276,534 @@
         }
       }
     },
+    "/api/v1/oauth/authorize": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Start an authorization",
+        "description": "The authorization endpoint, the code flow with PKCE (S256 alone). Checks the client, the redirect URI, the response type, the PKCE challenge, the scopes, the state and the resource, then sends the browser to the web app's consent page with them, where the person signs in if they have not, and chooses. A request that does not hold sends the browser to the consent page with `error`, its problem, which the page shows; it is never sent to the client's redirect URI on its own, as anyone may register one.",
+        "operationId": "authorize",
+        "parameters": [
+          {
+            "name": "response_type",
+            "in": "query",
+            "description": "`code`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "One the client registered, exactly, but for the port of a loopback address.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "description": "The PKCE challenge: the verifier's SHA-256, in base64url without padding.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code_challenge_method",
+            "in": "query",
+            "description": "`S256`; `plain` is refused.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Sent back as it is; at most 1024 printable ASCII characters.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "query",
+            "description": "The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or\n`<public URL>/api/v1`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "To the consent page, with the request or `error`."
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/consent": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "What a client asks to be allowed",
+        "description": "Checks an authorization request again, from the consent page's address, and says what the page offers: the client, where the browser goes back to, and each of the person's workspaces with whom the client may act as there, the person or one of their agents that works, and with which scopes. Only reads. From a browser session alone.",
+        "operationId": "read_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the page offers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem: duplicate_parameter, missing_client_id, unknown_client, missing_redirect_uri, redirect_uri_mismatch, unsupported_response_type, pkce_required, invalid_code_challenge, invalid_scope, invalid_state or invalid_target.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/consent/approve": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Allow a client",
+        "description": "Grants the client what the person chose, from a browser session alone: the workspace, whom it acts as, the person or one of their agents that works there, and scopes among those offered. Consenting again to the same client, workspace and identity replaces the grant's scopes. Answers where to send the browser: the client's redirect URI with a code that works once, within a minute, with the request's PKCE verifier.",
+        "operationId": "approve_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveConsent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where the browser goes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem, as for /oauth/consent, or invalid_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, or identity_unavailable: acting as that identity is off, or the agent does not work.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace or agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/consent/deny": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Deny a client",
+        "description": "Answers where to send the browser when the person denies the client, from a browser session alone: its redirect URI with `error=access_denied`.",
+        "operationId": "deny_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DenyConsent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where the browser goes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request's problem, as for /oauth/consent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not a browser session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/oauth/register": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Register an OAuth client",
+        "description": "Dynamic client registration (RFC 7591), open to anyone while `oauth.registration` is on, a few at a time from one address or IPv6 /64, and a few waiting unconnected from each. Every client is public, with no secret: it proves itself with PKCE. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "register_client",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredClient"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_redirect_uri or invalid_client_metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "registration_off.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "invalid_client_metadata: a body larger than 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After; or too_many_clients: too many clients registered from the same address, or IPv6 /64, wait unconnected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "temporarily_unavailable: too many clients wait unconnected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/revoke": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Revoke an OAuth token",
+        "description": "Token revocation (RFC 7009): revokes the grant of an access or refresh token, every token of it, as a client does when it signs out. A token that is unknown, or another client's, changes nothing, and the answer is the same. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "revoke_oauth_token",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Revoked, or nothing to revoke."
+          },
+          "400": {
+            "description": "invalid_request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "invalid_request: a form larger than 16 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/token": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Exchange a code or a refresh token",
+        "description": "The token endpoint. `authorization_code` exchanges a code, within its minute and once, with its redirect URI and PKCE verifier; `refresh_token` exchanges a refresh token, once. Each gives an access token, an hour by default, and a new refresh token, 30 days by default. A code or refresh token used a second time revokes its grant and every token of it. Allows CORS from any origin. Errors are in OAuth's shape.",
+        "operationId": "issue_tokens",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, invalid_grant, invalid_scope, invalid_target or unsupported_grant_type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "invalid_request: a form larger than 16 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pages/{id}": {
       "get": {
         "tags": [
@@ -5331,6 +6230,228 @@
           },
           "503": {
             "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/markdown": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "A page's content as markdown",
+        "description": "Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.",
+        "operationId": "get_markdown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page and its markdown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageMarkdown"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Edit a page's content",
+        "description": "Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.",
+        "operationId": "edit_markdown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditPage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What each operation did.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditedPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "document_too_large: the page would grow past what it holds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many edits of pages' content; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "unavailable: the server is stopping.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6215,6 +7336,117 @@
         ]
       }
     },
+    "/api/v1/rows/{id}/claim": {
+      "post": {
+        "tags": [
+          "databases"
+        ],
+        "summary": "Claim a row",
+        "description": "Names the caller in the person property, the database's first unless one is named, and moves the row to the first option in progress of its status property, the database's first: in one transaction, and only while that person property names nobody. Of claims of one row at once, exactly one wins; the others answer `already_claimed`, naming who holds it. Needs edit access to the row.",
+        "operationId": "claim_row",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The row's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "person_property",
+            "in": "query",
+            "description": "The person property to name the caller in, by id or name; the database's first\nperson property when absent.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The row, claimed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Row"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: the database has no person property, or none of that name, or no status property with an option in progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the row and does not edit it, it is in the trash, or the caller is a guest; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_claimed: the person property names someone already, whom the message names with their ids.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/rows/{id}/move": {
       "post": {
         "tags": [
@@ -6517,6 +7749,66 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/whoami": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Whom the request acts as",
+        "description": "Its identity, a person or an agent or integration with its owner, its scopes, and the workspace its token is bound to. Unlike `/account`, it answers every credential, an agent's token too.",
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "description": "Whom the request acts as.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoAmI"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8016,6 +9308,173 @@
           },
           "404": {
             "description": "not_found: no such agent or member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/connected-apps": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "List the apps acting as agents",
+        "description": "The clients connected over OAuth that act as the workspace's agents: every agent's for the workspace's owners and admins, their own agents' for other members, none for guests.",
+        "operationId": "list_workspace_apps",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connected apps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectedAppList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/connected-apps/{app_id}": {
+      "delete": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Disconnect an app acting as an agent",
+        "description": "Revokes a grant that acts as one of the workspace's agents: every token of it stops working at once. For the agent's owner and the workspace's owners and admins, from a browser session.",
+        "operationId": "disconnect_workspace_app",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "app_id",
+            "in": "path",
+            "description": "The connected app's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10052,7 +11511,7 @@
           "pages"
         ],
         "summary": "Create a page",
-        "description": "Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it. Nothing goes under a database or a row: a database's subpages are its rows, added at `/databases/{id}/rows`.",
+        "description": "Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it. It starts with the content of `markdown`, if any. Nothing goes under a database or a row: a database's subpages are its rows, added at `/databases/{id}/rows`.",
         "operationId": "create_page",
         "parameters": [
           {
@@ -10129,6 +11588,16 @@
           },
           "409": {
             "description": "too_deep: pages nest at most 100 levels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "document_too_large: the markdown makes a page larger than one holds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10451,6 +11920,108 @@
         ]
       }
     },
+    "/api/v1/workspaces/{id}/recent-pages": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List the pages changed last",
+        "description": "The workspace's pages and databases the caller sees, out of the trash, rows left out, the most recently changed first: their title, icon, cover, style or place, or their content.",
+        "operationId": "recent_pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Pages in the list, 1 to 50; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a limit out of bounds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, or one the caller is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspaces/{id}/shared-pages": {
       "get": {
         "tags": [
@@ -10533,6 +12104,88 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspaces/{id}/tasks": {
+      "get": {
+        "tags": [
+          "databases"
+        ],
+        "summary": "The rows assigned to the caller",
+        "description": "The rows of the workspace's databases that a person property names the caller in, out of the trash, that the caller sees: the most recently changed first, at most 100, each with its status.",
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tasks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such workspace, or one the caller is not in.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13000,6 +14653,64 @@
           }
         }
       },
+      "AppWorkspace": {
+        "type": "object",
+        "description": "A workspace a connected app acts in.",
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
+          }
+        }
+      },
+      "ApproveConsent": {
+        "type": "object",
+        "description": "The person's answer: the request, and what they chose.",
+        "required": [
+          "request",
+          "workspace_id",
+          "scopes"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "One of the person's agents there that the client acts as; absent, it acts as the\nperson."
+          },
+          "request": {
+            "$ref": "#/components/schemas/AuthorizationParams"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Some of the scopes offered for that identity."
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The workspace the client acts in."
+          }
+        },
+        "additionalProperties": false
+      },
       "AttemptOutcome": {
         "type": "string",
         "description": "How an attempt went.",
@@ -13040,6 +14751,95 @@
           "verify_email": {
             "type": "boolean",
             "description": "Self sign-ups verify their address by a mailed link before they sign in."
+          }
+        }
+      },
+      "AuthorizationParams": {
+        "type": "object",
+        "description": "The parameters of an authorization request, as the client sends the browser with them.\nEach at most once; others are ignored.",
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The PKCE challenge: the verifier's SHA-256, in base64url without padding."
+          },
+          "code_challenge_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`S256`; `plain` is refused."
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One the client registered, exactly, but for the port of a loopback address."
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or\n`<public URL>/api/v1`."
+          },
+          "response_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`code`."
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sent back as it is; at most 1024 printable ASCII characters."
+          }
+        }
+      },
+      "BoundWorkspace": {
+        "type": "object",
+        "description": "The workspace a token is bound to.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "The role the rules see the identity in: a token without the admin scope is a member\nat most."
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
           }
         }
       },
@@ -13246,6 +15046,57 @@
         },
         "additionalProperties": false
       },
+      "ClientRegistration": {
+        "type": "object",
+        "description": "What a client says of itself to register (RFC 7591). Metadata this server does not use\nis ignored.",
+        "properties": {
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown on the consent page as the client's own word; at most 100 characters kept.",
+            "example": "Example CLI"
+          },
+          "grant_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "`authorization_code`, and `refresh_token`, when given."
+          },
+          "redirect_uris": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any\nport, or a scheme of a native app's own."
+          },
+          "response_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "`code`, when given."
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`none`: every client here is public. Another is replaced by it."
+          }
+        }
+      },
       "CodeRequest": {
         "type": "object",
         "description": "The body of routes that take an invite code. It goes in the body, out of URLs and\ntheir logs.",
@@ -13289,6 +15140,249 @@
           }
         },
         "additionalProperties": false
+      },
+      "ConnectedAppInfo": {
+        "type": "object",
+        "description": "A client a person connected: one workspace, one identity, some scopes.",
+        "required": [
+          "id",
+          "client",
+          "workspace",
+          "identity",
+          "connected_by",
+          "scopes",
+          "resource",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ConsentClient"
+          },
+          "connected_by": {
+            "$ref": "#/components/schemas/ConnectedBy"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was first connected."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The grant's id, to revoke it by."
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Person",
+            "description": "Whom it acts as: the person, or one of their agents."
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When its tokens were last issued or used."
+          },
+          "resource": {
+            "$ref": "#/components/schemas/OAuthResource"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was last consented to."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/AppWorkspace"
+          }
+        }
+      },
+      "ConnectedAppList": {
+        "type": "object",
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectedAppInfo"
+            },
+            "description": "Last used first."
+          }
+        }
+      },
+      "ConnectedBy": {
+        "type": "object",
+        "description": "Who connected an app.",
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "example": "Ada Lovelace"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ConsentClient": {
+        "type": "object",
+        "description": "A registered client, as the consent page names it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "What it calls itself: its own word, not checked.",
+            "example": "Example CLI"
+          }
+        }
+      },
+      "ConsentDecision": {
+        "type": "object",
+        "description": "Where to send the browser next.",
+        "required": [
+          "redirect_to"
+        ],
+        "properties": {
+          "redirect_to": {
+            "type": "string",
+            "description": "The client's redirect URI, with `code` or `error`, the state, and `iss`."
+          }
+        }
+      },
+      "ConsentInfo": {
+        "type": "object",
+        "description": "What the consent page shows.",
+        "required": [
+          "client",
+          "redirect_uri",
+          "redirect_host",
+          "requested_scopes",
+          "resource",
+          "workspaces"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ConsentClient"
+          },
+          "redirect_host": {
+            "type": "string",
+            "description": "Its scheme, host and port, a host in other alphabets written in ASCII.",
+            "example": "http://127.0.0.1:51004"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "Where the browser goes back to."
+          },
+          "requested_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes the client asked for; empty when it named none."
+          },
+          "resource": {
+            "$ref": "#/components/schemas/OAuthResource"
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentOption"
+            },
+            "description": "The person's workspaces, by name."
+          }
+        }
+      },
+      "ConsentOption": {
+        "type": "object",
+        "description": "A workspace the consent page offers, with whom the client may act as there.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "hue",
+          "role",
+          "agents_on",
+          "agents",
+          "agent_scopes"
+        ],
+        "properties": {
+          "agent_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes it may have acting as one of them: read and write."
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            },
+            "description": "The person's agents here that work, which it may act as."
+          },
+          "agents_on": {
+            "type": "boolean",
+            "description": "Whether it may act as an agent here: `mcp.identities` and the workspace's agent\nswitch allow it, and the person is no guest."
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "example": 250,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "person_scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "The scopes the client may have acting as the person; absent while `mcp.identities`\nleaves acting as the person out."
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "The person's role there."
+          },
+          "slug": {
+            "type": "string",
+            "example": "design"
+          }
+        }
       },
       "Cover": {
         "type": "string",
@@ -13578,6 +15672,14 @@
               "null"
             ],
             "description": "An emoji or up to 16 characters of text."
+          },
+          "markdown": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its content, as markdown; an empty page when absent.",
+            "example": "## Goals\n\n- Ship it"
           },
           "parent_id": {
             "type": [
@@ -14130,6 +16232,19 @@
           }
         }
       },
+      "DenyConsent": {
+        "type": "object",
+        "description": "The person's refusal: the request.",
+        "required": [
+          "request"
+        ],
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/AuthorizationParams"
+          }
+        },
+        "additionalProperties": false
+      },
       "Direction": {
         "type": "string",
         "enum": [
@@ -14149,6 +16264,190 @@
           }
         },
         "additionalProperties": false
+      },
+      "EditOperation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Adds the blocks of `markdown` at the end of the page, before the empty paragraph\nthe editor keeps last.",
+            "required": [
+              "markdown",
+              "op"
+            ],
+            "properties": {
+              "markdown": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "append"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Adds the blocks of `markdown` right after the block `block_id`, beside it under the\nsame block.",
+            "required": [
+              "block_id",
+              "markdown",
+              "op"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "markdown": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "insert_after"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Replaces the blocks from `from` to `to`, siblings in order, both included, with the\nblocks of `markdown`, or removes them when it is empty. `to` is `from` when absent.",
+            "required": [
+              "from",
+              "op"
+            ],
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "markdown": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "replace_range"
+                ]
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Replaces `find`, matched exactly within one line of a block's text, with\n`replace`, which takes the styles of the first character it replaces. Unless `all`,\n`find` must be in the page once; with `all`, it is replaced at most 10000 times.",
+            "required": [
+              "find",
+              "replace",
+              "op"
+            ],
+            "properties": {
+              "all": {
+                "type": "boolean"
+              },
+              "find": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "find_replace"
+                ]
+              },
+              "replace": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Replaces every block with those of `markdown`, but those that come out the same,\nwhich stay as they are with their ids. The markdown reading gives, sent back with\nits lines naming blocks, changes nothing.",
+            "required": [
+              "markdown",
+              "op"
+            ],
+            "properties": {
+              "markdown": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "replace_body"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One change to a page's blocks. Markdown may hold the lines naming blocks that reading\nit gives; they are left out."
+      },
+      "EditPage": {
+        "type": "object",
+        "required": [
+          "operations"
+        ],
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EditOperation"
+            },
+            "description": "Made in order, all or none: 1 to 50."
+          }
+        },
+        "additionalProperties": false
+      },
+      "EditResult": {
+        "type": "object",
+        "description": "What one operation did.",
+        "required": [
+          "added",
+          "removed",
+          "replaced"
+        ],
+        "properties": {
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ids of the blocks it added, in order, those under them left out."
+          },
+          "removed": {
+            "type": "integer",
+            "description": "How many blocks it removed, those under them left out.",
+            "minimum": 0
+          },
+          "replaced": {
+            "type": "integer",
+            "description": "How many times it replaced the text it was to find.",
+            "minimum": 0
+          }
+        }
+      },
+      "EditedPage": {
+        "type": "object",
+        "description": "What an edit did.",
+        "required": [
+          "page",
+          "results"
+        ],
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EditResult"
+            },
+            "description": "What each operation did, in order."
+          }
+        }
       },
       "EffectiveLimits": {
         "type": "object",
@@ -15368,6 +17667,34 @@
           "currency"
         ]
       },
+      "OAuthErrorBody": {
+        "type": "object",
+        "description": "An error as OAuth's endpoints answer it (RFC 6749, section 5.2).",
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Such as `invalid_grant` or `invalid_redirect_uri`.",
+            "example": "invalid_grant"
+          },
+          "error_description": {
+            "type": "string",
+            "description": "What went wrong, for whoever reads the client's logs.",
+            "example": "the code expired"
+          }
+        }
+      },
+      "OAuthResource": {
+        "type": "string",
+        "description": "What the resource a client asked for is.",
+        "enum": [
+          "mcp",
+          "api"
+        ]
+      },
       "Operator": {
         "type": "string",
         "description": "How a condition compares a row's value with its own; which a property takes depends on\nits type, as the databases reference lists.",
@@ -15615,6 +17942,34 @@
           "database",
           "row"
         ]
+      },
+      "PageMarkdown": {
+        "type": "object",
+        "description": "A page's content as markdown.",
+        "required": [
+          "page",
+          "markdown"
+        ],
+        "properties": {
+          "markdown": {
+            "type": "string",
+            "description": "Its blocks as markdown, each after a line `<!-- block <id> -->` that names it.",
+            "example": "<!-- block 0193a5b2-0000-7000-8000-0000000000b1 -->\n# Plan\n"
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "properties": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RowProperty"
+            },
+            "description": "For a row: each property of its database, in order, with the row's value."
+          }
+        }
       },
       "PageStyle": {
         "type": "object",
@@ -16114,6 +18469,22 @@
           }
         }
       },
+      "RecentList": {
+        "type": "object",
+        "description": "The pages last changed.",
+        "required": [
+          "pages"
+        ],
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "description": "The most recently changed first."
+          }
+        }
+      },
       "RegisterRequest": {
         "type": "object",
         "required": [
@@ -16163,6 +18534,54 @@
           }
         }
       },
+      "RegisteredClient": {
+        "type": "object",
+        "description": "A registered client.",
+        "required": [
+          "client_id",
+          "client_id_issued_at",
+          "client_name",
+          "redirect_uris",
+          "grant_types",
+          "response_types",
+          "token_endpoint_auth_method"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_id_issued_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it registered, in seconds since 1970."
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "description": "Always `none`."
+          }
+        }
+      },
       "Registration": {
         "type": "string",
         "description": "Who may create an account.",
@@ -16189,6 +18608,30 @@
           }
         },
         "additionalProperties": false
+      },
+      "RevokeForm": {
+        "type": "object",
+        "description": "A request to revoke a token, a form (RFC 7009). A `token_type_hint` may come along;\nthe token is looked up whatever it says.",
+        "required": [
+          "token",
+          "client_id"
+        ],
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The client the token was issued to."
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An access token or a refresh token."
+          }
+        }
       },
       "Revoked": {
         "type": "object",
@@ -16309,6 +18752,47 @@
           "values": {
             "type": "object",
             "description": "Each property's value, by property id, for those it has one of. A title, text or\nURL is a string; a number a number; a select or status an option's id; a\nmulti-select a list of option ids; a date `{\"start\": ..., \"end\": ...}`, each a day\n`2026-11-22` or an RFC 3339 moment, the end optional; a person a list of members'\nids; a checkbox `true`; a unique id its text, `NW-42`; a created or last edited time\nan RFC 3339 moment; created or last edited by a member's id. Guests, who know no\nother member, get no person values, nor who made or changed a row."
+          }
+        }
+      },
+      "RowProperty": {
+        "type": "object",
+        "description": "A property of a row's database, with the row's value of it.",
+        "required": [
+          "id",
+          "name",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Status"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value as people read it: options and people by name, numbers in their format;\nnull without one.",
+            "example": "In progress"
+          },
+          "type": {
+            "$ref": "#/components/schemas/PropertyKind"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Value",
+                "description": "The value as rows give it, by id; null without one."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -16750,6 +19234,80 @@
           "page"
         ]
       },
+      "Task": {
+        "type": "object",
+        "description": "A row assigned to the caller.",
+        "required": [
+          "row"
+        ],
+        "properties": {
+          "database_title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its database's title, absent when the caller sees the row alone."
+          },
+          "row": {
+            "$ref": "#/components/schemas/Row"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskStatus",
+                "description": "Its value of its database's status property."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "TaskList": {
+        "type": "object",
+        "description": "The rows assigned to the caller.",
+        "required": [
+          "tasks"
+        ],
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "description": "The most recently changed first, at most 100."
+          }
+        }
+      },
+      "TaskStatus": {
+        "type": "object",
+        "description": "A status option, as a task holds it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "group": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StatusGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "In progress"
+          }
+        }
+      },
       "Teamspace": {
         "type": "object",
         "description": "A teamspace the caller may see.",
@@ -16970,6 +19528,72 @@
         },
         "additionalProperties": false
       },
+      "TokenForm": {
+        "type": "object",
+        "description": "A request to the token endpoint, a form.",
+        "required": [
+          "grant_type",
+          "client_id"
+        ],
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The client, which public clients name to identify themselves."
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the code."
+          },
+          "code_verifier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the PKCE verifier."
+          },
+          "grant_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`authorization_code` or `refresh_token`."
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `authorization_code`: the redirect URI the code was given to."
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `refresh_token`: the refresh token, which works once."
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource the tokens are for (RFC 8707): the one the authorization asked for."
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `refresh_token`: fewer scopes than the refresh token had."
+          }
+        }
+      },
       "TokenRequest": {
         "type": "object",
         "description": "The body of routes that take a token from a mailed link.",
@@ -16983,6 +19607,42 @@
           }
         },
         "additionalProperties": false
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "What the token endpoint gives.",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "refresh_token",
+          "scope"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "`nwo_` and 43 characters: send it as `Authorization: Bearer`."
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds until the access token stops working.",
+            "minimum": 0
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "`nwr_` and 43 characters: works once, for a new access token and refresh token."
+          },
+          "scope": {
+            "type": "string",
+            "description": "The scopes granted, space-separated.",
+            "example": "read write"
+          },
+          "token_type": {
+            "type": "string",
+            "description": "`Bearer`."
+          }
+        }
       },
       "TransferAgent": {
         "type": "object",
@@ -17749,6 +20409,42 @@
           }
         }
       },
+      "WhoAmI": {
+        "type": "object",
+        "description": "Whom a request acts as, and what it may do.",
+        "required": [
+          "identity",
+          "credential",
+          "scopes"
+        ],
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/CredentialKind"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Person",
+            "description": "A person, or an agent or integration with the person it acts for."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "A session has every scope its role allows; a token, its own."
+          },
+          "workspace": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BoundWorkspace",
+                "description": "The workspace a token is bound to, while its identity is in it; absent for a session\nand for a token across the instance."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Workspace": {
         "allOf": [
           {
@@ -17961,7 +20657,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token, nw_ and 43 characters, made under /api/v1/account/tokens."
+        "description": "An API token, nw_ and 43 characters, made under /api/v1/account/tokens, or an OAuth access token, nwo_ and 43 characters, from /api/v1/oauth/token."
       },
       "session_cookie": {
         "type": "apiKey",
@@ -17991,6 +20687,10 @@
     {
       "name": "agents",
       "description": "A workspace's agents and integrations, members that act for a person there, and agents' API tokens."
+    },
+    {
+      "name": "oauth",
+      "description": "The OAuth 2.1 authorization server MCP clients and other programs connect through: client registration, the authorization code flow with PKCE, tokens, revocation, the consent page's requests, and connected apps. Its metadata is at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, which the docs describe."
     },
     {
       "name": "webhooks",

@@ -96,18 +96,18 @@ pub struct GroupMove {
 }
 
 /// What a change to a row's values sets.
-struct Changes {
+pub(super) struct Changes {
     title: Option<String>,
     set: Map<String, Json>,
     remove: Vec<String>,
     /// Every property the change names, the title included.
-    properties: Vec<Uuid>,
+    pub(super) properties: Vec<Uuid>,
     /// The person properties the change sets or clears, each with the people it names.
     people: Vec<(Uuid, Vec<Uuid>)>,
 }
 
 impl Changes {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             title: None,
             set: Map::new(),
@@ -118,7 +118,7 @@ impl Changes {
     }
 
     /// Sets, or clears, a stored property's value.
-    fn put(&mut self, property: &Property, value: Option<Value>) {
+    pub(super) fn put(&mut self, property: &Property, value: Option<Value>) {
         let key = property.id.to_string();
         self.set.remove(&key);
         self.remove.retain(|removed| *removed != key);
@@ -668,7 +668,7 @@ impl DatabaseService {
 
 /// A row as the principal of `context`, the row's, sees it: without its database's id when
 /// they see the row only through its own share, as its page leaves out the page above it.
-fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> RowView {
+pub(super) fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> RowView {
     row_view(
         &snapshot.schema,
         context.parent_seen().then_some(database_id),
@@ -680,7 +680,7 @@ fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> R
 
 /// A row's page and what the rules need to know of it; a page that is not a row is not
 /// found as one.
-async fn row_context(
+pub(super) async fn row_context(
     service: &DatabaseService,
     conn: &mut PgConnection,
     principal: &Principal,
@@ -700,14 +700,17 @@ async fn row_context(
     Ok(context)
 }
 
-fn row_check(context: &Context, action: Action) -> Result<(), DatabaseError> {
+pub(super) fn row_check(context: &Context, action: Action) -> Result<(), DatabaseError> {
     context.check(action).map_err(|error| match error {
         PageError::NotFound(_) => DatabaseError::NotFound(NO_ROW),
         other => other.into(),
     })
 }
 
-async fn schema_of(conn: &mut PgConnection, database_id: Uuid) -> Result<Schema, DatabaseError> {
+pub(super) async fn schema_of(
+    conn: &mut PgConnection,
+    database_id: Uuid,
+) -> Result<Schema, DatabaseError> {
     Ok(Schema {
         properties: repo::properties(&mut *conn, database_id)
             .await?
@@ -779,7 +782,10 @@ fn group_value(
 /// The data of the row of `context`, locked until the transaction ends, once the schema of
 /// its database is held as it is: a change to the row's values reads the schema and the
 /// values as they are when it writes, and changes to the schema wait for it.
-async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData, DatabaseError> {
+pub(super) async fn lock_row(
+    conn: &mut PgConnection,
+    context: &Context,
+) -> Result<RowData, DatabaseError> {
     let row_id = context.page().id;
     let no_data = || DatabaseError::Internal(format!("row {row_id} has no data"));
     // A row's page is under its database's, which it never leaves.
@@ -799,20 +805,20 @@ async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData,
 }
 
 /// A row whose values a change writes, as it was before the change, and who makes it.
-struct Written<'a> {
+pub(super) struct Written<'a> {
     /// The row's page, as the change leaves it.
-    page: &'a Page,
-    database_id: Uuid,
-    actor: Uuid,
-    schema: &'a Schema,
-    before: &'a Json,
+    pub(super) page: &'a Page,
+    pub(super) database_id: Uuid,
+    pub(super) actor: Uuid,
+    pub(super) schema: &'a Schema,
+    pub(super) before: &'a Json,
 }
 
 /// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], queues on the same
 /// transaction the webhook deliveries it makes, and answers the cells as they are then.
-/// Every change to the values of a row that exists goes through here, so every writer's
-/// changes reach webhooks.
-async fn patch(
+/// Every change to the values of a row that exists goes through here, claims included, so
+/// every writer's changes reach webhooks.
+pub(super) async fn patch(
     conn: &mut PgConnection,
     row: Written<'_>,
     changes: &Changes,
@@ -859,7 +865,7 @@ pub(crate) fn check_size(bytes: i64) -> Result<(), DatabaseError> {
 /// and any person they name on a new one; and people a change adds to a value who are not
 /// members of the workspace. `current` is the row's cells, `None` for a new row: those its
 /// values name already stay, members or not.
-async fn check_people(
+pub(super) async fn check_people(
     conn: &mut PgConnection,
     context: &Context,
     changes: &Changes,
@@ -907,7 +913,7 @@ async fn check_people(
 }
 
 /// The people a stored person value names.
-fn people_in(cell: &Json) -> HashSet<Uuid> {
+pub(super) fn people_in(cell: &Json) -> HashSet<Uuid> {
     cell.as_array()
         .into_iter()
         .flatten()

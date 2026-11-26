@@ -6,16 +6,22 @@
 mod support;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::pages::{Location, NewPage};
-use neon_app::sync::{CloseReason, Connection, Ending, Limits, Next, SyncService, access_feed};
+use neon_app::ratelimit::{Bucket, Limited, MemoryLimiter, RateLimiter};
+use neon_app::sync::{
+    CloseReason, Connection, ContentError, Ending, Limits, Next, SyncService, access_feed,
+};
+use neon_blocks::edit::{Edit, EditError};
+use neon_blocks::markdown::from_markdown;
 use neon_blocks::{Block, SequentialIds};
 use neon_domain::auth::Principal;
-use neon_domain::pages::Placement;
+use neon_domain::pages::{PageAccess, Placement};
 use neon_domain::workspaces::WorkspaceRole;
 use sqlx::PgPool;
 use support::Harness;
@@ -73,6 +79,11 @@ async fn team(pool: PgPool) -> Team {
 
 impl Team {
     fn sync(&self, limits: Limits) -> SyncService {
+        self.sync_counting(limits, Arc::new(MemoryLimiter::new()))
+    }
+
+    /// The service, counting edits in `limiter`.
+    fn sync_counting(&self, limits: Limits, limiter: Arc<dyn RateLimiter>) -> SyncService {
         let (_, feed) = access_feed();
         SyncService::builder(
             self.h.pool.clone(),
@@ -81,6 +92,7 @@ impl Team {
             feed,
         )
         .limits(limits)
+        .limiter(limiter)
         .build()
     }
 }
@@ -210,6 +222,31 @@ impl Client {
             &mut self.ids,
         )
         .expect("a document");
+        Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
+    }
+
+    /// Text typed at the end of the last block, as the update that types it.
+    fn type_last(&mut self, text: &str) -> Message {
+        use yrs::{Text as _, XmlFragment as _, XmlOut, XmlTextPrelim};
+        let mut txn = self.doc.transact_mut();
+        let Some(XmlOut::Element(group)) = self.fragment.first_child() else {
+            panic!("a document");
+        };
+        let Some(XmlOut::Element(last)) = group.get(&txn, group.len(&txn) - 1) else {
+            panic!("a block");
+        };
+        let Some(XmlOut::Element(content)) = last.first_child() else {
+            panic!("its content");
+        };
+        match content.first_child() {
+            Some(XmlOut::Text(run)) => {
+                let end = run.len(&txn);
+                run.insert(&mut txn, end, text);
+            }
+            _ => {
+                content.push_back(&mut txn, XmlTextPrelim::new(text));
+            }
+        }
         Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
     }
 
@@ -877,6 +914,438 @@ impl Metrics {
             &[("operation", operation), ("status", status)],
         )
     }
+}
+
+/// An edit appending the blocks of `markdown`.
+fn append(markdown: &str) -> Vec<Edit> {
+    vec![Edit::Append {
+        blocks: from_markdown(markdown).blocks,
+    }]
+}
+
+fn replace(find: &str, replace: &str) -> Edit {
+    Edit::FindReplace {
+        find: find.to_owned(),
+        replace: replace.to_owned(),
+        all: false,
+    }
+}
+
+/// The code of an error, or `ok`.
+fn refused<T>(result: Result<T, ContentError>) -> &'static str {
+    match result {
+        Err(error) => error.code(),
+        Ok(_) => "ok",
+    }
+}
+
+async fn text_of(sync: &SyncService, who: &Principal, page: Uuid) -> String {
+    sync.read(who, page).await.expect("read").1.plain_text()
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_edit_reaches_whoever_has_the_page_open_at_once(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    ada.write("Typed").await.expect("sent");
+
+    let edited = sync
+        .edit(&t.dee, t.page, append("Added by Dee"))
+        .await
+        .expect("edited");
+    assert_eq!(edited.applied.len(), 1);
+    assert_eq!(edited.applied[0].added.len(), 1);
+    assert_eq!(edited.page.page.id, t.page);
+    ada.until("the edit", |message| {
+        matches!(message, Message::Sync(SyncMessage::Update(_)))
+    })
+    .await;
+    assert_eq!(ada.text(), "Typed\nAdded by Dee");
+    assert_eq!(text_of(&sync, &t.dee, t.page).await, "Typed\nAdded by Dee");
+    // The log keeps it as Dee's change.
+    eventually("the edit logged as Dee's", || async {
+        rows(&t.h.pool, t.page)
+            .await
+            .iter()
+            .any(|(author, _)| *author == Some(t.dee.user.id))
+    })
+    .await;
+    drop(ada);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_edit_merges_with_typing_the_server_had_not_heard_of(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    ada.write("Mine").await.expect("sent");
+    // Typed before the edit, sent after it.
+    let typed = ada.paragraph("Typed meanwhile");
+
+    sync.edit(&t.dee, t.page, vec![replace("Mine", "Ours")])
+        .await
+        .expect("edited");
+    ada.send(&typed).await.expect("sent");
+    ada.until("the edit", |message| {
+        matches!(message, Message::Sync(SyncMessage::Update(_)))
+    })
+    .await;
+    assert_eq!(ada.text(), "Ours\nTyped meanwhile");
+    eventually("the server merged both", || async {
+        text_of(&sync, &t.ada, t.page).await == "Ours\nTyped meanwhile"
+    })
+    .await;
+    drop(ada);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_edit_opens_the_document_nobody_has_open_and_it_is_saved(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        idle_unload: Duration::from_millis(50),
+        ..quick()
+    });
+    sync.edit(&t.ada, t.page, append("# Hello\n\nWorld"))
+        .await
+        .expect("edited");
+    eventually("the edit saved", || async {
+        neon_store::documents::saved(&t.h.pool, t.page)
+            .await
+            .is_ok_and(|saved| saved.snapshot.is_some() || !saved.updates.is_empty())
+    })
+    .await;
+    // Another server reads it from what was saved.
+    let other = t.sync(quick());
+    assert_eq!(text_of(&other, &t.dee, t.page).await, "Hello\nWorld");
+    sync.shutdown().await;
+    other.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_edit_of_several_parts_makes_all_or_none(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    sync.edit(&t.ada, t.page, append("First"))
+        .await
+        .expect("edited");
+
+    let refused = sync
+        .edit(
+            &t.ada,
+            t.page,
+            vec![
+                Edit::Append {
+                    blocks: from_markdown("Second").blocks,
+                },
+                replace("absent", "x"),
+            ],
+        )
+        .await;
+    match refused {
+        Err(ContentError::Refused { index, error }) => {
+            assert_eq!(index, 1);
+            assert_eq!(error, EditError::NotFound);
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "First");
+
+    let made = sync
+        .edit(
+            &t.ada,
+            t.page,
+            vec![
+                Edit::Append {
+                    blocks: from_markdown("Second").blocks,
+                },
+                replace("First", "1st"),
+            ],
+        )
+        .await
+        .expect("edited");
+    assert_eq!(made.applied[1].replaced, 1);
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "1st\nSecond");
+    assert!(matches!(
+        sync.edit(&t.ada, t.page, Vec::new()).await,
+        Err(ContentError::InvalidInput(_))
+    ));
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let workspace =
+        t.h.pages
+            .page(&t.ada, t.page)
+            .await
+            .expect("read")
+            .page
+            .workspace_id;
+    let gus = t.h.person("gus@example.com").await;
+    t.h.bring_in(&t.ada, workspace, &gus, WorkspaceRole::Guest)
+        .await;
+    let stranger = t.h.person("zed@example.com").await;
+
+    assert_eq!(refused(sync.read(&gus, t.page).await), "not_found");
+    assert_eq!(
+        refused(sync.edit(&gus, t.page, append("x")).await),
+        "not_found"
+    );
+    assert_eq!(refused(sync.read(&stranger, t.page).await), "not_found");
+    t.h.pages
+        .share_page(&t.ada, t.page, gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    assert_eq!(refused(sync.read(&gus, t.page).await), "ok");
+    assert_eq!(
+        refused(sync.edit(&gus, t.page, append("x")).await),
+        "forbidden"
+    );
+
+    // A token without the write scope reads only.
+    let agent = t.h.agent(&t.ada, workspace, "Reader").await;
+    let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
+    assert_eq!(refused(sync.read(&reader, t.page).await), "ok");
+    assert_eq!(
+        refused(sync.edit(&reader, t.page, append("x")).await),
+        "forbidden"
+    );
+
+    // A database has no body; a page in the trash is not edited.
+    let database =
+        t.h.databases
+            .create_database(
+                &t.ada,
+                workspace,
+                Location::Under(t.page),
+                Placement::Last,
+                neon_app::databases::NewDatabase {
+                    title: "Tasks".to_owned(),
+                    icon: None,
+                    inline: false,
+                },
+            )
+            .await
+            .expect("created")
+            .page
+            .page
+            .id;
+    assert!(matches!(
+        sync.read(&t.ada, database).await,
+        Err(ContentError::Database)
+    ));
+    assert!(matches!(
+        sync.edit(&t.ada, database, append("x")).await,
+        Err(ContentError::Database)
+    ));
+    t.h.pages.trash_page(&t.ada, t.page).await.expect("trashed");
+    assert_eq!(
+        refused(sync.edit(&t.ada, t.page, append("x")).await),
+        "forbidden"
+    );
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_edit_past_the_size_a_document_keeps_is_refused(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_document: 512,
+        ..quick()
+    });
+    let refused = sync
+        .edit(&t.ada, t.page, append(&"word ".repeat(200)))
+        .await;
+    assert!(
+        matches!(refused, Err(ContentError::TooLarge(512))),
+        "{refused:?}"
+    );
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "");
+    let document = from_markdown(&"word ".repeat(200));
+    assert!(matches!(
+        sync.first_snapshot(&document),
+        Err(ContentError::TooLarge(512))
+    ));
+    assert_eq!(
+        sync.first_snapshot(&neon_blocks::Document::default())
+            .expect("nothing to save"),
+        None
+    );
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_new_page_starts_with_its_content(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let workspace =
+        t.h.pages
+            .page(&t.ada, t.page)
+            .await
+            .expect("read")
+            .page
+            .workspace_id;
+    let content = sync
+        .first_snapshot(&from_markdown("# Plan\n\n- one\n- two"))
+        .expect("small enough");
+    let made =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                workspace,
+                Location::Under(t.page),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".to_owned(),
+                    content,
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("created");
+    assert_eq!(text_of(&sync, &t.dee, made.page.id).await, "Plan\none\ntwo");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn replacing_text_that_multiplies_it_stops_at_the_limit_at_once(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    sync.edit(&t.ada, t.page, append("x"))
+        .await
+        .expect("edited");
+    let tenfold = Edit::FindReplace {
+        find: "x".to_owned(),
+        replace: "x".repeat(10),
+        all: true,
+    };
+
+    // Each part makes ten of every x: the sixth would replace a hundred thousand.
+    let started = std::time::Instant::now();
+    let refused = sync.edit(&t.ada, t.page, vec![tenfold; 7]).await;
+    match refused {
+        Err(ContentError::Refused { index, error }) => {
+            assert_eq!(index, 5);
+            assert_eq!(error, EditError::TooManyMatches(100_000));
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "x");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn replacements_past_the_size_a_document_keeps_are_refused_before_they_are_made(
+    pool: PgPool,
+) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_document: 64 * 1024,
+        ..quick()
+    });
+    sync.edit(&t.ada, t.page, append(&"x ".repeat(100)))
+        .await
+        .expect("edited");
+    let grown = Edit::FindReplace {
+        find: "x".to_owned(),
+        replace: "y".repeat(1024),
+        all: true,
+    };
+
+    let refused = sync.edit(&t.ada, t.page, vec![grown]).await;
+    assert!(
+        matches!(refused, Err(ContentError::TooLarge(65_536))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        text_of(&sync, &t.ada, t.page).await,
+        "x ".repeat(100).trim_end()
+    );
+    sync.shutdown().await;
+}
+
+/// A limiter that refuses one user's edits of pages' content, and counts the rest.
+struct RefusingEdits(Uuid);
+
+#[async_trait::async_trait]
+impl RateLimiter for RefusingEdits {
+    async fn check(&self, bucket: Bucket, key: &str) -> Result<(), Limited> {
+        if bucket == Bucket::PageEdit && key == self.0.to_string() {
+            return Err(Limited {
+                retry_after: Duration::from_secs(7),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn edits_past_their_rate_are_refused_per_user(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync_counting(quick(), Arc::new(RefusingEdits(t.dee.user.id)));
+
+    let refused = sync.edit(&t.dee, t.page, append("Dee's")).await;
+    match refused {
+        Err(ContentError::RateLimited { retry_after }) => {
+            assert_eq!(retry_after, Duration::from_secs(7));
+        }
+        other => panic!("expected a rate limit, got {other:?}"),
+    }
+    sync.edit(&t.ada, t.page, append("Ada's"))
+        .await
+        .expect("another user's edit");
+    // Reading is not counted.
+    assert_eq!(text_of(&sync, &t.dee, t.page).await, "Ada's");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_body_sent_back_as_read_keeps_what_is_typed_in_its_last_paragraph(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    // A page as the editor leaves it: an empty paragraph last.
+    ada.write("Intro").await.expect("sent");
+    ada.write("").await.expect("sent");
+    eventually("the server to hold both blocks", || async {
+        sync.read(&t.dee, t.page)
+            .await
+            .expect("read")
+            .1
+            .blocks
+            .len()
+            == 2
+    })
+    .await;
+    let (_, read) = sync.read(&t.dee, t.page).await.expect("read");
+    let sent = from_markdown(&neon_blocks::markdown::to_markdown_with_ids(&read)).blocks;
+
+    // Ada types in the last paragraph while the body goes back as it was read.
+    let typed = ada.type_last("Typed meanwhile");
+    let edited = sync
+        .edit(&t.dee, t.page, vec![Edit::ReplaceBody { blocks: sent }])
+        .await
+        .expect("edited");
+    assert_eq!(edited.applied[0].added, Vec::<String>::new());
+    assert_eq!(edited.applied[0].removed, 0);
+    ada.send(&typed).await.expect("sent");
+    eventually("the server to hold the typing", || async {
+        text_of(&sync, &t.dee, t.page).await == "Intro\nTyped meanwhile"
+    })
+    .await;
+    assert_eq!(ada.text(), "Intro\nTyped meanwhile");
+    drop(ada);
+    sync.shutdown().await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

@@ -130,7 +130,8 @@ and set `NEON_WEB_TRUSTED_PROXIES` to the proxy's addresses, such as `10.0.0.0/8
 takes the client's address from the proxy's `X-Forwarded-For`. The server only ever sees the
 client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
 set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
-do by default.
+do by default, and pass the server-sent events of `/mcp` on as they come, without buffering
+them, for the notifications of MCP clients.
 
 `NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
 change something, and WebSocket upgrades, whose `Origin` is another.

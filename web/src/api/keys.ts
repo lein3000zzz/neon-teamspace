@@ -14,6 +14,9 @@ export const keys = {
   preferences: (userId: string) => ["account", "preferences", userId],
   sessions: ["account", "sessions"],
   tokens: ["account", "tokens"],
+  connectedApps: ["account", "connected-apps"],
+  /** A client's request on the consent page, as the person signed in may answer it. */
+  consent: (request: object) => ["account", "consent", request],
   myInvitations: ["account", "invitations"],
   users: ["admin", "users"],
   invites: ["admin", "invites"],
@@ -27,6 +30,7 @@ export const keys = {
   members: (id: string) => ["workspaces", id, "members"],
   agents: (id: string) => ["workspaces", id, "agents"],
   agentTokens: (id: string, agentId: string) => ["workspaces", id, "agents", agentId, "tokens"],
+  workspaceApps: (id: string) => ["workspaces", id, "connected-apps"],
   webhooks: (id: string) => ["workspaces", id, "webhooks"],
   webhookDeliveries: (id: string, webhookId: string) => [
     "workspaces",

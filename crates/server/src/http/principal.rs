@@ -1,8 +1,10 @@
 //! Who a request acts as.
 //!
-//! A request proves it with `Authorization: Bearer nw_…`, an API token, or with the session
-//! cookie. A bearer header that does not authenticate is refused outright, without falling
-//! back to the cookie. A token's scopes decide what it may do: reading needs `read`, every
+//! A request proves it with `Authorization: Bearer nw_…`, an API token, `Bearer nwo_…`, an
+//! OAuth access token, or with the session cookie. An OAuth access token stands for the same
+//! principal as an API token bound to its grant's workspace, acting as the person who
+//! consented or the agent they chose. A bearer header that does not authenticate is refused
+//! outright, without falling back to the cookie. A token's scopes decide what it may do: reading needs `read`, every
 //! other method `write`, but for the few `POST`s that only read, and the admin routes
 //! `admin`. A token bound to one workspace, every agent's among them, works on that
 //! workspace's routes alone, which the use cases check, and is refused on the account's
@@ -11,6 +13,7 @@
 //! error shape.
 
 use axum::extract::FromRequestParts;
+use axum::http::HeaderValue;
 use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, SET_COOKIE};
 use axum::http::request::Parts;
@@ -129,19 +132,7 @@ impl Refusal {
 /// The principal of the bearer token, or else of the session cookie.
 async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refusal> {
     if let Some(header) = parts.headers.get(AUTHORIZATION) {
-        let token = header.to_str().ok().and_then(bearer_token).ok_or_else(|| {
-            Refusal::new(ApiError::unauthenticated(
-                "the Authorization header wants Bearer and an API token",
-            ))
-        })?;
-        return state.auth.authenticate_token(token).await.map_err(|error| {
-            Refusal::new(match error {
-                AuthError::Unauthenticated => ApiError::unauthenticated(
-                    "the API token does not work: it is unknown, revoked or expired",
-                ),
-                other => other.into(),
-            })
-        });
+        return bearer(state, header).await.map_err(Refusal::new);
     }
     let Some(token) = state.web.session_token(&parts.headers) else {
         return Err(Refusal::new(ApiError::unauthenticated("sign in first")));
@@ -156,6 +147,24 @@ async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refu
                 clear_cookie: true,
             },
             other => Refusal::new(other.into()),
+        })
+}
+
+/// The principal of an `Authorization` header's bearer token. The MCP server, which takes
+/// no cookie, authenticates its requests with this alone.
+pub(crate) async fn bearer(state: &AppState, header: &HeaderValue) -> Result<Principal, ApiError> {
+    let token = header.to_str().ok().and_then(bearer_token).ok_or_else(|| {
+        ApiError::unauthenticated("the Authorization header wants Bearer and an API token")
+    })?;
+    state
+        .auth
+        .authenticate_token(token)
+        .await
+        .map_err(|error| match error {
+            AuthError::Unauthenticated => ApiError::unauthenticated(
+                "the API token does not work: it is unknown, revoked or expired",
+            ),
+            other => other.into(),
         })
 }
 

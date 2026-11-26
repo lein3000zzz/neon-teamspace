@@ -2,11 +2,12 @@
 //!
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
-//! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the live documents close their connections and are
-//! saved, the hourly workspace and auth cleanups stop, the auth work begun after earlier
-//! answers finishes, the database pool closes, the admin listener stops, and the telemetry
-//! flushes last, so what the other parts log while stopping is still written.
+//! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains,
+//! the job worker stops, the gauges stop if metrics are on, the live documents close their
+//! connections and are saved, the hourly OAuth, workspace and auth cleanups stop, the auth
+//! work begun after earlier answers finishes, the database pool closes, the admin listener
+//! stops, and the telemetry flushes last, so what the other parts log while stopping is
+//! still written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -30,6 +31,7 @@ use neon_app::crypto::Envelope;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
+use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
@@ -54,6 +56,7 @@ use crate::config::{AdminConfig, Config, DatabaseConfig, Loaded};
 use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
 use crate::mail::SmtpMailer;
+use crate::mcp::{self, Mcp};
 use crate::telemetry;
 use crate::webhooks::HttpTransport;
 
@@ -243,8 +246,12 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     // connections of those who lost it.
     let (documents_listener, feed) = sync::access_feed();
     let (databases_listener, databases_feed) = sync::access_feed();
-    let access: Arc<dyn AccessChanges> =
-        Arc::new(Fanout::new(vec![documents_listener, databases_listener]));
+    let (mcp_listener, mcp_feed) = mcp::access_feed();
+    let access: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![
+        documents_listener,
+        databases_listener,
+        mcp_listener,
+    ]));
     // One broadcaster for the live documents and the database feeds, in rooms of their own.
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
@@ -261,12 +268,17 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .access_changes(Arc::clone(&access))
         .build();
     let agents = AgentService::new(workspaces.clone());
+    let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
+        .limiter(Arc::clone(&limiter))
+        .access_changes(Arc::clone(&access))
+        .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .broadcaster(Arc::clone(&broadcaster))
         .build();
     let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
-        .broadcaster(broadcaster)
+        .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
@@ -286,11 +298,25 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         Arc::new(HttpTransport::default()),
     )
     .envelope(envelope)
-    .limiter(limiter)
+    .limiter(Arc::clone(&limiter))
     .build();
+    let mcp = Mcp::new(
+        mcp::Services {
+            settings: Arc::clone(&settings),
+            auth: auth.clone(),
+            workspaces: workspaces.clone(),
+            pages: pages.clone(),
+            sync: live.clone(),
+            databases: databases.clone(),
+            broadcaster,
+        },
+        limiter,
+        mcp_feed,
+    );
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
+    start_oauth_upkeep(shutdown, &oauth);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
     let listener = TcpListener::bind(config.server.listen)
@@ -317,6 +343,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             auth,
             workspaces,
             agents,
+            oauth,
             pages,
             sync: live,
             databases,
@@ -324,11 +351,13 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             transfer,
             webhooks,
             web: Arc::new(web),
+            mcp: mcp.clone(),
         },
         config.observability.tracing.trust_incoming,
     );
     let sample_gauges = config.observability.metrics.enabled;
     start_parts(shutdown, &pool, sample_gauges, worker, listener, router).await?;
+    end_mcp_sessions_on_shutdown(shutdown, mcp);
     Ok(pool)
 }
 
@@ -411,6 +440,18 @@ fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pa
     );
 }
 
+/// Starts the hourly cleanup of OAuth's expired codes and tokens, spent grants and unused
+/// clients, which stops before the pool closes.
+fn start_oauth_upkeep(shutdown: &Shutdown, oauth: &OAuthService) {
+    let cleanup = OAuthCleanup::spawn(oauth.clone(), CLEANUP_INTERVAL);
+    on_stop(
+        shutdown,
+        "oauth cleanup",
+        DEFAULT_HOOK_TIMEOUT,
+        cleanup.stop(),
+    );
+}
+
 /// Saves the live documents and closes their connections when stopping, after the HTTP
 /// server stopped taking new ones and before the pool closes.
 fn save_on_shutdown(shutdown: &Shutdown, live: &SyncService) {
@@ -428,6 +469,14 @@ fn save_on_shutdown(shutdown: &Shutdown, live: &SyncService) {
             }
         },
     );
+}
+
+/// Ends the MCP sessions first when stopping, so their event streams close and the HTTP
+/// server's drain does not wait for them.
+fn end_mcp_sessions_on_shutdown(shutdown: &Shutdown, mcp: Mcp) {
+    on_stop(shutdown, "mcp sessions", DEFAULT_HOOK_TIMEOUT, async move {
+        mcp.shutdown().await
+    });
 }
 
 /// Closes the database feeds when stopping, after the HTTP server stopped taking new ones

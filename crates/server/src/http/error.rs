@@ -11,8 +11,10 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::databases::DatabaseError;
+use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
+use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
 use neon_app::webhooks::{IncomingError, WebhookError};
 use neon_app::workspaces::WorkspaceError;
@@ -86,6 +88,13 @@ impl ApiError {
 
     pub fn forbidden(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    /// The same answer, telling the client how long to wait before it tries again.
+    #[must_use]
+    pub fn with_retry_after(mut self, wait: Duration) -> Self {
+        self.retry_after = Some(wait);
+        self
     }
 
     /// The same answer, naming each field it refuses.
@@ -265,10 +274,40 @@ impl From<DatabaseError> for ApiError {
                     DatabaseError::NotFound(_) => StatusCode::NOT_FOUND,
                     DatabaseError::NameTaken(_)
                     | DatabaseError::LossyChange { .. }
-                    | DatabaseError::TooMany(_) => StatusCode::CONFLICT,
+                    | DatabaseError::TooMany(_)
+                    | DatabaseError::AlreadyClaimed(_) => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, expected.code(), expected.to_string())
+            }
+        }
+    }
+}
+
+impl From<ContentError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the page. Others are
+    /// logged with their cause, and answer as internal errors, or as unavailable while the
+    /// server stops.
+    fn from(error: ContentError) -> Self {
+        match error {
+            ContentError::Page(error) => error.into(),
+            failed @ ContentError::Load(_) => {
+                tracing::error!(error = %failed, "a page's content use case failed");
+                Self::internal()
+            }
+            ContentError::RateLimited { retry_after } => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                "too many edits of pages' content: slow down",
+            )
+            .with_retry_after(retry_after),
+            other => {
+                let status = match &other {
+                    ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                Self::new(status, other.code(), other.to_string())
             }
         }
     }
@@ -299,6 +338,36 @@ impl From<TransferError> for ApiError {
         };
         let mut api = Self::new(status, code, message);
         api.retry_after = retry_after;
+        api
+    }
+}
+
+impl From<OAuthError> for ApiError {
+    /// The consent page's and connected apps' errors, in the API's shape. Expected errors
+    /// answer with their message, which never holds a code or token. Others are logged with
+    /// their cause, and answer as internal errors.
+    fn from(error: OAuthError) -> Self {
+        let status = match &error {
+            OAuthError::Request(_) | OAuthError::Protocol(_) | OAuthError::Scopes(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            OAuthError::IdentityUnavailable(_)
+            | OAuthError::Forbidden(_)
+            | OAuthError::RegistrationOff => StatusCode::FORBIDDEN,
+            OAuthError::NotFound(_) => StatusCode::NOT_FOUND,
+            OAuthError::ClientLimit => StatusCode::SERVICE_UNAVAILABLE,
+            OAuthError::RateLimited { .. } | OAuthError::SourceLimit => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+            OAuthError::Database(_) | OAuthError::Internal(_) => {
+                tracing::error!(error = %error, "an OAuth use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let OAuthError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
         api
     }
 }

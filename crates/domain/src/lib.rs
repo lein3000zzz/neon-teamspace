@@ -13,6 +13,7 @@ pub mod duration;
 pub mod hue;
 pub mod jobs;
 pub mod mail;
+pub mod oauth;
 pub mod pages;
 pub mod settings;
 pub mod webhooks;

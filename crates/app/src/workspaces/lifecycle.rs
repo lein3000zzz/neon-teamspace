@@ -166,9 +166,9 @@ impl WorkspaceService {
         .await
     }
 
-    /// Tells those holding pages and databases open for agents to look again, once whether
-    /// agents work on the instance, the setting `mcp.identities`, may have changed: their
-    /// connections close while agents are off.
+    /// Tells those holding pages and databases open for agents, and for tokens bound to a
+    /// workspace, to look again, once the setting `mcp.identities` may have changed: agents'
+    /// connections close while agents are off, and OAuth tokens' while their mode is.
     pub fn agents_switched(&self) {
         self.changed(AccessChange::Agents);
     }
@@ -198,6 +198,18 @@ impl WorkspaceService {
                     Some((workspace, role))
                 })
                 .collect())
+        })
+        .await
+    }
+
+    /// Whether the principal is in the workspace, as far as its token reaches: what a
+    /// long-lived connection asks again on each request, without the workspace's details.
+    pub async fn admits(&self, principal: &Principal, id: Uuid) -> Result<(), WorkspaceError> {
+        self.observe("admits", async {
+            let mut conn = self.pool().acquire().await?;
+            membership(&mut conn, principal, id)
+                .await?
+                .check(Action::ViewWorkspace)
         })
         .await
     }

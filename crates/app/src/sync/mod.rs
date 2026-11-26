@@ -23,11 +23,12 @@
 //!   those that got it back. Every connection is looked at so again every
 //!   [`Limits::revalidate_interval`], for what no change tells of, such as a session
 //!   expiring.
-//! - **The server's own edits.** [`SyncService::append`] adds blocks to a page, as an
-//!   incoming webhook does, through its live document, loaded for it if nobody has it
-//!   open: the editors see them at once, they merge with what is being typed, and they are
-//!   logged before the call answers, or, when the database fails then, kept and logged
-//!   later as every edit is.
+//! - **The server's own edits.** [`SyncService::edit`] makes the edits of the API's markdown
+//!   routes and MCP, and [`SyncService::append`] adds blocks to a page as an incoming
+//!   webhook does, each through the page's live document, loaded for it if nobody has it
+//!   open: the editors see them at once and they merge with what is being typed. An
+//!   append is logged before the call answers, or, when the database fails then, kept and
+//!   logged later as every edit is.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -46,6 +47,7 @@
 mod access;
 mod broadcast;
 mod close;
+mod content;
 mod document;
 mod limits;
 mod protocol;
@@ -73,12 +75,14 @@ use yrs::Transact as _;
 use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
+use crate::ratelimit::{MemoryLimiter, RateLimiter};
 use document::{Command, Joining, Presence};
 pub(crate) use limits::Bucket;
 
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
+pub use content::{ContentError, Edited, MAX_EDITS, changes_document};
 pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 
@@ -110,6 +114,7 @@ pub(crate) struct Inner {
     pages: PageService,
     auth: AuthService,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
     red: Red,
@@ -186,13 +191,14 @@ impl Registry {
 }
 
 /// Puts a [`SyncService`] together. Without being told otherwise it serves one process's
-/// clients, with the default limits, on the system clock.
+/// clients, with the default limits, counting edits in its own memory, on the system clock.
 pub struct SyncServiceBuilder {
     pool: PgPool,
     pages: PageService,
     auth: AuthService,
     feed: AccessFeed,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
 }
@@ -200,6 +206,13 @@ pub struct SyncServiceBuilder {
 impl SyncServiceBuilder {
     pub fn broadcaster(mut self, broadcaster: Arc<dyn Broadcaster>) -> Self {
         self.broadcaster = broadcaster;
+        self
+    }
+
+    /// Where edits of pages' content from the API and MCP are counted, against
+    /// [`Bucket::PageEdit`](crate::ratelimit::Bucket::PageEdit).
+    pub fn limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
+        self.limiter = limiter;
         self
     }
 
@@ -223,6 +236,7 @@ impl SyncServiceBuilder {
             pages: self.pages,
             auth: self.auth,
             broadcaster: self.broadcaster,
+            limiter: self.limiter,
             limits: self.limits,
             clock: self.clock,
             red: Red::new(SUBSYSTEM),
@@ -311,6 +325,7 @@ impl SyncService {
             auth,
             feed,
             broadcaster: Arc::new(LocalBroadcaster::new()),
+            limiter: Arc::new(MemoryLimiter::new()),
             limits: Limits::default(),
             clock: Clock::system(),
         }
@@ -515,22 +530,6 @@ impl SyncService {
         ))
     }
 
-    /// The page's live document, started if there is none, without a connection.
-    fn document(
-        &self,
-        page_id: Uuid,
-        workspace_id: Uuid,
-    ) -> Result<mpsc::Sender<Command>, CloseReason> {
-        let mut registry = self.inner.registry();
-        if self.inner.stop.is_cancelled() {
-            return Err(CloseReason::Restarting);
-        }
-        Ok(self
-            .live(&mut registry, page_id, workspace_id)
-            .commands
-            .clone())
-    }
-
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {
@@ -558,37 +557,57 @@ impl SyncService {
             return Err(CloseReason::TooManyConnections);
         }
         *registry.users.entry(user_id).or_default() += 1;
-        let slot = self.live(&mut registry, admission.page_id, admission.workspace_id);
+        let slot = open(
+            &self.inner,
+            &mut registry,
+            admission.page_id,
+            admission.workspace_id,
+        );
         slot.connections.insert(client, admission.principal.clone());
         Ok((slot.commands.clone(), slot.generation))
     }
 
-    /// The registry's slot of a page's live document, its task started if there is none.
-    fn live<'a>(
+    /// The page's live document, started if there is none, for the server's own use.
+    fn document(
         &self,
-        registry: &'a mut Registry,
         page_id: Uuid,
         workspace_id: Uuid,
-    ) -> &'a mut Slot {
-        match registry.docs.entry(page_id) {
-            Entry::Occupied(slot) => slot.into_mut(),
-            Entry::Vacant(vacant) => {
-                static GENERATION: AtomicU64 = AtomicU64::new(1);
-                let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
-                let (commands, received) = mpsc::channel(COMMAND_QUEUE);
-                self.inner.tasks.spawn(document::run(
-                    Arc::clone(&self.inner),
-                    page_id,
-                    generation,
-                    received,
-                ));
-                vacant.insert(Slot {
-                    generation,
-                    workspace_id,
-                    commands,
-                    connections: HashMap::new(),
-                })
-            }
+    ) -> Result<mpsc::Sender<Command>, CloseReason> {
+        let mut registry = self.inner.registry();
+        if self.inner.stop.is_cancelled() {
+            return Err(CloseReason::Restarting);
+        }
+        Ok(open(&self.inner, &mut registry, page_id, workspace_id)
+            .commands
+            .clone())
+    }
+}
+
+/// The slot of a page's live document, its task started if there is none.
+fn open<'r>(
+    inner: &Arc<Inner>,
+    registry: &'r mut Registry,
+    page_id: Uuid,
+    workspace_id: Uuid,
+) -> &'r mut Slot {
+    match registry.docs.entry(page_id) {
+        Entry::Occupied(slot) => slot.into_mut(),
+        Entry::Vacant(vacant) => {
+            static GENERATION: AtomicU64 = AtomicU64::new(1);
+            let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+            let (commands, received) = mpsc::channel(COMMAND_QUEUE);
+            inner.tasks.spawn(document::run(
+                Arc::clone(inner),
+                page_id,
+                generation,
+                received,
+            ));
+            vacant.insert(Slot {
+                generation,
+                workspace_id,
+                commands,
+                connections: HashMap::new(),
+            })
         }
     }
 }

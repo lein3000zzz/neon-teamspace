@@ -12,7 +12,9 @@ use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
+use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
+use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
@@ -80,6 +82,15 @@ pub(super) async fn state_for(
     build_state(pool, envelope, web, setup).await
 }
 
+/// The state with `web`, its sessions, tokens and OAuth reading the time from `clock`.
+pub(super) async fn state_at(pool: PgPool, web: WebConfig, clock: Clock) -> AppState {
+    let setup = Setup {
+        clock,
+        ..Setup::default()
+    };
+    build_state(pool, Envelope::default(), web, setup).await
+}
+
 /// The state, with database feeds that keep to `limits`.
 pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppState {
     let setup = Setup {
@@ -95,11 +106,31 @@ pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppSta
     .await
 }
 
+/// The state, with the MCP server counting requests, and the content routes edits, in
+/// `limiter`, on `web`.
+pub(crate) async fn state_with_mcp(
+    pool: PgPool,
+    web: WebConfig,
+    limits: SyncLimits,
+    limiter: Arc<dyn RateLimiter>,
+) -> AppState {
+    let setup = Setup {
+        sync: limits,
+        limiter,
+        ..Setup::default()
+    };
+    build_state(pool, Envelope::default(), web, setup).await
+}
+
 /// What a test's state is built with, beside its database, key and web configuration.
 struct Setup {
     sync: SyncLimits,
     feeds: LiveLimits,
     transport: Arc<dyn WebhookTransport>,
+    /// Where every use case's attempts are counted.
+    limiter: Arc<dyn RateLimiter>,
+    /// The time sessions, tokens, OAuth and webhooks read.
+    clock: Clock,
 }
 
 impl Default for Setup {
@@ -108,6 +139,8 @@ impl Default for Setup {
             sync: SyncLimits::default(),
             feeds: LiveLimits::default(),
             transport: Arc::new(crate::webhooks::HttpTransport::default()),
+            limiter: Arc::new(MemoryLimiter::new()),
+            clock: Clock::system(),
         }
     }
 }
@@ -117,6 +150,8 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         sync: limits,
         feeds,
         transport,
+        limiter,
+        clock,
     } = setup;
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -136,11 +171,14 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     );
     let (documents, feed) = access_feed();
     let (followers, databases_feed) = access_feed();
-    let listener: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![documents, followers]));
+    let (sessions, mcp_feed) = crate::mcp::access_feed();
+    let listener: Arc<dyn AccessChanges> =
+        Arc::new(Fanout::new(vec![documents, followers, sessions]));
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope.clone())
+        .clock(clock.clone())
         .mail(mail)
         .access_changes(Arc::clone(&listener))
         .build()
@@ -151,13 +189,18 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         .access_changes(Arc::clone(&listener))
         .build();
     let agents = AgentService::new(workspaces.clone());
+    let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
+        .clock(clock.clone())
+        .access_changes(Arc::clone(&listener))
+        .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
         .broadcaster(Arc::clone(&broadcaster))
         .build();
     let sync = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
         .limits(limits)
-        .broadcaster(broadcaster)
+        .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
@@ -177,12 +220,28 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         transport,
     )
     .envelope(envelope)
+    .limiter(Arc::clone(&limiter))
+    .clock(clock)
     .build();
+    let mcp = crate::mcp::Mcp::new(
+        crate::mcp::Services {
+            settings: Arc::clone(&settings),
+            auth: auth.clone(),
+            workspaces: workspaces.clone(),
+            pages: pages.clone(),
+            sync: sync.clone(),
+            databases: databases.clone(),
+            broadcaster,
+        },
+        limiter,
+        mcp_feed,
+    );
     AppState {
         settings,
         auth,
         workspaces,
         agents,
+        oauth,
         pages,
         sync,
         databases,
@@ -190,6 +249,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         transfer,
         webhooks,
         web: Arc::new(web),
+        mcp,
     }
 }
 

@@ -50,3 +50,12 @@ name, scopes, first characters, when each was made and last used. Its owner make
 a name and the scopes read and write, never admin; the new token shows once, with a button
 to copy it. **Revoke**, after a question, stops a token at once. An integration has no
 tokens.
+
+## Apps acting as agents
+
+The apps connected over [OAuth](/docs/guides/oauth/) that act as the workspace's agents are
+listed below the agents: every one for the workspace's owners and admins, those of their
+own agents for the other members. Each shows the app's name, the agent it acts as, who
+connected it, its scopes and when it was last used. **Disconnect**, after a question, stops
+its tokens at once. An agent's owner connects an app as it from the app itself, on the
+consent page it opens.

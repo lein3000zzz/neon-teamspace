@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM oauth_clients c\n           WHERE NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "be25cf09f7da836ec58687cdeeb99cf2af760af38de7839c4d9f22050a004fe7"
+}

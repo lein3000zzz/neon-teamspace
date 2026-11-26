@@ -196,7 +196,7 @@ pub struct IncomingRequestLog {
 fn url(state: &AppState, token: &Secret) -> String {
     format!(
         "{}/hooks/in/{}",
-        state.web.public_origin().unwrap_or_default(),
+        state.web.configured_origin().unwrap_or_default(),
         token.expose()
     )
 }

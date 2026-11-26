@@ -60,12 +60,40 @@
 //! of colons that closes nothing is text, as is a line that starts with an escaped colon,
 //! `\:::`.
 //!
+//! # Block ids
+//!
+//! [`to_markdown_with_ids`] writes the same markdown with a line naming each block before the
+//! block's own lines, at its level: indented under a list item, quoted in a quote.
+//!
+//! ```markdown
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b1 -->
+//! # Plan
+//!
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b2 -->
+//! - First
+//!   <!-- block 0193a5b2-0000-7000-8000-0000000000b3 -->
+//!   - Under it
+//! <!-- block 0193a5b2-0000-7000-8000-0000000000b4 -->
+//! - Second
+//! ```
+//!
+//! The line is `<!-- block `, the id percent-encoded as a database's is, and ` -->`. Every
+//! block with an id has one, empty paragraphs included, which have no other line; blocks whose
+//! children markdown cannot nest are followed by their children's lines, each child named.
+//! Such a line is an HTML comment, which renderers leave unshown. [`from_markdown`] leaves out
+//! every line that names a block, wherever it stands but in code, so markdown written with ids
+//! reads as the same blocks as without them: a client may send back what it read, edited, and
+//! the lines it kept change nothing. A line that names a block with no lines of its own, one
+//! followed by a blank line, another such line, the end of the list item, quote or toggle it
+//! is in, or the end of the text, reads as the empty paragraph it names, so those come back
+//! too.
+//!
 //! # What markdown loses
 //!
 //! - Block ids. Read blocks have none until they are written into a document.
 //! - Text and background colours, of blocks and of text, and text alignment, except a table
 //!   column's.
-//! - Empty paragraphs.
+//! - Empty paragraphs, unless written with their ids.
 //! - The nesting of children under blocks other than list items and toggles.
 //! - Tables' column widths, header columns, spans and cell colours, and a table without a
 //!   header row, which comes back with its first row as the header.
@@ -87,7 +115,8 @@ mod parse;
 mod write;
 
 pub use parse::{MAX_DEPTH, TooDeep, from_markdown, try_from_markdown};
-pub use write::to_markdown;
+pub(crate) use write::{encode_id, holds_children};
+pub use write::{to_markdown, to_markdown_with_ids};
 
 #[cfg(test)]
 mod tests;

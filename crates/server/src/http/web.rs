@@ -14,6 +14,9 @@
 //!   posts.
 //! - A WebSocket upgrade, a `GET`, must come from the same origin as well, whenever it
 //!   sends `Origin`, as browsers do.
+//! - OAuth's registration, token and revocation endpoints are spared the origin check:
+//!   clients in browsers of any origin call them, and they never read the session cookie,
+//!   only what the request itself carries.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -26,11 +29,15 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use ipnet::IpNet;
+use neon_domain::oauth::{REGISTER_PATH, REVOKE_PATH, TOKEN_PATH};
 use tracing::warn;
 use url::Url;
 
 use super::AppState;
 use super::error::ApiError;
+
+/// The paths that never read the session cookie, which other origins may post to.
+const COOKIELESS_PATHS: [&str; 3] = [REGISTER_PATH, TOKEN_PATH, REVOKE_PATH];
 
 /// The session cookie's name over plain http.
 pub const SESSION_COOKIE: &str = "neon_session";
@@ -57,7 +64,7 @@ impl WebConfig {
     }
 
     /// `server.public_url`'s origin, such as `https://neon.example.com`, when it is set.
-    pub fn public_origin(&self) -> Option<&str> {
+    pub fn configured_origin(&self) -> Option<&str> {
         self.origin.as_deref()
     }
 
@@ -128,8 +135,53 @@ impl WebConfig {
         forwarded.map_or(peer, canonical).to_string()
     }
 
+    /// The server's origin as clients reach it: `server.public_url`, or, unset, the host
+    /// the request was sent to, over https when a trusted proxy says it forwarded https and
+    /// http otherwise.
+    pub fn public_origin(&self, peer: Option<IpAddr>, headers: &HeaderMap) -> String {
+        if let Some(own) = &self.origin {
+            return own.clone();
+        }
+        let trusted = peer.map(canonical).is_some_and(|peer| {
+            self.trusted_proxies
+                .iter()
+                .any(|range| range.contains(&peer))
+        });
+        let https = trusted
+            && headers
+                .get("x-forwarded-proto")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
+        let scheme = if https { "https" } else { "http" };
+        headers
+            .get(HOST)
+            .and_then(|host| host.to_str().ok())
+            .and_then(|host| Url::parse(&format!("{scheme}://{host}")).ok())
+            .filter(|url| {
+                url.path() == "/"
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+            })
+            .map_or_else(
+                || format!("{scheme}://localhost"),
+                |url| url.origin().ascii_serialization(),
+            )
+    }
+
+    /// [`public_origin`](Self::public_origin) as a request has it: from the address it came
+    /// from and its headers.
+    pub(crate) fn request_origin(&self, parts: &Parts) -> String {
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip());
+        self.public_origin(peer, &parts.headers)
+    }
+
     /// Whether `origin`, as an `Origin` header has it, is the server's own.
-    fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
+    pub(crate) fn same_origin(&self, origin: &str, headers: &HeaderMap) -> bool {
         if let Some(own) = &self.origin {
             return origin.eq_ignore_ascii_case(own);
         }
@@ -213,6 +265,7 @@ pub(super) async fn same_origin_only(
     if safe
         || request.headers().contains_key(AUTHORIZATION)
         || request.uri().path().starts_with(super::hooks::PREFIX)
+        || COOKIELESS_PATHS.contains(&request.uri().path())
     {
         return next.run(request).await;
     }
@@ -326,6 +379,45 @@ mod tests {
             let peer: IpAddr = network.parse().unwrap();
             assert_eq!(web.client_ip(Some(peer), &forwarded), network, "{network}");
         }
+    }
+
+    #[test]
+    fn the_public_origin_is_the_public_url_or_else_where_the_request_went() {
+        let public = web(Some("https://neon.example.com"));
+        let local = web(None);
+        let host = headers(&[("host", "127.0.0.1:3000"), ("x-forwarded-proto", "https")]);
+        let proxy: IpAddr = "127.0.0.1".parse().unwrap();
+        let stranger: IpAddr = "192.0.2.50".parse().unwrap();
+
+        assert_eq!(
+            public.public_origin(Some(stranger), &host),
+            "https://neon.example.com"
+        );
+        assert_eq!(
+            local.public_origin(Some(proxy), &host),
+            "https://127.0.0.1:3000",
+            "a trusted proxy says it forwarded https"
+        );
+        assert_eq!(
+            local.public_origin(Some(stranger), &host),
+            "http://127.0.0.1:3000",
+            "anyone else is not believed"
+        );
+        assert_eq!(
+            local.public_origin(None, &headers(&[("host", "Neon.Example.com:80")])),
+            "http://neon.example.com"
+        );
+        for odd in ["evil.example/path", "user@evil.example", "", "a b"] {
+            assert_eq!(
+                local.public_origin(None, &headers(&[("host", odd)])),
+                "http://localhost",
+                "{odd:?}"
+            );
+        }
+        assert_eq!(
+            local.public_origin(None, &HeaderMap::new()),
+            "http://localhost"
+        );
     }
 
     #[test]

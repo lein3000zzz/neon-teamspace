@@ -4,6 +4,46 @@
  */
 
 export interface paths {
+    "/api/v1/account/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the connected apps
+         * @description The clients the person connected over OAuth, as themselves or as their agents, each in one workspace with its scopes. Needs a session or an API token across the instance with the read scope.
+         */
+        get: operations["list_connected_apps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/account/connected-apps/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect an app
+         * @description Revokes one of the person's grants: every token of it stops working at once. From a browser session alone.
+         */
+        delete: operations["disconnect_app"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/account/favorites": {
         parameters: {
             query?: never;
@@ -942,6 +982,30 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Change a row's values by its unique id
+         * @description As `PATCH /rows/{id}`, for the row whose unique id is `NW-42`, its prefix in any case, or `42` alone.
+         */
+        patch: operations["change_row_by_unique_id"];
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/rows/{unique_id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim a row by its unique id
+         * @description As `POST /rows/{id}/claim`, for the row whose unique id is `NW-42`, its prefix in any case, or `42` alone.
+         */
+        post: operations["claim_row_by_unique_id"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -1049,6 +1113,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start an authorization
+         * @description The authorization endpoint, the code flow with PKCE (S256 alone). Checks the client, the redirect URI, the response type, the PKCE challenge, the scopes, the state and the resource, then sends the browser to the web app's consent page with them, where the person signs in if they have not, and chooses. A request that does not hold sends the browser to the consent page with `error`, its problem, which the page shows; it is never sent to the client's redirect URI on its own, as anyone may register one.
+         */
+        get: operations["authorize"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a client asks to be allowed
+         * @description Checks an authorization request again, from the consent page's address, and says what the page offers: the client, where the browser goes back to, and each of the person's workspaces with whom the client may act as there, the person or one of their agents that works, and with which scopes. Only reads. From a browser session alone.
+         */
+        post: operations["read_consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allow a client
+         * @description Grants the client what the person chose, from a browser session alone: the workspace, whom it acts as, the person or one of their agents that works there, and scopes among those offered. Consenting again to the same client, workspace and identity replaces the grant's scopes. Answers where to send the browser: the client's redirect URI with a code that works once, within a minute, with the request's PKCE verifier.
+         */
+        post: operations["approve_consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deny a client
+         * @description Answers where to send the browser when the person denies the client, from a browser session alone: its redirect URI with `error=access_denied`.
+         */
+        post: operations["deny_consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register an OAuth client
+         * @description Dynamic client registration (RFC 7591), open to anyone while `oauth.registration` is on, a few at a time from one address or IPv6 /64, and a few waiting unconnected from each. Every client is public, with no secret: it proves itself with PKCE. Allows CORS from any origin. Errors are in OAuth's shape.
+         */
+        post: operations["register_client"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke an OAuth token
+         * @description Token revocation (RFC 7009): revokes the grant of an access or refresh token, every token of it, as a client does when it signs out. A token that is unknown, or another client's, changes nothing, and the answer is the same. Allows CORS from any origin. Errors are in OAuth's shape.
+         */
+        post: operations["revoke_oauth_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange a code or a refresh token
+         * @description The token endpoint. `authorization_code` exchanges a code, within its minute and once, with its redirect URI and PKCE verifier; `refresh_token` exchanges a refresh token, once. Each gives an access token, an hour by default, and a new refresh token, 30 days by default. A code or refresh token used a second time revokes its grant and every token of it. Allows CORS from any origin. Errors are in OAuth's shape.
+         */
+        post: operations["issue_tokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pages/{id}": {
         parameters: {
             query?: never;
@@ -1115,6 +1319,30 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/markdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page's content as markdown
+         * @description Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.
+         */
+        get: operations["get_markdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit a page's content
+         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
+         */
+        patch: operations["edit_markdown"];
         trace?: never;
     };
     "/api/v1/pages/{id}/move": {
@@ -1249,6 +1477,26 @@ export interface paths {
         patch: operations["change_row"];
         trace?: never;
     };
+    "/api/v1/rows/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim a row
+         * @description Names the caller in the person property, the database's first unless one is named, and moves the row to the first option in progress of its status property, the database's first: in one transaction, and only while that person property names nobody. Of claims of one row at once, exactly one wins; the others answer `already_claimed`, naming who holds it. Needs edit access to the row.
+         */
+        post: operations["claim_row"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rows/{id}/move": {
         parameters: {
             query?: never;
@@ -1301,6 +1549,26 @@ export interface paths {
          * @description Its pages out of the trash, as a tree, for everyone who may see the teamspace in full: a private one's for its members only. Guests get `not_found`; their pages are under `shared-pages`.
          */
         get: operations["teamspace_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/whoami": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whom the request acts as
+         * @description Its identity, a person or an agent or integration with its owner, its scopes, and the workspace its token is bound to. Unlike `/account`, it answers every credential, an agent's token too.
+         */
+        get: operations["whoami"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1509,6 +1777,46 @@ export interface paths {
          */
         post: operations["transfer_agent"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the apps acting as agents
+         * @description The clients connected over OAuth that act as the workspace's agents: every agent's for the workspace's owners and admins, their own agents' for other members, none for guests.
+         */
+        get: operations["list_workspace_apps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/connected-apps/{app_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect an app acting as an agent
+         * @description Revokes a grant that acts as one of the workspace's agents: every token of it stops working at once. For the agent's owner and the workspace's owners and admins, from a browser session.
+         */
+        delete: operations["disconnect_workspace_app"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1827,7 +2135,7 @@ export interface paths {
         put?: never;
         /**
          * Create a page
-         * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it. Nothing goes under a database or a row: a database's subpages are its rows, added at `/databases/{id}/rows`.
+         * @description Under a page the caller edits, at the top of a teamspace they are in, or as one of their private pages, which guests have none of. The caller edits it. It starts with the content of `markdown`, if any. Nothing goes under a database or a row: a database's subpages are its rows, added at `/databases/{id}/rows`.
          */
         post: operations["create_page"];
         delete?: never;
@@ -1876,6 +2184,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/recent-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the pages changed last
+         * @description The workspace's pages and databases the caller sees, out of the trash, rows left out, the most recently changed first: their title, icon, cover, style or place, or their content.
+         */
+        get: operations["recent_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/shared-pages": {
         parameters: {
             query?: never;
@@ -1888,6 +2216,26 @@ export interface paths {
          * @description The pages of the workspace shared with the caller, out of the trash, each with the pages under it, as a tree: how guests find their pages, and members those they reach through shares alone. Pages in a teamspace the caller is in are left out, as that teamspace's tree holds them. A shared page under another one shared with them shows under that one only. The pages shared are in the order they were made.
          */
         get: operations["shared_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The rows assigned to the caller
+         * @description The rows of the workspace's databases that a person property names the caller in, out of the trash, that the caller sees: the most recently changed first, at most 100, each with its status.
+         */
+        get: operations["list_tasks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2317,6 +2665,32 @@ export interface components {
             /** @description Oldest first. */
             tokens: components["schemas"]["ApiToken"][];
         };
+        /** @description A workspace a connected app acts in. */
+        AppWorkspace: {
+            /** Format: uuid */
+            id: string;
+            /** @example Design */
+            name: string;
+            /** @example design */
+            slug: string;
+        };
+        /** @description The person's answer: the request, and what they chose. */
+        ApproveConsent: {
+            /**
+             * Format: uuid
+             * @description One of the person's agents there that the client acts as; absent, it acts as the
+             *     person.
+             */
+            agent_id?: string | null;
+            request: components["schemas"]["AuthorizationParams"];
+            /** @description Some of the scopes offered for that identity. */
+            scopes: string[];
+            /**
+             * Format: uuid
+             * @description The workspace the client acts in.
+             */
+            workspace_id: string;
+        };
         /**
          * @description How an attempt went.
          * @enum {string}
@@ -2333,6 +2707,44 @@ export interface components {
             requests: boolean;
             /** @description Self sign-ups verify their address by a mailed link before they sign in. */
             verify_email: boolean;
+        };
+        /**
+         * @description The parameters of an authorization request, as the client sends the browser with them.
+         *     Each at most once; others are ignored.
+         */
+        AuthorizationParams: {
+            client_id?: string | null;
+            /** @description The PKCE challenge: the verifier's SHA-256, in base64url without padding. */
+            code_challenge?: string | null;
+            /** @description `S256`; `plain` is refused. */
+            code_challenge_method?: string | null;
+            /** @description One the client registered, exactly, but for the port of a loopback address. */
+            redirect_uri?: string | null;
+            /**
+             * @description The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or
+             *     `<public URL>/api/v1`.
+             */
+            resource?: string | null;
+            /** @description `code`. */
+            response_type?: string | null;
+            /** @description Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses. */
+            scope?: string | null;
+            /** @description Sent back as it is; at most 1024 printable ASCII characters. */
+            state?: string | null;
+        };
+        /** @description The workspace a token is bound to. */
+        BoundWorkspace: {
+            /** Format: uuid */
+            id: string;
+            /** @example Design */
+            name: string;
+            /**
+             * @description The role the rules see the identity in: a token without the admin scope is a member
+             *     at most.
+             */
+            role: components["schemas"]["WorkspaceRole"];
+            /** @example design */
+            slug: string;
         };
         Breadcrumbs: {
             /** @description The highest page above it the caller sees first, the page itself last. */
@@ -2380,6 +2792,28 @@ export interface components {
             sorts?: components["schemas"]["Sort"][] | null;
         };
         /**
+         * @description What a client says of itself to register (RFC 7591). Metadata this server does not use
+         *     is ignored.
+         */
+        ClientRegistration: {
+            /**
+             * @description Shown on the consent page as the client's own word; at most 100 characters kept.
+             * @example Example CLI
+             */
+            client_name?: string | null;
+            /** @description `authorization_code`, and `refresh_token`, when given. */
+            grant_types?: string[] | null;
+            /**
+             * @description One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any
+             *     port, or a scheme of a native app's own.
+             */
+            redirect_uris?: string[] | null;
+            /** @description `code`, when given. */
+            response_types?: string[] | null;
+            /** @description `none`: every client here is public. Another is replaced by it. */
+            token_endpoint_auth_method?: string | null;
+        };
+        /**
          * @description The body of routes that take an invite code. It goes in the body, out of URLs and
          *     their logs.
          */
@@ -2396,6 +2830,109 @@ export interface components {
              */
             property: string;
             value?: components["schemas"]["Value"] | null;
+        };
+        /** @description A client a person connected: one workspace, one identity, some scopes. */
+        ConnectedAppInfo: {
+            client: components["schemas"]["ConsentClient"];
+            connected_by: components["schemas"]["ConnectedBy"];
+            /**
+             * Format: date-time
+             * @description When it was first connected.
+             */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description The grant's id, to revoke it by.
+             */
+            id: string;
+            /** @description Whom it acts as: the person, or one of their agents. */
+            identity: components["schemas"]["Person"];
+            /**
+             * Format: date-time
+             * @description When its tokens were last issued or used.
+             */
+            last_used_at?: string | null;
+            resource: components["schemas"]["OAuthResource"];
+            scopes: components["schemas"]["Scope"][];
+            /**
+             * Format: date-time
+             * @description When it was last consented to.
+             */
+            updated_at: string;
+            workspace: components["schemas"]["AppWorkspace"];
+        };
+        ConnectedAppList: {
+            /** @description Last used first. */
+            apps: components["schemas"]["ConnectedAppInfo"][];
+        };
+        /** @description Who connected an app. */
+        ConnectedBy: {
+            /** @example Ada Lovelace */
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+        };
+        /** @description A registered client, as the consent page names it. */
+        ConsentClient: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description What it calls itself: its own word, not checked.
+             * @example Example CLI
+             */
+            name: string;
+        };
+        /** @description Where to send the browser next. */
+        ConsentDecision: {
+            /** @description The client's redirect URI, with `code` or `error`, the state, and `iss`. */
+            redirect_to: string;
+        };
+        /** @description What the consent page shows. */
+        ConsentInfo: {
+            client: components["schemas"]["ConsentClient"];
+            /**
+             * @description Its scheme, host and port, a host in other alphabets written in ASCII.
+             * @example http://127.0.0.1:51004
+             */
+            redirect_host: string;
+            /** @description Where the browser goes back to. */
+            redirect_uri: string;
+            /** @description The scopes the client asked for; empty when it named none. */
+            requested_scopes: components["schemas"]["Scope"][];
+            resource: components["schemas"]["OAuthResource"];
+            /** @description The person's workspaces, by name. */
+            workspaces: components["schemas"]["ConsentOption"][];
+        };
+        /** @description A workspace the consent page offers, with whom the client may act as there. */
+        ConsentOption: {
+            /** @description The scopes it may have acting as one of them: read and write. */
+            agent_scopes: components["schemas"]["Scope"][];
+            /** @description The person's agents here that work, which it may act as. */
+            agents: components["schemas"]["Agent"][];
+            /**
+             * @description Whether it may act as an agent here: `mcp.identities` and the workspace's agent
+             *     switch allow it, and the person is no guest.
+             */
+            agents_on: boolean;
+            /**
+             * Format: int32
+             * @example 250
+             */
+            hue: number;
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @example Design */
+            name: string;
+            /**
+             * @description The scopes the client may have acting as the person; absent while `mcp.identities`
+             *     leaves acting as the person out.
+             */
+            person_scopes?: components["schemas"]["Scope"][] | null;
+            /** @description The person's role there. */
+            role: components["schemas"]["WorkspaceRole"];
+            /** @example design */
+            slug: string;
         };
         /**
          * @description A cover drawn from the theme's tokens: a hue, or a gradient between two, at the
@@ -2535,6 +3072,13 @@ export interface components {
             cover?: components["schemas"]["Cover"] | null;
             /** @description An emoji or up to 16 characters of text. */
             icon?: string | null;
+            /**
+             * @description Its content, as markdown; an empty page when absent.
+             * @example ## Goals
+             *
+             *     - Ship it
+             */
+            markdown?: string | null;
             /**
              * Format: uuid
              * @description The page to put it under, in this workspace. Name this, `teamspace_id` or `private`.
@@ -2773,11 +3317,64 @@ export interface components {
             /** @description The last 50, newest first. */
             attempts: components["schemas"]["DeliveryAttempt"][];
         };
+        /** @description The person's refusal: the request. */
+        DenyConsent: {
+            request: components["schemas"]["AuthorizationParams"];
+        };
         /** @enum {string} */
         Direction: "ascending" | "descending";
         DuplicateView: {
             /** @description The copy's name; the view's with ` (copy)` when absent. */
             name?: string | null;
+        };
+        /**
+         * @description One change to a page's blocks. Markdown may hold the lines naming blocks that reading
+         *     it gives; they are left out.
+         */
+        EditOperation: {
+            markdown: string;
+            /** @enum {string} */
+            op: "append";
+        } | {
+            block_id: string;
+            markdown: string;
+            /** @enum {string} */
+            op: "insert_after";
+        } | {
+            from: string;
+            markdown?: string;
+            /** @enum {string} */
+            op: "replace_range";
+            to?: string | null;
+        } | {
+            all?: boolean;
+            find: string;
+            /** @enum {string} */
+            op: "find_replace";
+            replace: string;
+        } | {
+            markdown: string;
+            /** @enum {string} */
+            op: "replace_body";
+        };
+        EditPage: {
+            /** @description Made in order, all or none: 1 to 50. */
+            operations: components["schemas"]["EditOperation"][];
+        };
+        /** @description What one operation did. */
+        EditResult: {
+            /** @description The ids of the blocks it added, in order, those under them left out. */
+            added: string[];
+            /** @description How many blocks it removed, those under them left out. */
+            removed: number;
+            /** @description How many times it replaced the text it was to find. */
+            replaced: number;
+        };
+        /** @description What an edit did. */
+        EditedPage: {
+            page: components["schemas"]["Page"];
+            /** @description What each operation did, in order. */
+            results: components["schemas"]["EditResult"][];
         };
         /** @description The limits that hold for a workspace; absent is no limit. */
         EffectiveLimits: {
@@ -3259,6 +3856,24 @@ export interface components {
          * @enum {string}
          */
         NumberFormat: "plain" | "integer" | "percent" | "currency";
+        /** @description An error as OAuth's endpoints answer it (RFC 6749, section 5.2). */
+        OAuthErrorBody: {
+            /**
+             * @description Such as `invalid_grant` or `invalid_redirect_uri`.
+             * @example invalid_grant
+             */
+            error: string;
+            /**
+             * @description What went wrong, for whoever reads the client's logs.
+             * @example the code expired
+             */
+            error_description: string;
+        };
+        /**
+         * @description What the resource a client asked for is.
+         * @enum {string}
+         */
+        OAuthResource: "mcp" | "api";
         /**
          * @description How a condition compares a row's value with its own; which a property takes depends on
          *     its type, as the databases reference lists.
@@ -3371,6 +3986,18 @@ export interface components {
          * @enum {string}
          */
         PageKind: "page" | "database" | "row";
+        /** @description A page's content as markdown. */
+        PageMarkdown: {
+            /**
+             * @description Its blocks as markdown, each after a line `<!-- block <id> -->` that names it.
+             * @example <!-- block 0193a5b2-0000-7000-8000-0000000000b1 -->
+             *     # Plan
+             */
+            markdown: string;
+            page: components["schemas"]["Page"];
+            /** @description For a row: each property of its database, in order, with the row's value. */
+            properties?: components["schemas"]["RowProperty"][] | null;
+        };
         /** @description How a page is set. */
         PageStyle: {
             font: components["schemas"]["Font"];
@@ -3558,6 +4185,11 @@ export interface components {
             /** @description Newest first. */
             invitations: components["schemas"]["ReceivedInvitation"][];
         };
+        /** @description The pages last changed. */
+        RecentList: {
+            /** @description The most recently changed first. */
+            pages: components["schemas"]["Page"][];
+        };
         RegisterRequest: {
             /** @description The address's local part when absent. */
             display_name?: string | null;
@@ -3577,6 +4209,21 @@ export interface components {
             must_verify: boolean;
             user: components["schemas"]["User"];
         };
+        /** @description A registered client. */
+        RegisteredClient: {
+            client_id: string;
+            /**
+             * Format: int64
+             * @description When it registered, in seconds since 1970.
+             */
+            client_id_issued_at: number;
+            client_name: string;
+            grant_types: string[];
+            redirect_uris: string[];
+            response_types: string[];
+            /** @description Always `none`. */
+            token_endpoint_auth_method: string;
+        };
         /**
          * @description Who may create an account.
          * @enum {string}
@@ -3587,6 +4234,16 @@ export interface components {
             password: string;
             /** @description The token in the link. */
             token: string;
+        };
+        /**
+         * @description A request to revoke a token, a form (RFC 7009). A `token_type_hint` may come along;
+         *     the token is looked up whatever it says.
+         */
+        RevokeForm: {
+            /** @description The client the token was issued to. */
+            client_id: string | null;
+            /** @description An access token or a refresh token. */
+            token: string | null;
         };
         Revoked: {
             /**
@@ -3663,6 +4320,21 @@ export interface components {
              *     other member, get no person values, nor who made or changed a row.
              */
             values: Record<string, never>;
+        };
+        /** @description A property of a row's database, with the row's value of it. */
+        RowProperty: {
+            /** Format: uuid */
+            id: string;
+            /** @example Status */
+            name: string;
+            /**
+             * @description The value as people read it: options and people by name, numbers in their format;
+             *     null without one.
+             * @example In progress
+             */
+            text?: string | null;
+            type: components["schemas"]["PropertyKind"];
+            value?: components["schemas"]["Value"] | null;
         };
         /**
          * @description What an API token may do: `read`, `write`, or the admin pages' work, `admin`.
@@ -3850,6 +4522,26 @@ export interface components {
          * @enum {string}
          */
         TargetKind: "database" | "page";
+        /** @description A row assigned to the caller. */
+        Task: {
+            /** @description Its database's title, absent when the caller sees the row alone. */
+            database_title?: string | null;
+            row: components["schemas"]["Row"];
+            status?: components["schemas"]["TaskStatus"] | null;
+        };
+        /** @description The rows assigned to the caller. */
+        TaskList: {
+            /** @description The most recently changed first, at most 100. */
+            tasks: components["schemas"]["Task"][];
+        };
+        /** @description A status option, as a task holds it. */
+        TaskStatus: {
+            group?: components["schemas"]["StatusGroup"] | null;
+            /** Format: uuid */
+            id: string;
+            /** @example In progress */
+            name: string;
+        };
         /** @description A teamspace the caller may see. */
         Teamspace: {
             access: components["schemas"]["TeamspaceAccess"];
@@ -3941,10 +4633,48 @@ export interface components {
             /** Format: uuid */
             view_id: string;
         };
+        /** @description A request to the token endpoint, a form. */
+        TokenForm: {
+            /** @description The client, which public clients name to identify themselves. */
+            client_id: string | null;
+            /** @description For `authorization_code`: the code. */
+            code?: string | null;
+            /** @description For `authorization_code`: the PKCE verifier. */
+            code_verifier?: string | null;
+            /** @description `authorization_code` or `refresh_token`. */
+            grant_type: string | null;
+            /** @description For `authorization_code`: the redirect URI the code was given to. */
+            redirect_uri?: string | null;
+            /** @description For `refresh_token`: the refresh token, which works once. */
+            refresh_token?: string | null;
+            /** @description The resource the tokens are for (RFC 8707): the one the authorization asked for. */
+            resource?: string | null;
+            /** @description For `refresh_token`: fewer scopes than the refresh token had. */
+            scope?: string | null;
+        };
         /** @description The body of routes that take a token from a mailed link. */
         TokenRequest: {
             /** @description The token in the link. */
             token: string;
+        };
+        /** @description What the token endpoint gives. */
+        TokenResponse: {
+            /** @description `nwo_` and 43 characters: send it as `Authorization: Bearer`. */
+            access_token: string;
+            /**
+             * Format: int64
+             * @description Seconds until the access token stops working.
+             */
+            expires_in: number;
+            /** @description `nwr_` and 43 characters: works once, for a new access token and refresh token. */
+            refresh_token: string;
+            /**
+             * @description The scopes granted, space-separated.
+             * @example read write
+             */
+            scope: string;
+            /** @description `Bearer`. */
+            token_type: string;
         };
         TransferAgent: {
             /**
@@ -4239,6 +4969,15 @@ export interface components {
             secret: string;
             webhook: components["schemas"]["Webhook"];
         };
+        /** @description Whom a request acts as, and what it may do. */
+        WhoAmI: {
+            credential: components["schemas"]["CredentialKind"];
+            /** @description A person, or an agent or integration with the person it acts for. */
+            identity: components["schemas"]["Person"];
+            /** @description A session has every scope its role allows; a token, its own. */
+            scopes: components["schemas"]["Scope"][];
+            workspace?: components["schemas"]["BoundWorkspace"] | null;
+        };
         /** @description A workspace the caller is in. */
         Workspace: components["schemas"]["WorkspaceSummary"] & {
             agents: components["schemas"]["WorkspaceAgents"];
@@ -4347,6 +5086,110 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_connected_apps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connected apps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectedAppList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope, or token_bound. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    disconnect_app: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The connected app's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not a browser session. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_favorites: {
         parameters: {
             query?: {
@@ -7644,6 +8487,174 @@ export interface operations {
             };
         };
     };
+    change_row_by_unique_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The row's unique id, such as NW-42. */
+                unique_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeRow"];
+            };
+        };
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: not a unique id of this database, or the values as for `PATCH /rows/{id}`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden, as for `PATCH /rows/{id}`; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database, or no row of it has the id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description limit_reached: the row's values would take more than 64 KiB. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    claim_row_by_unique_id: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The person property to name the caller in, by id or name; the database's first
+                 *     person property when absent.
+                 */
+                person_property?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The database's id. */
+                id: string;
+                /** @description The row's unique id, such as NW-42. */
+                unique_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row, claimed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: not a unique id of this database, or as for `POST /rows/{id}/claim`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden, as for `POST /rows/{id}/claim`; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: the database, or no row of it has the id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description already_claimed, naming who holds it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     create_view: {
         parameters: {
             query?: never;
@@ -8053,6 +9064,401 @@ export interface operations {
             };
         };
     };
+    authorize: {
+        parameters: {
+            query?: {
+                /** @description `code`. */
+                response_type?: string;
+                client_id?: string;
+                /** @description One the client registered, exactly, but for the port of a loopback address. */
+                redirect_uri?: string;
+                /** @description The PKCE challenge: the verifier's SHA-256, in base64url without padding. */
+                code_challenge?: string;
+                /** @description `S256`; `plain` is refused. */
+                code_challenge_method?: string;
+                /** @description Scopes asked for, space-separated: `read`, `write`, `admin`. The person chooses. */
+                scope?: string;
+                /** @description Sent back as it is; at most 1024 printable ASCII characters. */
+                state?: string;
+                /**
+                 * @description The resource the tokens are for (RFC 8707): `<public URL>/mcp`, the default, or
+                 *     `<public URL>/api/v1`.
+                 */
+                resource?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the consent page, with the request or `error`. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorizationParams"];
+            };
+        };
+        responses: {
+            /** @description What the page offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentInfo"];
+                };
+            };
+            /** @description The request's problem: duplicate_parameter, missing_client_id, unknown_client, missing_redirect_uri, redirect_uri_mismatch, unsupported_response_type, pkce_required, invalid_code_challenge, invalid_scope, invalid_state or invalid_target. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not a browser session. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveConsent"];
+            };
+        };
+        responses: {
+            /** @description Where the browser goes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecision"];
+                };
+            };
+            /** @description The request's problem, as for /oauth/consent, or invalid_scope. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden, or identity_unavailable: acting as that identity is off, or the agent does not work. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace or agent. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deny_consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DenyConsent"];
+            };
+        };
+        responses: {
+            /** @description Where the browser goes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecision"];
+                };
+            };
+            /** @description The request's problem, as for /oauth/consent. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not a browser session. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    register_client: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientRegistration"];
+            };
+        };
+        responses: {
+            /** @description The client. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisteredClient"];
+                };
+            };
+            /** @description invalid_redirect_uri or invalid_client_metadata. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description registration_off. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_client_metadata: a body larger than 64 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description rate_limited, with Retry-After; or too_many_clients: too many clients registered from the same address, or IPv6 /64, wait unconnected. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description temporarily_unavailable: too many clients wait unconnected. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_oauth_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["RevokeForm"];
+            };
+        };
+        responses: {
+            /** @description Revoked, or nothing to revoke. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_request: a form larger than 16 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+        };
+    };
+    issue_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["TokenForm"];
+            };
+        };
+        responses: {
+            /** @description The tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description invalid_request, invalid_grant, invalid_scope, invalid_target or unsupported_grant_type. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_request: a form larger than 16 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+        };
+    };
     get_page: {
         parameters: {
             query?: never;
@@ -8374,6 +9780,173 @@ export interface operations {
                 };
             };
             /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_markdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page and its markdown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageMarkdown"];
+                };
+            };
+            /** @description invalid_input: a database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    edit_markdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditPage"];
+            };
+        };
+        responses: {
+            /** @description What each operation did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditedPage"];
+                };
+            };
+            /** @description invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description document_too_large: the page would grow past what it holds. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many edits of pages' content; Retry-After says when to try again. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unavailable: the server is stopping. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9005,6 +10578,89 @@ export interface operations {
             };
         };
     };
+    claim_row: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The person property to name the caller in, by id or name; the database's first
+                 *     person property when absent.
+                 */
+                person_property?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The row's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row, claimed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Row"];
+                };
+            };
+            /** @description invalid_input: the database has no person property, or none of that name, or no status property with an option in progress. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the row and does not edit it, it is in the trash, or the caller is a guest; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description already_claimed: the person property names someone already, whom the message names with their ids. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     move_row: {
         parameters: {
             query?: never;
@@ -9227,6 +10883,53 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    whoami: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whom the request acts as. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhoAmI"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10303,6 +12006,124 @@ export interface operations {
                 };
             };
             /** @description not_found: no such agent or member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_workspace_apps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connected apps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectedAppList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    disconnect_workspace_app: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The connected app's id. */
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11804,6 +13625,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description document_too_large: the markdown makes a page larger than one holds. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -12009,6 +13839,77 @@ export interface operations {
             };
         };
     };
+    recent_pages: {
+        parameters: {
+            query?: {
+                /** @description Pages in the list, 1 to 50; 50 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecentList"];
+                };
+            };
+            /** @description invalid_input: a limit out of bounds. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, or one the caller is not in. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     shared_pages: {
         parameters: {
             query?: {
@@ -12063,6 +13964,65 @@ export interface operations {
                 };
             };
             /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such workspace, or one the caller is not in. */
             404: {
                 headers: {
                     [name: string]: unknown;

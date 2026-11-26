@@ -61,7 +61,7 @@ pub use operations::{Location, NewPage, PageUpdate};
 pub(crate) use operations::{Target, in_workspace};
 pub use outlines::{OutlinePage, TeamspaceOutline};
 pub use shares::ListedShare;
-pub use trees::{MAX_LIST, TrashList, Tree, TreePage};
+pub use trees::{MAX_LIST, MAX_RECENT, TrashList, Tree, TreePage};
 
 /// RED subsystem of the page use cases.
 pub const SUBSYSTEM: &str = "pages";

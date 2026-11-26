@@ -1,4 +1,5 @@
-//! Signing in and out, and recognising a session or an API token on each request.
+//! Signing in and out, and recognising a session, an API token or an OAuth access token on
+//! each request.
 
 use neon_domain::agents::IdentityMode;
 use neon_domain::auth::email::{self, MAX_EMAIL_LENGTH};
@@ -6,6 +7,7 @@ use neon_domain::auth::password::MAX_PASSWORD_BYTES;
 use neon_domain::auth::session::{TOUCH_INTERVAL, truncate_user_agent};
 use neon_domain::auth::token::API_TOKEN_PREFIX;
 use neon_domain::auth::{Credential, Principal, Session, User};
+use neon_domain::oauth::ACCESS_TOKEN_PREFIX;
 use neon_domain::settings::Secret;
 use neon_store::api_tokens::Found;
 use neon_store::{api_tokens, sessions, users};
@@ -14,10 +16,11 @@ use uuid::Uuid;
 
 use super::{AuthError, AuthService, require_session};
 use crate::crypto::{hash_secret, new_secret};
+use crate::oauth::access;
 use crate::ratelimit::Bucket;
 use crate::settings::mcp;
 
-/// The longest session or API token read. Longer text matches nothing.
+/// The longest session, API token or OAuth access token read. Longer text matches nothing.
 const MAX_CREDENTIAL: usize = 128;
 
 #[derive(Debug, Clone)]
@@ -214,7 +217,11 @@ impl AuthService {
                 }
                 Credential::Token { id, .. } => match api_tokens::by_id(self.pool(), *id).await? {
                     Some(found) if self.token_works(&found, now) => Ok(token_principal(found)),
-                    _ => Err(AuthError::Unauthenticated),
+                    Some(_) => Err(AuthError::Unauthenticated),
+                    // Not an API token: an OAuth access token, or nothing any more.
+                    None => access::recheck(self.pool(), &self.settings(), *id, now)
+                        .await?
+                        .ok_or(AuthError::Unauthenticated),
                 },
             }
         })
@@ -225,9 +232,21 @@ impl AuthService {
     /// person, or an agent, acting as itself for its owner. An agent's token works only
     /// while the agent does: not deleted, its owner a member of its workspace who can sign
     /// in, and agents on, on the instance and in the workspace.
+    ///
+    /// An OAuth access token gives the same principal as an API token bound to its grant's
+    /// workspace, acting as the person who consented or the agent they chose, while the
+    /// grant works; see [`oauth`](crate::oauth).
     pub async fn authenticate_token(&self, token: &str) -> Result<Principal, AuthError> {
         self.observe("authenticate_token", async {
-            if !token.starts_with(API_TOKEN_PREFIX) || token.len() > MAX_CREDENTIAL {
+            if token.len() > MAX_CREDENTIAL {
+                return Err(AuthError::Unauthenticated);
+            }
+            if token.starts_with(ACCESS_TOKEN_PREFIX) {
+                return access::authenticate(self.pool(), &self.settings(), token, self.now())
+                    .await?
+                    .ok_or(AuthError::Unauthenticated);
+            }
+            if !token.starts_with(API_TOKEN_PREFIX) {
                 return Err(AuthError::Unauthenticated);
             }
             let found = api_tokens::by_token_hash(self.pool(), &hash_secret(token)).await?;

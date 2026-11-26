@@ -7,6 +7,7 @@ use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, Space, check_title,
 };
 use neon_domain::workspaces::{Action, PageSpace, Resource, check_icon};
+use neon_store::documents::{self, NewSnapshot};
 use neon_store::pages::{self as repo, Move, Restore, Siblings};
 use neon_store::{teamspaces, workspaces};
 use sqlx::PgConnection;
@@ -14,8 +15,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    AccessChange, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView,
-    check_parent, check_space,
+    AccessChange, ImportedContent, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService,
+    PageView, check_parent, check_space,
 };
 use crate::databases::events::{self, RowChange};
 use crate::standing::Standing;
@@ -36,6 +37,8 @@ pub struct NewPage {
     pub icon: Option<String>,
     pub cover: Option<Cover>,
     pub style: PageStyle,
+    /// Its document's first snapshot; `None` for an empty page.
+    pub content: Option<ImportedContent>,
 }
 
 /// What a change to a page sets. Each part left out stays as it is; for the icon and the
@@ -106,11 +109,15 @@ impl PageService {
                 trashed_with: None,
             };
             repo::insert(&mut *tx, &page).await?;
+            if let Some(content) = &new.content {
+                save_content(&mut tx, page.id, content, now).await?;
+            }
             tx.commit().await?;
             info!(
                 user_id = %user,
                 workspace_id = %workspace_id,
                 page_id = %page.id,
+                content = new.content.is_some(),
                 "page created"
             );
             // Whoever may add a page somewhere edits what is there, and sees it.
@@ -603,4 +610,27 @@ pub(super) async fn teamspace_space(
         access: teamspace.access,
         membership: teamspaces::member_role(&mut *conn, teamspace_id, user).await?,
     })
+}
+
+/// Saves a new page's content as its document's first snapshot, and its text as the
+/// page's search text, on the transaction that makes the page.
+pub(crate) async fn save_content(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+    content: &ImportedContent,
+    at: time::OffsetDateTime,
+) -> Result<(), PageError> {
+    documents::save_snapshot(
+        &mut *conn,
+        page_id,
+        NewSnapshot {
+            state: &content.state,
+            state_vector: &content.state_vector,
+            last_seq: 0,
+            at,
+        },
+    )
+    .await?;
+    documents::set_content(&mut *conn, page_id, Some(&content.text), None).await?;
+    Ok(())
 }

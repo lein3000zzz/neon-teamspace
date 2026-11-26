@@ -579,6 +579,25 @@ pub async fn purge_trash(
     .collect())
 }
 
+/// A workspace's pages and databases out of the trash, rows left out, most recently changed
+/// first, at most `limit`.
+pub async fn recent(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT id FROM pages
+         WHERE workspace_id = $1 AND trashed_at IS NULL AND kind <> 'row'
+         ORDER BY GREATEST(updated_at, content_updated_at) DESC, id
+         LIMIT $2",
+        workspace_id,
+        limit,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Which of `ids` are `root` or under it, or no longer exist: the pages a change to
 /// `root` and the pages under it may concern, of those open.
 pub async fn within(

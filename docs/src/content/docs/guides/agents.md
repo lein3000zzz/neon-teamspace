@@ -4,10 +4,11 @@ description: What an agent is, who makes one, how its access is its own and its 
 ---
 
 An agent is a member of a workspace that acts for a person there, its **owner**. It works
-through API tokens its owner makes, and later over MCP too. It is how a team gives a
-program a seat in a workspace, beside the people, under the same rules. Its pages in the web
-app are under [Agents](/docs/workspace-settings/agents/), and who may do what is listed on
-the [permissions](/docs/reference/permissions/#agents) page.
+through API tokens its owner makes, or through apps its owner connects as it over
+[OAuth](/docs/guides/oauth/), over the API or [over MCP](/docs/guides/agents-over-mcp/). It
+is how a team gives a program a seat in a workspace, beside the people, under the same rules.
+Its pages in the web app are under [Agents](/docs/workspace-settings/agents/), and who may do
+what is listed on the [permissions](/docs/reference/permissions/#agents) page.
 
 ## What an agent is
 
@@ -103,12 +104,13 @@ work: a suspended, turned off or deleted agent gets none.
 The workspace's owners and admins hand an agent to another person of the workspace, neither
 a guest nor disabled, with `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer`. It
 acts for its new owner from then on, which resumes it if it was suspended, and its tokens
-are revoked: its former owner made them, and they would otherwise act for the new owner.
+and the apps connected as it are revoked: its former owner made them, and they would
+otherwise act for the new owner.
 
 Its owner renames it and changes its hue with `PATCH /api/v1/workspaces/{id}/agents/{agent_id}`.
 Its owner, or the workspace's owners and admins, delete it with `DELETE` on the same path.
 A deleted agent leaves the workspace and its teamspaces, its shares and favorites go, and
-its tokens are revoked, the connections they opened closing at once; its identity stays, so
+its tokens and the apps connected as it are revoked, the connections they opened closing at once; its identity stays, so
 what it made still names it, as deleted.
 
 ## How agents are named
