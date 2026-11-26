@@ -2,7 +2,7 @@
 //! socket: initializing, the tools listed and each called, resources listed, read and
 //! subscribed to with a notification after another client's change, the gate's refusals,
 //! the bounds on sessions, a session ending when its agent is suspended or its token
-//! revoked, a person's token beside an agent's and one across the instance, concurrent
+//! revoked or expired, a person's token beside an agent's and one across the instance, concurrent
 //! claims, and an edit merging with a page-sync client typing.
 
 use std::sync::Arc;
@@ -898,6 +898,7 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
     // A session with no request and no stream ends once idle; one listening stays.
     set(&state, "mcp.session_idle_timeout", json!("1s")).await;
     let auth = format!("Bearer {token}");
+    let started = Instant::now();
     let (status, opened, body) = raw(
         &app,
         Method::POST,
@@ -910,12 +911,12 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
     let listening = Client::connect(&server, &bound_token(&t.dee, &ws, &["read"]).await)
         .await
         .expect("connects");
-    let started = Instant::now();
     eventually("the idle session to end", || async {
         state.mcp.session_count() == 1
     })
     .await;
-    assert!(started.elapsed() >= Duration::from_millis(900));
+    // It opened after `started`, and was idle from then on.
+    assert!(started.elapsed() >= Duration::from_secs(1));
     let (status, _, _) = raw(
         &app,
         Method::POST,
@@ -933,7 +934,7 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_session_ends_at_once_when_what_it_acts_as_stops_working(pool: PgPool) {
-    let state = state(pool).await;
+    let state = state(pool.clone()).await;
     let app = router(state.clone(), false);
     let server = Server::start(app.clone()).await;
     let t = team(&state, &app).await;
@@ -1020,6 +1021,37 @@ async fn a_session_ends_at_once_when_what_it_acts_as_stops_working(pool: PgPool)
     })
     .await;
     bob.close().await;
+
+    // A token that expires tells nobody: its next request is refused, and its session
+    // ends then.
+    let token = bound_token(&t.dee, &ws, &["read"]).await;
+    let auth = format!("Bearer {token}");
+    let (status, opened, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &auth)],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let session = opened["mcp-session-id"].to_str().expect("an id").to_owned();
+    assert_eq!(state.mcp.session_count(), 1);
+    sqlx::query("UPDATE api_tokens SET expires_at = now() - interval '1 second'")
+        .execute(&pool)
+        .await
+        .expect("expired");
+    let (status, _, _) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &auth), ("mcp-session-id", &session)],
+        Some(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    eventually("the expired token's session to end", || async {
+        state.mcp.session_count() == 0
+    })
+    .await;
     finish(&state, server).await;
 }
 

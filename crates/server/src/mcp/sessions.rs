@@ -13,14 +13,16 @@
 //! - **Idle sessions** end: once a session has no request in flight and no stream open for
 //!   `mcp.session_idle_timeout`, it ends with its subscriptions. An open stream counts as
 //!   use, as its client listens; one whose connection broke closes as the transport's pings
-//!   fail.
+//!   fail. A session the transport made for an `initialize` whose client went away before
+//!   the answer is bound to nobody, and ends after [`UNBOUND`].
 //! - **Access.** Every access change that may concern a session's identity, a token revoked,
 //!   an account disabled, a member removed, an agent's owner leaving, agents switched off,
 //!   makes the watcher look again at once: the session ends when its token no longer works,
 //!   its identity is no longer in the workspace, or MCP clients may no longer act as it, and
-//!   each subscription whose resource it no longer sees drops.
-//!   Every [`REVALIDATE`] it looks so at every session, for what no change tells of, such
-//!   as a token expiring.
+//!   each subscription whose resource it no longer sees drops. A request on a session that
+//!   the gate refuses makes it look again at that session, so one whose token expired ends
+//!   at its next request. Every [`REVALIDATE`] it looks so at every session, for what no
+//!   change tells of.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -56,6 +58,10 @@ use super::watch::Watch;
 
 /// How often every session is looked at again, as an access change would make it.
 pub(crate) const REVALIDATE: Duration = Duration::from_secs(300);
+
+/// How long a session the transport made may stay bound to nobody: its `initialize` is
+/// answered at once, so one older than this lost its client before the answer.
+pub(crate) const UNBOUND: Duration = Duration::from_secs(60);
 
 /// How many sessions the watcher looks at again at once.
 const RECHECKS_AT_ONCE: usize = 8;
@@ -102,8 +108,14 @@ pub(crate) enum SessionFailure {
 pub(crate) struct Sessions {
     services: Services,
     config: SessionConfig,
-    workers: Mutex<HashMap<SessionId, LocalSessionHandle>>,
+    workers: Mutex<HashMap<SessionId, Worker>>,
     state: Mutex<State>,
+}
+
+/// One of the transport's session workers, and when it was made.
+struct Worker {
+    handle: LocalSessionHandle,
+    made: Instant,
 }
 
 #[derive(Default)]
@@ -137,6 +149,27 @@ impl State {
         metrics::gauge!(OPEN_SESSIONS).set(self.bound.len() as f64);
         metrics::gauge!(SUBSCRIPTIONS).set(self.subscriptions() as f64);
     }
+
+    /// The sessions to end at `now`: those idle for `idle`, those whose worker stopped, and
+    /// workers bound to nobody for [`UNBOUND`].
+    fn gone(
+        &self,
+        workers: &HashMap<SessionId, Worker>,
+        now: Instant,
+        idle: Duration,
+    ) -> Vec<SessionId> {
+        let ended = self.bound.iter().filter(|(id, binding)| {
+            !workers.contains_key(*id)
+                || (binding.active == 0 && now.duration_since(binding.seen) >= idle)
+        });
+        let unbound = workers.iter().filter(|(id, worker)| {
+            !self.bound.contains_key(*id) && now.duration_since(worker.made) >= UNBOUND
+        });
+        ended
+            .map(|(id, _)| id.clone())
+            .chain(unbound.map(|(id, _)| id.clone()))
+            .collect()
+    }
 }
 
 /// A session's identity, use and subscriptions.
@@ -146,6 +179,8 @@ struct Binding {
     seen: Instant,
     /// Requests in flight and streams open.
     active: usize,
+    /// A refused request made the watcher look again at it, and it has not finished.
+    checking: bool,
     watches: HashMap<String, Watch>,
 }
 
@@ -170,6 +205,7 @@ impl Opening {
                     principal,
                     seen: Instant::now(),
                     active: 0,
+                    checking: false,
                     watches: HashMap::new(),
                 },
             );
@@ -226,7 +262,7 @@ impl Sessions {
         sessions
     }
 
-    fn workers(&self) -> MutexGuard<'_, HashMap<SessionId, LocalSessionHandle>> {
+    fn workers(&self) -> MutexGuard<'_, HashMap<SessionId, Worker>> {
         self.workers.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -237,7 +273,7 @@ impl Sessions {
     fn handle(&self, id: &SessionId) -> Result<LocalSessionHandle, SessionFailure> {
         self.workers()
             .get(id)
-            .cloned()
+            .map(|worker| worker.handle.clone())
             .ok_or(SessionFailure::NotFound)
     }
 
@@ -291,6 +327,27 @@ impl Sessions {
         })
     }
 
+    /// Looks again at session `id`, if there is one, as the gate refused a request on it:
+    /// its token may have expired, or its identity lost the workspace. One look at a time.
+    pub(crate) fn look_again_soon(self: &Arc<Self>, id: &str) {
+        let principal = {
+            let mut state = self.state();
+            let Some(binding) = state.bound.get_mut(id).filter(|binding| !binding.checking) else {
+                return;
+            };
+            binding.checking = true;
+            binding.principal.clone()
+        };
+        let sessions = Arc::clone(self);
+        let id = SessionId::from(id);
+        tokio::spawn(async move {
+            sessions.look_again(id.clone(), principal).await;
+            if let Some(binding) = sessions.state().bound.get_mut(&id) {
+                binding.checking = false;
+            }
+        });
+    }
+
     /// Adds a subscription to session `id`, in place of one to the same resource.
     pub(crate) fn subscribe(&self, id: &str, watch: Watch) -> Result<(), ToolError> {
         let mut state = self.state();
@@ -320,11 +377,11 @@ impl Sessions {
 
     /// Ends a session: its worker, its streams and its subscriptions.
     async fn end(&self, id: &SessionId) {
-        let handle = self.workers().remove(id);
+        let worker = self.workers().remove(id);
         let binding = self.state().bound.remove(id);
-        if let Some(handle) = handle {
+        if let Some(worker) = worker {
             // A worker that stopped already has nothing more to close.
-            let _ = handle.close().await;
+            let _ = worker.handle.close().await;
         }
         if binding.is_some() {
             info!("MCP session ended");
@@ -340,21 +397,12 @@ impl Sessions {
         }
     }
 
-    /// Ends the sessions idle for `idle`, and forgets those whose worker stopped.
+    /// Ends the sessions idle for `idle` and the workers bound to nobody, and forgets those
+    /// whose worker stopped.
     async fn sweep(&self, idle: Duration) {
-        let now = Instant::now();
-        let gone: Vec<SessionId> = {
+        let gone = {
             let workers = self.workers();
-            let state = self.state();
-            state
-                .bound
-                .iter()
-                .filter(|(id, binding)| {
-                    !workers.contains_key(*id)
-                        || (binding.active == 0 && now.duration_since(binding.seen) >= idle)
-                })
-                .map(|(id, _)| id.clone())
-                .collect()
+            self.state().gone(&workers, Instant::now(), idle)
         };
         for id in gone {
             self.end(&id).await;
@@ -516,7 +564,8 @@ impl SessionManager for Sessions {
     async fn create_session(&self) -> Result<(SessionId, Self::Transport), Self::Error> {
         let id = session_id();
         let (handle, worker) = create_local_session(id.clone(), self.config.clone());
-        self.workers().insert(id.clone(), handle);
+        let made = Instant::now();
+        self.workers().insert(id.clone(), Worker { handle, made });
         Ok((id, WorkerTransport::spawn(worker)))
     }
 
@@ -573,5 +622,91 @@ impl SessionManager for Sessions {
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
         let receiver = self.handle(id)?.resume(last_event_id.parse()?).await?;
         Ok(ReceiverStream::new(receiver.inner))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use neon_domain::auth::{Credential, Role, User, UserKind};
+    use time::OffsetDateTime;
+
+    use super::*;
+
+    fn principal() -> Principal {
+        let at = OffsetDateTime::UNIX_EPOCH;
+        Principal {
+            user: User {
+                id: Uuid::from_u128(1),
+                kind: UserKind::Human,
+                email: None,
+                display_name: "Ada".into(),
+                role: Role::User,
+                hue_override: None,
+                email_verified_at: None,
+                disabled_at: None,
+                created_at: at,
+                updated_at: at,
+                workspace_id: None,
+                owner_id: None,
+            },
+            credential: Credential::Token {
+                id: Uuid::from_u128(2),
+                name: "mcp".into(),
+                scopes: Vec::new(),
+                workspace_id: Some(Uuid::from_u128(3)),
+            },
+        }
+    }
+
+    fn worker(id: &str, made: Instant) -> (SessionId, Worker) {
+        let (handle, _) = create_local_session(id, SessionConfig::default());
+        (SessionId::from(id), Worker { handle, made })
+    }
+
+    fn binding(seen: Instant, active: usize) -> Binding {
+        Binding {
+            principal: principal(),
+            seen,
+            active,
+            checking: false,
+            watches: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_sweep_ends_idle_sessions_stopped_workers_and_workers_nobody_bound() {
+        let idle = Duration::from_secs(30);
+        let start = Instant::now();
+        let now = start + UNBOUND + idle;
+        let workers: HashMap<SessionId, Worker> = [
+            worker("busy", start),
+            worker("idle", start),
+            worker("listening", start),
+            worker("lost", start),
+            worker("opening", now - UNBOUND / 2),
+        ]
+        .into_iter()
+        .collect();
+        let mut state = State::default();
+        for (id, seen, active) in [
+            ("busy", now - idle / 2, 0),
+            ("idle", now - idle, 0),
+            ("listening", start, 1),
+            ("stopped", now, 0),
+        ] {
+            state
+                .bound
+                .insert(SessionId::from(id), binding(seen, active));
+        }
+
+        let mut gone: Vec<String> = state
+            .gone(&workers, now, idle)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        gone.sort();
+        // Busy was seen within the idle time, listening holds a stream open, and opening
+        // waits for its answer still.
+        assert_eq!(gone, ["idle", "lost", "stopped"]);
     }
 }

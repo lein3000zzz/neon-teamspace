@@ -68,7 +68,8 @@ the session.
 - **Every request authenticates.** Each carries the token, and the server checks it every
   time. It refuses a token revoked or expired, an agent suspended, and an identity no
   longer in the workspace at once. It also ends their sessions as soon as one of those
-  happens, without waiting for a request, and closes their streams.
+  happens, without waiting for a request, and closes their streams. A token that expires
+  tells nobody, so its session ends at its next request, which is refused.
 - **A session is its identity's.** A request on a session with another identity's token,
   or for another workspace, gets `404`, as for a session that ended. A new token of the same
   identity carries on with the session.

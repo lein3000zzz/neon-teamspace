@@ -104,9 +104,10 @@ DNS rebinding, the server refuses with `403` a request whose `Origin` is not its
 Each session belongs to the identity and workspace that opened it, and another identity's
 request on it finds no session. The server checks the token on every request. It ends a
 session as soon as an access change shows its token stopped working, its agent is
-suspended, or its identity left the workspace. Every five minutes it also looks again at
-every session, for what no change tells of, such as an expiry. Sessions have bounds
-overall and per identity, and end when idle. The
+suspended, or its identity left the workspace. A refused request on a session makes it look
+again at that session, so one whose token expired ends at its next request. Every five
+minutes it also looks again at every session, for what no change tells of. Sessions have
+bounds overall and per identity, and end when idle. The
 [MCP guide](/docs/guides/agents-over-mcp/#what-a-connection-is) lists the bounds.
 
 ## Cross-site requests

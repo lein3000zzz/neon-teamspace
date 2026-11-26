@@ -11,7 +11,8 @@
 //!   and is authenticated as the API routes authenticate it; a session cookie is not taken.
 //!   One without a working token gets 401 and a `WWW-Authenticate` header naming the
 //!   protected resource's metadata. The token must be bound to one workspace, as an agent's
-//!   always is, and the server acts in that workspace alone.
+//!   always is, and the server acts in that workspace alone. A refused request on a session
+//!   has the session looked at again, which ends it when its own token no longer works.
 //! - **Sessions** are this process's, each bound to the identity that opened it: a request
 //!   on a session from another identity, or for another workspace, finds no session. They
 //!   are bounded overall and per identity, end once idle, and end at once when what they
@@ -192,12 +193,23 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
                 .into_response();
         }
     }
+    let session = headers
+        .get(HEADER_SESSION_ID)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let principal = match authenticate(&state, headers).await {
         Ok(principal) => principal,
-        Err(refusal) if refusal.status() == StatusCode::UNAUTHORIZED => {
-            return challenge(&state, headers, refusal);
+        Err(refusal) => {
+            if let Some(id) = &session
+                && !refusal.status().is_server_error()
+            {
+                mcp.inner.sessions.look_again_soon(id);
+            }
+            if refusal.status() == StatusCode::UNAUTHORIZED {
+                return challenge(&state, headers, refusal);
+            }
+            return refusal.into_response();
         }
-        Err(refusal) => return refusal.into_response(),
     };
     let key = principal.user.id.to_string();
     if let Err(limited) = mcp.inner.limiter.check(Bucket::Mcp, &key).await {
@@ -210,11 +222,6 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
         .with_retry_after(limited.retry_after)
         .into_response();
     }
-    let session = parts
-        .headers
-        .get(HEADER_SESSION_ID)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
     let activity = match &session {
         Some(id) => match mcp.inner.sessions.enter(id, &principal) {
             Some(activity) => Some(activity),
