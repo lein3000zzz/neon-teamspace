@@ -160,15 +160,25 @@ The tools work in the token's workspace. An id of something in another workspace
 | `list_members` | none | The members, people and agents, with roles. A guest sees only themselves. |
 | `list_teamspaces` | none | The teamspaces the caller sees, the default first, with its role in each. |
 | `get_page_tree` | `teamspace_id`, or none for the private pages; `depth`, 1 to 10, 3 unless set | The pages nested to `depth`, each with `kind`, `title`, `icon` and `child_count`. Past `depth`, `children` is left out and `child_count` still counts them. Rows are left out. |
+| `search` | `query`; `teamspace_id`, `kind`, `created_by`, `edited_by`, `edited_within`, `limit` 1 to 50, `after` | The pages, databases and rows the query finds among those the caller sees, the best first, each with its page, its `title` and a `snippet` in runs that mark the matches. Without `query`, the filters alone, the most recently changed first. `next` passed as `after` gives the next part. |
 
 An agent has no private pages, since its owner could not see them, so `get_page_tree`
 without a teamspace answers an agent `forbidden`.
+
+`search` reads the query as [Search](/docs/guides/search/#the-query) describes: words that
+must all be there, each of two characters or more also finding the words it starts,
+`"quoted words"`, `-word` to leave out and `OR`; titles also match misspelled. It finds a
+page's text once the server saved the page, a moment after an edit, so a page an agent just
+wrote is found by its title at once and by its text a little later. A query it cannot run
+answers `invalid_search`. An agent of a guest may not filter by `created_by` or `edited_by`,
+and is answered `forbidden`.
 
 ### Pages
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `read_page` | `page_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. |
+| `read_page` | `page_id`; `version_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. With `version_id`, that version of the page instead, read-only, its `markdown` and `blocks`, with no revision to edit from. |
+| `list_versions` | `page_id`; `limit` 1 to 100, `after` | The page's [history](/docs/guides/history/), the latest first: each version's `id`, when its latest change was made, its `authors`, and how many blocks they `added`, `changed` and `removed`. |
 | `create_page` | one of `parent_id`, `teamspace_id`, `private: true`; `title`, `icon`, `markdown`, `placement` | Makes the page, its content the blocks of `markdown`, and answers as `read_page` does. |
 | `edit_page` | `page_id`, `operations`, `base` | Makes the operations, in order, all or none; see [Editing](#editing-a-page). |
 | `move_page` | `page_id`; one of `parent_id`, `teamspace_id`, `private: true`; `placement` | Moves it with the pages under it. |
@@ -366,6 +376,9 @@ person properties name. The caller's own webhooks hear of their own claims only 
 A URI writes its ids lowercase and hyphenated, as the server lists them and tells of their
 changes, and a URI that writes them another way is not found.
 
+A page's earlier versions have no resource: a version never changes, so there is nothing to
+subscribe to, and `read_page` with `version_id` reads one.
+
 `resources/list` gives `neon://me/tasks`, then the caller's favorites, at most 50, the 20
 pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
 own.
@@ -401,7 +414,9 @@ each tool does, with the same tokens.
 | `list_members` | `GET /api/v1/workspaces/{id}/members` |
 | `list_teamspaces` | `GET /api/v1/workspaces/{id}/teamspaces` |
 | `get_page_tree` | `GET /api/v1/teamspaces/{id}/pages`, `GET /api/v1/workspaces/{id}/private-pages` |
-| `read_page`, `neon://page/{id}` | `GET /api/v1/pages/{id}/markdown` |
+| `search` | `GET /api/v1/workspaces/{id}/search` |
+| `read_page`, `neon://page/{id}` | `GET /api/v1/pages/{id}/markdown`; with `version_id`, `GET /api/v1/pages/{id}/versions/{version_id}` |
+| `list_versions` | `GET /api/v1/pages/{id}/versions` |
 | `create_page` | `POST /api/v1/workspaces/{id}/pages`, with `markdown` |
 | `edit_page` | `PATCH /api/v1/pages/{id}/markdown` |
 | `move_page`, `trash_page`, `restore_page` | `POST /api/v1/pages/{id}/move`, `/trash`, `/restore` |

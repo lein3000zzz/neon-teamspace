@@ -105,6 +105,8 @@ export default defineConfig({
             'guides/webhooks',
             'guides/editing-pages',
             'guides/pages',
+            'guides/history',
+            'guides/search',
             'guides/databases-and-boards',
             'guides/databases',
             'guides/import-export',

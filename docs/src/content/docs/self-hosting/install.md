@@ -161,7 +161,10 @@ docker compose -f deployments/docker-compose.yml up -d
 Compose replaces the containers whose image changed. The new server applies the new
 migrations before it takes requests, and `/readyz` answers `503` until it has. Migrations
 only go forward, so take a backup first (see [below](#where-the-data-lives)): going back to
-an older version means restoring the backup taken before the upgrade.
+an older version means restoring the backup taken before the upgrade. A server that was
+killed rather than stopped may leave pages whose latest text search does not read yet;
+`neon search reindex` stores it, as [Search](/docs/guides/search/#rebuilding-the-text)
+explains.
 
 ### Stopping
 
@@ -316,14 +319,15 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 | `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
 | `neon admin create --email ADDRESS [--display-name NAME]` | Creates an instance admin, whatever the registration mode. It asks for the password at a terminal, or reads it from the first line of standard input. |
+| `neon search reindex [--all]` | Reads the documents of the pages whose text [search](/docs/guides/search/#rebuilding-the-text) lacks, or of every page with `--all`, and stores their text. Safe while servers run. |
 | `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 | `neon health [--live]` | Asks the admin listener's `/readyz`, or `/livez` with `--live`, within three seconds. It prints nothing and exits with status 0 when the answer is `200`; otherwise it prints why to standard error and exits with status 1. Container health checks run it, as the server image has no shell or `curl`. |
 
 With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`. Like
-`neon serve`, `neon migrate`, `neon admin create`, `neon config check` and `neon health`
-read the configuration, so run them with `.env` exported (`set -a; . ./.env; set +a`) or
+`neon serve`, `neon migrate`, `neon admin create`, `neon search reindex`, `neon config check`
+and `neon health` read the configuration, so run them with `.env` exported (`set -a; . ./.env; set +a`) or
 next to a `neon.yaml`. In
 the stack, `docker compose -f deployments/docker-compose.yml exec server neon health` runs
 one in the server's container, with its configuration.

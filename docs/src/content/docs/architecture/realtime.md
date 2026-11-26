@@ -170,6 +170,18 @@ through the same queue, so it holds every update applied before it, saved or not
 of a page nobody has open reads the snapshot and the updates logged after it, and loads no
 live document.
 
+### Restoring a version
+
+A [restore](/docs/guides/history/#restoring) goes through the live document too, as one
+command its task runs in turn with the clients' messages. It names the revision the restorer
+compared against: when the document is at another, nothing changes and the restore is
+refused. Otherwise the task saves a snapshot first, which keeps the page as it is as a
+version, then makes the document hold the version's blocks as one edit, matching blocks by
+their ids so those the version shares with the page stay as they are, and saves again, the
+new version naming the one restored. Updates that clients sent before the restore reached
+the task are in the first snapshot; those that arrive after merge with the restore as Yjs
+merges any two changes.
+
 ### Edits from the server
 
 The server edits a page's document itself for the [markdown API](/docs/guides/pages/#content-as-markdown)
@@ -197,9 +209,12 @@ transaction that:
 1. replaces the page's row in `page_snapshots` with the encoded document and its state
    vector, and the number of the last update it holds;
 2. deletes the updates it holds from `page_updates`;
-3. sets `pages.search_text` to the document's plain text, from its blocks;
+3. sets `pages.search_text` to the document's plain text, from its blocks, which
+   [search](/docs/guides/search/) reads from then on;
 4. moves `pages.content_updated_at` forward to the latest change, and names that change's
-   author as `last_edited_by`, unless the page's title, icon, cover or style changed later.
+   author as `last_edited_by`, unless the page's title, icon, cover or style changed later;
+5. keeps the document's blocks as a [version](/docs/guides/history/), with the authors of
+   the updates it took in, unless they show the same as the latest version.
 
 Yjs updates commute, so loading applies the snapshot and the updates after it in any order
 to the same document. A write that fails is logged and tried again, after half a second at
@@ -265,7 +280,9 @@ has the whole order.
 ## Metrics
 
 The sync subsystem's RED metrics, `neon_sync_operations_total` and the others, time three
-operations: `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved.
+operations of the live documents: `load`, `persist`, a batch of updates logged, and
+`compact`, a snapshot saved with its text and version. `read`, `edit` and `restore` time the
+server's own reads and edits of pages' content.
 Beside them:
 
 | Metric | Type | Labels | What it shows |

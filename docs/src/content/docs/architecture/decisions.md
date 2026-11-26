@@ -102,6 +102,22 @@ read and edit pages as markdown with block ids, as
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
 
+**Search in Postgres, written with the page.** Search is Postgres's full-text search with
+the `simple` configuration, which does not stem and so reads every language alike, and
+`pg_trgm` for titles typed loosely. There is no search engine to run beside it. What search
+reads is written in the same transaction as what it comes from, a page's text with its
+snapshot and a row's values with them, so it never waits on a queue and a rolled-back write
+leaves no trace in it. The query keeps to what the caller may see in the database, a branch
+per way of seeing a page, so a guest of a large workspace gets their few pages quickly;
+[Data and storage](/docs/architecture/data/#search) has how.
+
+**History from snapshots, restored live.** A version is the page's blocks as each snapshot
+leaves them, kept only when they changed, so history costs nothing between saves and keeps
+roughly a version per sitting. Restoring one is an edit of the live document, matched by
+block ids, on the revision the restorer compared against, so people typing meanwhile see it
+at once and a change they made since is never replaced unseen; [Page
+history](/docs/guides/history/#restoring) has how.
+
 ## Agents
 
 **Agents are members.** An agent is a member of its workspace, of kind agent, with a person
