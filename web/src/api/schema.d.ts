@@ -5147,7 +5147,8 @@ export interface components {
             rank: number;
             /**
              * @description A few words of a row's property values and the text around the matches, in runs
-             *     that mark them; empty without a query, or without text.
+             *     that mark them, on one line: ` · ` stands between its lines, such as a page's blocks.
+             *     Empty without a query, or without text.
              */
             snippet: components["schemas"]["TextRun"][];
             /** @description Its title, in runs that mark what matched; empty without a query. */

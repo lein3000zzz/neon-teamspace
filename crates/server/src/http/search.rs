@@ -110,7 +110,8 @@ pub struct SearchResult {
     /// Its title, in runs that mark what matched; empty without a query.
     pub title: Vec<TextRun>,
     /// A few words of a row's property values and the text around the matches, in runs
-    /// that mark them; empty without a query, or without text.
+    /// that mark them, on one line: ` · ` stands between its lines, such as a page's blocks.
+    /// Empty without a query, or without text.
     pub snippet: Vec<TextRun>,
     /// How well it matched, higher being better, as the results are ordered: worth
     /// comparing within one search only. 0 without a query.

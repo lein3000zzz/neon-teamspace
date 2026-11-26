@@ -119,7 +119,8 @@ pub struct SearchHit {
     pub rank: f64,
     /// Its title, its matches marked; empty without a query.
     pub title: Vec<Segment>,
-    /// A few words of its text around its matches, marked; empty without a query or text.
+    /// A few words of its text around its matches, marked, its lines set apart by ` · `;
+    /// empty without a query or text.
     pub snippet: Vec<Segment>,
 }
 
@@ -350,7 +351,11 @@ impl SearchService {
                     (Some(marked), false) => segments(marked),
                     _ => Vec::new(),
                 },
-                snippet: hit.snippet.as_deref().map(segments).unwrap_or_default(),
+                snippet: hit
+                    .snippet
+                    .as_deref()
+                    .map(|snippet| segments(&one_line(snippet)))
+                    .unwrap_or_default(),
                 rank: hit.rank,
                 page,
             })
@@ -495,6 +500,20 @@ fn offset_of(cursor: &str) -> Result<usize, SearchError> {
         .ok_or_else(|| SearchError::InvalidInput(INVALID_CURSOR.to_owned()))
 }
 
+/// What stands between the lines of a snippet, such as a page's blocks, its list's items, or
+/// a row's values, which would otherwise run together where it shows on one line.
+const LINE_BREAK: &str = " · ";
+
+/// A snippet on one line: its lines, trimmed, but for empty ones, joined by [`LINE_BREAK`].
+fn one_line(snippet: &str) -> String {
+    snippet
+        .split(['\n', '\r'])
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(LINE_BREAK)
+}
+
 /// Text marked between [`MATCH_START`] and [`MATCH_END`], as runs.
 fn segments(marked: &str) -> Vec<Segment> {
     let mut segments: Vec<Segment> = Vec::new();
@@ -555,6 +574,16 @@ mod tests {
             segments("\u{2}a \u{1}b"),
             [run("a ", false), run("b", true)]
         );
+    }
+
+    #[test]
+    fn a_snippet_shows_on_one_line_its_lines_set_apart() {
+        assert_eq!(
+            one_line("a sensor, a rule, an \u{1}alert\u{2}\n\nLive demo:\r\n  Water it \n"),
+            "a sensor, a rule, an \u{1}alert\u{2} · Live demo: · Water it"
+        );
+        assert_eq!(one_line("one line"), "one line");
+        assert_eq!(one_line("\n\n"), "");
     }
 
     #[test]

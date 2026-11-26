@@ -959,27 +959,32 @@ async fn titles_rank_first_and_matches_are_marked(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn snippets_and_titles_keep_what_reads_as_markup(pool: PgPool) {
+async fn snippets_keep_what_reads_as_markup_and_set_lines_apart(pool: PgPool) {
     let t = team(pool).await;
     t.general_page(
         "Broker <topics>",
-        "Topic `plants/<id>/moisture` carries a moisture reading.\n",
+        "Topic `plants/<id>/moisture` carries a moisture reading.\n\n\
+         - a sensor, a rule, an alert\n\n\
+         ## Live demo\n",
     )
     .await;
 
     let found = t.find(&t.dee, "moisture").await;
-    let marked: Vec<(&str, bool)> = found.hits[0]
+    let snippet: String = found.hits[0]
         .snippet
         .iter()
-        .map(|run| (run.text.as_str(), run.highlight))
+        .map(|run| {
+            if run.highlight {
+                format!("[{}]", run.text)
+            } else {
+                run.text.clone()
+            }
+        })
         .collect();
     assert_eq!(
-        marked,
-        [
-            ("Topic plants/<id>/moisture carries a ", false),
-            ("moisture", true),
-            (" reading", false)
-        ]
+        snippet,
+        "Topic plants/<id>/moisture carries a [moisture] reading. · a sensor, a rule, an alert \
+         · Live demo"
     );
     let found = t.find(&t.dee, "broker").await;
     let title: String = found.hits[0]

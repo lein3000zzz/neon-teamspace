@@ -22406,7 +22406,7 @@
             "items": {
               "$ref": "#/components/schemas/TextRun"
             },
-            "description": "A few words of a row's property values and the text around the matches, in runs\nthat mark them; empty without a query, or without text."
+            "description": "A few words of a row's property values and the text around the matches, in runs\nthat mark them, on one line: ` · ` stands between its lines, such as a page's blocks.\nEmpty without a query, or without text."
           },
           "title": {
             "type": "array",
