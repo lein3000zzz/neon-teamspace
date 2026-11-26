@@ -80,7 +80,10 @@ The plan is in @[Roadmap](page:0193a5b2-0000-7000-8000-0000000000a1).
 
 The name in the brackets is the label the mention was written with. The app shows a person
 by the name they have now, an agent with the person it acts for, and a page as a link to it
-by its title. `\@` before such a link keeps it a plain link after an `@`. In a page's
+by the label it was written with, which stays as written when the page is renamed. That
+label shows to everyone who reads the comment or the page, those who may not see the page
+it names included: the link takes them nowhere, but the label is the writer's text, as any
+text is, so mention a page others may not see only where its title may be read. `\@` before such a link keeps it a plain link after an `@`. In a page's
 document, a mention is inline content of the type `mention`; [Page
 documents](/docs/architecture/documents/#mentions) has its structure.
 

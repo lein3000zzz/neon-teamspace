@@ -42,7 +42,7 @@ the inbox's live feed open while it shows.
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/inbox` | Notifications, newest first: `filter`, `unread` unless set, `all` or `archived`; `workspace_id`, one workspace's alone; `limit`, 1 to 200, 50 unless set; and `before`, the `next` of the part before. |
+| `GET /api/v1/inbox` | Notifications, newest first: `filter`, `all` unless set, `unread` or `archived`; `workspace_id`, one workspace's alone; `limit`, 1 to 200, 50 unless set; and `before`, the `next` of the part before. |
 | `GET /api/v1/inbox/count` | `{"unread"}`, of one workspace with `workspace_id`, or all. |
 | `PATCH /api/v1/notifications/{id}` | Marks it read or unread, archived or not: `read`, `archived`. |
 | `POST /api/v1/inbox/read` | Marks every unread one read, of one workspace with `workspace_id`, or all; answers how many. |
