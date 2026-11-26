@@ -1237,3 +1237,46 @@ async fn consenting_again_with_fewer_scopes_reaches_open_connections(pool: PgPoo
     ada.until_text("By the app\nStill mine").await;
     finish(&state, [room.server], vec![connection, dee, ada]).await;
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn dropping_people_from_mcp_identities_closes_the_connections_of_tokens_acting_as_them(
+    pool: PgPool,
+) {
+    let state = state_of(pool, quick()).await;
+    admin(&state).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let ws = &room.team.workspace;
+    let addr = room.server.addr;
+    let client = register(&app, &[REDIRECT]).await;
+    let verifier = verifier('v');
+    let asked = request(&client, &verifier, None);
+    let approved = code(&room.team.ada, &asked, ws, None, &["read", "write"]).await;
+    let connected = tokens(
+        &client,
+        &exchange(&app, &client, &approved, &verifier).await,
+    );
+    let bearer = format!("Bearer {}", connected.access);
+    let socket = open(addr, &room.page, &[("authorization", &bearer)])
+        .await
+        .expect("its access token opens the page");
+    let mut connection = Peer::over(socket, "app");
+    connection.sync().await;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+
+    let root = Browser::sign_in(&app, "admin@example.com").await;
+    let agents_only = root
+        .send(
+            Method::PATCH,
+            "/api/v1/admin/settings",
+            Some(json!({"changes": {"mcp.identities": ["agent"]}})),
+        )
+        .await;
+    assert_eq!(agents_only.status, StatusCode::OK, "{}", agents_only.body);
+    assert_eq!(connection.closed().await, Some(4401));
+    // Ada's own connection stays, and works.
+    ada.write("Still here").await;
+    let mut dee = Peer::join(addr, &room.page, room.team.dee.cookie(), "dee").await;
+    dee.until_text("Still here").await;
+    finish(&state, [room.server], vec![connection, ada, dee]).await;
+}

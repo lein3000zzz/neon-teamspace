@@ -78,10 +78,13 @@ impl AccessChange {
     /// for them, or for the owner of an agent or integration, whose access bounds its own.
     /// Which pages a change to a teamspace reaches is the rules' to say again, so every
     /// page of the workspace counts; a change to a page is narrowed further by
-    /// [`subtree`](Self::subtree).
+    /// [`subtree`](Self::subtree). A change to whom tokens act as concerns every agent and
+    /// integration, and every token bound to a workspace, as OAuth's acting as people are.
     pub(crate) fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
         let (workspace, user) = match *self {
-            Self::Agents => return owner_of(principal).is_some(),
+            Self::Agents => {
+                return owner_of(principal).is_some() || principal.workspace().is_some();
+            }
             Self::Pages {
                 workspace_id,
                 user_id,
@@ -208,5 +211,70 @@ impl Inner {
                 connections
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use neon_domain::auth::{Credential, Role, Scope, User, UserKind};
+    use time::OffsetDateTime;
+
+    use super::*;
+
+    const WORKSPACE: Uuid = Uuid::from_u128(1);
+    const OWNER: Uuid = Uuid::from_u128(2);
+
+    fn principal(kind: UserKind, workspace_id: Option<Uuid>, token: bool) -> Principal {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let human = kind.is_human();
+        Principal {
+            user: User {
+                id: Uuid::from_u128(3),
+                kind,
+                email: None,
+                display_name: "Someone".into(),
+                role: Role::User,
+                hue_override: None,
+                email_verified_at: None,
+                disabled_at: None,
+                created_at: now,
+                updated_at: now,
+                workspace_id: (!human).then_some(WORKSPACE),
+                owner_id: (!human).then_some(OWNER),
+            },
+            credential: if token {
+                Credential::Token {
+                    id: Uuid::from_u128(4),
+                    name: "a token".into(),
+                    scopes: vec![Scope::Read, Scope::Write],
+                    workspace_id,
+                }
+            } else {
+                Credential::Session {
+                    id: Uuid::from_u128(4),
+                }
+            },
+        }
+    }
+
+    #[test]
+    fn whom_tokens_act_as_concerns_agents_and_tokens_bound_to_a_workspace() {
+        let change = AccessChange::Agents;
+
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Agent, Some(WORKSPACE), true)
+        ));
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Integration, Some(WORKSPACE), true)
+        ));
+        // A person's token bound to the workspace, as an OAuth token acting as them is.
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Human, Some(WORKSPACE), true)
+        ));
+        assert!(!change.concerns(WORKSPACE, &principal(UserKind::Human, None, true)));
+        assert!(!change.concerns(WORKSPACE, &principal(UserKind::Human, None, false)));
     }
 }

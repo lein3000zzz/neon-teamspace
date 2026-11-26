@@ -129,7 +129,8 @@ elsewhere among the same siblings changes nobody's access, and tells nothing.
 
 The sync service then looks again, at once, at every open connection the change may
 concern: the person's and their agents' and integrations', whose access theirs bounds, or
-everyone's, in the change's workspace; every agent's and integration's for the setting; and
+everyone's, in the change's workspace; for the setting, every agent's and integration's,
+and every one opened with a token bound to a workspace, as OAuth's acting as people are; and
 for a change to a page, those on that page, a page under it, or a page that is gone. It
 looks at 8 at a time. For each, it reads the session, API token or OAuth access token the
 connection opened with again, then asks the rules what its person may do now, an agent's with its owner's

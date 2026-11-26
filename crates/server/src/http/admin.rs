@@ -746,7 +746,8 @@ pub(super) async fn update_settings(
     });
     state.settings.update(changes, Some(admin.user.id)).await?;
     if agents {
-        // Agents' open connections close at once while agents are off.
+        // Agents' open connections close at once while agents are off, and those of OAuth
+        // tokens at once while their mode is.
         state.workspaces.agents_switched();
     }
     Ok(JsonBody(setting_list(&state)))
