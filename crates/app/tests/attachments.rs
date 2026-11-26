@@ -1,7 +1,8 @@
 //! Attachments: uploads streamed to the blob store as their bytes come, the files each page's
 //! document and cover show, and the cleanup that keeps those, deletes the rest once past
 //! their grace, and deletes the blobs of every file gone, with its page, its workspace or an
-//! upload that never finished.
+//! upload that never finished; and the storage limit, which uploads and imports that reach
+//! it at once keep to.
 
 mod support;
 
@@ -11,7 +12,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures_util::StreamExt as _;
 use neon_app::attachments::{
-    AttachmentError, AttachmentService, BlobError, BlobStore, CleanupReport, ObjectBlobs,
+    AttachmentError, AttachmentService, BlobError, BlobRead, BlobStore, BlobWriter, CleanupReport,
+    ObjectBlobs,
 };
 use neon_app::pages::{Location, NewPage, PageUpdate};
 use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed, revision};
@@ -606,6 +608,195 @@ async fn uploads_need_an_editor_and_room(pool: PgPool) {
         neon_app::ratelimit::Bucket::FileUpload,
         t.ada.user.id.to_string()
     )));
+}
+
+/// A blob store that holds every blob written at its last step, just before it is kept,
+/// until as many as its barrier counts have reached it, then lets them all go at once: so
+/// the files they are for are added to the workspace together.
+struct Gathering {
+    inner: Arc<dyn BlobStore>,
+    barrier: Arc<tokio::sync::Barrier>,
+}
+
+struct GatheredWriter {
+    inner: Box<dyn BlobWriter>,
+    barrier: Arc<tokio::sync::Barrier>,
+}
+
+#[async_trait::async_trait]
+impl BlobWriter for GatheredWriter {
+    async fn write(&mut self, bytes: Bytes) -> Result<(), BlobError> {
+        self.inner.write(bytes).await
+    }
+
+    async fn finish(self: Box<Self>) -> Result<(), BlobError> {
+        self.barrier.wait().await;
+        self.inner.finish().await
+    }
+
+    async fn abort(self: Box<Self>) -> Result<(), BlobError> {
+        self.inner.abort().await
+    }
+}
+
+#[async_trait::async_trait]
+impl BlobStore for Gathering {
+    async fn create(&self, key: &str) -> Result<Box<dyn BlobWriter>, BlobError> {
+        Ok(Box::new(GatheredWriter {
+            inner: self.inner.create(key).await?,
+            barrier: Arc::clone(&self.barrier),
+        }))
+    }
+
+    async fn read(
+        &self,
+        key: &str,
+        range: Option<std::ops::Range<u64>>,
+    ) -> Result<BlobRead, BlobError> {
+        self.inner.read(key, range).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), BlobError> {
+        self.inner.delete(key).await
+    }
+}
+
+impl Files {
+    /// The attachments of these files, whose uploads wait for `together` of them to be
+    /// written before any is kept.
+    fn gathering(&self, together: usize) -> AttachmentService {
+        let store = Gathering {
+            inner: Arc::clone(&self.store) as Arc<dyn BlobStore>,
+            barrier: Arc::new(tokio::sync::Barrier::new(together)),
+        };
+        AttachmentService::builder_with_store(
+            self.h.pool.clone(),
+            Arc::clone(&self.h.settings),
+            self.h.pages.clone(),
+            self.sync.clone(),
+            Arc::new(store),
+        )
+        .limiter(Arc::clone(&self.h.limiter) as Arc<dyn neon_app::ratelimit::RateLimiter>)
+        .clock(self.h.time.clock())
+        .build()
+    }
+
+    async fn usage(&self) -> i64 {
+        sqlx::query_scalar("SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files")
+            .fetch_one(&self.h.pool)
+            .await
+            .expect("summed")
+    }
+}
+
+/// Uploads `content` to a page through `attachments`, as `by`.
+async fn upload_through(
+    attachments: AttachmentService,
+    by: Principal,
+    page: Uuid,
+    content: Vec<u8>,
+) -> Result<File, AttachmentError> {
+    let ticket = attachments
+        .admit_upload(&by, page, FileKind::Image, None, 0)
+        .await?;
+    let body = futures_util::stream::iter([Ok::<_, String>(Bytes::from(content))]);
+    attachments.upload(ticket, "a.png", body).await
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn uploads_at_once_keep_to_the_storage_limit(pool: PgPool) {
+    let t = files(pool).await;
+    let page = t.page("Plan", None).await;
+    let size = png().len();
+    t.h.set("workspaces.limits.storage_bytes", json!(size))
+        .await;
+    const AT_ONCE: usize = 4;
+    let attachments = t.gathering(AT_ONCE);
+    let uploads: Vec<_> = (0..AT_ONCE)
+        .map(|_| {
+            tokio::spawn(upload_through(
+                attachments.clone(),
+                t.ada.clone(),
+                page,
+                png(),
+            ))
+        })
+        .collect();
+    let mut kept = 0;
+    for upload in uploads {
+        match upload.await.expect("ran") {
+            Ok(_) => kept += 1,
+            Err(AttachmentError::StorageLimit { limit }) => {
+                assert_eq!(limit, u64::try_from(size).expect("small"));
+            }
+            Err(error) => panic!("{error}"),
+        }
+    }
+    assert_eq!(kept, 1, "the limit fits one");
+    assert_eq!(t.usage().await, i64::try_from(size).expect("small"));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_upload_and_an_import_at_once_keep_to_the_storage_limit(pool: PgPool) {
+    use std::io::Write as _;
+    let t = files(pool).await;
+    let page = t.page("Plan", None).await;
+    let size = png().len();
+    t.h.set("workspaces.limits.storage_bytes", json!(size))
+        .await;
+    let attachments = t.gathering(2);
+    let transfer = neon_app::transfer::TransferService::builder(
+        t.h.pages.clone(),
+        t.sync.clone(),
+        t.h.databases.clone(),
+        attachments.clone(),
+    )
+    .limiter(Arc::clone(&t.h.limiter) as Arc<dyn neon_app::ratelimit::RateLimiter>)
+    .build();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, content) in [
+        ("Notes.md", b"![chart](Notes/chart.png)\n".to_vec()),
+        ("Notes/chart.png", png()),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .expect("a file");
+        zip.write_all(&content).expect("written");
+    }
+    let archive = Bytes::from(zip.finish().expect("finished").into_inner());
+
+    let upload = tokio::spawn(upload_through(
+        attachments.clone(),
+        t.ada.clone(),
+        page,
+        png(),
+    ));
+    let ticket = transfer
+        .admit_import(
+            &t.ada,
+            t.workspace,
+            neon_app::pages::Location::Teamspace(t.general),
+        )
+        .await
+        .expect("let in");
+    let import = tokio::spawn(async move {
+        transfer
+            .import(
+                ticket,
+                neon_app::transfer::Upload {
+                    name: "notes.zip".to_owned(),
+                    bytes: archive,
+                },
+            )
+            .await
+    });
+    let uploaded = upload.await.expect("ran");
+    let imported = import.await.expect("ran");
+    match (&uploaded, &imported) {
+        (Ok(_), Err(refused)) => assert_eq!(refused.code(), "storage_limit"),
+        (Err(AttachmentError::StorageLimit { .. }), Ok(_)) => {}
+        other => panic!("one of the two fits: {other:?}"),
+    }
+    assert_eq!(t.usage().await, i64::try_from(size).expect("small"));
 }
 
 /// The files a page's last snapshot names, by id.
