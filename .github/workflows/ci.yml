@@ -104,13 +104,18 @@ jobs:
               - .editorconfig
               - docs/package.json
 
-  rust:
-    name: Rust
+  # Formatting, cargo-deny, clippy and the query cache check, on a runner beside the tests',
+  # which take longest, so that neither waits for the other. Each job keeps a cache of its own,
+  # as clippy only checks what the tests compile.
+  rust-lint:
+    name: Rust lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    services:
+    timeout-minutes: 30
+    # The same Postgres and variables as the tests' job below, which reuses them: the query
+    # macros check each query against the database while clippy compiles too.
+    services: &rust-services
       # As deployments/docker-compose.dev.yml runs it, on the runner's port 5432.
       postgres:
         image: postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
@@ -125,7 +130,7 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
-    env:
+    env: &rust-env
       # The query macros check each query against this database as they compile, sqlx-cli
       # migrates it, and each #[sqlx::test] creates a database of its own on its server.
       DATABASE_URL: postgres://neon:neon@localhost:5432/neon
@@ -144,9 +149,8 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
-      # One cache for every step below: clippy, the tests, the query cache check and the
-      # OpenAPI check all build from the same dependencies. Pull requests read the cache that
-      # the last push to their base branch saved, and save none of their own.
+      # Clippy and the query cache check build from the same dependencies. Pull requests read
+      # the cache that the last push to their base branch saved, and save none of their own.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
@@ -169,12 +173,41 @@ jobs:
         run: make migrate
       - name: Clippy
         run: make lint
-      - name: Tests
-        run: make test
       - name: Query cache is current
         run: make sqlx-check
+
+  rust:
+    name: Rust tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services: *rust-services
+    env: *rust-env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      # The tests' dependencies, saved and read as in the lint job.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - name: sqlx-cli
+        run: cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls
+      # The query macros need the tables before anything compiles against the database.
+      - name: Migrations
+        run: make migrate
+      - name: Tests
+        run: make test
+      # With the neon binary the tests built, as cargo builds it for the server's integration
+      # tests. make api-check alone would compile it again: built from the query cache, and
+      # without the features the tests' dependencies turn on, it shares little with their build.
       - name: OpenAPI description is current
-        run: make api-check
+        run: make api-check NEON=target/debug/neon
 
   web:
     name: Web app
@@ -315,7 +348,7 @@ jobs:
   all:
     name: All checks
     if: always()
-    needs: [changes, rust, web, docs, e2e, blocks, secrets]
+    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, secrets]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
