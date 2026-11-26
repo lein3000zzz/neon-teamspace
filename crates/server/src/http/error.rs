@@ -126,6 +126,11 @@ impl ApiError {
         &self.message
     }
 
+    /// How long the client should wait before it tries again, as `Retry-After` says.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
     /// An extractor's rejection. Server-side ones are bugs in a route, not the client's
     /// doing, so they are logged and answered as internal errors.
     fn rejected(status: StatusCode, code: &'static str, message: String) -> Self {

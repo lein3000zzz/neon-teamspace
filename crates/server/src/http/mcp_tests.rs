@@ -1017,6 +1017,11 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
 
     set(&state, "mcp.max_sessions_per_identity", json!(1)).await;
     let first = Client::connect(&server, &token).await.expect("connects");
+    // Its stream open, its session is in use, and no new one of the identity ends it.
+    eventually("the first session's stream to open", || async {
+        state.mcp.sessions_in_use() == 1
+    })
+    .await;
     let refused = Client::connect(&server, &token)
         .await
         .err()
@@ -2202,4 +2207,247 @@ async fn the_tools_refuse_markdown_nested_deeper_than_blocks_may(pool: PgPool) {
     );
     client.close().await;
     finish(&state, server).await;
+}
+
+/// Sends `body` to `/mcp` as it is, with `headers` alone.
+async fn exact(
+    app: &Router,
+    headers: &[(&str, &str)],
+    body: Vec<u8>,
+) -> (StatusCode, String, String) {
+    let mut request = Request::builder()
+        .method(Method::POST)
+        .uri("/mcp")
+        .header("host", "neon.example.com");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::from(body)).expect("a request"))
+        .await
+        .expect("a response");
+    let status = response.status();
+    let kind = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let bytes = timeout(PATIENCE, response.into_body().collect())
+        .await
+        .expect("the body ends")
+        .expect("a body")
+        .to_bytes();
+    (status, kind, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The `initialize` of a client asking for `version`.
+fn initialize_at(version: &str) -> Value {
+    let mut request = initialize();
+    request["params"]["protocolVersion"] = json!(version);
+    request
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_transport_refuses_in_the_api_s_shape_and_speaks_its_revisions(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let token = format!(
+        "Bearer {}",
+        bound_token(&t.ada, &t.workspace, &["read"]).await
+    );
+    let auth = ("authorization", token.as_str());
+
+    // The revisions with sessions are spoken; an older or unknown one gets the newest.
+    for (asked, answered) in [
+        ("2024-11-05", "2025-11-25"),
+        ("2023-01-01", "2025-11-25"),
+        ("2025-03-26", "2025-03-26"),
+        ("2025-06-18", "2025-06-18"),
+        ("2025-11-25", "2025-11-25"),
+    ] {
+        let (status, _, body) = raw(&app, Method::POST, &[auth], Some(initialize_at(asked))).await;
+        assert_eq!(status, StatusCode::OK, "{asked}: {body}");
+        assert!(
+            body.contains(&format!("\"protocolVersion\":\"{answered}\"")),
+            "{asked}: {body}"
+        );
+    }
+    let (_, opened, _) = raw(&app, Method::POST, &[auth], Some(initialize())).await;
+    let session = opened["mcp-session-id"]
+        .to_str()
+        .expect("a session id")
+        .to_owned();
+    let initialized = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
+    let in_session = [auth, ("mcp-session-id", session.as_str())];
+    let (status, _, _) = raw(&app, Method::POST, &in_session, Some(initialized)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    // Refusals of the request itself answer in the API's shape, with its codes.
+    let both = ("accept", "application/json, text/event-stream");
+    let json_type = ("content-type", "application/json");
+    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).to_string();
+    let too_large = vec![b' '; 3 * 1024 * 1024];
+    for (headers, body, expected) in [
+        (
+            vec![
+                auth,
+                ("mcp-session-id", &session),
+                ("accept", "application/json"),
+                json_type,
+            ],
+            list.clone().into_bytes(),
+            (StatusCode::NOT_ACCEPTABLE, "not_acceptable"),
+        ),
+        (
+            vec![
+                auth,
+                ("mcp-session-id", &session),
+                both,
+                ("content-type", "text/plain"),
+            ],
+            list.clone().into_bytes(),
+            (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type"),
+        ),
+        (
+            vec![auth, ("mcp-session-id", &session), both, json_type],
+            b"{not json".to_vec(),
+            (StatusCode::BAD_REQUEST, "invalid_json"),
+        ),
+        (
+            vec![auth, ("mcp-session-id", &session), both, json_type],
+            too_large.clone(),
+            (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+        ),
+        (
+            vec![auth, both, json_type],
+            too_large,
+            (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+        ),
+    ] {
+        let (status, kind, body) = exact(&app, &headers, body).await;
+        assert_eq!(
+            (status, code_of(&body).as_str()),
+            expected,
+            "{headers:?}: {body}"
+        );
+        assert!(kind.starts_with("application/json"), "{kind}");
+    }
+
+    // What the server does not offer is said in a sentence; a resource's refusal carries the
+    // API's code.
+    let (_, _, body) = raw(
+        &app,
+        Method::POST,
+        &in_session,
+        Some(json!({"jsonrpc": "2.0", "id": 3, "method": "prompts/list"})),
+    )
+    .await;
+    assert!(body.contains("-32601"), "{body}");
+    assert!(body.contains("offers no prompts"), "{body}");
+    let nowhere = format!("neon://page/{}", uuid::Uuid::nil());
+    let (_, _, body) = raw(
+        &app,
+        Method::POST,
+        &in_session,
+        Some(json!({"jsonrpc": "2.0", "id": 4, "method": "resources/read", "params": {"uri": nowhere}})),
+    )
+    .await;
+    assert!(body.contains("\"data\":{\"code\":\"not_found\"}"), "{body}");
+    state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_identity_at_its_bound_makes_room_by_ending_its_idlest_session(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+    let token = bound_token(&t.ada, &ws, &["read"]).await;
+    let auth = format!("Bearer {token}");
+    let open = || async {
+        let (status, opened, body) = raw(
+            &app,
+            Method::POST,
+            &[("authorization", &auth)],
+            Some(initialize()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        opened["mcp-session-id"]
+            .to_str()
+            .expect("a session id")
+            .to_owned()
+    };
+    let answers = |session: String| {
+        let (app, auth) = (app.clone(), auth.clone());
+        async move {
+            let ping = json!({"jsonrpc": "2.0", "id": 9, "method": "ping"});
+            raw(
+                &app,
+                Method::POST,
+                &[("authorization", &auth), ("mcp-session-id", &session)],
+                Some(ping),
+            )
+            .await
+            .0
+        }
+    };
+
+    // A client that crashed twice left two sessions it cannot end: the third takes the
+    // place of the older, idle one.
+    set(&state, "mcp.max_sessions_per_identity", json!(2)).await;
+    let first = open().await;
+    let second = open().await;
+    let third = open().await;
+    assert_eq!(answers(first).await, StatusCode::NOT_FOUND);
+    assert_eq!(answers(second).await, StatusCode::OK);
+    assert_eq!(answers(third).await, StatusCode::OK);
+    assert_eq!(state.mcp.session_count(), 2);
+
+    // Under a lower bound, the idle ones make room; a session listening on its stream is in
+    // use, and is not ended for another.
+    set(&state, "mcp.max_sessions_per_identity", json!(1)).await;
+    let listening = Client::connect(&server, &token)
+        .await
+        .expect("connects, in place of the idle ones");
+    assert_eq!(state.mcp.session_count(), 1);
+    eventually("its stream to open", || async {
+        state.mcp.sessions_in_use() == 1
+    })
+    .await;
+    let (status, _, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &auth)],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(code_of(&body), "too_many_sessions");
+    listening.close().await;
+
+    // Past a person's bound, the refusal says when their idlest session ends.
+    set(&state, "mcp.max_sessions_per_identity", json!(10)).await;
+    set(&state, "mcp.max_sessions_per_person", json!(1)).await;
+    eventually("every session to end", || async {
+        state.mcp.session_count() == 0
+    })
+    .await;
+    let _idle = open().await;
+    let (scout, _) = agent_of(&t.ada, &ws, "Scout").await;
+    let as_scout = format!("Bearer {scout}");
+    let (status, answered, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &as_scout)],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert!(answered.contains_key("retry-after"), "{answered:?}");
+    state.mcp.shutdown().await;
 }

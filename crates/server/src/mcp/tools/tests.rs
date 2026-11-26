@@ -323,3 +323,26 @@ fn trees_nest_to_their_depth() {
     assert_eq!(shown[0]["children"][0]["child_count"], 1);
     assert_eq!(shown[1]["children"], json!([]));
 }
+
+#[test]
+fn a_rate_limit_tells_the_tool_s_caller_when_to_try_again() {
+    let limited = ApiError::new(
+        axum::http::StatusCode::TOO_MANY_REQUESTS,
+        "rate_limited",
+        "too many edits of pages' content: slow down",
+    )
+    .with_retry_after(std::time::Duration::from_millis(1500));
+
+    let result = ToolError::from(limited).into_result();
+    let error = &result.structured_content.expect("structured content")["error"];
+    assert_eq!(error["code"], "rate_limited");
+    assert_eq!(error["retry_after"], 2);
+    assert_eq!(
+        error["message"],
+        "too many edits of pages' content: slow down: try again in 2s"
+    );
+
+    let refused = ToolError::from(ApiError::forbidden("no"));
+    let error = refused.into_result().structured_content.expect("content");
+    assert_eq!(error["error"].get("retry_after"), None);
+}

@@ -79,12 +79,21 @@ impl ToolError {
 }
 
 impl From<ApiError> for ToolError {
+    /// The API's answer as a tool's. A wait the API would send as `Retry-After` is the
+    /// error's `retry_after`, in whole seconds rounded up, and its message says it too.
     fn from(error: ApiError) -> Self {
+        let wait = error
+            .retry_after()
+            .map(|wait| (wait.as_secs() + u64::from(wait.subsec_nanos() > 0)).max(1));
+        let message = match wait {
+            Some(seconds) => format!("{}: try again in {seconds}s", error.message()),
+            None => error.message().to_owned(),
+        };
         Self {
             code: error.code(),
-            message: error.message().to_owned(),
+            message,
             expected: !error.status().is_server_error(),
-            details: None,
+            details: wait.map(|seconds| ("retry_after", json!(seconds))),
         }
     }
 }
@@ -194,7 +203,8 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       (teamspace_id), or among your private pages (private: true): name one. \
                       It starts with the blocks of `markdown`, nested at most 32 levels deep. \
                       Answers with its markdown and block ids. Rows of a database are made \
-                      with create_row.",
+                      with create_row. A request holds at most 2 MiB: add more content with \
+                      edit_page appends.",
         writes: true,
         destructive: false,
         idempotent: false,
@@ -208,7 +218,8 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       append, insert_after a block, replace_range of sibling blocks (empty \
                       markdown removes them), find_replace of text within one line (once, unless \
                       all), replace_body (blocks that stay the same are kept). Blocks are named \
-                      by the ids read_page shows; markdown nests at most 32 levels deep.",
+                      by the ids read_page shows; markdown nests at most 32 levels deep. A \
+                      request holds at most 2 MiB: send large content in several appends.",
         writes: true,
         destructive: true,
         idempotent: false,

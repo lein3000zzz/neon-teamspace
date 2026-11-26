@@ -11,7 +11,11 @@
 //! - **Bounds.** `mcp.max_sessions` sessions at once, `mcp.max_sessions_per_identity` of one
 //!   identity, and `mcp.max_sessions_per_person` of one person with their agents together,
 //!   so nobody takes every session through agents of theirs; those being opened included.
-//!   One more is refused.
+//!   An identity at its bound that opens one more ends its session used least recently
+//!   that has no request in flight and no stream open, as a client that crashed and lost
+//!   its session ids would otherwise be shut out until they idle out. Past the other
+//!   bounds, or when each of the identity's sessions is in use, one more is refused, saying
+//!   when the next idle session ends.
 //! - **Idle sessions** end: once a session has no request in flight and no stream open for
 //!   `mcp.session_idle_timeout`, it ends with its subscriptions. An open stream counts as
 //!   use, as its client listens; one whose connection broke closes as the transport's pings
@@ -76,12 +80,13 @@ const OPEN_SESSIONS: &str = "neon_mcp_sessions";
 /// The gauge of the subscriptions held.
 const SUBSCRIPTIONS: &str = "neon_mcp_subscriptions";
 
-/// How many sessions there may be.
+/// How many sessions there may be, and how long one idles before it ends.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Limits {
     pub(crate) overall: usize,
     pub(crate) per_identity: usize,
     pub(crate) per_person: usize,
+    pub(crate) idle: Duration,
 }
 
 /// The person a principal is, or acts for: an agent's owner. An agent whose owner's account
@@ -94,21 +99,31 @@ pub(crate) fn person_of(principal: &Principal) -> Uuid {
     }
 }
 
-/// Why a session cannot open.
+/// Why a session cannot open, with when the first of the sessions that count ends if it
+/// stays idle.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum TooMany {
     #[error("this server holds {0} MCP sessions, the most it does: try again once one ends")]
-    Overall(usize),
+    Overall(usize, Option<Duration>),
     #[error(
-        "this identity holds {0} MCP sessions, the most it may: end one with DELETE /mcp, or \
-         wait for one to idle out"
+        "this identity holds {0} MCP sessions, the most it may, each with a request or a \
+         stream open: end one with DELETE /mcp, or wait for one to idle out"
     )]
-    Identity(usize),
+    Identity(usize, Option<Duration>),
     #[error(
         "the person this identity is or acts for holds {0} MCP sessions with their agents, the \
          most they may: end one with DELETE /mcp, or wait for one to idle out"
     )]
-    Person(usize),
+    Person(usize, Option<Duration>),
+}
+
+impl TooMany {
+    /// How long until a session that counts ends, if one is idle now.
+    pub(crate) fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::Overall(_, wait) | Self::Identity(_, wait) | Self::Person(_, wait) => *wait,
+        }
+    }
 }
 
 /// What the session manager's operations fail with.
@@ -180,6 +195,26 @@ impl State {
             .values()
             .map(|binding| binding.watches.len())
             .sum()
+    }
+
+    /// Of the sessions `counts` says count, the one used least recently with no request in
+    /// flight and no stream open.
+    fn idlest(&self, counts: impl Fn(&Binding) -> bool) -> Option<(&SessionId, &Binding)> {
+        self.bound
+            .iter()
+            .filter(|(_, binding)| binding.active == 0 && counts(binding))
+            .min_by_key(|(_, binding)| binding.seen)
+    }
+
+    /// How long until the idlest of the sessions `counts` says count ends, at `now`.
+    fn next_idle_end(
+        &self,
+        now: Instant,
+        idle: Duration,
+        counts: impl Fn(&Binding) -> bool,
+    ) -> Option<Duration> {
+        self.idlest(counts)
+            .map(|(_, binding)| (binding.seen + idle).saturating_duration_since(now))
     }
 
     fn gauges(&self) {
@@ -319,22 +354,46 @@ impl Sessions {
         self.state().subscriptions()
     }
 
-    /// Counts a session `principal` is opening, if the bounds leave room for it.
+    /// How many sessions have a request in flight or a stream open.
+    #[cfg(test)]
+    pub(crate) fn in_use(&self) -> usize {
+        self.state()
+            .bound
+            .values()
+            .filter(|binding| binding.active > 0)
+            .count()
+    }
+
+    /// Counts a session `principal` is opening, if the bounds leave room for it. At the
+    /// identity's own bound, its idlest session ends to make room; see the module docs.
     pub(crate) fn reserve(
         self: &Arc<Self>,
         principal: &Principal,
         limits: Limits,
     ) -> Result<Opening, TooMany> {
         let (user, person) = (principal.user.id, person_of(principal));
+        let now = Instant::now();
         let mut state = self.state();
-        if state.bound.len() + state.opening() >= limits.overall {
-            return Err(TooMany::Overall(limits.overall));
+        while state.of(user) >= limits.per_identity {
+            let own = |binding: &Binding| binding.principal.user.id == user;
+            let Some(id) = state.idlest(own).map(|(id, _)| id.clone()) else {
+                return Err(TooMany::Identity(limits.per_identity, None));
+            };
+            state.bound.remove(&id);
+            state.gauges();
+            info!(user_id = %user, "MCP session ended to make room for a new one of its identity");
+            let sessions = Arc::clone(self);
+            tokio::spawn(async move { sessions.end(&id).await });
         }
-        if state.of(user) >= limits.per_identity {
-            return Err(TooMany::Identity(limits.per_identity));
+        if state.bound.len() + state.opening() >= limits.overall {
+            let wait = state.next_idle_end(now, limits.idle, |_| true);
+            return Err(TooMany::Overall(limits.overall, wait));
         }
         if state.of_person(person) >= limits.per_person {
-            return Err(TooMany::Person(limits.per_person));
+            let wait = state.next_idle_end(now, limits.idle, |binding| {
+                person_of(&binding.principal) == person
+            });
+            return Err(TooMany::Person(limits.per_person, wait));
         }
         *state.opening.entry(user).or_default() += 1;
         *state.opening_people.entry(person).or_default() += 1;

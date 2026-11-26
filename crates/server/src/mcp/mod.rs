@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::header::{AUTHORIZATION, ORIGIN, WWW_AUTHENTICATE};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, ORIGIN, WWW_AUTHENTICATE};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -169,6 +169,12 @@ impl Mcp {
         self.inner.sessions.count()
     }
 
+    /// How many sessions have a request in flight or a stream open.
+    #[cfg(test)]
+    pub(crate) fn sessions_in_use(&self) -> usize {
+        self.inner.sessions.in_use()
+    }
+
     /// How many subscriptions the sessions hold together.
     pub fn subscription_count(&self) -> usize {
         self.inner.sessions.subscriptions()
@@ -241,14 +247,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
             // Outside a session, only `initialize` is taken: it opens one.
             let bytes = match axum::body::to_bytes(body, MAX_BODY).await {
                 Ok(bytes) => bytes,
-                Err(_) => {
-                    return ApiError::new(
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        "too_large",
-                        "an MCP request holds at most 2 MiB",
-                    )
-                    .into_response();
-                }
+                Err(_) => return too_large(),
             };
             if !initializes(&bytes) {
                 return session_required();
@@ -256,11 +255,15 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
             match mcp.inner.sessions.reserve(&principal, limits(&mcp)) {
                 Ok(opening) => (Body::from(bytes), Some(opening)),
                 Err(refusal) => {
-                    return ApiError::new(
+                    let error = ApiError::new(
                         StatusCode::TOO_MANY_REQUESTS,
                         "too_many_sessions",
                         refusal.to_string(),
-                    )
+                    );
+                    return match refusal.retry_after() {
+                        Some(wait) => error.with_retry_after(wait),
+                        None => error,
+                    }
                     .into_response();
                 }
             }
@@ -288,7 +291,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
     {
         opening.open(id, principal);
     }
-    track(response, activity)
+    track(response, activity).await
 }
 
 /// Whether a request's `Origin` is the server's own: `server.public_url`'s, or else the
@@ -307,6 +310,16 @@ fn own_origin(web: &WebConfig, origin: &str, headers: &HeaderMap) -> bool {
         Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
         None => false,
     })
+}
+
+/// What a request larger than the transport reads gets.
+fn too_large() -> Response {
+    ApiError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "payload_too_large",
+        "an MCP request holds at most 2 MiB: send large content in several edits",
+    )
+    .into_response()
 }
 
 /// What a request outside a session gets, but an `initialize`.
@@ -354,15 +367,32 @@ fn limits(mcp: &Mcp) -> sessions::Limits {
         overall: count(keys::MAX_SESSIONS),
         per_identity: count(keys::MAX_SESSIONS_PER_IDENTITY),
         per_person: count(keys::MAX_SESSIONS_PER_PERSON),
+        idle: *settings.get(keys::SESSION_IDLE_TIMEOUT),
     }
 }
 
 /// The SDK's answer as axum's, the session counted as active until its body ends: an event
-/// stream stays open while the client listens.
-fn track(
+/// stream stays open while the client listens. Its refusals of the request itself, which it
+/// answers in plain text, are answered in the API's error shape instead; see [`refusal`].
+async fn track(
     response: axum::http::Response<BoxBody<Bytes, Infallible>>,
     activity: Option<Activity>,
 ) -> Response {
+    let json = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value.starts_with("application/json") || value.starts_with("text/event-stream")
+        });
+    if response.status().is_client_error() && !json {
+        let status = response.status();
+        let text = match response.into_body().collect().await {
+            Ok(collected) => String::from_utf8_lossy(&collected.to_bytes()).into_owned(),
+            Err(never) => match never {},
+        };
+        return refusal(status, &text).into_response();
+    }
     let Some(activity) = activity else {
         return response.map(Body::new);
     };
@@ -373,6 +403,50 @@ fn track(
         });
         Body::from_stream(frames)
     })
+}
+
+/// The SDK's plain-text refusal of a request, `text` with `status`, in the API's error shape
+/// with the API's codes. A body that is not a JSON-RPC message is a `400 invalid_json`, as
+/// the API's routes answer it, where the SDK says 415.
+fn refusal(status: StatusCode, text: &str) -> ApiError {
+    const NOT_JSON_RPC: &str = "fail to deserialize request body ";
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        return ApiError::new(
+            status,
+            "payload_too_large",
+            "an MCP request holds at most 2 MiB: send large content in several edits",
+        );
+    }
+    if let Some(why) = text.strip_prefix(NOT_JSON_RPC) {
+        return ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_json",
+            format!("the body is not a JSON-RPC message: {why}"),
+        );
+    }
+    let code = match status {
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::METHOD_NOT_ALLOWED => "method_not_allowed",
+        StatusCode::NOT_ACCEPTABLE => "not_acceptable",
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => "unsupported_media_type",
+        _ => "invalid_request",
+    };
+    // The SDK starts its text with the status's reason, which the status says already.
+    let message = status
+        .canonical_reason()
+        .and_then(|reason| text.strip_prefix(reason))
+        .and_then(|rest| rest.strip_prefix(": "))
+        .unwrap_or(text)
+        .trim();
+    let message = if message.is_empty() {
+        status
+            .canonical_reason()
+            .unwrap_or("refused")
+            .to_lowercase()
+    } else {
+        message.to_owned()
+    };
+    ApiError::new(status, code, message)
 }
 
 /// The request's principal, by its bearer token alone, when it may use the MCP server: bound

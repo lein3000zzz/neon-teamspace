@@ -69,7 +69,9 @@ narrows its scopes narrows its next requests.
 ## What a connection is
 
 The transport is Streamable HTTP with sessions, as the protocol's revisions 2025-03-26,
-2025-06-18 and 2025-11-25 have it. A client's `initialize` opens a session, which the
+2025-06-18 and 2025-11-25 have it. An `initialize` that asks for another revision, an older
+one such as 2024-11-05 or one the server does not know, is answered with 2025-11-25, which the
+client then speaks or leaves. A client's `initialize` opens a session, which the
 `Mcp-Session-Id` header of the answer names and every later request carries. Answers come as
 JSON or as server-sent events, and a `GET` opens the stream of notifications. A `DELETE` ends
 the session.
@@ -99,14 +101,28 @@ the session.
 - **Bounds.** The server holds at most `mcp.max_sessions` sessions,
   `mcp.max_sessions_per_identity` of one person or agent, and `mcp.max_sessions_per_person`
   of one person with their agents together, so nobody takes every session through agents of
-  theirs. One more `initialize` gets `429 too_many_sessions`. A session ends with its subscriptions after
-  `mcp.session_idle_timeout` without a request or an open stream, and the client starts
-  another when it comes back.
+  theirs. A session ends with its subscriptions after `mcp.session_idle_timeout` without a
+  request or an open stream, and the client starts another when it comes back.
+- **Crashes.** A client that crashes leaves its session behind, and one that restarts
+  without its session id cannot end it with `DELETE`. So an identity at its own bound that
+  opens one more ends its session used least recently with no request in flight and no
+  stream open, and a client that crashes in a loop keeps one working session rather than
+  locking itself out. Only when each of its sessions is in use, past the person's bound or
+  past the server's, does `initialize` get `429 too_many_sessions`, with `Retry-After` saying
+  when the next idle session that counts ends, if one is idle.
+- **Size.** A request holds at most 2 MiB; a larger one gets `413 payload_too_large`. Send
+  large content in several edits, such as several `append` operations.
 - **Rate.** Each identity has 200 requests at once, then four a second, and each person 400
   at once, then ten a second, with their agents together. Past that, a request gets
   `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
   own, 100 at once, then two a second, with those made over REST. Past that, `edit_page`
-  answers the tool error `rate_limited`.
+  answers the tool error `rate_limited`, whose `retry_after` says in seconds when to try
+  again, as its message does.
+- **Refusals of the request itself**, before any tool or resource runs, answer as the API
+  does, `{"error": {"code", "message"}}` with an HTTP status: `400 invalid_json` for a body
+  that is not a JSON-RPC message, `406 not_acceptable` for an `Accept` without both
+  `application/json` and `text/event-stream`, `415 unsupported_media_type` for a body not
+  sent as JSON, `413 payload_too_large`, and those above.
 
 The [settings reference](/docs/reference/settings/) lists the `mcp.*` settings, which apply
 without a restart.
@@ -120,8 +136,8 @@ otherwise: `create_page` answers as `read_page` does, with the page and its mark
 cannot do what it was asked, it answers a tool error. Its text says why, and its structured
 content holds `{"error": {"code", "message"}}` with the API's code. `not_found` stands for
 what is not there and for what the caller may not see, alike. Others are `forbidden`, `invalid_input`,
-`insufficient_scope` for a change made with a token without `write`, and
-`invalid_arguments`. Each tool publishes the JSON schema of its arguments, and refuses
+`insufficient_scope` for a change made with a token without `write`, `rate_limited` with
+`retry_after`, and `invalid_arguments`. Each tool publishes the JSON schema of its arguments, and refuses
 unknown fields, missing ones and values of the wrong type with `invalid_arguments`. Its
 annotations tell a client whether it only reads, and whether it may overwrite or remove what
 is there, as `edit_page`, `move_page`, `trash_page`, `update_row` and `claim_task` may, so a
@@ -254,7 +270,9 @@ last, and whatever someone types in a block that stays merges with the edit. A b
 after a paragraph it is under stays while that paragraph does. When the paragraph changes,
 the blocks under it are written anew after it.
 
-A page always keeps a block, so removing every one leaves an empty paragraph. A page holds at
+A page always keeps a block, so removing every one leaves an empty paragraph. A request
+holds at most 2 MiB, its markdown included, so large content goes in several `append`
+operations, each in a call of its own. A page holds at
 most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what
 `find_replace` would add before it adds any of it, so replacements that would grow the page
 past that are refused at once. Markdown, an edit's or `create_page`'s, nests blocks at most
@@ -325,8 +343,12 @@ never asks the database again to find them. A subscription hears of:
   starts or stops naming them. A change in a database the caller cannot see is never told.
 
 A subscription ends with its session, with `resources/unsubscribe`, and as soon as the caller
-can no longer see the resource. A session subscribes to at most 100 resources. The server
-offers no prompts.
+can no longer see the resource. A session subscribes to at most 100 resources.
+
+A resource request that cannot be answered gets a JSON-RPC error whose `data` holds the API's
+code, as `{"code": "not_found"}`: `-32002` for what is not there or not the caller's to see,
+`-32602` for the rest, such as `too_many_subscriptions`. The server offers no prompts and no
+completions: asking for them gets `-32601`, saying so.
 
 ## The same over REST
 
