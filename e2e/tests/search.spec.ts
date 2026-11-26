@@ -7,7 +7,7 @@ test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 // A page opens its live connection, which collaboration.spec.ts tests; Chromium logs a socket
 // that a page closes before it opened as failed.
 test.use({
-  extraHTTPHeaders: clientAddress(20),
+  extraHTTPHeaders: clientAddress(22),
   expectedConsoleError: /WebSocket connection to '[^']*\/ws\/pages\/[^']*' failed/,
 });
 
