@@ -191,6 +191,15 @@ jobs:
     services: *rust-services
     env: *rust-env
     steps:
+      # The runner comes with SDKs this project never uses. Without removing them, the tests'
+      # build and their databases fill the disk to within 1% of full, where SeaweedFS turns its
+      # volumes read-only and the S3 tests fail.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -212,6 +221,9 @@ jobs:
       # The S3 blob store against SeaweedFS in a container, with the test binary just built.
       - name: S3 blob store
         run: make test-s3
+      - name: Disk space left
+        if: always()
+        run: df -h /
       # With the neon binary the tests built, as cargo builds it for the server's integration
       # tests. make api-check alone would compile it again: built from the query cache, and
       # without the features the tests' dependencies turn on, it shares little with their build.

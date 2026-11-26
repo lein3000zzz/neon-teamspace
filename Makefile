@@ -136,7 +136,9 @@ test: ## Run the Rust tests (needs the dev database: make db-up and make migrate
 .PHONY: test-s3
 # SeaweedFS on a free port of loopback, with a key and secret for the run alone, run as the
 # seaweedfs profile of deployments/docker-compose.yml runs it; the trap removes its container
-# however the run ends, and prints its log first when the run failed.
+# however the run ends, and prints its log first when the run failed. The tests build with the
+# whole workspace's features, as make test does, so the build make test left is used again
+# instead of a second one for neon-server alone.
 # The S3 port answers its health check before the filer and a volume server can take a write,
 # so the run waits until a signed write of a probe object goes through, and gives up after a
 # minute.
@@ -161,7 +163,7 @@ test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (D
 	curl -fsS $$signed -X DELETE "http://$$address/neon-test/ready-probe" >/dev/null; \
 	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
 		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
-		$(CARGO) test -p neon-server --test blobs
+		$(CARGO) test --workspace --test blobs
 
 ## Generated files
 
