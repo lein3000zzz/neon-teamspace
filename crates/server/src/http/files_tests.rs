@@ -638,6 +638,70 @@ async fn a_form_is_read_no_further_than_its_file_and_the_largest_file_bound_it(p
     );
 }
 
+/// A form of one file, `a.txt`, whose content comes `pause` after its headers.
+fn slow_form(pause: std::time::Duration) -> axum::body::Body {
+    use futures_util::StreamExt as _;
+    let head = format!(
+        "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\n"
+    );
+    let rest = format!("slow words\r\n--{BOUNDARY}--\r\n");
+    let body = futures_util::stream::once(async move { head })
+        .chain(futures_util::stream::once(async move {
+            tokio::time::sleep(pause).await;
+            rest
+        }))
+        .map(|text| Ok::<_, std::convert::Infallible>(bytes::Bytes::from(text)));
+    axum::body::Body::from_stream(body)
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn uploads_alone_have_the_time_limit_of_an_upload(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let page = page_in_general(&t.ada, &t.workspace, "Plan").await;
+    let quick = std::time::Duration::from_millis(50);
+    let long = std::time::Duration::from_secs(30);
+    let pause = std::time::Duration::from_millis(500);
+
+    // Requests have a short limit and uploads a long one: an upload slower than a request
+    // may be still answers.
+    let requests_quick = super::tests::test_app(
+        state.clone(),
+        Limits {
+            timeout: quick,
+            upload: long,
+            ..Limits::default()
+        },
+    );
+    let slow = upload_streamed_to(&requests_quick, t.ada.cookie(), &page, slow_form(pause)).await;
+    assert_eq!(slow.status, StatusCode::CREATED, "{}", slow.json());
+    let other = send(
+        &requests_quick,
+        Method::GET,
+        "/api/v1/test/slow",
+        &[],
+        None,
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(other.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(other.code(), "timeout");
+
+    // The other way round, an upload slower than an upload may be is cut off.
+    let uploads_quick = super::tests::test_app(
+        state.clone(),
+        Limits {
+            timeout: long,
+            upload: quick,
+            ..Limits::default()
+        },
+    );
+    let cut = upload_streamed_to(&uploads_quick, t.ada.cookie(), &page, slow_form(pause)).await;
+    assert_eq!(cut.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(cut.code(), "timeout");
+}
+
 /// Refuses uploads, as if the caller had used theirs up, and lets everything else in.
 struct NoUploads;
 

@@ -328,7 +328,7 @@ async fn sensitive_headers(headers: header::HeaderMap) -> impl IntoResponse {
 }
 
 /// The API plus routes that exercise the extractors and the middleware.
-fn test_app(state: AppState, limits: Limits) -> Router {
+pub(super) fn test_app(state: AppState, limits: Limits) -> Router {
     let routes = OpenApiRouter::new()
         .route("/api/v1/test/echo", post(echo))
         .route(
