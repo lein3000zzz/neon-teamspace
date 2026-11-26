@@ -16,14 +16,21 @@ sees its files.
 | Paste an image, such as a screenshot | Adds an image block where the cursor is, and uploads the image into it. |
 | Drop files onto the page | Adds a block for each where it lands: an image, video or audio block for those, a file block for anything else. |
 | **Upload** in an image, video, audio or file block's panel | Uploads the file you pick into that block. |
-| **Embed** in the same panel | Shows a file from another site by its URL, without uploading it. |
+| **Embed** in the same panel | Puts a file's URL in the block, without uploading it. |
 
-While a file uploads, its block shows a spinner. Everyone with the page open sees the block at
-once, and the file in it when the upload ends. When the server refuses a file, its block stays
-empty and the editor says why, naming the type, the size or the full workspace.
+An embedded image, video or audio from another site does not show in the Docker image, whose
+Content-Security-Policy lets the app load images and media only from its own origin, so that a
+page cannot make its readers' browsers call other sites. A file block with an embedded URL
+links to it all the same.
+
+While a file uploads, its block says **Loading...** to the person uploading it. Others with the
+page open see the block at once, empty, with its **Add image** or **Add file** button, and the
+file in it when the upload ends. When the server refuses a file, its block stays empty and the
+editor says why, naming the type, the size or the full workspace.
 
 Images, video and audio show in their blocks and play in place. A file block shows the file's
-name, and clicking it downloads the file.
+name. Selecting a block opens its toolbar, whose download button, labelled **Download file**,
+**Download image** and so on, downloads the file.
 
 ### Covers
 
