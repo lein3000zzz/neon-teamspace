@@ -271,7 +271,12 @@ async fn pages_are_made_nested_changed_moved_trashed_and_restored(pool: PgPool) 
         .ada
         .send(Method::DELETE, &format!("/api/v1/pages/{root}"), None)
         .await;
-    assert_eq!(live.status, StatusCode::FORBIDDEN, "{}", live.body);
+    assert_eq!(
+        (live.status, live.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input"),
+        "{}",
+        live.body
+    );
     let restored = t
         .ada
         .post(&format!("/api/v1/pages/{child}/restore"), json!({}))

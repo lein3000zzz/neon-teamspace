@@ -378,6 +378,12 @@ impl PageService {
         self.observe("restore_page", async {
             let mut tx = self.pool().begin().await?;
             let context = self.locked_context(&mut tx, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            if !context.page().is_trashed() {
+                return Err(PageError::InvalidInput(
+                    "this page is not in the trash: there is nothing to restore".to_owned(),
+                ));
+            }
             context.check(Action::RestorePage)?;
             let page = context.page().clone();
             let trashed_with = page
@@ -451,6 +457,12 @@ impl PageService {
         self.observe("delete_page", async {
             let mut tx = self.pool().begin().await?;
             let context = self.locked_context(&mut tx, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            if !context.page().is_trashed() {
+                return Err(PageError::InvalidInput(
+                    "only a page in the trash is deleted for good: trash it first".to_owned(),
+                ));
+            }
             context.check(Action::DeletePage)?;
             let workspace_id = context.page().workspace_id;
             repo::delete(&mut *tx, id).await?;

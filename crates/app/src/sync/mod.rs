@@ -492,6 +492,11 @@ impl SyncService {
         blocks: Vec<neon_blocks::Block>,
     ) -> Result<(), PageError> {
         let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.page.is_trashed() {
+            return Err(PageError::Forbidden(
+                "this page is in the trash: restore it first",
+            ));
+        }
         if view.access != PageAccess::Edit {
             return Err(PageError::Forbidden("you may view this page, not edit it"));
         }

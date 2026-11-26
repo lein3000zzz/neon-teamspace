@@ -9579,6 +9579,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description invalid_input: it is not in the trash. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description unauthenticated. */
             401: {
                 headers: {
@@ -9588,7 +9597,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: it is not in the trash; or insufficient_scope. */
+            /** @description forbidden: the caller could not edit it; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10119,6 +10128,15 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
+            /** @description invalid_input: it is not in the trash. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description unauthenticated. */
             401: {
                 headers: {
@@ -10128,7 +10146,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope. */
+            /** @description forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

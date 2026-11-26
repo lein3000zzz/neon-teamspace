@@ -5908,6 +5908,16 @@
           "204": {
             "description": "Deleted."
           },
+          "400": {
+            "description": "invalid_input: it is not in the trash.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "unauthenticated.",
             "content": {
@@ -5919,7 +5929,7 @@
             }
           },
           "403": {
-            "description": "forbidden: it is not in the trash; or insufficient_scope.",
+            "description": "forbidden: the caller could not edit it; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6634,6 +6644,16 @@
               }
             }
           },
+          "400": {
+            "description": "invalid_input: it is not in the trash.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "unauthenticated.",
             "content": {
@@ -6645,7 +6665,7 @@
             }
           },
           "403": {
-            "description": "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.",
+            "description": "forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {

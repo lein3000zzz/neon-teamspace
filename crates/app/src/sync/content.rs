@@ -178,10 +178,15 @@ impl SyncService {
             if view.page.kind == PageKind::Database {
                 return Err(ContentError::Database);
             }
+            if view.page.is_trashed() {
+                return Err(
+                    PageError::Forbidden("this page is in the trash: restore it first").into(),
+                );
+            }
             if view.access != PageAccess::Edit {
                 return Err(PageError::Forbidden(
-                    "you may only view this page: editing it needs edit access, the page out \
-                     of the trash, and a token with the write scope",
+                    "you may only view this page: editing it needs edit access, and a token \
+                     with the write scope",
                 )
                 .into());
             }

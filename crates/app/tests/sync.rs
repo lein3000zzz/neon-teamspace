@@ -12,7 +12,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
-use neon_app::pages::{Location, NewPage};
+use neon_app::pages::{Location, NewPage, PageError};
 use neon_app::ratelimit::{Bucket, Limited, MemoryLimiter, RateLimiter};
 use neon_app::sync::{
     CloseReason, Connection, ContentError, Ending, Limits, Next, SyncService, access_feed,
@@ -1146,9 +1146,15 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
         Err(ContentError::Database)
     ));
     t.h.pages.trash_page(&t.ada, t.page).await.expect("trashed");
-    assert_eq!(
-        refused(sync.edit(&t.ada, t.page, append("x"), None).await),
-        "forbidden"
+    // It says it is in the trash, rather than that it may only be viewed.
+    let in_trash = sync.edit(&t.ada, t.page, append("x"), None).await;
+    assert!(
+        matches!(
+            &in_trash,
+            Err(ContentError::Page(PageError::Forbidden(message)))
+                if *message == "this page is in the trash: restore it first"
+        ),
+        "{in_trash:?}"
     );
     sync.shutdown().await;
 }

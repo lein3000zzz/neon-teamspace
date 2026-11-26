@@ -876,7 +876,11 @@ async fn trashing_takes_the_subpages_and_restoring_brings_back_what_went_with_it
         ["A", "B", "C", "B2"],
         "back under its parent, where it was"
     );
-    assert_forbidden(t.h.pages.restore_page(&t.dee, a).await);
+    // One out of the trash has nothing to restore.
+    assert!(matches!(
+        t.h.pages.restore_page(&t.dee, a).await,
+        Err(PageError::InvalidInput(message)) if message.contains("not in the trash")
+    ));
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -971,10 +975,11 @@ async fn only_a_page_in_the_trash_is_deleted_for_good_with_everything_under_it(p
     let b = t.page(&t.ada, Location::Under(a), "B").await;
     t.share(&t.ada, b, &t.gus, PageAccess::View).await;
 
-    assert_eq!(
-        assert_forbidden(t.h.pages.delete_page(&t.ada, a).await),
-        "only a page in the trash is deleted for good: trash it first"
-    );
+    assert!(matches!(
+        t.h.pages.delete_page(&t.ada, a).await,
+        Err(PageError::InvalidInput(message))
+            if message == "only a page in the trash is deleted for good: trash it first"
+    ));
     t.h.pages.trash_page(&t.ada, a).await.expect("trashed");
     t.h.pages.delete_page(&t.ada, a).await.expect("deleted");
 
