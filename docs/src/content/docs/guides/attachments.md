@@ -197,6 +197,15 @@ stopped mid-way leaves bytes behind, which the cleanup deletes half an hour afte
 began, except the parts of a large file's upload to an S3 store, which
 [File storage](/docs/self-hosting/storage/#what-the-server-deletes) covers.
 
+## Search and comments
+
+[Search](/docs/guides/search/) finds a page by the names and captions of its image, video,
+audio and file blocks, and by the text of its links, as they are written in the page: not by
+what is inside a file, nor by its path.
+
+Comments take no files. A comment is inline markdown, so it may link to a page's file, but
+that link does not keep the file: only the page's blocks, its cover and its kept versions do.
+
 ## Import and export
 
 An exported zip holds the files its pages show, those the exporter may read, in each page's

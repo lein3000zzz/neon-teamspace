@@ -68,6 +68,9 @@ code, links, and mentions. Block syntax, a heading or a list, stays as the text 
 API keeps a comment's markdown and answers with its `content` too, read as BlockNote's inline
 content, as the page's text holds it.
 
+Comments take no files: a link in a comment to a page's file does not keep the file, as
+[Attachments](/docs/guides/attachments/#search-and-comments) says.
+
 ## Mentions
 
 A mention names a person, an agent or an integration, or a page. In markdown, in comments

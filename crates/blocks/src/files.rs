@@ -266,6 +266,31 @@ mod tests {
     }
 
     #[test]
+    fn mentions_beside_files_are_neither_files_nor_links() {
+        let mut document = from_markdown(
+            "@[Ada](user:0193a5b2-0000-7000-8000-0000000000a1) posted \
+             [the report](/api/v1/files/a) for @[Plan](page:0193a5b2-0000-7000-8000-0000000000b1)\n\n\
+             ![Whiteboard.png](/api/v1/files/b \"Ada's sketch\")\n\n\
+             | Owner | File |\n|---|---|\n\
+             | @[Ada](user:0193a5b2-0000-7000-8000-0000000000a1) | [sheet](/api/v1/files/c) |\n",
+        );
+        let files: Vec<&str> = document.files().map(|(_, url)| url).collect();
+        assert_eq!(files, ["/api/v1/files/b"]);
+        let links: Vec<&str> = document.links().collect();
+        assert_eq!(links, ["/api/v1/files/a", "/api/v1/files/c"]);
+        assert_eq!(document.map_links(|href| Some(format!("files/{href}"))), 2);
+        assert_eq!(
+            document.mentions().len(),
+            3,
+            "the mentions stay as they were"
+        );
+        assert_eq!(
+            document.plain_text(),
+            "@Ada posted the report for @Plan\nWhiteboard.png\nAda's sketch\nOwner\tFile\n@Ada\tsheet"
+        );
+    }
+
+    #[test]
     fn links_are_rewritten_where_the_map_says() {
         let mut document = from_markdown(
             "A [report](/api/v1/files/a) and [a site](https://example.com).\n\n\

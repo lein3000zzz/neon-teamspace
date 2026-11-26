@@ -1,5 +1,5 @@
-//! Search: what is indexed and when, in the transaction of the write it comes from, comments
-//! and mentions too; each filter; access, against the rules for every page and every kind
+//! Search: what is indexed and when, in the transaction of the write it comes from, comments,
+//! mentions and files' names too; each filter; access, against the rules for every page and every kind
 //! of caller; ranking, snippets, unicode, short queries and loose titles; parts of the
 //! results; refusals; and rebuilding the text.
 
@@ -541,6 +541,23 @@ async fn a_mention_in_a_page_s_text_is_found_by_the_name_it_shows(pool: PgPool) 
             (" for the notes", false)
         ]
     );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn file_blocks_are_found_by_their_names_and_captions_not_their_paths(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page(
+        "Survey",
+        "![Lighthouse.png](/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1 \"Seen from the cliff\")\n\n\
+         :::file [Tide tables.pdf](/api/v1/files/0193a5b2-0000-7000-8000-0000000000f2)\n",
+    )
+    .await;
+    for word in ["lighthouse", "cliff", "tide"] {
+        assert_eq!(t.titles(&t.bob, word).await, ["Survey"], "{word}");
+    }
+    for word in ["files", "0193a5b2"] {
+        assert!(t.titles(&t.bob, word).await.is_empty(), "{word}");
+    }
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
