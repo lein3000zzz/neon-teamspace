@@ -24,6 +24,7 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
 | `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check. |
+| `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
 | `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands
