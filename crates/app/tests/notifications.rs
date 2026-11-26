@@ -1297,3 +1297,40 @@ async fn a_mention_written_again_while_the_first_waits_unread_still_reaches_webh
         "one notification while it waits unread"
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_an_edit_adds_is_told_as_of_the_edit_and_mailed_from_then(pool: PgPool) {
+    let t = team_with(pool, vec![("notifications.mail", json!(true))]).await;
+    t.comments
+        .follow(&t.ada, t.page, false)
+        .await
+        .expect("stopped");
+    let posted = t.post(&t.ada, "First").await;
+    t.h.time.advance(Duration::from_secs(2 * 3600));
+    t.comments
+        .edit(
+            &t.ada,
+            posted.comment_id,
+            &format!("First, {}", mention(&t.cy)),
+        )
+        .await
+        .expect("edited");
+    let made: time::OffsetDateTime = sqlx::query_scalar(
+        "SELECT created_at FROM notifications WHERE user_id = $1 AND kind = 'mention'",
+    )
+    .bind(t.cy.user.id)
+    .fetch_one(&t.h.pool)
+    .await
+    .expect("made");
+    assert_eq!(made - support::start(), time::Duration::hours(2));
+    let due: time::OffsetDateTime =
+        sqlx::query_scalar("SELECT run_at FROM jobs WHERE kind = 'notifications.mail'")
+            .fetch_one(&t.h.pool)
+            .await
+            .expect("queued");
+    assert_eq!(
+        due - support::start(),
+        time::Duration::hours(2) + time::Duration::minutes(5),
+        "the mail waits its delay after the edit"
+    );
+}

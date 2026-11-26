@@ -238,18 +238,19 @@ pub(crate) async fn comment(
         in_thread: if written.edit { &[] } else { &in_thread },
         followers: &followers,
     });
+    // An edit tells as of when it was made, and its mail waits from then.
+    let at = comment.edited_at.unwrap_or(comment.created_at);
     for (user, kind) in audience {
         if kind != NotificationKind::Mention && !may_see(&mut *conn, user).await? {
             continue;
         }
-        let mut notification = Notification::new(user, workspace_id, kind, comment.created_at);
+        let mut notification = Notification::new(user, workspace_id, kind, at);
         notification.actor_id = Some(author);
         notification.page_id = Some(page_id);
         notification.thread_id = Some(thread.id);
         notification.comment_id = Some(comment.id);
         notifier.record(&mut *conn, &notification).await?;
     }
-    let at = comment.edited_at.unwrap_or(comment.created_at);
     let event = |kind, identity| PageChange {
         kind,
         workspace_id,
