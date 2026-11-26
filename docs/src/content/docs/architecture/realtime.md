@@ -350,7 +350,9 @@ The broadcaster's rooms have listeners on the server too. The MCP server's
 every update, and a database's guests' room, which leaves people's details out. Every change
 to the rows and schema of a workspace's databases also goes to the workspace's own room, as
 members read it. No client joins that room. A subscription to someone's tasks hears there of
-the rows that name them. None of it asks the database again until a change comes.
+the rows that name them, of every database, those they cannot see too. So such a change has
+it read their tasks again, at most once an interval, and it tells them only when what they
+see changed. None of it asks the database again until a change comes.
 
 ## One process
 

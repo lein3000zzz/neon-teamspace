@@ -1433,6 +1433,99 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
     finish(&state, server).await;
 }
 
+/// A database in teamspace `teamspace` with a person property `Assignee`, and its id.
+async fn database_with_assignee(team: &Team<'_>, teamspace: &str, title: &str) -> String {
+    let made = team
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{}/databases", team.workspace),
+            json!({"teamspace_id": teamspace, "title": title}),
+        )
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let id = made.body["page"]["id"].as_str().expect("an id").to_owned();
+    let property = team
+        .ada
+        .post(
+            &format!("/api/v1/databases/{id}/properties"),
+            json!({"name": "Assignee", "type": "person"}),
+        )
+        .await;
+    assert_eq!(property.status, StatusCode::CREATED, "{}", property.body);
+    id
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_tasks_subscription_hears_only_of_what_its_caller_sees(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+    let general = general(&t.ada, &ws).await;
+    let (token, scout) = agent_of(&t.cy, &ws, "Scout").await;
+    let mut client = Client::connect(&server, &token).await.expect("connects");
+    let visible = database_with_assignee(&t, &general, "Visible").await;
+    let plan = page(&t, "Plan", "Ship").await;
+    let page_uri = format!("neon://page/{plan}");
+    client.subscribe("neon://me/tasks").await;
+    client.subscribe(&page_uri).await;
+
+    // In a teamspace the agent cannot see, a database changes and a row names the agent.
+    let hidden = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces"),
+            json!({"name": "Hidden", "access": "private"}),
+        )
+        .await;
+    assert_eq!(hidden.status, StatusCode::CREATED, "{}", hidden.body);
+    let secret = database_with_assignee(&t, &id(&hidden), "Secret").await;
+    let row = t
+        .ada
+        .post(
+            &format!("/api/v1/databases/{secret}/rows"),
+            json!({"values": {"Name": "Secret task", "Assignee": [scout]}}),
+        )
+        .await;
+    assert_eq!(row.status, StatusCode::CREATED, "{}", row.body);
+
+    // The next the agent hears of is the page it sees changing, not its tasks: nothing of
+    // them it sees changed.
+    let edited = t
+        .ada
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/pages/{plan}/markdown"),
+            Some(json!({"operations": [{"op": "append", "markdown": "More"}]})),
+        )
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{}", edited.body);
+    assert_eq!(client.updated().await, page_uri);
+
+    // A row it sees naming it is told.
+    let row = t
+        .ada
+        .post(
+            &format!("/api/v1/databases/{visible}/rows"),
+            json!({"values": {"Name": "Open task", "Assignee": [scout]}}),
+        )
+        .await;
+    assert_eq!(row.status, StatusCode::CREATED, "{}", row.body);
+    assert_eq!(client.updated().await, "neon://me/tasks");
+    let read = client.read("neon://me/tasks").await;
+    let tasks: Value = serde_json::from_str(text(&read[0])).expect("JSON");
+    let titles: Vec<&str> = tasks["tasks"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|task| task["row"]["title"].as_str().expect("a title"))
+        .collect();
+    assert_eq!(titles, ["Open task"]);
+    client.close().await;
+    finish(&state, server).await;
+}
+
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn concurrent_claims_have_exactly_one_winner(pool: PgPool) {
     let state = state(pool).await;

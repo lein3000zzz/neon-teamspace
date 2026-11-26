@@ -290,7 +290,8 @@ never asks the database again to find them. A subscription hears of:
 - a page when its document changes, and a row's page when its values change too;
 - a database when its properties or views change;
 - a view's rows when a row of the database, its schema or that view changes;
-- the tasks when a row naming the caller changes, or a row starts or stops naming them.
+- the tasks when what the caller sees of them changes: a row of theirs changes, or a row
+  starts or stops naming them. A change in a database the caller cannot see is never told.
 
 A subscription ends with its session, with `resources/unsubscribe`, and as soon as the caller
 can no longer see the resource. A session subscribes to at most 100 resources. The server

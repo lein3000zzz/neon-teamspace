@@ -10,10 +10,14 @@
 //! | the caller's tasks | the rows of the workspace's databases that name them, in the workspace's room |
 //!
 //! The first change is told at once; those that come within the interval after are told
-//! together once it ends. A subscription ends when its session does, when it is dropped,
-//! and when the caller can no longer see its resource, which the session's watcher checks.
+//! together once it ends. The workspace's room tells of every database in it, those the
+//! caller cannot see too, so a change there that may concern the caller's tasks has them
+//! read again, at most once an interval, and is told only when what the caller sees of them
+//! changed. A subscription ends when its session does, when it is dropped, and when the
+//! caller can no longer see its resource, which the session's watcher checks.
 
 use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,6 +36,7 @@ use uuid::Uuid;
 
 use super::Services;
 use super::resources::Resource;
+use crate::http::database_rows::{Task, TaskList};
 
 /// How many messages, and bytes of them, may wait for a subscription to read them. One that
 /// falls behind joins its room again, and tells of a change.
@@ -51,15 +56,23 @@ impl Drop for Watch {
 }
 
 /// Starts following a resource the caller sees, for its session's `peer`: its rooms are
-/// joined before this returns, so no change made after is missed.
+/// joined, and for the caller's tasks those read, before this returns, so no change made
+/// after is missed.
 pub(crate) async fn spawn(
     services: Services,
     principal: Principal,
     resource: Resource,
     peer: Peer<RoleServer>,
 ) -> Watch {
-    let joined = rooms(&services, &principal, resource).await;
-    let task = tokio::spawn(follow(services, principal, resource, peer, joined));
+    let mut joined = rooms(&services, &principal, resource).await;
+    // The tasks as the caller saw them once the room was joined, which later ones are told
+    // against.
+    let shown = match resource {
+        Resource::Tasks => tasks(&services, &principal).await.unwrap_or_default(),
+        _ => Shown::default(),
+    };
+    follow_rows(&mut joined, &shown);
+    let task = tokio::spawn(follow(services, principal, resource, peer, joined, shown));
     Watch {
         resource,
         task: task.abort_handle(),
@@ -77,7 +90,8 @@ enum Interest {
     Schema,
     /// A view's rows: any row, the schema, or that view changing.
     View(Uuid),
-    /// The rows that name `user`, or named them when last looked at.
+    /// The rows that may name `user`, or named them when last looked at, and the schemas of
+    /// the databases they may be in: changes that may change the caller's tasks.
     Tasks { user: String, rows: HashSet<Uuid> },
 }
 
@@ -186,7 +200,7 @@ async fn rooms(s: &Services, principal: &Principal, resource: Resource) -> Vec<J
             Some(workspace) => {
                 let interest = Interest::Tasks {
                     user: principal.user.id.to_string(),
-                    rows: tasks(s, principal, workspace).await,
+                    rows: HashSet::new(),
                 };
                 vec![Joined::new(b, Room::Workspace(workspace), interest)]
             }
@@ -195,13 +209,45 @@ async fn rooms(s: &Services, principal: &Principal, resource: Resource) -> Vec<J
     }
 }
 
-/// The rows assigned to the caller now.
-async fn tasks(s: &Services, principal: &Principal, workspace: Uuid) -> HashSet<Uuid> {
+/// The caller's tasks as the resource reads them: their rows, and a digest of what it shows.
+#[derive(Debug, Clone, Default)]
+struct Shown {
+    rows: HashSet<Uuid>,
+    digest: u64,
+}
+
+impl Shown {
+    fn of(list: &TaskList) -> Self {
+        let mut hasher = DefaultHasher::new();
+        serde_json::to_string(list)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        Self {
+            rows: list.tasks.iter().map(|task| task.row.id).collect(),
+            digest: hasher.finish(),
+        }
+    }
+}
+
+/// The caller's tasks now; `None` when they cannot be read, which is logged.
+async fn tasks(s: &Services, principal: &Principal) -> Option<Shown> {
+    let workspace = principal.workspace()?;
     match s.databases.tasks(principal, workspace).await {
-        Ok(tasks) => tasks.into_iter().map(|task| task.row.id).collect(),
+        Ok(tasks) => Some(Shown::of(&TaskList {
+            tasks: tasks.into_iter().map(Task::from).collect(),
+        })),
         Err(error) => {
             warn!(%error, "cannot read the tasks a subscription follows");
-            HashSet::new()
+            None
+        }
+    }
+}
+
+/// Follows the rows the caller's tasks are now, as `shown`.
+fn follow_rows(joined: &mut [Joined], shown: &Shown) {
+    for room in joined {
+        if let Interest::Tasks { rows, .. } = &mut room.interest {
+            rows.clone_from(&shown.rows);
         }
     }
 }
@@ -220,12 +266,14 @@ async fn follow(
     resource: Resource,
     peer: Peer<RoleServer>,
     mut joined: Vec<Joined>,
+    mut shown: Shown,
 ) {
     let uri = resource.uri();
     if joined.is_empty() {
         return;
     }
-    let mut told: Option<Instant> = None;
+    // When the caller was last told, or their tasks last read: the next is an interval on.
+    let mut last: Option<Instant> = None;
     let mut due: Option<Instant> = None;
     loop {
         let event = {
@@ -241,7 +289,7 @@ async fn follow(
         match event {
             Event::Heard(index, Next::Send(message)) => {
                 if joined[index].interest.wants(&message) {
-                    schedule(&mut due, told, &s);
+                    schedule(&mut due, last, &s);
                 }
             }
             Event::Heard(index, Next::Close(reason)) => {
@@ -250,11 +298,24 @@ async fn follow(
                     "a subscription fell behind; it joins again"
                 );
                 joined[index].rejoin();
-                schedule(&mut due, told, &s);
+                schedule(&mut due, last, &s);
             }
             Event::Due => {
                 due = None;
-                told = Some(Instant::now());
+                last = Some(Instant::now());
+                if let Resource::Tasks = resource {
+                    // What changed may be in a database the caller cannot see: they hear only
+                    // of a change to what they see.
+                    let Some(now) = tasks(&s, &principal).await else {
+                        continue;
+                    };
+                    follow_rows(&mut joined, &now);
+                    let changed = now.digest != shown.digest;
+                    shown = now;
+                    if !changed {
+                        continue;
+                    }
+                }
                 let told = peer
                     .notify_resource_updated(ResourceUpdatedNotificationParam::new(uri.clone()))
                     .await;
@@ -262,30 +323,26 @@ async fn follow(
                     // The session is gone.
                     return;
                 }
-                if let Resource::Tasks = resource
-                    && let Some(workspace) = principal.workspace()
-                {
-                    let rows = tasks(&s, &principal, workspace).await;
-                    for room in &mut joined {
-                        if let Interest::Tasks { rows: known, .. } = &mut room.interest {
-                            known.clone_from(&rows);
-                        }
-                    }
-                }
             }
         }
     }
 }
 
-/// Sets when to tell of a change: at once, unless the last was told within the interval,
-/// then once it ends. A change while one is due is told with it.
-fn schedule(due: &mut Option<Instant>, told: Option<Instant>, s: &Services) {
-    if due.is_some() {
-        return;
-    }
+/// Sets when to tell of a change, as [`due_at`] says, at the interval the settings say now.
+fn schedule(due: &mut Option<Instant>, last: Option<Instant>, s: &Services) {
     let interval: Duration = *s.settings.current().get(keys::NOTIFICATION_INTERVAL);
-    let now = Instant::now();
-    *due = Some(told.map_or(now, |told| (told + interval).max(now)));
+    *due = due_at(*due, last, interval, Instant::now());
+}
+
+/// When to tell of a change heard at `now`: when one is due already, with it; else at once,
+/// unless the last was told within `interval`, then once that ends.
+fn due_at(
+    due: Option<Instant>,
+    last: Option<Instant>,
+    interval: Duration,
+    now: Instant,
+) -> Option<Instant> {
+    due.or_else(|| Some(last.map_or(now, |last| (last + interval).max(now))))
 }
 
 #[cfg(test)]
@@ -340,5 +397,30 @@ mod tests {
         }))));
         assert!(!tasks.wants(b"not json"));
         assert!(!Interest::Document.wants(b"{\"type\": \"row_updated\"}"));
+    }
+
+    #[test]
+    fn a_change_is_told_at_once_then_at_most_once_an_interval() {
+        let interval = Duration::from_secs(2);
+        let start = Instant::now();
+        let at = |seconds: f32| start + Duration::from_secs_f32(seconds);
+
+        // Never told: at once.
+        assert_eq!(due_at(None, None, interval, at(0.0)), Some(at(0.0)));
+        // Told a second ago: once the interval since is over.
+        assert_eq!(
+            due_at(None, Some(at(1.0)), interval, at(2.0)),
+            Some(at(3.0))
+        );
+        // Told long ago: at once.
+        assert_eq!(
+            due_at(None, Some(at(0.0)), interval, at(5.0)),
+            Some(at(5.0))
+        );
+        // One due already: the change goes with it.
+        assert_eq!(
+            due_at(Some(at(3.0)), Some(at(1.0)), interval, at(2.5)),
+            Some(at(3.0))
+        );
     }
 }
