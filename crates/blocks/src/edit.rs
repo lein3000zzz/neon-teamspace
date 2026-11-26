@@ -3,8 +3,9 @@
 //!
 //! An edit changes only what it names, inside one transaction, so it merges with what others
 //! change at the same time: text typed elsewhere in the document, in a block an edit keeps,
-//! or elsewhere in a block whose text is replaced, stays. Blocks are named by their ids, which
-//! [`to_markdown_with_ids`](crate::markdown::to_markdown_with_ids) shows.
+//! or elsewhere in a block whose text is replaced, stays. Blocks are named by their ids, as
+//! [`to_markdown_with_ids`](crate::markdown::to_markdown_with_ids) shows them, percent-encoded
+//! where it encodes them, or as they are.
 //!
 //! - **Append** adds blocks at the end of the page, before the empty paragraph the editor
 //!   keeps last when there is one, so typing on after them stays possible.
@@ -45,7 +46,7 @@ use yrs::{
 };
 
 use crate::ids::IdSource;
-use crate::markdown::{holds_children, to_markdown};
+use crate::markdown::{encode_id, holds_children, to_markdown};
 use crate::model::{Block, Document};
 use crate::ydoc::{
     BLOCK_CONTAINER, BLOCK_GROUP, NotADocument, TABLE, TABLE_CELL, TABLE_HEADER, TABLE_PARAGRAPH,
@@ -232,6 +233,11 @@ fn id_of<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> Option<String> {
     }
 }
 
+/// Whether `name` names the block of `id`: the id as it is, or as markdown writes it.
+fn names(name: &str, id: Option<&str>) -> bool {
+    id.is_some_and(|id| id == name || encode_id(id) == name)
+}
+
 /// The group of a block's children, if it has any.
 fn children_of<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> Option<XmlElementRef> {
     container
@@ -246,7 +252,7 @@ fn children_of<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> Option<XmlElem
 /// Where the block of `id` is, at any depth.
 fn locate<T: ReadTxn>(txn: &T, group: &XmlElementRef, id: &str) -> Option<Place> {
     for (index, container) in containers(txn, group) {
-        if id_of(txn, &container).as_deref() == Some(id) {
+        if names(id, id_of(txn, &container).as_deref()) {
             return Some(Place {
                 group: group.clone(),
                 index,
@@ -355,7 +361,7 @@ fn replace_range(
     let start = find_block(txn, fragment, from)?;
     let end = containers(txn, &start.group)
         .into_iter()
-        .find(|(_, container)| id_of(txn, container).as_deref() == Some(to))
+        .find(|(_, container)| names(to, id_of(txn, container).as_deref()))
         .map(|(index, _)| index);
     let Some(end) = end else {
         find_block(txn, fragment, to)?;

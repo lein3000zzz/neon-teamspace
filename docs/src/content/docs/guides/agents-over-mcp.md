@@ -186,7 +186,8 @@ quoted.
 ```
 
 The line is `<!-- block `, the id, and ` -->`. An id with anything but ASCII letters,
-digits, `-`, `_`, `.` and `~` in it is percent-encoded. Every block has such a line, an
+digits, `-`, `_`, `.` and `~` in it is percent-encoded, and the operations of `edit_page`
+take it encoded as shown or decoded. Every block has such a line, an
 empty paragraph too, which has no other. A block keeps its id for as long as it is there,
 whoever edits around it. The lines are HTML comments, which markdown renderers leave unshown.
 The server leaves them out of markdown it reads, wherever they stand but in code, so

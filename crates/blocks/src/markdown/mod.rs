@@ -110,7 +110,7 @@ mod parse;
 mod write;
 
 pub use parse::from_markdown;
-pub(crate) use write::holds_children;
+pub(crate) use write::{encode_id, holds_children};
 pub use write::{to_markdown, to_markdown_with_ids};
 
 #[cfg(test)]

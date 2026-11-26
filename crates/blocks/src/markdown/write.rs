@@ -294,7 +294,7 @@ fn database(props: &DatabaseProps) -> String {
 
 /// An id as one word that markdown leaves as it is: every byte but ASCII letters, digits,
 /// `-`, `_`, `.` and `~` percent-encoded, so a UUID is written unchanged.
-fn encode_id(id: &str) -> String {
+pub(crate) fn encode_id(id: &str) -> String {
     let mut out = String::with_capacity(id.len());
     for byte in id.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {

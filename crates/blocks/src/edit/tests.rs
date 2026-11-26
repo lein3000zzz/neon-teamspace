@@ -889,3 +889,52 @@ fn typing_in_blocks_the_body_keeps_stays() {
         assert_eq!(markdown, md(&client));
     }
 }
+
+#[test]
+fn a_block_is_named_by_its_id_as_markdown_writes_it_or_as_it_is() {
+    let odd = |doc: &Doc| {
+        let fragment = fragment(doc);
+        let mut txn = doc.transact_mut();
+        replace(
+            &mut txn,
+            &fragment,
+            &Document::new(vec![
+                Block::paragraph("one").with_id("odd id/1"),
+                Block::paragraph("two").with_id("50%"),
+            ]),
+            &mut SequentialIds::new("block"),
+        );
+    };
+    let doc = Doc::with_client_id(1);
+    odd(&doc);
+    let shown = to_markdown_with_ids(&read(&doc));
+    assert!(shown.contains("<!-- block odd%20id%2F1 -->"), "{shown}");
+    assert!(shown.contains("<!-- block 50%25 -->"), "{shown}");
+
+    for (name, text) in [
+        ("odd%20id%2F1", "a"),
+        ("odd id/1", "b"),
+        ("50%25", "c"),
+        ("50%", "d"),
+    ] {
+        edit(
+            &doc,
+            &Edit::InsertAfter {
+                block_id: name.into(),
+                blocks: blocks(text),
+            },
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+    }
+    assert_eq!(md(&doc), "one\n\nb\n\na\n\ntwo\n\nd\n\nc\n");
+    edit(
+        &doc,
+        &Edit::ReplaceRange {
+            from: "odd%20id%2F1".into(),
+            to: "50%25".into(),
+            blocks: blocks("all"),
+        },
+    )
+    .expect("replaced");
+    assert_eq!(md(&doc), "all\n\nd\n\nc\n");
+}
