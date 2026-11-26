@@ -312,7 +312,14 @@ requests are refused. A share removed from its target, by anyone who manages the
 shares, takes its access away too.
 
 Deleting the webhook deletes its integration, which leaves the workspace, its share with it;
-what it made still names it, as deleted.
+what it made still names it, as deleted. Deleting the integration under
+[Agents](/docs/workspace-settings/agents/) deletes the webhook the same way.
+
+The workspace's owners and admins may hand the integration to another person, as they hand
+agents over. Its URL and signing secret were shown to whoever made them, and would go on
+writing for the new owner, so handing it over replaces both with ones nobody is shown: the
+old URL answers `404 not_found` at once, and a **New URL**, with a new secret when it checks
+signatures, makes it work again.
 
 ### Its URL
 
@@ -324,7 +331,8 @@ https://neon.example.com/hooks/in/nwh_<43 characters>
 
 The token in it is 256 random bits; the server keeps only its SHA-256. Anyone who has the URL
 may post to it, so keep it like a password. **New URL** makes another and the old one stops
-working at once.
+working at once. Handing the webhook's integration to another person replaces the URL too,
+with one nobody is shown, until a **New URL** is made.
 
 The path takes no cookie and no `Authorization` header: the token alone says which webhook,
 and as whom. So the browser's same-origin check, which guards what a visitor's cookie could

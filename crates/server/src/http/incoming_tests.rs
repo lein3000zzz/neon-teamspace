@@ -739,3 +739,118 @@ async fn the_hook_path_passes_the_origin_check_and_takes_no_cookie(pool: PgPool)
         .expect("a response");
     assert_eq!(wrong_method.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn handing_an_integration_over_replaces_its_url_and_secret(pool: PgPool) {
+    let state = keyed(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let db = database_id(&database(&t.ada, ws).await);
+    let made = hook(&t.bob, ws, "CI", &db, true).await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let path = path_of(&made);
+    let secret = made.body["signing_secret"]
+        .as_str()
+        .expect("a secret")
+        .to_owned();
+    let hook_id = made.body["hook"]["id"].as_str().expect("an id").to_owned();
+    let integration = made.body["hook"]["integration"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let one = format!("/api/v1/workspaces/{ws}/incoming-webhooks/{hook_id}");
+    let payload = create_row(json!({"Name": "From CI"}));
+    assert_eq!(
+        signed(&app, &path, &payload, &secret, 0).await.status,
+        StatusCode::OK
+    );
+
+    // Bob is removed, and his integration handed to Ada: what Bob was shown writes no more.
+    let bob = id(&t.bob.get("/api/v1/account/me").await);
+    let removed = t
+        .ada
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/workspaces/{ws}/members/{bob}"),
+            None,
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
+    let ada = id(&t.ada.get("/api/v1/account/me").await);
+    let handed = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/agents/{integration}/transfer"),
+            json!({"owner_id": ada}),
+        )
+        .await;
+    assert_eq!(handed.status, StatusCode::OK, "{}", handed.body);
+    let old = signed(&app, &path, &payload, &secret, 0).await;
+    assert_eq!(
+        (old.status, old.code()),
+        (StatusCode::NOT_FOUND, "not_found"),
+        "{}",
+        old.body
+    );
+    let read = t.ada.get(&one).await;
+    assert_eq!(read.body["integration"]["status"], "active");
+    assert_eq!(read.body["integration"]["owner"]["id"], ada.as_str());
+    assert_eq!(read.body["signed"], true);
+    assert_eq!(read.body["previous_secret_expires_at"], Value::Null);
+
+    // A new URL works only with a new secret: the old one no longer verifies.
+    let rotated = t.ada.post(&format!("{one}/token"), json!({})).await;
+    let new_path = path_of(&rotated);
+    let stale = signed(&app, &new_path, &payload, &secret, 0).await;
+    assert_eq!(
+        (stale.status, stale.code()),
+        (StatusCode::UNAUTHORIZED, "invalid_signature"),
+        "{}",
+        stale.body
+    );
+    let renewed = t.ada.post(&format!("{one}/secret"), json!({})).await;
+    let new_secret = renewed.body["signing_secret"]
+        .as_str()
+        .expect("a secret")
+        .to_owned();
+    let taken = signed(&app, &new_path, &payload, &new_secret, 0).await;
+    assert_eq!(taken.status, StatusCode::OK, "{}", taken.body);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn deleting_an_integration_deletes_its_incoming_webhook(pool: PgPool) {
+    let state = keyed(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let db = database_id(&database(&t.ada, ws).await);
+    let made = hook(&t.bob, ws, "CI", &db, false).await;
+    let path = path_of(&made);
+    let integration = made.body["hook"]["integration"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let deleted = t
+        .ada
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/workspaces/{ws}/agents/{integration}"),
+            None,
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.body);
+    let listed = t
+        .ada
+        .get(&format!("/api/v1/workspaces/{ws}/incoming-webhooks"))
+        .await;
+    assert_eq!(listed.body["hooks"], json!([]), "{}", listed.body);
+    let posted = send(&app, &path, &create_row(json!({"Name": "x"}))).await;
+    assert_eq!(posted.status, StatusCode::NOT_FOUND, "{}", posted.body);
+    let agent = t
+        .ada
+        .get(&format!("/api/v1/workspaces/{ws}/agents/{integration}"))
+        .await;
+    assert_eq!(agent.body["status"], "deleted");
+}

@@ -925,12 +925,16 @@ export const strings = {
       transferTitle: (name: string, to: string) => `Hand ${name} to ${to}?`,
       transferLede:
         "It acts for them from now on, which resumes it if it was suspended. Its tokens are revoked: they were made by its former owner.",
+      transferLedeIntegration:
+        "It acts for them from now on, which resumes it if it was suspended. Its incoming webhook gets a URL and signing secret nobody is shown, as the old ones were shown to whoever made them: make it a new URL under Webhooks to use it again.",
       transferred: (name: string, to: string) => `${name} now acts for ${to}.`,
       delete: "Delete",
       deleteLabel: (name: string) => `Delete ${name}`,
       deleteTitle: (name: string) => `Delete ${name}?`,
       deleteLede:
         "It leaves the workspace and its tokens are revoked at once. What it made still names it, as deleted.",
+      deleteLedeIntegration:
+        "It leaves the workspace, and its incoming webhook is deleted with it. What it made still names it, as deleted.",
       deleted: (name: string) => `${name} is deleted.`,
       teamspaces: "Add to a teamspace",
       teamspacesHint:

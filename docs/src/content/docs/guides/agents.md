@@ -105,13 +105,19 @@ The workspace's owners and admins hand an agent to another person of the workspa
 a guest nor disabled, with `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer`. It
 acts for its new owner from then on, which resumes it if it was suspended, and its tokens
 and the apps connected as it are revoked: its former owner made them, and they would
-otherwise act for the new owner.
+otherwise act for the new owner. For the same reason, an integration handed over gets a new
+URL for its incoming webhook, and a new signing secret if it checks signatures, which
+nobody is shown: the old URL answers `404 not_found` at once. The workspace's owners and
+admins make a **New URL**, and a new secret, to use the webhook again, as
+[incoming webhooks](/docs/guides/webhooks/#its-url) describe.
 
 Its owner renames it and changes its hue with `PATCH /api/v1/workspaces/{id}/agents/{agent_id}`.
 Its owner, or the workspace's owners and admins, delete it with `DELETE` on the same path.
 A deleted agent leaves the workspace and its teamspaces, its shares and favorites go, and
-its tokens and the apps connected as it are revoked, the connections they opened closing at once; its identity stays, so
-what it made still names it, as deleted.
+its tokens and the apps connected as it are revoked, the connections they opened closing
+at once; its identity stays, so what it made still names it, as deleted. Deleting an
+integration deletes its incoming webhook too, as deleting the webhook deletes its
+integration.
 
 ## How agents are named
 

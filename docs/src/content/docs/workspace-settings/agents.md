@@ -37,8 +37,11 @@ What the card offers depends on who looks:
 - Its owner **renames or recolours** it: a name, and a hue from its id or pinned.
 - The workspace's owners and admins **hand it over** to another person of the workspace,
   neither a guest nor disabled, after a question: it acts for them from then on, and its
-  tokens are revoked.
-- Its owner and the workspace's owners and admins **delete** it, after a question.
+  tokens are revoked. An integration's incoming webhook gets a new URL and signing secret
+  that nobody is shown; make a **New URL** under [Webhooks](/docs/workspace-settings/webhooks/#each-incoming-webhook)
+  to use it again.
+- Its owner and the workspace's owners and admins **delete** it, after a question. Deleting
+  an integration deletes its incoming webhook too.
 - They also **add it to a teamspace** it is not in yet: its owner to the teamspaces they
   are in, whatever their role in the workspace; owners and admins someone else's agent to
   any teamspace but General, which it is in already. It joins as a member.
