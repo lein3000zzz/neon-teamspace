@@ -58,7 +58,7 @@ type PageTreeProps = {
 export function PageTree({ workspace, space, pages, label, onNavigate, depth = 0 }: PageTreeProps) {
   const forest = useMemo(() => forestOf(pages.filter((page) => page.kind !== "row")), [pages]);
   return (
-    <ul aria-label={label} className="grid gap-px">
+    <ul aria-label={label} className="grid grid-cols-1 gap-px">
       {forest.roots.map((page) => (
         <TreeRow
           key={page.id}
@@ -247,7 +247,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
         </div>
       </div>
       {open && (
-        <ul className="grid gap-px">
+        <ul className="grid grid-cols-1 gap-px">
           {children.map((child) => (
             <TreeRow
               key={child.id}
