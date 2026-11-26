@@ -407,6 +407,7 @@ curl -X POST "$HOOK_URL" \
 | Status | `code` | Why |
 |---|---|---|
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
+| `400` | `invalid_body` | The body could not be read to its end. |
 | `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. |
 | `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
