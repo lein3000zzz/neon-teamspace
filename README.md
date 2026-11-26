@@ -63,7 +63,11 @@ observability stack on its own, beside `make run`; see
 `make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
 the Playwright tests in `e2e/` against it, and removes it, leaving the report in
 `e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
-and headless Chromium itself.
+and headless Chromium itself. The server image it tests builds with Cargo's `e2e` profile, the
+release profile without link-time optimisation, which compiles in a fraction of the time;
+published images build with `release`. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE`
+name the Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so
+runs from two checkouts can go side by side.
 
 ## Development
 

@@ -5,6 +5,10 @@
 #
 # The Rust build runs on the builder's own platform and cross-compiles for the image's, so an
 # arm64 image builds on an amd64 machine, and the reverse, without emulating the compiler.
+#
+# The build argument CARGO_PROFILE names the Cargo profile of the binary: release, the default,
+# for every published image, or e2e, Cargo.toml's quicker build of the same code, which make e2e
+# passes.
 
 # cargo-chef and cargo-about for the builder's platform, amd64 or arm64, as their projects
 # release them, checked against the checksums those releases publish. Compiled from source they
@@ -94,9 +98,13 @@ export AR_$lower=$gnu-ar
 ENV
 EOF
 
+# Declared after the toolchain, which both profiles share. Cargo puts each profile's output in a
+# directory of its name, but dev's, which it names debug.
+ARG CARGO_PROFILE=release
 COPY --from=planner /src/recipe.json recipe.json
 RUN . /cross.env \
-    && cargo chef cook --release --locked --target "$RUST_TARGET" -p neon-server --recipe-path recipe.json
+    && cargo chef cook --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server \
+        --recipe-path recipe.json
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -106,8 +114,8 @@ COPY migrations ./migrations
 COPY .sqlx ./.sqlx
 ENV SQLX_OFFLINE=true
 RUN . /cross.env \
-    && cargo build --release --locked --target "$RUST_TARGET" -p neon-server --bin neon \
-    && cp "target/$RUST_TARGET/release/neon" /neon
+    && cargo build --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server --bin neon \
+    && cp "target/$RUST_TARGET/$CARGO_PROFILE/neon" /neon
 
 # glibc, libgcc and CA certificates, no shell, running as the unprivileged user nonroot.
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
