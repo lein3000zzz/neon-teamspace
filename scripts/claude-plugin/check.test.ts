@@ -201,6 +201,44 @@ describe("checkMcpServers", () => {
   });
 });
 
+describe("checkRepository", () => {
+  it("fails a skill that calls a missing tool or lacks its SKILL.md, past files beside them", () => {
+    const root = fixture(
+      {
+        "Cargo.toml": '[workspace.package]\nversion = "0.1.0"\n',
+        "api/openapi.json": JSON.stringify({ components: { schemas: {} } }),
+        "crates/server/src/mcp/tools.rs":
+          'pub(crate) const TOOLS: [Spec; 1] = [\n    Spec {\n        name: "whoami",\n        writes: false,\n    },\n];',
+        "crates/server/src/mcp/resources.rs": 'ResourceTemplate::new("neon://me/tasks", "tasks")',
+        ".claude-plugin/marketplace.json": JSON.stringify({
+          name: "neon-teamspace",
+          owner: { name: "Neon" },
+          description: "Works.",
+          plugins: [{ name: "neon-teamspace", source: "./plugin" }],
+        }),
+        "plugin/.claude-plugin/plugin.json": JSON.stringify({
+          name: "neon-teamspace",
+          version: "0.1.0",
+          description: "Works.",
+          author: { name: "Neon" },
+        }),
+        "plugin/.mcp.json": JSON.stringify({
+          mcpServers: { neon: { type: "http", url: "https://neon.example.com/mcp" } },
+        }),
+        "plugin/skills/work/SKILL.md": skill("Call `whoami`, then call `search`."),
+        "plugin/skills/empty/README.md": "No skill here.",
+        "plugin/skills/.DS_Store": "",
+      },
+      onTestFinished,
+    );
+
+    expect(checkRepository(root).toSorted()).toEqual([
+      "plugin/skills/empty: has no SKILL.md",
+      "plugin/skills/work/SKILL.md: calls `search`, which is no tool of the MCP server: whoami",
+    ]);
+  });
+});
+
 describe("checkPlugin", () => {
   it("fails a version other than the server's, an unknown option field and a missing path", () => {
     const dir = fixture(

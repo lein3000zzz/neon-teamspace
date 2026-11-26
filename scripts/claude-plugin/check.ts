@@ -539,9 +539,13 @@ export function checkRepository(root: string): string[] {
       );
     }
     const skills = join(dir, "skills");
-    for (const skill of existsSync(skills) ? readdirSync(skills) : []) {
+    // A skill is a folder; Claude Code passes over files beside them, such as .DS_Store.
+    const folders = existsSync(skills)
+      ? readdirSync(skills).filter((folder) => statSync(join(skills, folder)).isDirectory())
+      : [];
+    for (const skill of folders) {
       const path = join(skills, skill, "SKILL.md");
-      if (!statSync(dirname(path)).isDirectory() || !existsSync(path)) {
+      if (!existsSync(path)) {
         problems.push(`${relative(root, dirname(path))}: has no SKILL.md`);
         continue;
       }
