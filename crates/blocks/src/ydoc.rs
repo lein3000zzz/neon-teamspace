@@ -12,7 +12,8 @@
 //!       paragraph backgroundColor="default" textColor="default" textAlignment="left"
 //!         XmlText "Some bold text" (bold: {} over "bold")
 //!         hardBreak
-//!         XmlText "after the break"
+//!         XmlText "after the break, for "
+//!         mention kind="user" target="..." label="Ada"
 //!       blockGroup                      (the block's children, if it has any)
 //!         blockContainer id="..."
 //!           ...
@@ -43,9 +44,9 @@ use crate::ids::IdSource;
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_COLOR, DatabaseProps,
-    Document, FileProps, HeadingProps, ImageProps, Inline, NoProps, NumberedListItemProps,
-    QuoteProps, TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment,
-    TextProps,
+    Document, FileProps, HeadingProps, ImageProps, Inline, Mention, MentionKind, NoProps,
+    NumberedListItemProps, QuoteProps, TableCell, TableCellProps, TableContent, TableProps,
+    TableRow, TextAlignment, TextProps,
 };
 
 /// The name of the `XmlFragment` that holds a page's blocks, which the web app passes to
@@ -55,6 +56,7 @@ pub const FRAGMENT: &str = "document-store";
 pub(crate) const BLOCK_GROUP: &str = "blockGroup";
 pub(crate) const BLOCK_CONTAINER: &str = "blockContainer";
 const HARD_BREAK: &str = "hardBreak";
+pub(crate) const MENTION: &str = "mention";
 pub(crate) const TABLE: &str = "table";
 pub(crate) const TABLE_ROW: &str = "tableRow";
 pub(crate) const TABLE_CELL: &str = "tableCell";
@@ -522,7 +524,7 @@ fn static_name(name: &str) -> Option<&'static str> {
     NAMES.into_iter().find(|known| *known == name)
 }
 
-/// The inline content of an element: its texts' runs and its hard breaks.
+/// The inline content of an element: its texts' runs, its hard breaks and its mentions.
 fn read_inline<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<Vec<Inline>, ReadError> {
     let mut pieces = Vec::new();
     for child in element.children(txn) {
@@ -531,11 +533,30 @@ fn read_inline<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<Vec<Inlin
             XmlOut::Element(node) if node.tag().as_ref() == HARD_BREAK => {
                 pieces.push(Piece::Break);
             }
+            XmlOut::Element(node) if node.tag().as_ref() == MENTION => {
+                pieces.push(Piece::Mention(read_mention(txn, &node)?));
+            }
             XmlOut::Element(node) => return Err(ReadError::UnknownInline(node.tag().to_string())),
             XmlOut::Fragment(_) => return Err(ReadError::UnknownInline("fragment".to_owned())),
         }
     }
     Ok(to_inline(pieces))
+}
+
+/// A mention's props, with the schema's defaults.
+fn read_mention<T: ReadTxn>(txn: &T, node: &XmlElementRef) -> Result<Mention, ReadError> {
+    let attrs = Attrs {
+        txn,
+        element: node,
+        node: MENTION,
+    };
+    let kind = MentionKind::parse(&attrs.string("kind", MentionKind::User.as_str())?)
+        .ok_or_else(|| attrs.invalid("kind"))?;
+    Ok(Mention::new(
+        kind,
+        attrs.string("target", "")?,
+        attrs.string("label", "")?,
+    ))
 }
 
 fn read_text<T: ReadTxn>(
@@ -882,7 +903,8 @@ fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKin
 }
 
 /// Writes inline content as y-prosemirror does: each run of text nodes one `XmlText`, each
-/// hard break an element between them.
+/// hard break and each mention an element between them, a mention's attributes in its
+/// props' order.
 fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[Inline]) {
     let mut texts: Vec<(String, Marks)> = Vec::new();
     for piece in to_pieces(content) {
@@ -891,6 +913,18 @@ fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[In
             Piece::Break => {
                 write_text(txn, element, &std::mem::take(&mut texts));
                 element.push_back(txn, XmlElementPrelim::empty(HARD_BREAK));
+            }
+            Piece::Mention(mention) => {
+                write_text(txn, element, &std::mem::take(&mut texts));
+                let node = element.push_back(txn, XmlElementPrelim::empty(MENTION));
+                let props = &mention.props;
+                let mut attrs = Writer {
+                    txn,
+                    element: &node,
+                };
+                attrs.set("kind", props.kind.as_str());
+                attrs.set("target", props.target.as_str());
+                attrs.set("label", props.label.as_str());
             }
         }
     }

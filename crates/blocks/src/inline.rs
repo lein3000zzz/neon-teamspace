@@ -1,20 +1,22 @@
-//! Inline content as ProseMirror holds it, text nodes with marks and hard breaks, and the
-//! conversions between that and the model's runs. They follow BlockNote's own, so the Yjs
+//! Inline content as ProseMirror holds it, text nodes with marks, hard breaks and mentions,
+//! and the conversions between that and the model's runs. They follow BlockNote's own, so the Yjs
 //! reader, the markdown parser and both writers agree on one normal form:
 //!
 //! - a line break is `\n` in the text it ends, whatever that text's styles;
 //! - neighbouring runs with the same styles, or links with the same target, are one run;
 //! - no run is empty;
+//! - a mention stands alone, between the runs around it, which it never merges;
 //! - code excludes every other style and the link, as BlockNote's code mark does;
 //! - an empty colour is no colour.
 
-use crate::model::{Inline, Link, StyledText, Styles};
+use crate::model::{Inline, Link, Mention, StyledText, Styles};
 
 /// One piece of a block's inline content.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Piece {
     Text { text: String, marks: Marks },
     Break,
+    Mention(Mention),
 }
 
 /// The marks of a text node: its styles and the link around it.
@@ -58,8 +60,15 @@ pub(crate) fn to_inline(pieces: impl IntoIterator<Item = Piece>) -> Vec<Inline> 
                     Some(run) => run.text.push('\n'),
                     None => link.content.push(plain("\n")),
                 },
-                None => current = Some(Inline::Text(plain("\n"))),
+                Some(Inline::Mention(_)) | None => {
+                    runs.extend(current.take());
+                    current = Some(Inline::Text(plain("\n")));
+                }
             },
+            Piece::Mention(mention) => {
+                runs.extend(current.take());
+                runs.push(Inline::Mention(mention));
+            }
             Piece::Text { text, marks } => {
                 if text.is_empty() {
                     continue;
@@ -124,6 +133,7 @@ pub(crate) fn to_pieces(content: &[Inline]) -> Vec<Piece> {
                     split(&mut pieces, text, Some(&link.href));
                 }
             }
+            Inline::Mention(mention) => pieces.push(Piece::Mention(mention.clone())),
         }
     }
     pieces
@@ -148,7 +158,7 @@ fn split(pieces: &mut Vec<Piece>, run: &StyledText, link: Option<&str>) {
     }
 }
 
-/// The text of the runs, without styles or link targets.
+/// The text of the runs, without styles or link targets; a mention is `@` and its label.
 pub(crate) fn plain_text(content: &[Inline]) -> String {
     let mut text = String::new();
     for run in content {
@@ -158,6 +168,10 @@ pub(crate) fn plain_text(content: &[Inline]) -> String {
                 for run in &link.content {
                     text.push_str(&run.text);
                 }
+            }
+            Inline::Mention(mention) => {
+                text.push('@');
+                text.push_str(&mention.props.label);
             }
         }
     }
