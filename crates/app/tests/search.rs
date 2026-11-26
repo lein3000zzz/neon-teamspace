@@ -1061,6 +1061,16 @@ async fn misspelled_titles_are_found_and_misspelled_text_is_not(pool: PgPool) {
         t.titles(&t.dee, "hirng plan").await.is_empty(),
         "too far from both"
     );
+    // Each word of several misspelled, each still like a word of the title.
+    t.general_page("Launch plan", "").await;
+    assert_eq!(t.titles(&t.dee, "lanch plna").await, ["Launch plan"]);
+    assert_eq!(t.titles(&t.dee, "lanch plan").await, ["Launch plan"]);
+    assert!(
+        t.titles(&t.dee, "hirng plna").await.is_empty(),
+        "one word like nothing in a title leaves it out"
+    );
+    // One word alone takes the stricter bar.
+    assert!(t.titles(&t.dee, "plna").await.is_empty());
     // Loose matches rank below exact ones.
     t.general_page("Quaterly", "").await;
     assert_eq!(t.titles(&t.dee, "quaterly").await[0], "Quaterly");

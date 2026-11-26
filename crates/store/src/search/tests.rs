@@ -221,6 +221,7 @@ async fn plan(pool: &PgPool, scope: &Scope, search: &Search<'_>) -> Json {
         .bind(search.words)
         .bind(SNIPPET_CHARS)
         .bind(SNIPPET_LEAD)
+        .bind(FUZZY_THRESHOLD)
         .fetch_one(&mut *tx)
         .await
         .expect("explained");

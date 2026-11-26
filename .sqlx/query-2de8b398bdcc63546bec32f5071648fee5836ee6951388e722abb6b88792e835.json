@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE\n               mine_shared (id) AS (\n                   SELECT s.page_id FROM page_shares s\n                   WHERE s.workspace_id = $1 AND s.user_id = $6\n                 UNION\n                   SELECT c.id FROM mine_shared d JOIN pages c ON c.parent_id = d.id\n               ),\n               owner_shared (id) AS (\n                   SELECT s.page_id FROM page_shares s\n                   WHERE $7 AND s.workspace_id = $1 AND s.user_id = $10\n                 UNION\n                   SELECT c.id FROM owner_shared d JOIN pages c ON c.parent_id = d.id\n               ),\n               found (id) AS (\n                   SELECT p.id FROM pages p\n                   WHERE p.workspace_id = $1 AND p.teamspace_id = ANY($4)\n                     AND p.trashed_at IS NULL\n                     AND ($11::uuid IS NULL OR p.teamspace_id = $11)\n                     AND ($12::text IS NULL OR p.kind = $12)\n                     AND ($13::uuid IS NULL OR p.created_by = $13)\n                     AND ($14::uuid IS NULL OR p.last_edited_by = $14)\n                     AND ($15::timestamptz IS NULL\n                          OR GREATEST(p.updated_at, p.content_updated_at) >= $15)\n                     AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)\n                          OR ($3::text IS NOT NULL\n                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))\n                              AND (word_similarity($3, p.title) >= $22::real\n                                   OR (cardinality($19::text[]) > 1\n                                       AND NOT EXISTS (\n                                           SELECT 1 FROM unnest($19::text[]) AS w (word)\n                                           WHERE NOT w.word <% p.title)))\n                              AND ($18::text IS NULL\n                                   OR p.search_vector @@ to_tsquery('simple', $18))))\n                     AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9\n                          OR p.id IN (SELECT id FROM owner_shared))\n                 UNION\n                   SELECT p.id FROM pages p\n                   WHERE p.workspace_id = $1 AND p.owner_id = $5\n                     AND p.trashed_at IS NULL\n                     AND ($11::uuid IS NULL OR p.teamspace_id = $11)\n                     AND ($12::text IS NULL OR p.kind = $12)\n                     AND ($13::uuid IS NULL OR p.created_by = $13)\n                     AND ($14::uuid IS NULL OR p.last_edited_by = $14)\n                     AND ($15::timestamptz IS NULL\n                          OR GREATEST(p.updated_at, p.content_updated_at) >= $15)\n                     AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)\n                          OR ($3::text IS NOT NULL\n                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))\n                              AND (word_similarity($3, p.title) >= $22::real\n                                   OR (cardinality($19::text[]) > 1\n                                       AND NOT EXISTS (\n                                           SELECT 1 FROM unnest($19::text[]) AS w (word)\n                                           WHERE NOT w.word <% p.title)))\n                              AND ($18::text IS NULL\n                                   OR p.search_vector @@ to_tsquery('simple', $18))))\n                     AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9\n                          OR p.id IN (SELECT id FROM owner_shared))\n                 UNION\n                   SELECT p.id FROM mine_shared m JOIN pages p ON p.id = m.id\n                   WHERE p.workspace_id = $1 AND p.trashed_at IS NULL\n                     AND ($11::uuid IS NULL OR p.teamspace_id = $11)\n                     AND ($12::text IS NULL OR p.kind = $12)\n                     AND ($13::uuid IS NULL OR p.created_by = $13)\n                     AND ($14::uuid IS NULL OR p.last_edited_by = $14)\n                     AND ($15::timestamptz IS NULL\n                          OR GREATEST(p.updated_at, p.content_updated_at) >= $15)\n                     AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)\n                          OR ($3::text IS NOT NULL\n                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))\n                              AND (word_similarity($3, p.title) >= $22::real\n                                   OR (cardinality($19::text[]) > 1\n                                       AND NOT EXISTS (\n                                           SELECT 1 FROM unnest($19::text[]) AS w (word)\n                                           WHERE NOT w.word <% p.title)))\n                              AND ($18::text IS NULL\n                                   OR p.search_vector @@ to_tsquery('simple', $18))))\n                     AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9\n                          OR p.id IN (SELECT id FROM owner_shared))\n               ),\n               ranked AS (\n                   SELECT p.id, p.title, p.property_text, p.search_text, p.comment_text,\n                          (CASE WHEN $2::text IS NULL THEN 0\n                                ELSE ts_rank(p.search_vector, to_tsquery('simple', $2)) END\n                           + CASE WHEN $3::text IS NULL THEN 0\n                                  ELSE word_similarity($3, p.title) END\n                           + CASE WHEN $2::text IS NOT NULL\n                                       AND lower(p.title) = lower(array_to_string($19::text[], ' '))\n                                  THEN 1 ELSE 0 END\n                          )::float8 AS rank,\n                          GREATEST(p.updated_at, p.content_updated_at) AS edited_at\n                   FROM found f JOIN pages p ON p.id = f.id\n                   ORDER BY rank DESC, edited_at DESC, p.id\n                   LIMIT $16::bigint + 1 OFFSET $17\n               ),\n               numbered AS (\n                   SELECT r.*, row_number() OVER (ORDER BY r.rank DESC, r.edited_at DESC, r.id)\n                               AS n\n                   FROM ranked r\n               )\n               -- The page past the part tells that more follow, and is not marked. A\n               -- snippet is marked in $20 characters of the values, text and comments, from\n               -- $21 before the first place one of the query's words is, or from the start.\n               -- ts_headline drops what reads as an HTML tag, such as the <id> of\n               -- plants/<id>/moisture, so each < stands as U+0003 while it marks.\n               SELECT r.id AS \"id!\", r.rank AS \"rank!\", r.n AS \"n!\",\n                      CASE WHEN $2::text IS NOT NULL AND r.n <= $16 THEN\n                          translate(ts_headline('simple',\n                                                translate(r.title, E'<\\x01\\x02\\x03', E'\\x03'),\n                                                to_tsquery('simple', $2),\n                                                E'StartSel=\\x01, StopSel=\\x02, HighlightAll=true'),\n                                    E'\\x03', '<')\n                      END AS title,\n                      CASE WHEN t.body IS NOT NULL THEN\n                          translate(ts_headline('simple',\n                                                translate(substr(t.body,\n                                                                 greatest(1, COALESCE(m.at, 1) - $21),\n                                                                 $20),\n                                                          E'<\\x01\\x02\\x03', E'\\x03'),\n                                                to_tsquery('simple', $2),\n                                                E'StartSel=\\x01, StopSel=\\x02, MaxWords=30, MinWords=12, ShortWord=2, MaxFragments=2, FragmentDelimiter=\" … \"'),\n                                    E'\\x03', '<')\n                      END AS snippet\n               FROM numbered r\n               LEFT JOIN LATERAL (\n                   SELECT b.body, lower(b.body) AS low\n                   FROM (SELECT left(concat_ws(E'\\n', r.property_text, r.search_text,\n                                               r.comment_text), 100000) AS body) b\n                   WHERE $2::text IS NOT NULL AND r.n <= $16\n                     AND (r.property_text IS NOT NULL OR r.search_text IS NOT NULL\n                          OR r.comment_text IS NOT NULL)\n                   OFFSET 0\n               ) t ON true\n               LEFT JOIN LATERAL (\n                   SELECT min(a.at) AS at\n                   FROM (SELECT strpos(t.low, lower(word)) AS at\n                         FROM unnest($19::text[]) AS word) a\n                   WHERE a.at > 0\n               ) m ON true\n               ORDER BY r.n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rank!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "snippet",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "UuidArray",
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "UuidArray",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Int8",
+        "Int8",
+        "Text",
+        "TextArray",
+        "Int4",
+        "Int4",
+        "Float4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2de8b398bdcc63546bec32f5071648fee5836ee6951388e722abb6b88792e835"
+}

@@ -47,8 +47,9 @@ read as runs of characters: `東京` finds `東京タワー` because it starts i
 middle of such a run is not found.
 
 Titles also match loosely, by their trigrams, so `quaterly` finds **Quarterly roadmap** and
-`roadmp` finds it too. Only titles do, and only for queries with three letters or digits or
-more. A word left out with `-` leaves out loose matches too.
+`roadmp` finds it too. With several words, each may be misspelled, as long as each is like a
+word of the title: `lanch plna` finds **Launch plan**. Only titles do, and only for queries
+with three letters or digits or more. A word left out with `-` leaves out loose matches too.
 
 A query has at most 200 characters and 16 terms. One with only words to leave out, such as
 `-draft`, is refused, as it would match nearly everything, and so is one holding a control

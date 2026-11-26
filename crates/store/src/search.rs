@@ -12,9 +12,10 @@
 //! The matches are full-text search with the `simple` configuration over
 //! `pages.search_vector`, the title weighted most, then a row's property values, then the
 //! document's text, then the words of the page's comments, and a trigram match of titles
-//! typed loosely, with
-//! `pg_trgm.word_similarity_threshold` at [`FUZZY_THRESHOLD`]. Pages in the trash are left
-//! out.
+//! typed loosely: the query as a whole like part of the title by [`FUZZY_THRESHOLD`], or each
+//! of its words, when it has several, by [`FUZZY_WORD_THRESHOLD`], which
+//! `pg_trgm.word_similarity_threshold` is set to, so the title's trigram index finds both.
+//! Pages in the trash are left out.
 //!
 //! What a search costs stays bounded however large the pages are: only the pages answered
 //! get their matches marked, the one read past them to tell whether more follow does not;
@@ -28,9 +29,14 @@ use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// How alike a query's words and a title must be, by trigrams, for a loose match:
-/// `quaterly` matches `Quarterly roadmap`.
-pub const FUZZY_THRESHOLD: &str = "0.5";
+/// How alike a query and a title must be, by trigrams, for a loose match: `quaterly`
+/// matches `Quarterly roadmap`, and so does `quaterly roadmap`.
+pub const FUZZY_THRESHOLD: f32 = 0.5;
+
+/// How alike each word of a query of several and a title must be for a loose match when the
+/// query as a whole is not: `lanch plna` matches `Launch plan`. Lower than
+/// [`FUZZY_THRESHOLD`], as every word must be.
+pub const FUZZY_WORD_THRESHOLD: &str = "0.4";
 
 /// The text that marks where a match starts in a snippet, and where it ends. Neither is
 /// ever in what search reads: they are taken out of it first.
@@ -78,8 +84,9 @@ pub struct Search<'a> {
     /// What a loose match must hold too, for `to_tsquery('simple', …)`: none of the words
     /// left out.
     pub excluded: Option<&'a str>,
-    /// The query's words: a title that is them, but for case, ranks first, and a snippet is
-    /// marked around the first place one of them is.
+    /// The query's words: a title that is them, but for case, ranks first, a snippet is
+    /// marked around the first place one of them is, and with several, a title each is like
+    /// matches loosely.
     pub words: &'a [String],
     pub teamspace_id: Option<Uuid>,
     /// `page`, `database` or `row`.
@@ -141,7 +148,13 @@ macro_rules! search_sql {
                      AND ($15::timestamptz IS NULL
                           OR GREATEST(p.updated_at, p.content_updated_at) >= $15)
                      AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)
-                          OR ($3::text IS NOT NULL AND $3 <% p.title
+                          OR ($3::text IS NOT NULL
+                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))
+                              AND (word_similarity($3, p.title) >= $22::real
+                                   OR (cardinality($19::text[]) > 1
+                                       AND NOT EXISTS (
+                                           SELECT 1 FROM unnest($19::text[]) AS w (word)
+                                           WHERE NOT w.word <% p.title)))
                               AND ($18::text IS NULL
                                    OR p.search_vector @@ to_tsquery('simple', $18))))
                      AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9
@@ -157,7 +170,13 @@ macro_rules! search_sql {
                      AND ($15::timestamptz IS NULL
                           OR GREATEST(p.updated_at, p.content_updated_at) >= $15)
                      AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)
-                          OR ($3::text IS NOT NULL AND $3 <% p.title
+                          OR ($3::text IS NOT NULL
+                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))
+                              AND (word_similarity($3, p.title) >= $22::real
+                                   OR (cardinality($19::text[]) > 1
+                                       AND NOT EXISTS (
+                                           SELECT 1 FROM unnest($19::text[]) AS w (word)
+                                           WHERE NOT w.word <% p.title)))
                               AND ($18::text IS NULL
                                    OR p.search_vector @@ to_tsquery('simple', $18))))
                      AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9
@@ -172,7 +191,13 @@ macro_rules! search_sql {
                      AND ($15::timestamptz IS NULL
                           OR GREATEST(p.updated_at, p.content_updated_at) >= $15)
                      AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)
-                          OR ($3::text IS NOT NULL AND $3 <% p.title
+                          OR ($3::text IS NOT NULL
+                              AND ($3 <% p.title OR p.title %> ANY($19::text[]))
+                              AND (word_similarity($3, p.title) >= $22::real
+                                   OR (cardinality($19::text[]) > 1
+                                       AND NOT EXISTS (
+                                           SELECT 1 FROM unnest($19::text[]) AS w (word)
+                                           WHERE NOT w.word <% p.title)))
                               AND ($18::text IS NULL
                                    OR p.search_vector @@ to_tsquery('simple', $18))))
                      AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9
@@ -245,14 +270,14 @@ macro_rules! search_sql {
 /// Readies the connection's transaction for [`search`]: each search is planned for the
 /// values it is given, rather than with a plan made for any, which cannot tell a guest
 /// with three shares from an owner of every teamspace; the loose match of titles takes
-/// [`FUZZY_THRESHOLD`]; and each statement after, until the transaction ends, fails once it
+/// [`FUZZY_WORD_THRESHOLD`]; and each statement after, until the transaction ends, fails once it
 /// runs longer than `limit`, as [`timed_out`] tells.
 pub async fn prepare(conn: &mut PgConnection, limit: Duration) -> sqlx::Result<()> {
     sqlx::query!(
         r#"SELECT set_config('plan_cache_mode', 'force_custom_plan', true) AS "plans!",
                   set_config('pg_trgm.word_similarity_threshold', $1, true) AS "threshold!",
                   set_config('statement_timeout', $2, true) AS "timeout!""#,
-        FUZZY_THRESHOLD,
+        FUZZY_WORD_THRESHOLD,
         format!("{}ms", limit.as_millis().max(1)),
     )
     .fetch_one(&mut *conn)
@@ -301,6 +326,7 @@ pub async fn search(
                 search.words,
                 SNIPPET_CHARS,
                 SNIPPET_LEAD,
+                FUZZY_THRESHOLD,
             )
         };
     }
