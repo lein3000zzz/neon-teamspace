@@ -252,7 +252,7 @@ jobs:
       - run: make docs-install
       # The first half of make docs-check. Its second half compares the settings page with
       # the output of the neon binary, which would compile the server a second time: the
-      # Rust job's tests make the same comparison, and run whenever the page changes.
+      # Rust tests make the same comparison, and run whenever the page changes.
       - name: Types and the docs' script tests
         working-directory: docs
         run: bun run check
@@ -286,8 +286,8 @@ jobs:
         run: bun scripts/licenses.ts e2e
 
   # The block document model against BlockNote: neon-blocks reads the updates BlockNote wrote,
-  # and BlockNote loads the ones neon-blocks wrote. The Rust job runs the crate's tests too;
-  # this job adds the other direction, which needs BlockNote.
+  # and BlockNote loads the ones neon-blocks wrote. The Rust tests job runs the crate's tests
+  # too; this job adds the other direction, which needs BlockNote.
   blocks:
     name: Block fixtures
     needs: changes

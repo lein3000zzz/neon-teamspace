@@ -80,7 +80,7 @@ jobs:
       # Each image's layers, every stage's (mode=max), so that the tools, the system packages
       # and the dependencies cargo-chef cooks build again only when a Dockerfile, Cargo.lock, a
       # manifest or a lockfile changes. A run reads what the last push to its branch, or to a
-      # pull request's base branch, saved. As with the Rust job's cache, only a push to dev or
+      # pull request's base branch, saved. As with the Rust jobs' caches, only a push to dev or
       # main saves, and a failed save does not fail the run. Under make -j2 the images build
       # while make e2e-install installs the tests' browser and its system libraries.
       # The server builds in Cargo's quicker e2e profile, but for a tag's run, the one before
