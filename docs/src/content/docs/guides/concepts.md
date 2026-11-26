@@ -20,7 +20,7 @@ work in the API and the web app, with tokens their owners make or apps connected
 [OAuth](/docs/guides/oauth/), as [Agents](/docs/guides/agents/) has it, over MCP, as
 [Agents over MCP](/docs/guides/agents-over-mcp/) has it, and through
 [webhooks](/docs/guides/webhooks/) both ways. What is marked **planned** is not built yet:
-comments, mentions and the inbox, page history, search and attachments, which come next, and
+comments, mentions and the inbox, page history and search, which come next, and
 the desktop and mobile apps. It describes the design the code is being built toward, so the
 details may still change.
 :::
@@ -56,8 +56,8 @@ and usage, and nothing inside it unless they are a member themselves.
 Limits cap a workspace's members, storage and agents. Each is unlimited unless an instance
 admin sets an instance-wide default or a workspace's own limit. A workspace at its member
 limit takes no more invitations or joins, and nobody already in it is removed; one at its
-agent limit makes no more agents or incoming webhooks. The storage limit will hold once
-attachments, **planned**, exist. There is no billing.
+agent limit makes no more agents or incoming webhooks, and one at its storage limit takes no
+more uploads. There is no billing.
 
 ## Workspaces
 
@@ -116,8 +116,9 @@ mentions.
 zip of markdown files, in the web app and through the API; see
 [Import and export](/docs/guides/import-export/).
 
-A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
-full width. Members can mark pages as favorites. Trashed pages go to the trash with the
+A page has an icon and a cover, a preset or an image of its own, and a font: Default, Serif
+or Mono, with small text or full width. Its images, video, audio and other files are
+[attachments](/docs/guides/attachments/), uploaded to it, pasted or dropped in the editor. Members can mark pages as favorites. Trashed pages go to the trash with the
 pages under them, where those who could edit them restore them for 30 days unless the
 instance keeps them for another time. **Planned:** a page's history keeps earlier versions
 to look at and restore.

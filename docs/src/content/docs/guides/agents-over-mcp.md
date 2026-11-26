@@ -179,6 +179,14 @@ without a teamspace answers an agent `forbidden`.
 `"last"` unless set. A database has no body of its own, so `read_page` and `edit_page` answer
 it `invalid_input`. Read it with `get_database` and `query_database` instead.
 
+Files kept on the server, an image's or a file block's, show in the markdown as links to their
+path, `![name](/api/v1/files/{id})` or `:::file [name](/api/v1/files/{id})`. The agent reads one
+with `GET` on that path of the server it connected to, with the same token, as far as it may
+see the page the file belongs to. MCP carries no file's bytes but as text inside a tool's
+arguments, held whole in memory, so there is no tool to upload one: the agent uploads it with
+`POST /api/v1/pages/{id}/files`, as [Attachments](/docs/guides/attachments/#the-api) has it,
+and puts the answer's `url` in the markdown it writes.
+
 A page shows an inline database where a line `:::database <id>`, or
 `:::database <id> view=<view id>` for one of its views, stands in its markdown. `create_database`
 with `inline` and `embed` adds that line at the end of the parent page; without `embed`, an
@@ -413,6 +421,7 @@ each tool does, with the same tokens.
 | `update_row` | `PATCH /api/v1/rows/{id}`, `PATCH /api/v1/databases/{id}/rows/{unique_id}` |
 | `claim_task` | `POST /api/v1/rows/{id}/claim`, `POST /api/v1/databases/{id}/rows/{unique_id}/claim`, with `?person_property=` |
 | `neon://me/tasks` | `GET /api/v1/workspaces/{id}/tasks` |
+| A file a page shows | `GET /api/v1/files/{id}`, and `POST /api/v1/pages/{id}/files` to upload one, with no tool beside them |
 | `resources/list` | `GET /api/v1/account/favorites`, `GET /api/v1/workspaces/{id}/recent-pages`, and the tasks |
 
 Over REST, the [live connections](/docs/architecture/realtime/) take the place of

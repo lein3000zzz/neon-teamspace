@@ -30,8 +30,8 @@ transaction passed in. A trait over every repository would double each signature
 of a repository tests nothing about its SQL; tests run the real repositories against a real
 Postgres instead, a fresh database for each test. Traits, the ports, are kept for what leaves
 the process and what tests must replace: mail, the real-time broadcaster, the listeners of
-access changes, the rate limiter and webhooks' transport, and attachments' storage once
-attachments exist, **planned**. They are held as `Arc<dyn Trait>`: dynamic
+access changes, the rate limiter, webhooks' transport and attachments' storage. They are
+held as `Arc<dyn Trait>`: dynamic
 dispatch for a few calls per request costs nothing that can be measured, and keeps generic
 parameters out of every type that holds one.
 
@@ -154,7 +154,9 @@ adding them changes the wiring, not the use cases.
 **Attachments on local disk or any S3 API.** Attachments go through the `object_store`
 crate: a directory on local disk by default, which suits one server, or any S3-compatible
 service. SeaweedFS is the documented one, Apache-2.0 licensed and small enough to run in a
-Compose profile. **Planned.**
+Compose profile. Its requests go through an HTTP client of the server's own, hyper on rustls
+with ring, as webhooks' do, rather than the reqwest and aws-lc stack `object_store` brings by
+default.
 
 **Bootstrap configuration apart from settings.** What the server needs before it reaches its
 database comes from the environment or `neon.yaml`. Everything else is a runtime setting,
@@ -184,7 +186,7 @@ anyone or close it.
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
 A workspace at a limit takes no more uploads, invitations or agents, and its members go on
 editing. The member and agent limits hold now, agents and integrations counting against the
-agent limit together; storage follows with attachments, **planned**.
+agent limit together, and so does storage, which attachments' bytes count against.
 
 **Instance admins do not enter workspaces.** Being an instance admin counts only for the
 instance's own work: accounts, settings, and the list of workspaces with their limits. Inside

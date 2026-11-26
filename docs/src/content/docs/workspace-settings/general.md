@@ -51,8 +51,13 @@ and the switches wait for it.
 
 How many people are in the workspace, guests included, and its member limit, which instance
 admins set; **no limit** unless they set one. Agents and integrations count against the
-agent limit instead. Guests see the limit alone. A workspace at its limit takes in nobody new,
-and nobody in it is removed by a limit.
+agent limit instead. A workspace at its limit takes in nobody new, and nobody in it is
+removed by a limit.
+
+**Storage** shows the bytes the workspace's [attachments](/docs/guides/attachments/) take
+together against its storage limit, set the same way. A workspace at it takes no more
+uploads, and imports that bring files; its pages stay editable, and deleting files, or the
+pages they belong to, makes room once the cleanup removes them. Guests see the limits alone.
 
 ## Leave workspace
 

@@ -148,12 +148,27 @@ The crate's functions:
 | `markdown::to_markdown(document)` | The document as markdown. |
 | `markdown::from_markdown(text)` | The blocks of a markdown text, without ids. |
 | `Document::plain_text()` | The words of the document, for search. Database blocks are left out, as they hold no words of their own. |
+| `Document::files()` | Each image, video, audio and file block with the URL of the file it shows, in document order. |
+| `Document::map_files(map)` | Gives those blocks the URLs `map` returns, as exports and imports rewrite their links. |
 
 Writing gives each block without an id one from the `IdSource` it is passed, parents before
 their children. The crate has no source of randomness of its own. The server passes one that
 makes random ids, and tests pass a `SequentialIds`, which counts `block-1`, `block-2` and on,
 so what they write is the same on every run. Writing a document and reading it back gives the
 same document.
+
+### Files
+
+An image, video, audio or file block keeps its file's URL in its `url` prop, and its name in
+`name`. A file uploaded to the server is kept there as the path the server reads it at,
+`/api/v1/files/<id>`, on the same origin, so the editor loads it with the reader's session
+and the rules see every read; a URL of another site is a file the block only links to. The
+crate does not tell the two apart: the server finds its own files by their paths in the
+blocks `Document::files()` lists, records them with each snapshot, and rewrites them as paths
+inside a zip on export and back on import. Nothing in the schema changes for them, so
+BlockNote's own image, video, audio and file blocks hold them, and the fixtures' `file-blocks`
+and `file-links` samples test them with such paths.
+[Attachments](/docs/guides/attachments/) covers uploading and serving them.
 
 ## Markdown
 

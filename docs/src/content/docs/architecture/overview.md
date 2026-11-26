@@ -20,7 +20,7 @@ flowchart LR
   end
   caddy -- "/api, /ws, /mcp, /hooks, /.well-known" --> server[neon]
   server --> pg[(Postgres 18)]
-  server -. "planned" .-> files[(Attachments: local disk or S3)]
+  server --> files[(Attachments: local disk or S3)]
   server --> mail[Mail server]
   ops((Operator)) -- "127.0.0.1:9090" --> server
 ```
@@ -35,10 +35,12 @@ flowchart LR
   [Docker deployment](/docs/self-hosting/install/#with-docker); in development, Vite's server
   passes the same paths on to the server's own port, 8080.
 - **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
+- **The blob store** keeps attachments' bytes: a directory of the server's disk, or a bucket
+  of an S3-compatible store such as SeaweedFS; see [File storage](/docs/self-hosting/storage/).
 - **The mail server** is an SMTP relay of the operator's choice, which the server hands its
   mail to; see [Mail](/docs/self-hosting/mail/).
 - **Agents** reach the server's MCP endpoint, `/mcp`, on the same origin; see
-  [Agents over MCP](/docs/guides/agents-over-mcp/). Attachments are **planned**.
+  [Agents over MCP](/docs/guides/agents-over-mcp/).
 
 ## The crates
 
@@ -83,9 +85,11 @@ the repositories: tests run them against a real Postgres, a fresh database for e
 
 Traits are kept for side effects outside the database, the **ports**: `Mailer`,
 `Broadcaster`, `AccessChanges`, which tells the live documents, the database feeds and the
-MCP sessions whose access changed, `RateLimiter` and `WebhookTransport`, and `BlobStore` for
-attachments, **planned**. `neon-app` declares them, `neon-server` provides the adapters, such
-as SMTP and HTTP for webhooks, and tests use fakes. They are held as `Arc<dyn Trait>`. Each
+MCP sessions whose access changed, `RateLimiter`, `WebhookTransport`, and `BlobStore` for
+attachments' bytes. `neon-app` declares them, `neon-server` provides the adapters, such
+as SMTP and HTTP for webhooks and the HTTP client of the S3 store, and tests use fakes. The
+blob store's adapter is `object_store`'s, over local disk or S3, in `neon-app`, which tests
+run against a directory and an in-memory store. They are held as `Arc<dyn Trait>`. Each
 port arrives with the feature that needs it, from accounts on.
 
 ## A request's way

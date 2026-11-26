@@ -183,10 +183,12 @@ prefixes their names with the project's, `neon`:
 
 | Volume | What it holds |
 |---|---|
-| `neon_postgres` | The database: everything the instance knows. |
+| `neon_postgres` | The database: everything the instance knows but attachments' bytes. |
+| `neon_server-data` | The server's data directory, `/var/lib/neon`: attachments, while they are kept on local disk. |
 | `neon_caddy-data` | Caddy's certificates and keys, for `NEON_DOMAIN`. |
 | `neon_caddy-config` | Caddy's saved configuration. |
 | `neon_otel-lgtm` | With the `observability` profile, the metrics, traces, logs and profiles it collected. |
+| `neon_seaweedfs` | With the `seaweedfs` profile, the files SeaweedFS keeps, attachments among them once the server is set to use it. |
 
 To back the database up into `neon.sql`, and to restore that over what the database holds:
 
@@ -197,21 +199,24 @@ docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -
 
 Stop the server before restoring, with
 `docker compose -f deployments/docker-compose.yml stop server`, and start it again after.
+Back up attachments' files with the dump, after it, as [File storage](/docs/self-hosting/storage/#backups)
+shows.
 
-### Development profiles
+### Profiles
 
-Compose profiles add services that development needs, next to the stack:
+Compose profiles add services next to the stack:
 
 | Profile | What it adds |
 |---|---|
 | `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. Point the server at it in `deployments/server.env`; see [Mail](/docs/self-hosting/mail/#development). |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
+| `seaweedfs` | [SeaweedFS](https://github.com/seaweedfs/seaweedfs), an S3-compatible store for attachments, on `seaweedfs:8333` inside the network; see [File storage](/docs/self-hosting/storage/#seaweedfs-in-the-compose-stack). |
 
 A profile goes on the command that starts the stack, with the same files, for example
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
 in a clone. These are separate programs under their own licenses: Postgres under the PostgreSQL License,
-Caddy under Apache-2.0, Mailpit under MIT, and the observability stack's Grafana, Loki,
-Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Teamspace's code.
+Caddy and SeaweedFS under Apache-2.0, Mailpit under MIT, and the observability stack's
+Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Teamspace's code.
 
 ### The end-to-end tests
 
@@ -395,6 +400,10 @@ make sqlx-check
 Tests that use the database each get a fresh one, which `#[sqlx::test]` creates on the
 server `DATABASE_URL` points at. `make sqlx-check` fails when `.sqlx/` no longer matches the
 queries.
+
+The S3 blob store's test needs an S3-compatible server, and is skipped without one.
+`make test-s3` runs it against SeaweedFS in a throwaway container, on a free port of
+`127.0.0.1`, and removes the container however the run ends; it needs Docker.
 
 ### Generated files
 

@@ -105,6 +105,7 @@ export default defineConfig({
             'guides/webhooks',
             'guides/editing-pages',
             'guides/pages',
+            'guides/attachments',
             'guides/databases-and-boards',
             'guides/databases',
             'guides/import-export',
@@ -129,6 +130,7 @@ export default defineConfig({
           items: [
             'self-hosting/install',
             'self-hosting/configuration',
+            'self-hosting/storage',
             'self-hosting/mail',
             'self-hosting/observability',
           ],

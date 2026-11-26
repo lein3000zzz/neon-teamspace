@@ -92,7 +92,7 @@ and the page's menu.
 
 | Part | What it does |
 |---|---|
-| **Cover** | **Add cover** picks one of 14 presets drawn from the theme: the accent, eight hues and four gradients. Each follows the reader's palette and mode, so it suits both light and dark. **Change cover** picks another or removes it. |
+| **Cover** | **Add cover** picks one of 14 presets drawn from the theme: the accent, eight hues and four gradients. Each follows the reader's palette and mode, so it suits both light and dark. **Upload an image** makes an image of yours the cover instead, kept with the page as its [attachments](/docs/guides/attachments/#covers) are. **Change cover** picks another or removes it. |
 | **Icon** | **Add icon** opens a picker of emoji, by category or searched by name, which come with the app, so nothing is fetched elsewhere. A short text works too, up to 16 characters. The icon also shows in the sidebar and the way down to the page. |
 | **Title** | Typed in place. The sidebar shows it as it is typed, and it is saved once typing pauses, or as you leave it. Enter goes on to the page's content. A page without a title shows as Untitled. |
 | **Style** | The page's font, Default, Serif or Mono, as in Notion; small text, a step down; and full width, which lets the page take the whole width beside the sidebar. It holds for everyone who opens the page. |
@@ -156,8 +156,9 @@ Markdown comes in and goes out:
 - **Import into this page…**, in a page's menu, **Import** on a teamspace's page, and **Import
   markdown** on the workspace's home take a `.md` or `.markdown` file, or a `.zip` of them,
   up to 32 MiB. A file becomes a page, and a zip becomes pages, each folder a page with the
-  pages of its files under it. The dialog then links to what it made and lists what of a zip
-  it left out, such as images, as attachments come later.
+  pages of its files under it, and the images and other files its pages link to become their
+  [attachments](/docs/guides/attachments/). The dialog then links to what it made and lists
+  what of a zip it left out, such as a file no page links to.
 - **Export as markdown** and **Export with subpages**, in a page's menu, and **Export** on a
   teamspace's page save a `.md` file or a zip of them.
 
