@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use neon_domain::auth::Scope;
 use neon_domain::oauth::{
-    ACCESS_TOKEN_PREFIX, Client, Endpoints, ErrorCode, Grant, REFRESH_TOKEN_PREFIX, TokenKind,
-    check_verifier, narrowed, refreshed_scopes,
+    ACCESS_TOKEN_PREFIX, Audience, Client, Endpoints, ErrorCode, Grant, REFRESH_TOKEN_PREFIX,
+    TokenKind, check_verifier, narrowed, refreshed_scopes,
 };
 use neon_domain::settings::Secret;
 use neon_store::oauth::{self as repo, FoundGrant, Token};
@@ -52,6 +52,10 @@ fn invalid_grant(description: &str) -> OAuthError {
     OAuthError::protocol(ErrorCode::InvalidGrant, description)
 }
 
+fn invalid_target(description: &str) -> OAuthError {
+    OAuthError::protocol(ErrorCode::InvalidTarget, description)
+}
+
 impl OAuthService {
     /// Exchanges a code, with its PKCE verifier, or a refresh token, for an access token
     /// and a new refresh token. A code or refresh token used a second time means one of the
@@ -71,16 +75,17 @@ impl OAuthService {
             let audience = match request.resource.as_deref() {
                 None => None,
                 Some(indicator) => Some(endpoints.audience_of(indicator).ok_or_else(|| {
-                    OAuthError::protocol(
-                        ErrorCode::InvalidTarget,
+                    invalid_target(
                         "the resource is this server's MCP endpoint, /mcp, or its API, /api/v1",
                     )
                 })?),
             };
             let mut tx = self.pool().begin().await?;
             let issued = match request.grant_type.as_deref() {
-                Some("authorization_code") => self.exchange(&mut tx, &client, request).await,
-                Some("refresh_token") => self.refresh(&mut tx, &client, request).await,
+                Some("authorization_code") => {
+                    self.exchange(&mut tx, &client, request, audience).await
+                }
+                Some("refresh_token") => self.refresh(&mut tx, &client, request, audience).await,
                 Some(_) => Err(Refused(OAuthError::protocol(
                     ErrorCode::UnsupportedGrantType,
                     "the grant types are authorization_code and refresh_token",
@@ -102,12 +107,6 @@ impl OAuthService {
                 }
                 Err(Refused(error)) => return Err(error),
             };
-            if audience.is_some_and(|audience| audience != grant.audience) {
-                return Err(OAuthError::protocol(
-                    ErrorCode::InvalidTarget,
-                    "the resource is not the one the grant was asked for",
-                ));
-            }
             let tokens = self.issue(&mut tx, &grant, scopes).await?;
             tx.commit().await?;
             Ok(tokens)
@@ -116,7 +115,8 @@ impl OAuthService {
     }
 
     /// The code's grant and scopes, the code marked used. Refused, the code stays as it
-    /// was, so a client that sent a wrong parameter may try again within its minute.
+    /// was, so a client that sent a wrong parameter may try again within its minute. A
+    /// resource named must be the one the code was given for.
     ///
     /// It locks the grant, then the code, the order in which revoking a grant locks them,
     /// so that an exchange and a revocation or a second exchange take turns.
@@ -125,6 +125,7 @@ impl OAuthService {
         tx: &mut PgConnection,
         client: &Client,
         request: &TokenRequest,
+        audience: Option<Audience>,
     ) -> Result<(Grant, Vec<Scope>), Outcome> {
         let (Some(code), Some(redirect_uri), Some(verifier)) = (
             request.code.as_deref(),
@@ -165,6 +166,11 @@ impl OAuthService {
         if !check_verifier(verifier) || !pkce_matches(verifier, &found.challenge) {
             return Err(Refused(invalid_grant("the code_verifier does not match")));
         }
+        if audience.is_some_and(|audience| audience != found.audience) {
+            return Err(Refused(invalid_target(
+                "the resource is not the one the code was given for",
+            )));
+        }
         repo::use_code(&mut *tx, &hash, now).await.map_err(failed)?;
         let scopes = narrowed(&found.scopes, &grant.scopes);
         if scopes.is_empty() {
@@ -177,7 +183,8 @@ impl OAuthService {
 
     /// The refresh token's grant and the scopes of its successor, the token marked used.
     /// Refused, it stays as it was, so a client whose agent is suspended for now may
-    /// refresh once it resumes.
+    /// refresh once it resumes. A resource named must be the one the grant was last
+    /// allowed for, as its scopes are those last allowed.
     ///
     /// It locks the grant, then the refresh token, as [`exchange`](Self::exchange) does.
     async fn refresh(
@@ -185,6 +192,7 @@ impl OAuthService {
         tx: &mut PgConnection,
         client: &Client,
         request: &TokenRequest,
+        audience: Option<Audience>,
     ) -> Result<(Grant, Vec<Scope>), Outcome> {
         let Some(secret) = request.refresh_token.as_deref() else {
             return Err(Refused(invalid_request(
@@ -212,6 +220,11 @@ impl OAuthService {
         let grant = self.working_grant(&mut *tx, old.grant_id, client).await?;
         if now >= old.expires_at {
             return Err(Refused(invalid_grant("the refresh token expired")));
+        }
+        if audience.is_some_and(|audience| audience != grant.audience) {
+            return Err(Refused(invalid_target(
+                "the resource is not the one the grant was allowed for",
+            )));
         }
         let scopes = refreshed_scopes(request.scope.as_deref(), &old.scopes, &grant.scopes)
             .map_err(|problem| Refused(OAuthError::Protocol(problem)))?;

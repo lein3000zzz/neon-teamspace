@@ -1249,6 +1249,86 @@ async fn a_code_needs_its_verifier_redirect_and_client_and_a_mistake_spends_noth
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_code_keeps_to_its_own_resource_and_a_refresh_to_the_grants(pool: PgPool) {
+    let state = public(pool, Clock::system()).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let client = register(&app, &[REDIRECT]).await;
+    let verifier = verifier('v');
+    const API: &str = "https://neon.example.com/api/v1";
+    const MCP: &str = "https://neon.example.com/mcp";
+    let mut for_api = request(&client, &verifier, None);
+    for_api["resource"] = json!(API);
+    let api_code = code(&team.cy, &for_api, ws, None, &["read"]).await;
+    // Allowed again for the MCP endpoint, the same client, workspace and identity.
+    let mcp_code = code(
+        &team.cy,
+        &request(&client, &verifier, None),
+        ws,
+        None,
+        &["read"],
+    )
+    .await;
+    let exchange_for = |code: String, resource: &'static str| {
+        let (app, client, verifier) = (&app, &client, &verifier);
+        async move {
+            form(
+                app,
+                "/api/v1/oauth/token",
+                &[
+                    ("grant_type", "authorization_code"),
+                    ("client_id", client),
+                    ("code", &code),
+                    ("redirect_uri", REDIRECT),
+                    ("code_verifier", verifier),
+                    ("resource", resource),
+                ],
+            )
+            .await
+        }
+    };
+
+    let elsewhere = exchange_for(api_code.clone(), MCP).await;
+    assert_eq!(
+        oauth_error(&elsewhere),
+        "invalid_target",
+        "{}",
+        elsewhere.body
+    );
+    let elsewhere = exchange_for(mcp_code.clone(), API).await;
+    assert_eq!(
+        oauth_error(&elsewhere),
+        "invalid_target",
+        "{}",
+        elsewhere.body
+    );
+    let api = tokens(&client, &exchange_for(api_code, API).await);
+    tokens(&client, &exchange_for(mcp_code, MCP).await);
+
+    // A refresh keeps to the resource the grant was last allowed for.
+    let refresh_for = |resource: &'static str| {
+        let (app, client, token) = (&app, &client, &api.refresh);
+        async move {
+            form(
+                app,
+                "/api/v1/oauth/token",
+                &[
+                    ("grant_type", "refresh_token"),
+                    ("client_id", client),
+                    ("refresh_token", token),
+                    ("resource", resource),
+                ],
+            )
+            .await
+        }
+    };
+    assert_eq!(oauth_error(&refresh_for(API).await), "invalid_target");
+    let refreshed = refresh_for(MCP).await;
+    assert_eq!(refreshed.status, StatusCode::OK, "{}", refreshed.body);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn refresh_tokens_rotate_and_a_reused_one_revokes_the_whole_grant(pool: PgPool) {
     let state = public(pool, Clock::system()).await;
     let app = router(state.clone(), false);

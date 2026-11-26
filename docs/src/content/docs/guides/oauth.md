@@ -116,7 +116,11 @@ section 4.11.2). Only the person's own answer, allowing or denying, sends the br
 
 The `resource` (RFC 8707) is `<public URL>/mcp`, the default, or `<public URL>/api/v1`, the
 REST API; anything else is `invalid_target`. Both are this server, which checks every token
-itself, so a token issued for either works at both, within its workspace and scopes.
+itself, so a token issued for either works at both, within its workspace and scopes. The
+token endpoint takes a `resource` too: exchanging a code, it must be the one the code was
+given for; refreshing, the one the grant was last allowed for, as allowing again replaces
+it with the grant's scopes. Another is `invalid_target`, and leaves the code or refresh
+token as it was.
 
 ## Consent
 
