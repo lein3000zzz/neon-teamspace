@@ -97,6 +97,37 @@ test("a database with four views fits a phone's screen, its tabs scrolling on th
       const wide = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(wide, name).toBe(screen.width);
     }
+
+    // Chosen from the keyboard, each tab, with its menu, scrolls into sight clear of the row's
+    // fades.
+    await views.getByRole("tab", { name: "List" }).focus();
+    for (const name of ["Table", "Board", "Open work", "List"]) {
+      await page.keyboard.press("ArrowRight");
+      const tab = views.getByRole("tab", { name });
+      await expect(tab).toBeFocused();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect
+        .poll(
+          () =>
+            tab.evaluate((element) => {
+              const row = element.closest('[role="tablist"]');
+              const box = element.parentElement?.getBoundingClientRect();
+              if (row === null || box === undefined) {
+                return "no row";
+              }
+              const frame = row.getBoundingClientRect();
+              // The row fades out 24px on a side where more tabs are.
+              const from = frame.left + (row.scrollLeft > 1 ? 24 : 0);
+              const to =
+                frame.right - (row.scrollLeft + row.clientWidth < row.scrollWidth - 1 ? 24 : 0);
+              return box.left >= from - 1 && box.right <= to + 1
+                ? "clear"
+                : `${Math.round(box.left)}..${Math.round(box.right)} in ${Math.round(from)}..${Math.round(to)}`;
+            }),
+          { message: name },
+        )
+        .toBe("clear");
+    }
   } finally {
     await page.context().close();
   }

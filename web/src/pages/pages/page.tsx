@@ -318,8 +318,14 @@ function DatabaseBody({ page }: { page: Page }) {
       <DatabaseView
         database={{ ...database.data, page }}
         viewId={view}
+        // The router puts back no scroll as the view changes, which would undo the row of
+        // tabs scrolling the chosen one into sight.
         onViewChange={(next) =>
-          void navigate({ search: (previous) => ({ ...previous, view: next }), replace: true })
+          void navigate({
+            search: (previous) => ({ ...previous, view: next }),
+            replace: true,
+            resetScroll: false,
+          })
         }
       />
     </div>

@@ -116,15 +116,16 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
     };
   }, []);
 
+  // The tab in view, with its menu when it has one, scrolls clear of the fades, however it
+  // was chosen: the browser brings a focused tab only to the row's very edge.
   useEffect(() => {
     const row = list.current;
-    // The tab with its menu, when it has one.
     const tab = document.getElementById(`${panelId}-${active.id}`)?.parentElement;
     if (row === null || tab === null || tab === undefined) {
       return;
     }
-    const start = tab.offsetLeft;
-    const end = start + tab.offsetWidth;
+    const start = tab.offsetLeft - FADE;
+    const end = tab.offsetLeft + tab.offsetWidth + FADE;
     if (start < row.scrollLeft) {
       row.scrollLeft = start;
     } else if (end > row.scrollLeft + row.clientWidth) {
@@ -254,13 +255,16 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
 /** Whether tabs are scrolled out of sight before the first shown, and after the last. */
 type More = { start: boolean; end: boolean };
 
+/** How far, in pixels, the row of tabs fades out on a side where more of them are. */
+const FADE = 24;
+
 /** A mask that fades the row of tabs out on the sides where more of them are, or none. */
 function fade({ start, end }: More): string | undefined {
   if (!start && !end) {
     return undefined;
   }
-  const from = start ? "transparent, #000 1.5rem" : "#000";
-  const to = end ? "#000 calc(100% - 1.5rem), transparent" : "#000";
+  const from = start ? `transparent, #000 ${FADE}px` : "#000";
+  const to = end ? `#000 calc(100% - ${FADE}px), transparent` : "#000";
   return `linear-gradient(to right, ${from}, ${to})`;
 }
 
