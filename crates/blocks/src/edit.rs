@@ -29,6 +29,12 @@
 //!   sent back unchanged changes nothing, its empty paragraphs included. Such a child stays
 //!   only while the block it is under does: when that block changes, its children are
 //!   written anew after it.
+//! - **Restore** makes the page hold exactly the blocks given, a version of it from its
+//!   history, ids, colours and nesting included. Blocks are matched by id, level by level:
+//!   one the page and the version both have stays where the version has it, its content
+//!   rewritten only when it differs, so whatever is typed meanwhile in a block the version
+//!   has as the page does stays; the page's others go, and the version's others are written
+//!   with their ids. See [`restore`].
 //!
 //! A page keeps at least one block: an edit that removes every block leaves an empty
 //! paragraph, as the editor does. Each edit checks what it needs before it changes
@@ -86,13 +92,18 @@ pub enum Edit {
     },
     /// Replaces every block, keeping those that stay the same.
     ReplaceBody { blocks: Vec<Block> },
+    /// Makes the page hold exactly `blocks`, keeping the blocks it has as they are there.
+    Restore { blocks: Vec<Block> },
 }
 
 impl Edit {
     /// Whether it may remove blocks that are there: replacing a range or the body. Made from
     /// a stale read of the page, it would remove what was added or changed since.
     pub fn removes(&self) -> bool {
-        matches!(self, Self::ReplaceRange { .. } | Self::ReplaceBody { .. })
+        matches!(
+            self,
+            Self::ReplaceRange { .. } | Self::ReplaceBody { .. } | Self::Restore { .. }
+        )
     }
 
     /// A short name, for logs and metric labels.
@@ -103,6 +114,7 @@ impl Edit {
             Self::ReplaceRange { .. } => "replace_range",
             Self::FindReplace { .. } => "find_replace",
             Self::ReplaceBody { .. } => "replace_body",
+            Self::Restore { .. } => "restore",
         }
     }
 
@@ -193,6 +205,7 @@ pub fn apply(
             find_replace(txn, fragment, find, replace, *all, room)
         }
         Edit::ReplaceBody { blocks } => replace_body(txn, fragment, blocks, ids),
+        Edit::Restore { blocks } => restore::restore(txn, fragment, blocks, ids),
     }
 }
 
@@ -795,10 +808,10 @@ fn replace_body(
     })
 }
 
-/// The pairs of indexes of `old` and `new` whose blocks stay: a longest common sequence of
-/// them, in order. Blocks that do not read never stay.
-fn common(old: &[Option<String>], new: &[String]) -> Vec<(usize, usize)> {
-    let same = |i: usize, j: usize| old[i].as_deref() == Some(new[j].as_str());
+/// The pairs of indexes of `old` and `new` whose keys are the same: a longest common
+/// sequence of them, in order. Blocks that do not read, keyed `None`, never pair.
+pub(crate) fn common<K: PartialEq>(old: &[Option<K>], new: &[K]) -> Vec<(usize, usize)> {
+    let same = |i: usize, j: usize| old[i].as_ref() == Some(&new[j]);
     let mut head = 0;
     while head < old.len() && head < new.len() && same(head, head) {
         head += 1;
@@ -846,5 +859,6 @@ fn common(old: &[Option<String>], new: &[String]) -> Vec<(usize, usize)> {
     pairs
 }
 
+mod restore;
 #[cfg(test)]
 mod tests;

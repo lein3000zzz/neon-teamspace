@@ -127,6 +127,29 @@ export const keys = {
   sharedPages: (id: string) => ["workspaces", id, "page-trees", "shared"],
   trash: (id: string) => ["workspaces", id, "trash"],
   favorites: (id: string) => ["workspaces", id, "favorites"],
+  /** The pages changed last, which the quick search offers before anything is typed. */
+  recentPages: (id: string) => ["workspaces", id, "recent-pages"],
+  /** A search's results, by what it asked; every page change may change them. */
+  search: (id: string, asked: object) => ["workspaces", id, "search", asked],
+  /** A page's history, its versions, and each compared with the page as it is. */
+  versions: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "versions"],
+  version: (id: string, pageId: string, versionId: string) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "versions",
+    versionId,
+  ],
+  comparison: (id: string, pageId: string, versionId: string) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "versions",
+    versionId,
+    "compare",
+  ],
   /** A database's schema and views, with the rows each view lists under it. */
   database: (id: string, databaseId: string) => ["workspaces", id, "databases", databaseId],
   /** Every view's rows of a database, which a change to any row reads again. */

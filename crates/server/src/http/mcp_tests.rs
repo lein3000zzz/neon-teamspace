@@ -333,7 +333,9 @@ async fn every_tool_acts_as_its_caller_sees(pool: PgPool) {
             "list_members",
             "list_teamspaces",
             "get_page_tree",
+            "search",
             "read_page",
+            "list_versions",
             "create_page",
             "edit_page",
             "move_page",
@@ -598,7 +600,7 @@ async fn every_tool_acts_as_its_caller_sees(pool: PgPool) {
     assert!(message.contains("unknown field `page`"), "{message}");
     let unknown = scout_client
         .service
-        .call_tool(CallToolRequestParams::new("search"))
+        .call_tool(CallToolRequestParams::new("delete_everything"))
         .await;
     assert!(unknown.is_err(), "{unknown:?}");
 
@@ -2615,6 +2617,91 @@ async fn an_identity_at_its_bound_makes_room_by_ending_its_idlest_session(pool: 
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert!(answered.contains_key("retry-after"), "{answered:?}");
     state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_s_versions_are_listed_and_read(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let page = page(&t, "Plan", "# Goals\n\nShip it").await;
+    let (token, _) = agent_of(&t.ada, &t.workspace, "Scout").await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+
+    let listed = client.ok("list_versions", json!({"page_id": page})).await;
+    let versions = listed["versions"].as_array().expect("versions");
+    assert_eq!(versions.len(), 1, "{listed}");
+    assert_eq!(versions[0]["added"], 2);
+    assert_eq!(listed["next"], Value::Null);
+    let version = versions[0]["id"].as_str().expect("an id");
+    let read = client
+        .ok("read_page", json!({"page_id": page, "version_id": version}))
+        .await;
+    assert_eq!(
+        plain(read["markdown"].as_str().expect("markdown")),
+        "# Goals\n\nShip it"
+    );
+    assert_eq!(read["version"]["id"], version);
+    assert_eq!(read["blocks"].as_array().map(Vec::len), Some(2));
+    // Without one, the page as it is, which can be edited from.
+    let now = client.ok("read_page", json!({"page_id": page})).await;
+    assert!(now["revision"].is_string());
+
+    let (code, _) = client
+        .refused(
+            "read_page",
+            json!({"page_id": page, "version_id": "0193a5b2-0000-7000-8000-0000000000f1"}),
+        )
+        .await;
+    assert_eq!(code, "not_found");
+    let (code, _) = client
+        .refused("list_versions", json!({"page_id": page, "limit": 0}))
+        .await;
+    assert_eq!(code, "invalid_input");
+    client.close().await;
+    finish(&state, server).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn search_finds_what_the_connection_sees_with_the_routes_filters(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    page(&t, "Quarterly roadmap", "The harbour bridge").await;
+    page(&t, "Hiring", "").await;
+    let (token, _) = agent_of(&t.ada, &t.workspace, "Scout").await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+
+    let found = client.ok("search", json!({"query": "harbour"})).await;
+    let results = found["results"].as_array().expect("results");
+    assert_eq!(results.len(), 1, "{found}");
+    assert_eq!(results[0]["page"]["title"], "Quarterly roadmap");
+    assert!(
+        results[0]["snippet"]
+            .as_array()
+            .expect("runs")
+            .iter()
+            .any(|run| run["highlight"] == true && run["text"] == "harbour")
+    );
+    let loose = client.ok("search", json!({"query": "quaterly"})).await;
+    assert_eq!(loose["results"][0]["page"]["title"], "Quarterly roadmap");
+    let pages = client
+        .ok(
+            "search",
+            json!({"kind": "page", "edited_within": "1d", "limit": 1}),
+        )
+        .await;
+    assert_eq!(pages["results"].as_array().map(Vec::len), Some(1));
+    assert!(pages["next"].is_string());
+
+    let (code, _) = client.refused("search", json!({"query": "-draft"})).await;
+    assert_eq!(code, "invalid_search");
+    let (code, _) = client.refused("search", json!({"kind": "folder"})).await;
+    assert_eq!(code, "invalid_arguments");
+    client.close().await;
+    finish(&state, server).await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

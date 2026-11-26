@@ -43,6 +43,7 @@ import { Route as AuthOauthConsentRouteImport } from './routes/_auth/oauth/conse
 import { Route as AuthWorkspaceInviteIndexRouteImport } from './routes/_auth/workspace-invite/index'
 import { Route as AuthWorkspaceInviteTokenRouteImport } from './routes/_auth/workspace-invite/$token'
 import { Route as AppWSlugIndexRouteImport } from './routes/_app/w/$slug/index'
+import { Route as AppWSlugSearchRouteImport } from './routes/_app/w/$slug/search'
 import { Route as AppWSlugSettingsRouteImport } from './routes/_app/w/$slug/settings'
 import { Route as AppWSlugTrashRouteImport } from './routes/_app/w/$slug/trash'
 import { Route as AppWSlugPPageIdRouteImport } from './routes/_app/w/$slug/p/$pageId'
@@ -224,6 +225,11 @@ const AppWSlugIndexRoute = AppWSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppWSlugRoute,
 } as any)
+const AppWSlugSearchRoute = AppWSlugSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => AppWSlugRoute,
+} as any)
 const AppWSlugSettingsRoute = AppWSlugSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -310,6 +316,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AppAdminIndexRoute
   '/join/': typeof AuthJoinIndexRoute
   '/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
+  '/w/$slug/search': typeof AppWSlugSearchRoute
   '/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
   '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug/': typeof AppWSlugIndexRoute
@@ -351,6 +358,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AppAdminIndexRoute
   '/join': typeof AuthJoinIndexRoute
   '/workspace-invite': typeof AuthWorkspaceInviteIndexRoute
+  '/w/$slug/search': typeof AppWSlugSearchRoute
   '/w/$slug/trash': typeof AppWSlugTrashRoute
   '/w/$slug': typeof AppWSlugIndexRoute
   '/w/$slug/p/$pageId': typeof AppWSlugPPageIdRoute
@@ -397,6 +405,7 @@ export interface FileRoutesById {
   '/_app/admin/': typeof AppAdminIndexRoute
   '/_auth/join/': typeof AuthJoinIndexRoute
   '/_auth/workspace-invite/': typeof AuthWorkspaceInviteIndexRoute
+  '/_app/w/$slug/search': typeof AppWSlugSearchRoute
   '/_app/w/$slug/settings': typeof AppWSlugSettingsRouteWithChildren
   '/_app/w/$slug/trash': typeof AppWSlugTrashRoute
   '/_app/w/$slug/': typeof AppWSlugIndexRoute
@@ -443,6 +452,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/join/'
     | '/workspace-invite/'
+    | '/w/$slug/search'
     | '/w/$slug/settings'
     | '/w/$slug/trash'
     | '/w/$slug/'
@@ -484,6 +494,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/join'
     | '/workspace-invite'
+    | '/w/$slug/search'
     | '/w/$slug/trash'
     | '/w/$slug'
     | '/w/$slug/p/$pageId'
@@ -529,6 +540,7 @@ export interface FileRouteTypes {
     | '/_app/admin/'
     | '/_auth/join/'
     | '/_auth/workspace-invite/'
+    | '/_app/w/$slug/search'
     | '/_app/w/$slug/settings'
     | '/_app/w/$slug/trash'
     | '/_app/w/$slug/'
@@ -787,6 +799,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWSlugIndexRouteImport
       parentRoute: typeof AppWSlugRoute
     }
+    '/_app/w/$slug/search': {
+      id: '/_app/w/$slug/search'
+      path: '/search'
+      fullPath: '/w/$slug/search'
+      preLoaderRoute: typeof AppWSlugSearchRouteImport
+      parentRoute: typeof AppWSlugRoute
+    }
     '/_app/w/$slug/settings': {
       id: '/_app/w/$slug/settings'
       path: '/settings'
@@ -924,6 +943,7 @@ const AppWSlugSettingsRouteWithChildren =
   AppWSlugSettingsRoute._addFileChildren(AppWSlugSettingsRouteChildren)
 
 interface AppWSlugRouteChildren {
+  AppWSlugSearchRoute: typeof AppWSlugSearchRoute
   AppWSlugSettingsRoute: typeof AppWSlugSettingsRouteWithChildren
   AppWSlugTrashRoute: typeof AppWSlugTrashRoute
   AppWSlugIndexRoute: typeof AppWSlugIndexRoute
@@ -933,6 +953,7 @@ interface AppWSlugRouteChildren {
 }
 
 const AppWSlugRouteChildren: AppWSlugRouteChildren = {
+  AppWSlugSearchRoute: AppWSlugSearchRoute,
   AppWSlugSettingsRoute: AppWSlugSettingsRouteWithChildren,
   AppWSlugTrashRoute: AppWSlugTrashRoute,
   AppWSlugIndexRoute: AppWSlugIndexRoute,

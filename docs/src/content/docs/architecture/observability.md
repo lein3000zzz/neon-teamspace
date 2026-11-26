@@ -84,6 +84,8 @@ request, so the number of label sets stays small. These subsystems record them:
 | `databases`, the database use cases | The use case, such as `create_row`, `query`, `update_property` or `follow`, the check of a live feed's access. | A failure of the server. A refusal of the rules, an invalid value or filter, or a type change that would lose values is `ok`. | 5 ms to 5 s |
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
+| `history`, page history | `list`, `get`, `compare`, `restore`, and `thin`, the hourly cleanup's. | A failure of the server. A refusal, such as a stale revision or a version not found, is `ok`. | 5 ms to 5 s |
+| `search`, search | `search`, and `reindex`, `neon search reindex`'s. Spans carry the query's length in characters, `search.query_chars`, and how many results it answered, never the query. | A failure of the server. A query that cannot be run, a refusal of the rules, a search rate limited, one that found no turn or one that ran past its 5 seconds is `ok`, and logs a warning for the last three. | 5 ms to 5 s |
 | `mcp`, the MCP server | The tool's name, such as `read_page` or `claim_task`, and `list_resources`, `read_resource` and `subscribe`. | A failure of the server. A tool's refusal, such as `not_found` or `already_claimed`, or arguments its schema does not take, is `ok`. | 5 ms to 5 s |
 | `comments`, the comment use cases | The use case, such as `start_thread`, `reply`, `edit`, `resolve`, `follow` or `candidates`, a search for mentions. | A failure of the server. A refusal of the rules, such as `forbidden` or `too_many_threads`, is `ok`. | 5 ms to 5 s |
 | `notifications`, the inbox | The use case, such as `list`, `count`, `mark`, `mark_all_read`, `set_mail` or `unsubscribe`; `mail`, one notification's mail written, and `digests`, a run of the digests. | A failure of the server. A refusal, such as `invalid_token`, is `ok`. | 5 ms to 5 s |
@@ -92,8 +94,8 @@ request, so the number of label sets stays small. These subsystems record them:
 Deliveries are jobs of the kind `webhooks.deliver`, so the `jobs` subsystem counts their runs
 too: a run that the receiver fails is retried and `ok`, the last failed one `error`.
 
-The `sync` subsystem's `read` and `edit` operations time the server's own reads and edits of
-pages' content, for the markdown API and the MCP tools.
+The `sync` subsystem's `read`, `edit` and `restore` operations time the server's own reads
+and edits of pages' content, for the markdown API, the MCP tools and page history.
 
 Timing an operation starts a guard. Finishing the guard records the outcome; a guard dropped
 without being finished, because the code returned early or the work was cancelled, counts as

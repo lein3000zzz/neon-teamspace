@@ -30,6 +30,7 @@ use neon_app::clock::Clock;
 use neon_app::comments::CommentService;
 use neon_app::crypto::Envelope;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::history::HistoryService;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
 use neon_app::notifications::{FeedLimits, InboxFeeds, InboxService, NotificationMailJob};
@@ -37,6 +38,7 @@ use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::periodic::Periodic;
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
@@ -155,6 +157,33 @@ pub async fn migrate(loaded: Loaded) -> anyhow::Result<()> {
         applied
     })
     .await
+}
+
+/// Stores pages' text for search again, those whose text lacks their latest changes or
+/// `all`, for `neon search reindex`, and says how many pages' text changed. Applies pending
+/// migrations first, as `serve` does.
+pub async fn reindex(loaded: Loaded, all: bool) -> anyhow::Result<u64> {
+    let mut stored = 0;
+    with_telemetry(loaded, |loaded, _| async {
+        let Loaded { config, .. } = loaded;
+        let pool = connect(&config.database, 2).await?;
+        let done = async {
+            if config.database.auto_migrate {
+                apply_migrations(&pool).await?;
+            }
+            SearchService::builder(pool.clone())
+                .build()
+                .reindex(all)
+                .await
+                .context("storing pages' search text")
+        }
+        .await;
+        pool.close().await;
+        stored = done?;
+        Ok(())
+    })
+    .await?;
+    Ok(stored)
 }
 
 /// Installs telemetry, runs `command`, then runs the shutdown registry, which stops what
@@ -289,6 +318,18 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .broadcaster(Arc::clone(&broadcaster))
         .limiter(Arc::clone(&limiter))
         .build();
+    let history = HistoryService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        live.clone(),
+    )
+    .build();
+    // Searches take half the pool at most, so the other requests always find connections.
+    let search = SearchService::builder(pool.clone())
+        .limiter(Arc::clone(&limiter))
+        .parallel(usize::try_from(pool_size / 2).unwrap_or(1))
+        .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let comments = CommentService::new(pages.clone(), live.clone());
@@ -325,6 +366,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             workspaces: workspaces.clone(),
             pages: pages.clone(),
             sync: live.clone(),
+            history: history.clone(),
+            search: search.clone(),
             databases: databases.clone(),
             comments: comments.clone(),
             inbox: inbox.clone(),
@@ -335,7 +378,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     );
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
-    start_workspace_upkeep(shutdown, &workspaces, &pages);
+    start_workspace_upkeep(shutdown, &workspaces, &pages, &history);
     start_oauth_upkeep(shutdown, &oauth);
     start_notification_upkeep(shutdown, &inbox);
     save_on_shutdown(shutdown, &live);
@@ -369,6 +412,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             oauth,
             pages,
             sync: live,
+            history,
+            search,
             databases,
             live: feeds,
             comments,
@@ -454,10 +499,20 @@ fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
     );
 }
 
-/// Starts the hourly cleanup of ended invitations and invite links and of the pages' trash,
-/// which stops before the pool closes.
-fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pages: &PageService) {
-    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), pages.clone(), CLEANUP_INTERVAL);
+/// Starts the hourly cleanup of ended invitations and invite links, of the pages' trash and
+/// of the versions the pages' history no longer keeps, which stops before the pool closes.
+fn start_workspace_upkeep(
+    shutdown: &Shutdown,
+    workspaces: &WorkspaceService,
+    pages: &PageService,
+    history: &HistoryService,
+) {
+    let cleanup = WorkspaceCleanup::spawn(
+        workspaces.clone(),
+        pages.clone(),
+        history.clone(),
+        CLEANUP_INTERVAL,
+    );
     on_stop(
         shutdown,
         "workspace cleanup",

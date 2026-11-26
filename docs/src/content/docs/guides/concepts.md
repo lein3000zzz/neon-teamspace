@@ -20,8 +20,9 @@ work in the API and the web app, with tokens their owners make or apps connected
 [OAuth](/docs/guides/oauth/), as [Agents](/docs/guides/agents/) has it, over MCP, as
 [Agents over MCP](/docs/guides/agents-over-mcp/) has it, and through
 [webhooks](/docs/guides/webhooks/) both ways, and pages have comments, mentions and an inbox,
-as [Comments and mentions](/docs/guides/comments-and-mentions/) has it. What is marked
-**planned** is not built yet: page history, search and attachments, which come next, and
+as [Comments and mentions](/docs/guides/comments-and-mentions/) has it, a history, as
+[Page history](/docs/guides/history/) has it, and search, as [Search](/docs/guides/search/)
+has it. What is marked **planned** is not built yet: attachments, which come next, and
 the desktop and mobile apps. It describes the design the code is being built toward, so the
 details may still change.
 :::
@@ -120,8 +121,9 @@ zip of markdown files, in the web app and through the API; see
 A page has an icon and a cover, and a font: Default, Serif or Mono, with small text or
 full width. Members can mark pages as favorites. Trashed pages go to the trash with the
 pages under them, where those who could edit them restore them for 30 days unless the
-instance keeps them for another time. **Planned:** a page's history keeps earlier versions
-to look at and restore.
+instance keeps them for another time. A page's [history](/docs/guides/history/) keeps
+earlier versions to look at and restore, and [search](/docs/guides/search/) finds pages,
+databases and rows by the words in them and in their comments.
 
 Comments go on a whole page or on a passage of it, and stay with that passage as the text
 around it changes; a passage deleted leaves its thread without a place. Mentions, replies,

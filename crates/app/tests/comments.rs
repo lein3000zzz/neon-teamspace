@@ -450,8 +450,8 @@ async fn a_thread_holds_at_most_its_replies(pool: PgPool) {
         .thread
         .id;
     sqlx::query(
-        "INSERT INTO comments (id, thread_id, author_id, body, created_at)
-         SELECT gen_random_uuid(), $1, $2, 'more', now() FROM generate_series(1, 499)",
+        "INSERT INTO comments (id, thread_id, author_id, body, search_text, created_at)
+         SELECT gen_random_uuid(), $1, $2, 'more', 'more', now() FROM generate_series(1, 499)",
     )
     .bind(thread)
     .bind(t.ada.user.id)
@@ -489,8 +489,8 @@ impl Team {
     /// Adds `comments` comments by Ada to a thread, as the database holds them.
     async fn fill_comments(&self, thread: Uuid, comments: i64) {
         sqlx::query(
-            "INSERT INTO comments (id, thread_id, author_id, body, created_at)
-             SELECT gen_random_uuid(), $1, $2, 'more ' || n, now()
+            "INSERT INTO comments (id, thread_id, author_id, body, search_text, created_at)
+             SELECT gen_random_uuid(), $1, $2, 'more ' || n, 'more ' || n, now()
              FROM generate_series(1, $3) AS n",
         )
         .bind(thread)

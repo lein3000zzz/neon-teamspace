@@ -118,6 +118,8 @@ With that access:
 | Start threads of comments, reply, resolve and reopen them | yes, with a token only by the `write` scope | yes, likewise | no | hidden |
 | Delete others' comments, and whole threads | yes, with a token only by the `write` scope | no | no | hidden |
 | Change its document | yes, with a token only by the `write` scope | no | no | hidden |
+| See its [history](/docs/guides/history/#who-sees-what): its versions, and what changed since each | yes, without authors for guests | no | no | hidden |
+| Restore a version of it | yes, with a token only by the `write` scope | no | no | hidden |
 | Change its title, icon, cover and style, and add or import pages under it | yes | no | no | hidden |
 | Move it, from where it is, within its space | yes | no | no | hidden |
 | Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | no | hidden |

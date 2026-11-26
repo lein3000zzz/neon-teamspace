@@ -4,6 +4,7 @@ import {
   House,
   Inbox,
   LogOut,
+  Search,
   Settings,
   Shapes,
   ShieldCheck,
@@ -14,6 +15,7 @@ import { useId } from "react";
 import { useLogout } from "@/api/auth";
 import { inboxCountQuery } from "@/api/inbox";
 import { ErrorNotice } from "@/components/feedback/error-notice";
+import { commandIsMeta, useQuickSearch } from "@/components/search/quick-search";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -47,6 +49,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const me = useMe();
   const { current } = useCurrentWorkspace();
   const unread = useQuery(inboxCountQuery).data ?? 0;
+  const quickSearch = useQuickSearch();
 
   return (
     <div className="flex min-h-full flex-col gap-6">
@@ -82,6 +85,24 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             )}
           </li>
+          {current !== undefined && quickSearch.available && (
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.();
+                  quickSearch.open();
+                }}
+                className={`${navLink} w-full`}
+              >
+                <Search aria-hidden className="size-4" />
+                <span className="flex-1 text-left">{strings.search.open}</span>
+                <kbd aria-hidden className="font-mono text-[0.68rem] text-muted-foreground">
+                  {strings.search.shortcut(commandIsMeta())}
+                </kbd>
+              </button>
+            </li>
+          )}
           <li>
             <Link
               to="/inbox"

@@ -87,6 +87,7 @@ pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
 pub use content::{ContentError, Edited, MAX_EDITS, changes_document, revision};
+pub(crate) use document::assemble;
 pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 pub use protocol::{MESSAGE_COMMENTS, comments_changed};

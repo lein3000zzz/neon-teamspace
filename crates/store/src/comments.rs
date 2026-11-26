@@ -103,14 +103,21 @@ pub async fn insert_thread(executor: impl PgExecutor<'_>, thread: &Thread) -> sq
     Ok(())
 }
 
-pub async fn insert_comment(executor: impl PgExecutor<'_>, comment: &Comment) -> sqlx::Result<()> {
+/// Adds a comment, with `words`, its text without markup, for search.
+pub async fn insert_comment(
+    executor: impl PgExecutor<'_>,
+    comment: &Comment,
+    words: &str,
+) -> sqlx::Result<()> {
     sqlx::query!(
-        "INSERT INTO comments (id, thread_id, author_id, body, created_at, edited_at)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO comments (id, thread_id, author_id, body, search_text, created_at,
+                               edited_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
         comment.id,
         comment.thread_id,
         comment.author_id,
         comment.body,
+        words,
         comment.created_at,
         comment.edited_at,
     )
@@ -409,17 +416,19 @@ pub async fn comment(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Op
     .await
 }
 
-/// Changes a comment's text, as edited at `at`.
+/// Changes a comment's text, and `words`, its text without markup, as edited at `at`.
 pub async fn set_body(
     executor: impl PgExecutor<'_>,
     id: Uuid,
     body: &str,
+    words: &str,
     at: OffsetDateTime,
 ) -> sqlx::Result<()> {
     sqlx::query!(
-        "UPDATE comments SET body = $2, edited_at = $3 WHERE id = $1",
+        "UPDATE comments SET body = $2, search_text = $3, edited_at = $4 WHERE id = $1",
         id,
         body,
+        words,
         at,
     )
     .execute(executor)

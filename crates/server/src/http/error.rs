@@ -13,9 +13,11 @@ use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::comments::CommentError;
 use neon_app::databases::DatabaseError;
+use neon_app::history::HistoryError;
 use neon_app::notifications::InboxError;
 use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
+use neon_app::search::SearchError;
 use neon_app::settings::UpdateError;
 use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
@@ -392,6 +394,61 @@ impl From<ContentError> for ApiError {
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, other.code(), other.to_string())
+            }
+        }
+    }
+}
+
+impl From<HistoryError> for ApiError {
+    /// Expected errors answer with their message, which never quotes a page. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: HistoryError) -> Self {
+        match error {
+            HistoryError::Page(error) => error.into(),
+            HistoryError::Content(error) => error.into(),
+            HistoryError::NoVersion => {
+                Self::new(StatusCode::NOT_FOUND, error.code(), error.to_string())
+            }
+            HistoryError::InvalidInput(_) => {
+                Self::new(StatusCode::BAD_REQUEST, error.code(), error.to_string())
+            }
+            HistoryError::Database(_) | HistoryError::Internal(_) => {
+                tracing::error!(error = %error, "a history use case failed");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<SearchError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the query. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: SearchError) -> Self {
+        let (status, retry_after) = match &error {
+            SearchError::Page(_) | SearchError::Database(_) => (None, None),
+            SearchError::Forbidden(_) => (Some(StatusCode::FORBIDDEN), None),
+            SearchError::RateLimited { retry_after } => {
+                (Some(StatusCode::TOO_MANY_REQUESTS), Some(*retry_after))
+            }
+            SearchError::Busy => (
+                Some(StatusCode::SERVICE_UNAVAILABLE),
+                Some(SearchError::BUSY_RETRY),
+            ),
+            SearchError::TimedOut(_) => (Some(StatusCode::SERVICE_UNAVAILABLE), None),
+            SearchError::Query(_) | SearchError::InvalidInput(_) => {
+                (Some(StatusCode::BAD_REQUEST), None)
+            }
+        };
+        match (error, status) {
+            (SearchError::Page(error), _) => error.into(),
+            (expected, Some(status)) => {
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                api.retry_after = retry_after;
+                api
+            }
+            (error, None) => {
+                tracing::error!(error = %error, "a search failed");
+                Self::internal()
             }
         }
     }

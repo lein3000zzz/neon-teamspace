@@ -22,6 +22,7 @@ pub use limits::{InvalidLimit, LimitOverrides, LimitValue, LimitValues, Limits, 
 pub use members::{Member, Person, TeamspaceMember};
 pub use permissions::{
     Action, Actor, Denied, Newcomer, OwnerStanding, PageSpace, Resource, WebhookSubject, authorize,
+    person_sees_page,
 };
 pub use roles::{TeamspaceAccess, TeamspaceRole, WorkspaceCreation, WorkspaceRole};
 pub use workspace::{

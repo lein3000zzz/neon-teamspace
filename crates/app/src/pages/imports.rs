@@ -45,7 +45,7 @@ impl ImportedPage {
 }
 
 /// A page's document, ready to be its first snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportedContent {
     /// The whole Yjs document, encoded as one update.
     pub state: Vec<u8>,
@@ -53,6 +53,8 @@ pub struct ImportedContent {
     pub state_vector: Vec<u8>,
     /// Its plain text, for search.
     pub text: String,
+    /// Its blocks, with the ids they were written with: the page's first version.
+    pub document: Document,
     /// Whom its text mentions, each in its block, recorded as the page is made.
     pub mentions: Vec<TextMention>,
 }
@@ -64,7 +66,7 @@ impl ImportedContent {
         if document.is_empty() {
             return None;
         }
-        // Its ids given first, so whom it mentions is known by block.
+        // Its ids given first, so its first version and whom it mentions are known by block.
         let mut document = document.clone();
         document.fill_ids(&mut || Uuid::now_v7().to_string());
         let doc = Doc::new();
@@ -78,6 +80,7 @@ impl ImportedContent {
             state_vector: txn.state_vector().encode_v1(),
             text: document.plain_text(),
             mentions: mentions::in_document(&document),
+            document,
         })
     }
 }
@@ -186,7 +189,7 @@ impl PageService {
                 };
                 repo::insert(&mut *tx, &page).await?;
                 if let Some(content) = &imported.content {
-                    save_content(&mut tx, page.id, content, now).await?;
+                    save_content(&mut tx, page.id, content, now, user).await?;
                     // Imported text was written elsewhere, before: whom it mentions is
                     // recorded, so it tells nobody now nor at the next edit.
                     let mentioned = page_mentions(content.mentions.iter().cloned());

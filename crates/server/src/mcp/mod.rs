@@ -53,9 +53,11 @@ use http_body_util::combinators::BoxBody;
 use neon_app::auth::AuthService;
 use neon_app::comments::CommentService;
 use neon_app::databases::DatabaseService;
+use neon_app::history::HistoryService;
 use neon_app::notifications::InboxService;
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{SettingsService, mcp as keys};
 use neon_app::sync::{Broadcaster, SyncService};
 use neon_app::workspaces::WorkspaceService;
@@ -95,6 +97,8 @@ pub struct Services {
     pub workspaces: WorkspaceService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub history: HistoryService,
+    pub search: SearchService,
     pub databases: DatabaseService,
     pub comments: CommentService,
     pub inbox: InboxService,

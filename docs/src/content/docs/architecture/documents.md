@@ -156,6 +156,7 @@ The crate's functions:
 | `markdown::inline_from_markdown(text)` | The inline content of a comment's markdown: text, styles, links and mentions, block syntax kept as text. |
 | `anchors::resolve(txn, fragment, anchors)` | Where each inline thread's relative positions are now: the block its range starts in, or that it is detached. |
 | `anchors::block_anchor(txn, fragment, id)` | Relative positions over the whole text of one block, for a thread on it. |
+| `diff::diff(before, after)` | Each block of two documents compared: the same, changed, added or removed, in the later one's order, the earlier one's removed blocks where they were. `diff::Summary` counts them, for a page's history. |
 
 Writing gives each block without an id one from the `IdSource` it is passed, parents before
 their children. The crate has no source of randomness of its own. The server passes one that
@@ -336,7 +337,16 @@ The crate also edits a page's Yjs document in place, for the server's tools. Its
   order, stays, with its id, colours and whatever is typed in it. Blocks compare as markdown
   shows them: the children of a paragraph and the other blocks markdown cannot nest under
   compare one by one after it, and stay while it does. So the body read with its ids and
-  sent back unchanged changes nothing.
+  sent back unchanged changes nothing;
+- restoring a version of the page, which makes the page hold exactly the version's blocks,
+  ids, props and nesting included. Each level is matched with the version's by the blocks'
+  ids, a longest common sequence of them, and blocks without ids by what they hold. A block
+  both have stays where the version has it, its content element written anew only when its
+  type, props or content differ, and its children are restored a level down; the page's
+  other blocks go, and the version's are written in with their ids.
+
+Comparing two versions, `diff`, matches blocks the same way, so a block whose text changed
+shows as changed, and one moved under another as removed and added.
 
 Each edit changes only what it names, in one transaction, so it merges with what others type
 meanwhile. It checks what it needs before it changes anything. Offsets in text count as the

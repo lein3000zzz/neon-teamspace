@@ -443,7 +443,12 @@ impl<T: ReadTxn> Attrs<'_, T> {
     }
 }
 
-fn read_kind<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<BlockKind, ReadError> {
+/// A block's type with its props and content, read from its content element: the first
+/// child of its `blockContainer`.
+pub(crate) fn read_kind<T: ReadTxn>(
+    txn: &T,
+    element: &XmlElementRef,
+) -> Result<BlockKind, ReadError> {
     let name = element.tag().as_ref();
     let node = static_name(name).ok_or_else(|| ReadError::UnknownBlock(name.to_owned()))?;
     let attrs = Attrs { txn, element, node };
@@ -880,7 +885,9 @@ fn number(value: f64) -> Any {
     }
 }
 
-fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKind) {
+/// Writes a block's props and content into its content element, made empty and named after
+/// its type.
+pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKind) {
     let mut attrs = Writer {
         txn: &mut *txn,
         element,

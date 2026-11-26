@@ -107,6 +107,8 @@ export default defineConfig({
             'guides/pages',
             'guides/comments-and-mentions',
             'guides/inbox',
+            'guides/history',
+            'guides/search',
             'guides/databases-and-boards',
             'guides/databases',
             'guides/import-export',

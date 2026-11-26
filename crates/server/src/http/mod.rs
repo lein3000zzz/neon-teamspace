@@ -15,6 +15,7 @@ pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+pub(crate) mod history;
 mod hooks;
 pub(crate) mod inbox;
 mod inbox_live;
@@ -25,6 +26,7 @@ mod openapi;
 mod page_shares;
 pub(crate) mod pages;
 pub(crate) mod principal;
+pub(crate) mod search;
 mod sync;
 pub(crate) mod teamspaces;
 mod transfer;
@@ -47,9 +49,11 @@ use axum::routing::{any, get, post};
 use neon_app::auth::AuthService;
 use neon_app::comments::CommentService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::history::HistoryService;
 use neon_app::notifications::{InboxFeeds, InboxService};
 use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
+use neon_app::search::SearchService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
@@ -86,6 +90,8 @@ pub struct AppState {
     pub oauth: OAuthService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub history: HistoryService,
+    pub search: SearchService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub comments: CommentService,
@@ -254,6 +260,10 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
         .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(history::list_versions))
+        .routes(routes!(history::get_version))
+        .routes(routes!(history::compare_version))
+        .routes(routes!(history::restore_version))
         .routes(routes!(comments::list_comments, comments::start_thread))
         .routes(routes!(comments::list_thread_comments, comments::reply))
         .routes(routes!(
@@ -265,6 +275,7 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(comments::follow_page))
         .routes(routes!(comments::mention_candidates))
         .routes(routes!(pages::recent_pages))
+        .routes(routes!(search::search_workspace))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -469,6 +480,8 @@ mod content_tests;
 #[cfg(test)]
 mod databases_tests;
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
 mod incoming_tests;
 #[cfg(test)]
 mod mcp_tests;
@@ -476,6 +489,8 @@ mod mcp_tests;
 mod oauth_tests;
 #[cfg(test)]
 mod pages_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

@@ -8,7 +8,7 @@
 //! are logged, or the document unloads or the server stops, the whole document is saved as
 //! a snapshot that takes them in.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,6 +36,7 @@ use super::limits::Bucket;
 use super::protocol::{self, encode};
 use super::writers::Writers;
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
+use crate::history::record;
 use crate::notifications::mentions::{self, Mentions, mentioned_user};
 use crate::notifications::notify::Notifier;
 
@@ -91,6 +92,17 @@ pub(crate) enum Command {
         base: Option<String>,
         done: oneshot::Sender<Result<Made, Unedited>>,
     },
+    /// A version of the page to hold again, restored by `author` on the revision `base`:
+    /// the document as it is is kept as a version first, then the restore is made as one
+    /// change, and kept as a version naming `from`, the version restored and when it was
+    /// made.
+    Restore {
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        from: (Uuid, time::OffsetDateTime),
+        base: String,
+        done: oneshot::Sender<Result<Made, Unedited>>,
+    },
 }
 
 /// A look at a document and its blocks' fragment, which sends what it finds itself.
@@ -129,6 +141,8 @@ pub(crate) enum Unedited {
     TooLarge,
     /// The page was deleted.
     Gone,
+    /// The document as it was could not be saved first, as a restore needs.
+    Unsaved,
 }
 
 /// A connection opening the document.
@@ -267,6 +281,10 @@ struct Storage {
     failures: u32,
     /// The latest change, which the next snapshot records on the page.
     edited: Option<Edited>,
+    /// Who changed the document since the last snapshot, whom its version names.
+    authors: BTreeSet<Uuid>,
+    /// The version a restore made the document from, which the next version names.
+    restored: Option<(Uuid, time::OffsetDateTime)>,
 }
 
 #[derive(Debug)]
@@ -326,6 +344,8 @@ impl Storage {
     /// A snapshot of `bytes` took in everything.
     fn compacted(&mut self, bytes: usize) {
         self.snapshot_bytes = bytes;
+        self.authors.clear();
+        self.restored = None;
         self.logged = 0;
         self.logged_bytes = 0;
         self.pending.clear();
@@ -372,6 +392,10 @@ impl Document {
                     at: last.created_at,
                     by: last.author_id,
                 }),
+                authors: updates
+                    .iter()
+                    .filter_map(|logged| logged.author_id)
+                    .collect(),
                 ..Storage::default()
             };
             let mentions = mentions.into_iter().map(|(user, _)| user).collect();
@@ -481,6 +505,16 @@ impl Document {
             } => {
                 let edited = self.edit(author, &edits, base.as_deref()).await;
                 let _ = done.send(edited);
+            }
+            Command::Restore {
+                author,
+                blocks,
+                from,
+                base,
+                done,
+            } => {
+                let restored = self.restore(author, blocks, from, &base).await;
+                let _ = done.send(restored);
             }
         }
     }
@@ -613,6 +647,47 @@ impl Document {
             revision: on_base.then(|| self.revision()),
             applied,
         })
+    }
+
+    /// Makes the document hold a version's blocks again, as `author`, when it is still at
+    /// the revision `base` the restorer compared against: refused otherwise, so nothing
+    /// written since is replaced unseen. The document as it is is saved first, and kept as
+    /// a version unless the latest one holds it already, so the restore can be undone; then
+    /// the restore is made as one edit, which merges as edits do with what is typed
+    /// meanwhile in the blocks it keeps, and saved again, its version naming the one
+    /// restored, unless the page held it already. Saving that last snapshot may fail, and is
+    /// tried again as every snapshot is; the restore stands.
+    async fn restore(
+        &mut self,
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        from: (Uuid, time::OffsetDateTime),
+        base: &str,
+    ) -> Result<Made, Unedited> {
+        if self.gone {
+            return Err(Unedited::Gone);
+        }
+        if base != self.revision() {
+            return Err(Unedited::Conflict);
+        }
+        if !self.compact().await {
+            return Err(if self.gone {
+                Unedited::Gone
+            } else {
+                Unedited::Unsaved
+            });
+        }
+        let made = self
+            .edit(author, &[Edit::Restore { blocks }], Some(base))
+            .await?;
+        // A restore that left the page as it was makes no version, and names none.
+        if made.revision.as_deref() != Some(base) {
+            self.storage.restored = Some(from);
+        }
+        if self.storage.needs_snapshot() {
+            self.compact().await;
+        }
+        Ok(made)
     }
 
     /// The document's revision now, as reading it gives it.
@@ -851,6 +926,7 @@ impl Document {
         self.settle_at = Some(Instant::now() + limits.mention_settle);
         self.storage.pending_bytes += update.len();
         self.storage.pending.push(Pending { update, author, at });
+        self.storage.authors.insert(author);
         self.storage.edited = Some(Edited {
             at,
             by: Some(author),
@@ -1083,17 +1159,19 @@ impl Document {
 
     /// Saves the whole document as the page's snapshot, in one transaction with deleting
     /// the updates it takes in, recording its text and latest change on the page, and
-    /// recording whom it mentions, which tells those it mentions for the first time, each
-    /// as from whoever wrote their mention. The mentions are recorded in a savepoint of
-    /// their own: should that fail, which is logged, the snapshot is saved without them.
-    /// Returns whether it was saved. A failure is logged, and the updates stay.
+    /// keeping its blocks as a version when they changed, and recording whom it mentions,
+    /// which tells those it mentions for the first time, each as from whoever wrote their
+    /// mention. The mentions are recorded in a savepoint of their own: should that fail,
+    /// which is logged, the snapshot is saved without them. Returns whether it was saved. A
+    /// failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text, mentioned) = {
+        let (state, state_vector, text, document, mentioned) = {
             let txn = self.awareness.doc().transact();
-            let (text, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
+            let (text, document, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
                 Ok(document) => (
                     Some(document.plain_text()),
+                    document,
                     neon_blocks::mention_items(&txn, &self.fragment)
                         .ok()
                         .map(|items| self.credited(items)),
@@ -1101,13 +1179,18 @@ impl Document {
                 Err(error) => {
                     // Its structure, never its content.
                     warn!(%error, "the document does not read as blocks; its search text stays");
-                    (None, None)
+                    (
+                        None,
+                        neon_blocks::read_lenient(&txn, &self.fragment).document,
+                        None,
+                    )
                 }
             };
             (
                 txn.encode_state_as_update_v1(&StateVector::default()),
                 txn.state_vector().encode_v1(),
                 text,
+                document,
                 mentioned,
             )
         };
@@ -1115,6 +1198,9 @@ impl Document {
         let last_seq = self.storage.last_seq;
         let edited = self.storage.edited;
         let at = self.inner.clock.now();
+        let authors: Vec<Uuid> = self.storage.authors.iter().copied().collect();
+        let restored = self.storage.restored;
+        let retention = crate::history::retention(&self.inner.pages.settings().current());
         let pool = &self.inner.pool;
         let pages = &self.inner.pages;
         let saved = async {
@@ -1132,6 +1218,20 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            let versioned = record::record(
+                &mut tx,
+                record::Snapshot {
+                    page_id,
+                    document: &document,
+                    authors: &authors,
+                    at: edited.map_or(at, |edited| edited.at),
+                    restored_from: restored,
+                },
+            )
+            .await?;
+            if versioned {
+                record::cap(&mut tx, page_id, retention, at).await?;
+            }
             let mut recorded = None;
             if let Some(mentioned) = &mentioned {
                 let mut savepoint = sqlx::Acquire::begin(&mut tx).await?;
@@ -1154,14 +1254,19 @@ impl Document {
                 }
             }
             tx.commit().await?;
-            Ok::<_, sqlx::Error>((deleted, recorded))
+            Ok::<_, sqlx::Error>((deleted, versioned, recorded))
         }
         .instrument(info_span!("sync compact", bytes = state.len()))
         .await;
         match saved {
-            Ok((deleted, recorded)) => {
+            Ok((deleted, versioned, recorded)) => {
                 guard.ok();
-                info!(bytes = state.len(), updates = deleted, "document compacted");
+                info!(
+                    bytes = state.len(),
+                    updates = deleted,
+                    versioned,
+                    "document compacted"
+                );
                 self.storage.compacted(state.len());
                 self.writers.clear();
                 if let (Some(mentioned), Some(notifier)) = (mentioned, recorded) {

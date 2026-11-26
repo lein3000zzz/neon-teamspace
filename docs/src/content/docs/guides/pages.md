@@ -207,6 +207,13 @@ Each account keeps favorite pages in an order of its own, across its workspaces.
 A favorite the caller can no longer see, or one in the trash, stays saved and is left out of
 the list until it can be seen again.
 
+## History and search
+
+Each page keeps its earlier versions, which [Page history](/docs/guides/history/) lists,
+compares with the page as it is and restores, under `/api/v1/pages/{id}/versions`.
+[Search](/docs/guides/search/) finds pages, databases and rows by their titles, text and
+values, at `GET /api/v1/workspaces/{id}/search`. Both show only what the caller may see.
+
 ## Import and export
 
 Markdown files and zips of them import as pages, and a page, a page with the pages under it,

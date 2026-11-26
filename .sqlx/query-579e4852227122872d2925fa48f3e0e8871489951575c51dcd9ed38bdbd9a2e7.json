@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('plan_cache_mode', 'force_custom_plan', true) AS \"plans!\",\n                  set_config('pg_trgm.word_similarity_threshold', $1, true) AS \"threshold!\",\n                  set_config('statement_timeout', $2, true) AS \"timeout!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "plans!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "threshold!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "timeout!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "579e4852227122872d2925fa48f3e0e8871489951575c51dcd9ed38bdbd9a2e7"
+}
