@@ -225,7 +225,7 @@ however the run ends, and leaves Playwright's report in `e2e/playwright-report/`
 Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the tests'
 packages and the browser. The server image it tests is built with Cargo's `e2e` profile, the
 release profile without link-time optimisation, so it compiles in a fraction of the time; the
-published images are built with `release`.
+published images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 

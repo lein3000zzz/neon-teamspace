@@ -8,7 +8,7 @@
 #
 # The build argument CARGO_PROFILE names the Cargo profile of the binary: release, the default,
 # for every published image, or e2e, Cargo.toml's quicker build of the same code, which make e2e
-# passes.
+# passes unless E2E_CARGO_PROFILE names another.
 
 # cargo-chef and cargo-about for the builder's platform, amd64 or arm64, as their projects
 # release them, checked against the checksums those releases publish. Compiled from source they

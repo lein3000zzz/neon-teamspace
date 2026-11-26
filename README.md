@@ -65,9 +65,10 @@ the Playwright tests in `e2e/` against it, and removes it, leaving the report in
 `e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
 and headless Chromium itself. The server image it tests builds with Cargo's `e2e` profile, the
 release profile without link-time optimisation, which compiles in a fraction of the time;
-published images build with `release`. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE`
-name the Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so
-runs from two checkouts can go side by side.
+published images build with `release`, which `E2E_CARGO_PROFILE=release` tests, as the run
+before each release does. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the
+Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so runs from
+two checkouts can go side by side.
 
 ## Development
 
@@ -196,7 +197,7 @@ GitHub Actions runs three workflows.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag.
-  - It runs the end-to-end tests, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
+  - It runs the end-to-end tests, with the server built in the release profile as the published image is, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
   - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
 

@@ -8,11 +8,14 @@ SQLX  ?= sqlx
 DENY_FLAGS ?=
 # The e2e stack's Compose project, and the tags of the images make e2e builds and runs it from:
 # a run from another checkout can name its own, to keep apart from this one's.
-E2E_PROJECT      ?= neon-e2e
-E2E_SERVER_IMAGE ?= neon-teamspace-server:local
-E2E_WEB_IMAGE    ?= neon-teamspace-web:local
+E2E_PROJECT       ?= neon-e2e
+E2E_SERVER_IMAGE  ?= neon-teamspace-server:local
+E2E_WEB_IMAGE     ?= neon-teamspace-web:local
+# The Cargo profile of the server image make e2e tests: e2e, the release profile's quicker
+# build, unless set to release, as the run before a release does to test the published build.
+E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
-E2E_BUILD_FLAGS  ?=
+E2E_BUILD_FLAGS   ?=
 
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
@@ -32,11 +35,11 @@ NO_DATABASE   := POSTGRES_PASSWORD=unused
 E2E_COMPOSE   := docker compose -p $(E2E_PROJECT) --env-file /dev/null -f deployments/docker-compose.yml \
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
 # Builds the e2e stack's images as docker-compose.build.yml describes them, with bake rather
-# than Compose, as bake takes cache options; the server in Cargo's quicker e2e profile. Bake
-# reads a Compose file's build context from the directory it runs in, not from the file's, so
-# the root is named again.
+# than Compose, as bake takes cache options; the server in E2E_CARGO_PROFILE. Bake reads a
+# Compose file's build context from the directory it runs in, not from the file's, so the root
+# is named again.
 E2E_BAKE      := docker buildx bake -f deployments/docker-compose.build.yml \
-	--set server.context=. --set web.context=. --set server.args.CARGO_PROFILE=e2e \
+	--set server.context=. --set web.context=. --set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
 	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE)
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
@@ -204,7 +207,7 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 	cd e2e && $(BUN) run check
 
 .PHONY: e2e-images
-e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile
+e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
 	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
 
 .PHONY: e2e
