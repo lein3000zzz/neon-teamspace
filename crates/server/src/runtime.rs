@@ -2,11 +2,12 @@
 //!
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
-//! to 503 at once, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the live documents close their connections and are
-//! saved, the hourly OAuth, workspace and auth cleanups stop, the auth work begun after earlier
-//! answers finishes, the database pool closes, the admin listener stops, and the telemetry
-//! flushes last, so what the other parts log while stopping is still written.
+//! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains,
+//! the job worker stops, the gauges stop if metrics are on, the live documents close their
+//! connections and are saved, the hourly OAuth, workspace and auth cleanups stop, the auth
+//! work begun after earlier answers finishes, the database pool closes, the admin listener
+//! stops, and the telemetry flushes last, so what the other parts log while stopping is
+//! still written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -54,6 +55,7 @@ use crate::config::{AdminConfig, Config, DatabaseConfig, Loaded};
 use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
 use crate::mail::SmtpMailer;
+use crate::mcp::{self, Mcp};
 use crate::telemetry;
 
 /// How long stopping waits for open requests before closing their connections.
@@ -242,8 +244,12 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     // connections of those who lost it.
     let (documents_listener, feed) = sync::access_feed();
     let (databases_listener, databases_feed) = sync::access_feed();
-    let access: Arc<dyn AccessChanges> =
-        Arc::new(Fanout::new(vec![documents_listener, databases_listener]));
+    let (mcp_listener, mcp_feed) = mcp::access_feed();
+    let access: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![
+        documents_listener,
+        databases_listener,
+        mcp_listener,
+    ]));
     // One broadcaster for the live documents and the database feeds, in rooms of their own.
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
@@ -269,13 +275,27 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .broadcaster(Arc::clone(&broadcaster))
         .build();
     let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
-        .broadcaster(broadcaster)
+        .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
-        .limiter(limiter)
+        .limiter(Arc::clone(&limiter))
         .build();
+    let mcp = Mcp::new(
+        mcp::Services {
+            settings: Arc::clone(&settings),
+            auth: auth.clone(),
+            workspaces: workspaces.clone(),
+            pages: pages.clone(),
+            sync: live.clone(),
+            databases: databases.clone(),
+            broadcaster,
+        },
+        limiter,
+        mcp_feed,
+    );
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
@@ -307,11 +327,13 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             live: feeds,
             transfer,
             web: Arc::new(web),
+            mcp: mcp.clone(),
         },
         config.observability.tracing.trust_incoming,
     );
     let sample_gauges = config.observability.metrics.enabled;
     start_parts(shutdown, &pool, sample_gauges, worker, listener, router).await?;
+    end_mcp_sessions_on_shutdown(shutdown, mcp);
     Ok(pool)
 }
 
@@ -423,6 +445,14 @@ fn save_on_shutdown(shutdown: &Shutdown, live: &SyncService) {
             }
         },
     );
+}
+
+/// Ends the MCP sessions first when stopping, so their event streams close and the HTTP
+/// server's drain does not wait for them.
+fn end_mcp_sessions_on_shutdown(shutdown: &Shutdown, mcp: Mcp) {
+    on_stop(shutdown, "mcp sessions", DEFAULT_HOOK_TIMEOUT, async move {
+        mcp.shutdown().await
+    });
 }
 
 /// Closes the database feeds when stopping, after the HTTP server stopped taking new ones

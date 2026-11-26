@@ -2871,3 +2871,306 @@ async fn a_member_made_a_guest_hears_no_people_on_an_open_feed(pool: PgPool) {
     drop(dee);
     feeds.live.shutdown().await;
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_claim_names_the_caller_and_moves_the_row_in_progress(pool: PgPool) {
+    let mut t = team(pool).await;
+    let assignee = t.add("Assignee", spec(PropertyKind::Person), None).await;
+    let reviewer = t.add("Reviewer", spec(PropertyKind::Person), None).await;
+    let row = t.made("Fix login").await;
+    let mut members = Listener::join(&t, false);
+
+    let claimed =
+        t.h.databases
+            .claim_row(&t.dee, row.id, None)
+            .await
+            .expect("claimed");
+    let status = t.property("Status");
+    let in_progress = t.option_id("Status", "In progress");
+    assert_eq!(
+        claimed.values[&assignee.to_string()],
+        json!([t.dee.user.id.to_string()])
+    );
+    assert_eq!(
+        claimed.values[&status.to_string()],
+        json!(in_progress.to_string())
+    );
+    assert_eq!(claimed.values.get(&reviewer.to_string()), None);
+    assert_eq!(claimed.last_edited_by, Some(t.dee.user.id));
+    let told = members.next().await;
+    assert_eq!(told["type"], "row_updated");
+    assert_eq!(
+        told["values"][assignee.to_string()],
+        json!([t.dee.user.id.to_string()])
+    );
+
+    // Whoever holds it is named, the claim changing nothing.
+    let refused = t.h.databases.claim_row(&t.cy, row.id, None).await;
+    match refused {
+        Err(DatabaseError::AlreadyClaimed(holders)) => {
+            assert_eq!(holders.len(), 1);
+            assert_eq!(holders[0].id, t.dee.user.id);
+            assert_eq!(holders[0].name, "dee");
+        }
+        other => panic!("expected already claimed, got {other:?}"),
+    }
+    assert_code(
+        t.h.databases.claim_row(&t.dee, row.id, None).await,
+        "already_claimed",
+    );
+    let error =
+        t.h.databases
+            .claim_row(&t.cy, row.id, None)
+            .await
+            .expect_err("held");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "already claimed by dee ({}): a claim takes a row nobody holds",
+            t.dee.user.id
+        )
+    );
+
+    // Another person property names its own holder.
+    let second =
+        t.h.databases
+            .claim_row(&t.cy, row.id, Some("Reviewer"))
+            .await
+            .expect("claimed as reviewer");
+    assert_eq!(
+        second.values[&reviewer.to_string()],
+        json!([t.cy.user.id.to_string()])
+    );
+    assert_eq!(
+        second.values[&assignee.to_string()],
+        json!([t.dee.user.id.to_string()])
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn concurrent_claims_have_exactly_one_winner(pool: PgPool) {
+    let mut t = team(pool).await;
+    t.add("Assignee", spec(PropertyKind::Person), None).await;
+    let row = t.made("Popular").await;
+    let mut claimers = vec![t.ada.clone(), t.cy.clone(), t.dee.clone()];
+    for name in ["eve", "fay", "hal"] {
+        let person = t.h.person(&format!("{name}@example.com")).await;
+        t.h.bring_in(&t.ada, t.id, &person, WorkspaceRole::Member)
+            .await;
+        claimers.push(person);
+    }
+
+    let claims = claimers.iter().map(|who| {
+        let databases = t.h.databases.clone();
+        let who = who.clone();
+        tokio::spawn(async move { (who.user.id, databases.claim_row(&who, row.id, None).await) })
+    });
+    let mut winners = Vec::new();
+    let mut held_by = Vec::new();
+    for claim in claims.collect::<Vec<_>>() {
+        let (who, result) = claim.await.expect("the claim ran");
+        match result {
+            Ok(_) => winners.push(who),
+            Err(DatabaseError::AlreadyClaimed(holders)) => {
+                held_by.push(holders.iter().map(|holder| holder.id).collect::<Vec<_>>());
+            }
+            Err(error) => panic!("a claim failed: {error}"),
+        }
+    }
+    assert_eq!(winners.len(), 1, "{winners:?}");
+    assert_eq!(held_by.len(), claimers.len() - 1);
+    assert!(held_by.iter().all(|holders| holders == &winners));
+    let row = t.h.databases.row(&t.ada, row.id).await.expect("read");
+    let assignee = t.property("Assignee");
+    assert_eq!(
+        row.values[&assignee.to_string()],
+        json!([winners[0].to_string()])
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_claim_needs_a_person_property_a_status_in_progress_and_edit_access(pool: PgPool) {
+    let mut t = team(pool).await;
+    let row = t.made("Lonely").await;
+    // The database starts without a person property.
+    assert_code(
+        t.h.databases.claim_row(&t.dee, row.id, None).await,
+        "invalid_input",
+    );
+    t.add("Assignee", spec(PropertyKind::Person), None).await;
+    assert_code(
+        t.h.databases
+            .claim_row(&t.dee, row.id, Some("Status"))
+            .await,
+        "invalid_input",
+    );
+    assert_code(
+        t.h.databases.claim_row(&t.dee, row.id, Some("Nope")).await,
+        "invalid_input",
+    );
+    // Gus, a guest, sees no row; once shared to view, still edits none.
+    assert_code(
+        t.h.databases.claim_row(&t.gus, row.id, None).await,
+        "not_found",
+    );
+    shared_with_gus(&t, PageAccess::View).await;
+    assert_code(
+        t.h.databases.claim_row(&t.gus, row.id, None).await,
+        "forbidden",
+    );
+    // A status without an option in progress has nowhere to move the row.
+    let status = t.property("Status");
+    let options = t
+        .tasks
+        .properties
+        .iter()
+        .find(|property| property.id == status)
+        .expect("a status")
+        .ty
+        .options()
+        .iter()
+        .filter(|option| option.group() != Some(StatusGroup::InProgress))
+        .map(|option| ChoiceSpec {
+            id: Some(option.id),
+            name: option.name.clone(),
+            hue: option.hue,
+            group: option.group(),
+        })
+        .collect();
+    t.h.databases
+        .update_property(
+            &t.ada,
+            t.db(),
+            status,
+            PropertyChange {
+                options: Some(options),
+                ..PropertyChange::default()
+            },
+        )
+        .await
+        .expect("options changed");
+    assert_code(
+        t.h.databases.claim_row(&t.dee, row.id, None).await,
+        "invalid_input",
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn tasks_are_the_rows_naming_the_caller_that_they_see(pool: PgPool) {
+    let mut t = team(pool).await;
+    t.add("Owner", spec(PropertyKind::Person), None).await;
+    let dee = t.dee.user.id.to_string();
+    let first = t
+        .row(&t.ada, json!({"Name": "First", "Owner": [dee]}))
+        .await
+        .expect("a row");
+    t.row(&t.ada, json!({"Name": "Not Dee's"}))
+        .await
+        .expect("a row");
+    t.h.time.advance(std::time::Duration::from_secs(1));
+    let second = t
+        .row(
+            &t.ada,
+            json!({"Name": "Second", "Owner": [dee], "Status": "In progress"}),
+        )
+        .await
+        .expect("a row");
+    // In Cy's private teamspace, which Dee is not in.
+    let hidden =
+        t.h.databases
+            .create_database(
+                &t.cy,
+                t.id,
+                Location::Teamspace(t.secret),
+                Placement::Last,
+                NewDatabase {
+                    title: "Secret tasks".to_owned(),
+                    icon: None,
+                    inline: false,
+                },
+            )
+            .await
+            .expect("created");
+    let hidden_owner =
+        t.h.databases
+            .add_property(
+                &t.cy,
+                hidden.page.page.id,
+                NewProperty {
+                    name: "Owner".to_owned(),
+                    spec: spec(PropertyKind::Person),
+                    options: None,
+                    placement: Placement::Last,
+                },
+            )
+            .await
+            .expect("added");
+    t.h.databases
+        .create_row(
+            &t.cy,
+            hidden.page.page.id,
+            NewRow {
+                values: values(json!({"Name": "Unseen", hidden_owner.id.to_string(): [dee]})),
+                ..NewRow::default()
+            },
+        )
+        .await
+        .expect("a row");
+
+    let tasks = t.h.databases.tasks(&t.dee, t.id).await.expect("listed");
+    let titles: Vec<&str> = tasks.iter().map(|task| task.row.title.as_str()).collect();
+    assert_eq!(titles, ["Second", "First"]);
+    assert_eq!(tasks[0].database_title.as_deref(), Some("Tasks"));
+    assert_eq!(
+        tasks[0].status.as_ref().map(|status| status.name.as_str()),
+        Some("In progress")
+    );
+    assert_eq!(tasks[0].row.id, second.id);
+    assert_eq!(tasks[1].row.id, first.id);
+
+    // Taken off, trashed: gone from the list.
+    t.update(&t.ada, first.id, json!({"Owner": null}))
+        .await
+        .expect("changed");
+    t.h.pages
+        .trash_page(&t.ada, second.id)
+        .await
+        .expect("trashed");
+    assert!(
+        t.h.databases
+            .tasks(&t.dee, t.id)
+            .await
+            .expect("listed")
+            .is_empty()
+    );
+    // A stranger to the workspace has none to see.
+    let stranger = t.h.person("zed@example.com").await;
+    assert_code(t.h.databases.tasks(&stranger, t.id).await, "not_found");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn changes_to_rows_and_schemas_reach_the_workspace_s_room(pool: PgPool) {
+    let mut t = team(pool).await;
+    let (outbox, mut receiver) = Outbox::new(64, 1 << 20);
+    t.h.broadcaster
+        .join(Room::Workspace(t.id), ClientId::next(), outbox);
+    let row = t.made("Watched").await;
+    assert_eq!(message(&mut receiver).await["type"], "row_created");
+    t.h.pages.trash_page(&t.ada, row.id).await.expect("trashed");
+    let trashed = message(&mut receiver).await;
+    assert_eq!(trashed["type"], "row_trashed");
+    assert_eq!(trashed["row_id"], row.id.to_string());
+    t.add("Owner", spec(PropertyKind::Person), None).await;
+    assert_eq!(message(&mut receiver).await["type"], "schema_changed");
+}
+
+/// The next message of a room, which must have come already.
+async fn message(receiver: &mut OutboxReceiver) -> Value {
+    let next = tokio::time::timeout(std::time::Duration::from_secs(5), receiver.next())
+        .await
+        .expect("a message came");
+    match next {
+        Next::Send(bytes) => serde_json::from_slice(&bytes).expect("JSON"),
+        Next::Close(reason) => panic!("closed: {reason}"),
+    }
+}

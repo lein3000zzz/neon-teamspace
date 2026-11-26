@@ -223,6 +223,19 @@ Its children: any markdown, other toggles too.
 A renderer that does not know the extension shows the lines as text, with the links still
 links.
 
+### Block ids
+
+Markdown can name blocks too, for those that edit a page by its blocks, such as
+[agents over MCP](/docs/guides/agents-over-mcp/#block-ids). Each block's lines then follow a
+line `<!-- block <id> -->` at the block's level, the id percent-encoded as a database's is.
+Every block with an id gets one, empty paragraphs included. Reading markdown drops those
+lines wherever they stand but in code, before it parses the rest. Markdown written with them
+reads as the same blocks as without them, and a numbered list named item by item stays one
+list. The exception is a line with no lines of the block after it, followed by a blank line,
+another such line or the end of what holds it: it reads as the empty paragraph it names, so
+empty paragraphs come back too. A test writes every fixture with its ids and checks just
+that.
+
 ### What markdown loses
 
 Markdown cannot hold everything a page can. Writing drops:
@@ -248,6 +261,28 @@ stays one. Reading what was written and writing it again gives the same markdown
 that goes out and comes back changes at most once. Reading markdown, a soft line break is a
 space, as CommonMark has it. Raw HTML other than the tags above stays
 text, and an image inside a paragraph splits it, since images are blocks.
+
+## Edits in place
+
+The crate also edits a page's Yjs document in place, for the server's tools. Its edits are:
+
+- adding blocks at the end, before the empty paragraph the editor keeps last, or right after
+  a block;
+- replacing a range of sibling blocks;
+- replacing text within one line of a block's text, table cells and code included, the
+  replacement taking the styles of the first character it replaces. It replaces at most
+  10000 times, rewrites each text node in one pass, and refuses replacements that would add
+  more text than the room it is given;
+- replacing the whole body. A block that writes the same markdown as one of the new ones, in
+  order, stays, with its id, colours and whatever is typed in it. Blocks compare as markdown
+  shows them: the children of a paragraph and the other blocks markdown cannot nest under
+  compare one by one after it, and stay while it does. So the body read with its ids and
+  sent back unchanged changes nothing.
+
+Each edit changes only what it names, in one transaction, so it merges with what others type
+meanwhile. It checks what it needs before it changes anything. Offsets in text count as the
+document does, in bytes or UTF-16 units. A group of children left empty goes, since the
+editor's schema has no empty ones, and a page left without blocks gets an empty paragraph.
 
 ## Tested against BlockNote
 

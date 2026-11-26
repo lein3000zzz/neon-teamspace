@@ -30,8 +30,8 @@ owner may.
    either way.
 5. **Tokens.** The client exchanges the code at the token endpoint, with the
    `code_verifier`, for an access token and a refresh token, and sends the access token as
-   `Authorization: Bearer nwo_…` to `/mcp` or to the REST API. When it expires, the refresh
-   token gets a new pair.
+   `Authorization: Bearer nwo_…` to [`/mcp`](/docs/guides/agents-over-mcp/) or to the REST
+   API. When it expires, the refresh token gets a new pair.
 
 ## Endpoints
 

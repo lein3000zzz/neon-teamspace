@@ -15,6 +15,8 @@
 //!
 //! Each message goes to two rooms of the [`Broadcaster`]: one for members, and one for
 //! guests, who know no other member, without the people values name or who changed rows.
+//! Those of rows and schemas also go to the workspace's room, as members read them, for
+//! what follows on the server whom rows are assigned to.
 
 use bytes::Bytes;
 use neon_domain::databases::Schema;
@@ -74,9 +76,12 @@ pub(crate) enum Event<'a> {
     },
     RowTrashed {
         row_id: Uuid,
+        workspace_id: Uuid,
     },
     RowRestored(&'a Snapshot),
-    SchemaChanged,
+    SchemaChanged {
+        workspace_id: Uuid,
+    },
     ViewChanged {
         view_id: Uuid,
         deleted: bool,
@@ -92,8 +97,22 @@ impl Event<'_> {
             Self::RowMoved { .. } => "row_moved",
             Self::RowTrashed { .. } => "row_trashed",
             Self::RowRestored(_) => "row_restored",
-            Self::SchemaChanged => "schema_changed",
+            Self::SchemaChanged { .. } => "schema_changed",
             Self::ViewChanged { .. } => "view_changed",
+        }
+    }
+
+    /// The workspace of the database, for a change to its rows or schema.
+    fn workspace_id(&self) -> Option<Uuid> {
+        match self {
+            Self::RowCreated(row)
+            | Self::RowRestored(row)
+            | Self::RowUpdated { row, .. }
+            | Self::RowMoved { row, .. } => Some(row.page.workspace_id),
+            Self::RowTrashed { workspace_id, .. } | Self::SchemaChanged { workspace_id } => {
+                Some(*workspace_id)
+            }
+            Self::ViewChanged { .. } => None,
         }
     }
 
@@ -131,10 +150,10 @@ impl Event<'_> {
                 message.insert("last_edited_at".to_owned(), time_json(view.last_edited_at));
                 message.insert("last_edited_by".to_owned(), id_json(view.last_edited_by));
             }
-            Self::RowTrashed { row_id } => {
+            Self::RowTrashed { row_id, .. } => {
                 message.insert("row_id".to_owned(), json!(row_id.to_string()));
             }
-            Self::SchemaChanged => {}
+            Self::SchemaChanged { .. } => {}
             Self::ViewChanged { view_id, deleted } => {
                 message.insert("view_id".to_owned(), json!(view_id.to_string()));
                 message.insert("deleted".to_owned(), json!(deleted));
@@ -184,7 +203,8 @@ pub(crate) fn access_message(kind: &'static str, database_id: Uuid, access: Page
     )
 }
 
-/// Tells both rooms of a database of a change: members, and guests without the people.
+/// Tells both rooms of a database of a change, members and guests without the people,
+/// and the workspace's room of a change to rows or the schema.
 pub(crate) fn publish(
     broadcaster: &dyn Broadcaster,
     database_id: Uuid,
@@ -193,6 +213,9 @@ pub(crate) fn publish(
 ) {
     for members_hidden in [false, true] {
         let message = Bytes::from(event.render(database_id, members_hidden).to_string());
+        if !members_hidden && let Some(workspace_id) = event.workspace_id() {
+            broadcaster.broadcast(Room::Workspace(workspace_id), message.clone(), None);
+        }
         broadcaster.broadcast(
             Room::Database {
                 id: database_id,
@@ -261,7 +284,10 @@ pub(crate) async fn row_changed(pages: &PageService, row_id: Uuid, change: RowCh
             row: &row,
             properties: &title,
         },
-        RowChange::Trashed => Event::RowTrashed { row_id },
+        RowChange::Trashed => Event::RowTrashed {
+            row_id,
+            workspace_id: row.page.workspace_id,
+        },
         RowChange::Restored => Event::RowRestored(&row),
     };
     publish(pages.broadcaster().as_ref(), database_id, None, &event);

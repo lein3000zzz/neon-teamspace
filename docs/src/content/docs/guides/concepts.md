@@ -16,8 +16,9 @@ pages and pages export as markdown, as [Import and export](/docs/guides/import-e
 it. Databases work in the API and the web app: their rows, properties and views, the table,
 the board and the list, as [Databases](/docs/guides/databases/) and
 [Databases and boards](/docs/guides/databases-and-boards/) have it. Agents work in the API
-and the web app, with tokens their owners make, as [Agents](/docs/guides/agents/) has it. The
-rest is **planned**:
+and the web app, with tokens their owners make, as [Agents](/docs/guides/agents/) has it, and
+over MCP, as [Agents over MCP](/docs/guides/agents-over-mcp/) has it. The rest is
+**planned**:
 it describes the design the code is being built toward, so the details may still change.
 :::
 
@@ -180,11 +181,12 @@ Agents count toward the workspace's agent limit. Workspace admins can turn agent
 the workspace, and choose who may create them: admins only, or any member, which is the
 default. Agents work today through API tokens their owner makes, bound to the workspace.
 
-**Planned:** agents connect over MCP at `/mcp`. An agent's client signs in through its
-owner's browser with OAuth 2.1, where the owner chooses whether it acts as them or as one of
-their agents. Agents that run on their own, with no browser, use a token instead, bound to
-the workspace, with the scope read or write, never doing more than its owner may. Everything
-an agent does over MCP, a script can also do through the HTTP API with the same token.
+Agents connect over MCP at `/mcp` with a token their owner makes for them, bound to the
+workspace, with the scope read or write, never doing more than its owner may. Everything an
+agent does over MCP, a script can also do through the HTTP API with the same token;
+[Agents over MCP](/docs/guides/agents-over-mcp/) has the tools. **Planned:** an agent's
+client signs in through its owner's browser with OAuth 2.1, where the owner chooses whether
+it acts as them or as one of their agents.
 
 ## Integrations
 

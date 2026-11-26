@@ -27,7 +27,7 @@ use super::*;
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Makes a database in General, as `by`.
-async fn database(by: &Browser<'_>, workspace: &str) -> Value {
+pub(super) async fn database(by: &Browser<'_>, workspace: &str) -> Value {
     let general = general(by, workspace).await;
     let made = by
         .post(
@@ -39,12 +39,12 @@ async fn database(by: &Browser<'_>, workspace: &str) -> Value {
     made.body
 }
 
-fn database_id(database: &Value) -> String {
+pub(super) fn database_id(database: &Value) -> String {
     database["page"]["id"].as_str().expect("an id").to_owned()
 }
 
 /// The id of the property of `database` named `name`.
-fn property(database: &Value, name: &str) -> String {
+pub(super) fn property(database: &Value, name: &str) -> String {
     database["properties"]
         .as_array()
         .expect("properties")
@@ -56,7 +56,7 @@ fn property(database: &Value, name: &str) -> String {
 }
 
 /// The id of the option of `property` named `name`.
-fn option(database: &Value, property: &str, name: &str) -> String {
+pub(super) fn option(database: &Value, property: &str, name: &str) -> String {
     database["properties"]
         .as_array()
         .expect("properties")

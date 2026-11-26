@@ -97,6 +97,27 @@ where one goes, such as `mail.host`. A leaked admin token therefore cannot make 
 its holder signs in to at a browser, nor make an admin of one it got through an invite, nor
 demote or disable any admin, its owner included.
 
+## The MCP server
+
+`/mcp` authenticates every request by its bearer token alone, as the API does for bearer
+requests, and takes no cookie, so a web page a person visits cannot use their session
+there. The token must be bound to one workspace, and the server refuses one across the
+instance with `token_not_bound`. A request without a working token answers `401` with a
+`WWW-Authenticate` header that names the resource's metadata, as RFC 9728 has it. Against
+DNS rebinding, the server refuses with `403` a request whose `Origin` is not its own. Without
+`server.public_url`, a browser's request must also come from `localhost` or an address: a
+page that rebinds a name of its own sends it as both `Origin` and `Host`.
+
+Each session belongs to the identity and workspace that opened it, and another identity's
+request on it finds no session. The server checks the token on every request. It ends a
+session as soon as an access change shows its token stopped working, its agent is
+suspended, or its identity left the workspace. A refused request on a session makes it look
+again at that session, so one whose token expired ends at its next request. Every five
+minutes it also looks again at every session, for what no change tells of. Sessions have
+bounds overall, per identity, and per person with their agents together, so one person
+cannot take every session through agents they make, and end when idle. The
+[MCP guide](/docs/guides/agents-over-mcp/#what-a-connection-is) lists the bounds.
+
 ## Cross-site requests
 
 A request with a method other than `GET`, `HEAD` or `OPTIONS` and no `Authorization` header
@@ -160,8 +181,14 @@ attempts, then one more every 30 seconds:
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
-cannot lock the owner out from one place. A request over a limit gets `429` with the code
-`rate_limited` and a `Retry-After` header.
+cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
+agent to the MCP server, 200 at once, then four a second, since agents work in bursts.
+`mcp:person:` counts them again by person, theirs and their agents' together, 400 at once,
+then ten a second, so agents of one person do not multiply their rate.
+`page-edit:user:` counts one person's or agent's edits of pages' content, through the
+markdown API and MCP's `edit_page` together, 100 at once, then two a second, since each may
+go over the whole page. A request over a limit gets `429` with the code `rate_limited` and a
+`Retry-After` header.
 
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.

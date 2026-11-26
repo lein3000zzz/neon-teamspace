@@ -43,7 +43,9 @@ logged at `error`, inside the request's span.
 
 Logs hold no secrets: passwords, tokens and the values of secret settings are never logged,
 and request spans record the route, not the path or the query string; see
-[Traces](#traces).
+[Traces](#traces). Nor do they hold pages' content or values. The MCP SDK's `debug` lines
+hold each request and answer whole, so it logs at `info` at most, unless the level names its
+target, `rmcp`.
 
 The commands that print their output, `neon openapi`, `neon settings docs` and
 `neon config check`, install no logging, so standard output holds nothing but that output.
@@ -82,8 +84,10 @@ request, so the number of label sets stays small. These subsystems record them:
 | `databases`, the database use cases | The use case, such as `create_row`, `query`, `update_property` or `follow`, the check of a live feed's access. | A failure of the server. A refusal of the rules, an invalid value or filter, or a type change that would lose values is `ok`. | 5 ms to 5 s |
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
+| `mcp`, the MCP server | The tool's name, such as `read_page` or `claim_task`, and `list_resources`, `read_resource` and `subscribe`. | A failure of the server. A tool's refusal, such as `not_found` or `already_claimed`, or arguments its schema does not take, is `ok`. | 5 ms to 5 s |
 
-**Planned:** the same metrics for MCP tools.
+The `sync` subsystem's `read` and `edit` operations time the server's own reads and edits of
+pages' content, for the markdown API and the MCP tools.
 
 Timing an operation starts a guard. Finishing the guard records the outcome; a guard dropped
 without being finished, because the code returned early or the work was cancelled, counts as
@@ -116,7 +120,8 @@ sync](/docs/architecture/realtime/#metrics) lists them with the histogram of mes
 and the counters of messages and disconnects. The database feeds keep theirs likewise:
 `neon_databases_open_connections`, and the counters of [database
 feeds](/docs/architecture/realtime/#database-feeds). No log line or span holds a property's
-value: they carry ids and counts.
+value: they carry ids and counts. The MCP server keeps `neon_mcp_sessions`, its sessions
+open, and `neon_mcp_subscriptions`, the resources they subscribe to.
 
 ## Traces
 

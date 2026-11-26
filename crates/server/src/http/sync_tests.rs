@@ -26,7 +26,10 @@ use uuid::Uuid;
 use yrs::sync::{Awareness, Message, SyncMessage};
 use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::Encode as _;
-use yrs::{Doc, ReadTxn as _, StateVector, Transact as _, Update, XmlFragmentRef};
+use yrs::{
+    Doc, ReadTxn as _, StateVector, Text as _, Transact as _, Update, XmlFragment as _,
+    XmlFragmentRef, XmlOut,
+};
 
 use super::agents_tests::{Bearer, agent, agent_token};
 use super::auth_tests::{admin, user};
@@ -155,7 +158,7 @@ enum Event {
 
 /// A client with a document of its own, as the browser's y-websocket provider is: it
 /// answers the server's sync step 1, applies the server's updates and sends its own.
-struct Peer {
+pub(super) struct Peer {
     socket: Socket,
     doc: Doc,
     fragment: XmlFragmentRef,
@@ -164,7 +167,7 @@ struct Peer {
 
 impl Peer {
     /// Opens the page with a session cookie and syncs.
-    async fn join(addr: SocketAddr, page: &str, cookie: &str, name: &str) -> Self {
+    pub(super) async fn join(addr: SocketAddr, page: &str, cookie: &str, name: &str) -> Self {
         let socket = open(addr, page, &[(COOKIE.as_str(), cookie)])
             .await
             .expect("the upgrade works");
@@ -265,7 +268,7 @@ impl Peer {
     }
 
     /// Adds a paragraph, as typing in the editor does, and sends the update.
-    async fn write(&mut self, text: &str) {
+    pub(super) async fn write(&mut self, text: &str) {
         let update = {
             let mut txn = self.doc.transact_mut();
             neon_blocks::append(
@@ -280,8 +283,39 @@ impl Peer {
         self.send(&Message::Sync(SyncMessage::Update(update))).await;
     }
 
+    /// Types `text` at the end of the first block's text, as a person typing there does,
+    /// one key at a time, sending each without waiting for anything back.
+    pub(super) async fn type_into_first(&mut self, text: &str) {
+        for key in text.chars() {
+            let update = {
+                let mut txn = self.doc.transact_mut();
+                let Some(XmlOut::Element(group)) = self.fragment.first_child() else {
+                    panic!("the document has blocks");
+                };
+                let Some(XmlOut::Element(container)) = group.get(&txn, 0) else {
+                    panic!("a first block");
+                };
+                let Some(XmlOut::Element(content)) = container.get(&txn, 0) else {
+                    panic!("its content");
+                };
+                let Some(XmlOut::Text(run)) = content.get(&txn, 0) else {
+                    panic!("its text");
+                };
+                let end = run.len(&txn);
+                run.insert(&mut txn, end, &key.to_string());
+                txn.encode_update_v1()
+            };
+            self.send(&Message::Sync(SyncMessage::Update(update))).await;
+        }
+    }
+
+    /// The document's text as the peer has it.
+    pub(super) fn text(&self) -> String {
+        text_of(&self.doc)
+    }
+
     /// Reads until the document's text is `text`, if it is not yet.
-    async fn until_text(&mut self, text: &str) {
+    pub(super) async fn until_text(&mut self, text: &str) {
         if text_of(&self.doc) != text {
             self.until(&format!("the text {text:?}"), |doc, _| text_of(doc) == text)
                 .await;

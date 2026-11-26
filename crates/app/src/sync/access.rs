@@ -80,7 +80,7 @@ impl AccessChange {
     /// page of the workspace counts; a change to a page is narrowed further by
     /// [`subtree`](Self::subtree). A change to whom tokens act as concerns every agent and
     /// integration, and every token bound to a workspace, as OAuth's acting as people are.
-    pub(crate) fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
+    pub fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
         let (workspace, user) = match *self {
             Self::Agents => {
                 return owner_of(principal).is_some() || principal.workspace().is_some();

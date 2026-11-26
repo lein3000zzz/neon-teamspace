@@ -1,9 +1,12 @@
 //! Who is in a workspace: listing them, changing their roles, removing them, leaving, and
 //! handing ownership over.
 
+use neon_domain::agents::AgentOwner;
 use neon_domain::auth::{Principal, UserKind};
 use neon_domain::workspaces::permissions::{check_owner_remains, check_teamspace_owner_remains};
-use neon_domain::workspaces::{Action, Member, Resource, TeamspaceRole, WorkspaceRole};
+use neon_domain::workspaces::{
+    Action, Member, Person, Resource, TeamspaceRole, Workspace, WorkspaceRole,
+};
 use neon_store::{teamspaces, workspace_invites, workspaces as repo};
 use sqlx::PgConnection;
 use tracing::info;
@@ -15,7 +18,55 @@ use super::{
 
 const NO_MEMBER: &str = "no such member";
 
+/// Whom a request acts as: its identity as the people it works with see it, and the one
+/// workspace its token is bound to, while the identity is in it.
+#[derive(Debug, Clone)]
+pub struct Identity {
+    pub person: Person,
+    /// The workspace, and the role the rules see the identity in there: for a bound token
+    /// without the admin scope, member at most.
+    pub workspace: Option<(Workspace, WorkspaceRole)>,
+}
+
 impl WorkspaceService {
+    /// Whom the principal acts as: a person, or an agent or integration with its owner.
+    pub async fn identity(&self, principal: &Principal) -> Result<Identity, WorkspaceError> {
+        self.observe("identity", async {
+            let mut conn = self.pool().acquire().await?;
+            let user = &principal.user;
+            let owner = match user.owner_id.filter(|_| !user.kind.is_human()) {
+                Some(owner) => neon_store::users::by_id(&mut *conn, owner)
+                    .await?
+                    .map(|owner| AgentOwner {
+                        id: owner.id,
+                        display_name: owner.display_name,
+                        hue_override: owner.hue_override,
+                    }),
+                None => None,
+            };
+            let person = Person {
+                id: user.id,
+                kind: user.kind,
+                display_name: user.display_name.clone(),
+                email: user.email.as_ref().map(|email| email.as_str().to_owned()),
+                hue_override: user.hue_override,
+                owner,
+            };
+            let workspace = match principal.workspace() {
+                Some(id) => {
+                    let membership = membership(&mut conn, principal, id).await?;
+                    membership
+                        .standing
+                        .role()
+                        .map(|role| (membership.workspace, role))
+                }
+                None => None,
+            };
+            Ok(Identity { person, workspace })
+        })
+        .await
+    }
+
     /// A workspace's members that the principal may know of, owners first: everyone, or
     /// for a guest only themselves. Agents and integrations are members too.
     pub async fn list_members(

@@ -13,6 +13,7 @@
 //! error shape.
 
 use axum::extract::FromRequestParts;
+use axum::http::HeaderValue;
 use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, SET_COOKIE};
 use axum::http::request::Parts;
@@ -131,19 +132,7 @@ impl Refusal {
 /// The principal of the bearer token, or else of the session cookie.
 async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refusal> {
     if let Some(header) = parts.headers.get(AUTHORIZATION) {
-        let token = header.to_str().ok().and_then(bearer_token).ok_or_else(|| {
-            Refusal::new(ApiError::unauthenticated(
-                "the Authorization header wants Bearer and an API token",
-            ))
-        })?;
-        return state.auth.authenticate_token(token).await.map_err(|error| {
-            Refusal::new(match error {
-                AuthError::Unauthenticated => ApiError::unauthenticated(
-                    "the API token does not work: it is unknown, revoked or expired",
-                ),
-                other => other.into(),
-            })
-        });
+        return bearer(state, header).await.map_err(Refusal::new);
     }
     let Some(token) = state.web.session_token(&parts.headers) else {
         return Err(Refusal::new(ApiError::unauthenticated("sign in first")));
@@ -158,6 +147,24 @@ async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refu
                 clear_cookie: true,
             },
             other => Refusal::new(other.into()),
+        })
+}
+
+/// The principal of an `Authorization` header's bearer token. The MCP server, which takes
+/// no cookie, authenticates its requests with this alone.
+pub(crate) async fn bearer(state: &AppState, header: &HeaderValue) -> Result<Principal, ApiError> {
+    let token = header.to_str().ok().and_then(bearer_token).ok_or_else(|| {
+        ApiError::unauthenticated("the Authorization header wants Bearer and an API token")
+    })?;
+    state
+        .auth
+        .authenticate_token(token)
+        .await
+        .map_err(|error| match error {
+            AuthError::Unauthenticated => ApiError::unauthenticated(
+                "the API token does not work: it is unknown, revoked or expired",
+            ),
+            other => other.into(),
         })
 }
 

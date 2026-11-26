@@ -14,6 +14,7 @@ use neon_domain::databases as domain;
 use neon_domain::databases::filter as filters;
 use neon_domain::databases::sort as sorts;
 use neon_domain::databases::view as views;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use utoipa::ToSchema;
@@ -240,7 +241,7 @@ mirror!(Layout, domain::Layout, [Table, Board, List]);
 
 /// How a condition compares a row's value with its own; which a property takes depends on
 /// its type, as the databases reference lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Operator {
     Is,
@@ -295,7 +296,7 @@ mirror!(
 /// A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
 /// `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
 /// conditions in all.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(untagged)]
 pub enum Filter {
     And {
@@ -310,7 +311,7 @@ pub enum Filter {
 }
 
 /// A condition on one property.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Condition {
     /// The property, by id or name.
@@ -365,7 +366,7 @@ impl From<filters::FilterSpec> for Filter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
     Ascending,
@@ -375,7 +376,7 @@ pub enum Direction {
 mirror!(Direction, sorts::Direction, [Ascending, Descending]);
 
 /// A sort by one property. Rows without a value come last either way.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Sort {
     /// The property, by id or name.

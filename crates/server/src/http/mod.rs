@@ -1,15 +1,16 @@
 //! The HTTP API under `/api/v1`, its description, and the middleware every request
 //! passes.
 
-mod account;
+pub(crate) mod account;
 mod admin;
 mod admin_workspaces;
 mod agents;
 mod auth;
+pub(crate) mod content;
 mod database_live;
-mod database_rows;
-mod databases;
-mod dto;
+pub(crate) mod database_rows;
+pub(crate) mod databases;
+pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
@@ -17,13 +18,14 @@ mod meta;
 mod oauth;
 mod openapi;
 mod page_shares;
-mod pages;
-mod principal;
+pub(crate) mod pages;
+pub(crate) mod principal;
 mod sync;
-mod teamspaces;
+pub(crate) mod teamspaces;
 mod transfer;
-mod web;
-mod workspaces;
+pub(crate) mod web;
+pub(crate) mod whoami;
+pub(crate) mod workspaces;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -35,7 +37,7 @@ use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{any, get};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::oauth::OAuthService;
@@ -79,6 +81,7 @@ pub struct AppState {
     pub live: LiveDatabases,
     pub transfer: TransferService,
     pub web: Arc<WebConfig>,
+    pub mcp: crate::mcp::Mcp,
 }
 
 /// Every API route, each registered together with its entry in the description.
@@ -96,6 +99,7 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(auth::check_invite))
         .routes(routes!(auth::request_to_join))
         .routes(routes!(auth::confirm_join))
+        .routes(routes!(whoami::whoami))
         .routes(routes!(account::get_me, account::update_me))
         .routes(routes!(account::change_password))
         .routes(routes!(
@@ -202,6 +206,8 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::trash_page))
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
+        .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(pages::recent_pages))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -231,9 +237,15 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(databases::duplicate_view))
         .routes(routes!(database_rows::query_rows))
         .routes(routes!(database_rows::create_row))
-        .routes(routes!(database_rows::row_by_unique_id))
+        .routes(routes!(
+            database_rows::row_by_unique_id,
+            database_rows::change_row_by_unique_id
+        ))
+        .routes(routes!(database_rows::claim_row_by_unique_id))
         .routes(routes!(database_rows::get_row, database_rows::change_row))
         .routes(routes!(database_rows::move_row))
+        .routes(routes!(database_rows::claim_row))
+        .routes(routes!(database_rows::list_tasks))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
         // Uploads are larger than the bodies of other routes.
@@ -272,6 +284,9 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
+        // resources.
+        .route(crate::mcp::PATH, any(crate::mcp::serve))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -388,7 +403,11 @@ mod agents_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod content_tests;
+#[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod mcp_tests;
 #[cfg(test)]
 mod oauth_tests;
 #[cfg(test)]

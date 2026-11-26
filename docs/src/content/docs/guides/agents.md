@@ -5,10 +5,10 @@ description: What an agent is, who makes one, how its access is its own and its 
 
 An agent is a member of a workspace that acts for a person there, its **owner**. It works
 through API tokens its owner makes, or through apps its owner connects as it over
-[OAuth](/docs/guides/oauth/), such as MCP clients. It is how a team gives a
-program a seat in a workspace, beside the people, under the same rules. Its pages in the web
-app are under [Agents](/docs/workspace-settings/agents/), and who may do what is listed on
-the [permissions](/docs/reference/permissions/#agents) page.
+[OAuth](/docs/guides/oauth/), over the API or [over MCP](/docs/guides/agents-over-mcp/). It
+is how a team gives a program a seat in a workspace, beside the people, under the same rules.
+Its pages in the web app are under [Agents](/docs/workspace-settings/agents/), and who may do
+what is listed on the [permissions](/docs/reference/permissions/#agents) page.
 
 ## What an agent is
 

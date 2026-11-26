@@ -7,5 +7,6 @@ mod gauges;
 pub mod health;
 pub mod http;
 pub mod mail;
+pub mod mcp;
 pub mod runtime;
 mod telemetry;

@@ -2,6 +2,7 @@
 //! of markdown's own blocks first; the extension's lines are then found among the
 //! paragraphs, and the tree becomes the document's blocks.
 
+use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
@@ -9,6 +10,7 @@ use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, OffsetIter, Options, Parser, Tag, TagEnd,
 };
 
+use super::write::{ID_CLOSE, ID_OPEN};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE,
@@ -18,9 +20,104 @@ use crate::model::{
 };
 
 /// The blocks of a markdown text. Any text is markdown, so this cannot fail; the blocks have
-/// no ids.
+/// no ids. The lines naming blocks that [`to_markdown_with_ids`](super::to_markdown_with_ids)
+/// writes are left out, so its markdown reads as [`to_markdown`](super::to_markdown)'s does,
+/// but for a line naming a block that has no lines of its own: an empty paragraph, which it
+/// stays.
 pub fn from_markdown(markdown: &str) -> Document {
-    Document::new(convert(parse(markdown)))
+    let markdown = without_ids(markdown);
+    Document::new(convert(parse(&markdown)))
+}
+
+/// The markdown without the lines that name a block: each an HTML block of its own, so none
+/// in code is taken, and gone with its line, so blocks around it read as if it never was.
+/// One that names an empty paragraph stays, to be read as one.
+fn without_ids(markdown: &str) -> Cow<'_, str> {
+    if !markdown.contains(ID_OPEN) {
+        return Cow::Borrowed(markdown);
+    }
+    let events: Vec<(Event<'_>, Range<usize>)> = Parser::new_ext(markdown, options())
+        .into_offset_iter()
+        .collect();
+    let mut cuts: Vec<Range<usize>> = Vec::new();
+    for (index, (event, range)) in events.iter().enumerate() {
+        let Event::Html(html) = event else {
+            continue;
+        };
+        if !names_block(html) {
+            continue;
+        }
+        let start = markdown[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        // What comes before it on its line: indentation, or the markers of a quote.
+        if !markdown[start..range.start]
+            .chars()
+            .all(|c| c == ' ' || c == '\t' || c == '>')
+        {
+            continue;
+        }
+        let end = if markdown[..range.end].ends_with('\n') {
+            range.end
+        } else {
+            markdown[range.end..]
+                .find('\n')
+                .map_or(markdown.len(), |at| range.end + at + 1)
+        };
+        if names_empty_paragraph(markdown, end, &events[index + 1..]) {
+            continue;
+        }
+        cuts.push(start..end);
+    }
+    if cuts.is_empty() {
+        return Cow::Borrowed(markdown);
+    }
+    let mut kept = String::with_capacity(markdown.len());
+    let mut from = 0;
+    for cut in cuts {
+        if cut.start >= from {
+            kept.push_str(&markdown[from..cut.start]);
+            from = cut.end;
+        }
+    }
+    kept.push_str(&markdown[from..]);
+    Cow::Owned(kept)
+}
+
+/// Whether a line naming a block, ending at `end`, names one with no lines of its own: an
+/// empty paragraph. The lines of any other block follow right after it, so it is one when
+/// what follows is a blank line, another line naming a block, the end of what holds it, or
+/// nothing. `after` are the events after the line's.
+fn names_empty_paragraph(markdown: &str, end: usize, after: &[(Event<'_>, Range<usize>)]) -> bool {
+    let mut after = after
+        .iter()
+        .filter(|(event, _)| !matches!(event, Event::End(TagEnd::HtmlBlock)));
+    let Some((next, range)) = after.next() else {
+        return true;
+    };
+    let blank_between = markdown[end..range.start.max(end)]
+        .split_inclusive('\n')
+        .any(|line| line.ends_with('\n') && line.chars().all(|c| c.is_whitespace() || c == '>'));
+    match next {
+        Event::End(_) => true,
+        Event::Start(Tag::HtmlBlock) => {
+            blank_between
+                || matches!(after.next(), Some((Event::Html(html), _)) if names_block(html))
+        }
+        _ => blank_between,
+    }
+}
+
+/// Whether an HTML block's line is one naming a block: `<!-- block <id> -->`, the id one word.
+fn names_block(html: &str) -> bool {
+    html.trim()
+        .strip_prefix(ID_OPEN)
+        .and_then(|rest| rest.strip_suffix(ID_CLOSE))
+        .map(str::trim_end)
+        .is_some_and(|id| {
+            !id.is_empty()
+                && id.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'%')
+                })
+        })
 }
 
 /// The parser's options: CommonMark with GitHub's tables, strikethrough and task lists.
@@ -502,6 +599,8 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
             })),
             Md::Rule => builder.push(Block::new(BlockKind::Divider { props: NoProps {} })),
             Md::Table { alignments, rows } => builder.push(table(&alignments, rows)),
+            // A line naming a block that has no other: an empty paragraph.
+            Md::Html(html) if names_block(&html) => builder.push(Block::paragraph("")),
             Md::Html(html) => {
                 let text = if is_break_tag(&html) {
                     "\n".to_owned()
@@ -804,9 +903,13 @@ fn list_item(list_start: Option<u64>, index: usize, blocks: Vec<Md<'_>>) -> Bloc
         Some(Md::Paragraph(lines)) => lines.first().and_then(|line| line.task),
         _ => None,
     };
+    // An empty paragraph a line names first is the item's child, not its text.
+    let named_first = matches!(blocks.first(), Some(Md::Html(html)) if names_block(html));
     let mut converted = convert(blocks).into_iter().peekable();
     let content = match converted.next_if(|block| {
-        matches!(block.kind, BlockKind::Paragraph { .. }) && block.children.is_empty()
+        !named_first
+            && matches!(block.kind, BlockKind::Paragraph { .. })
+            && block.children.is_empty()
     }) {
         Some(Block {
             kind: BlockKind::Paragraph { content, .. },
