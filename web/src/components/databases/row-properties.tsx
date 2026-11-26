@@ -79,10 +79,13 @@ export function RowProperties({ page }: { page: Page }) {
       style={{ paddingInline: "var(--page-inset)" }}
     >
       <dl className="grid gap-x-4 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]">
-        {/* A unique id property shows the id among the others. */}
+        {/* A unique id property shows the id among the others; without one, the row's
+            number is told apart from the properties filters name. */}
         {!known?.properties.some((property) => property.type === "unique_id") && (
           <Fact term={copy.row.uniqueId}>
-            <span className="font-mono">{row.data.unique_id}</span>
+            <span className="font-mono" title={copy.row.uniqueIdHint}>
+              {row.data.unique_id}
+            </span>
           </Fact>
         )}
         {known === undefined ? (

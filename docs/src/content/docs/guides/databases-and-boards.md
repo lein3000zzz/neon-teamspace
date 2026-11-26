@@ -221,7 +221,9 @@ title, where a click on the title renames it; in every view, its menu opens it a
 
 A row's page is a page like any other, with its icon, cover and title, and its body edited
 live below. Between the title and the body are its **properties**, each editable as in the
-views. A database without a unique id property shows the row's number as its **ID**. Those
+views. A database without a unique id property shows the row's number as its **Row
+number**, which is no property: filters and sorts name properties, so a unique id property
+added to the database is what they filter and sort by. Those
 who edit the database also find, on each property's name, its settings and the way to move
 it up or down: that order is the one every row's page lists them in. **Add a property** adds
 one to the database.

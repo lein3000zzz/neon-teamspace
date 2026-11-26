@@ -1742,7 +1742,9 @@ export const strings = {
     },
     row: {
       properties: "Properties",
-      uniqueId: "ID",
+      uniqueId: "Row number",
+      uniqueIdHint:
+        "The row's number in its database. Filters and sorts name properties: add a unique ID property to filter by it.",
       created: "Created",
       lastEdited: "Last edited",
       noDatabase:
