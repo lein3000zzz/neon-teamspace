@@ -156,7 +156,12 @@ describe("the quick search", () => {
     await user.keyboard("{Control>}k{/Control}");
     const search = await dialog();
     await user.keyboard("zebra");
-    expect(await search.findByText("Nothing matches.")).toBeInTheDocument();
+    const none = await search.findByText("Nothing matches.");
+    // What it found comes first, then the way to search everything.
+    const everything = search.getByRole("button", { name: "Search everything for “zebra”" });
+    expect(
+      none.compareDocumentPosition(everything) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
   });

@@ -230,6 +230,11 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
           {searching ? copy.results : copy.recent}
         </p>
         {error !== null && <ErrorNotice error={error} />}
+        {!loading && error === null && pages === 0 && (
+          <p className="px-2.5 py-1 text-sm text-muted-foreground">
+            {searching ? copy.none : copy.noRecent}
+          </p>
+        )}
         <ul className="grid gap-0.5">
           {options.map((option, index) => (
             <li key={option.kind === "page" ? option.page.id : "everything"}>
@@ -254,11 +259,6 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
             </li>
           ))}
         </ul>
-        {!loading && error === null && pages === 0 && (
-          <p className="px-2.5 pb-1 text-sm text-muted-foreground">
-            {searching ? copy.none : copy.noRecent}
-          </p>
-        )}
         {loading && <p className="px-2.5 pb-1 text-sm text-muted-foreground">{copy.searching}</p>}
       </section>
       <p className="hidden px-1 text-xs text-muted-foreground md:block">{copy.hint}</p>
