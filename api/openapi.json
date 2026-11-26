@@ -15183,7 +15183,8 @@
           "scopes",
           "resource",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "connected_by_in_workspace"
         ],
         "properties": {
           "client": {
@@ -15191,6 +15192,10 @@
           },
           "connected_by": {
             "$ref": "#/components/schemas/ConnectedBy"
+          },
+          "connected_by_in_workspace": {
+            "type": "boolean",
+            "description": "False while whoever connected it is out of its workspace: its tokens are refused\nmeanwhile, and work again once they are back."
           },
           "created_at": {
             "type": "string",

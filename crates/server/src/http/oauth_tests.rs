@@ -1718,6 +1718,18 @@ async fn a_persons_tokens_stop_once_they_lose_access(pool: PgPool) {
     assert_eq!(works(&app, &as_cy, ws).await, StatusCode::UNAUTHORIZED);
     // The agent is suspended with its owner out, and its token says so.
     assert_eq!(works(&app, &as_scout, ws).await, StatusCode::FORBIDDEN);
+    // Her list says both are stopped, as she is out of their workspace. Disabling her ended
+    // her session, so she signs in again.
+    let cy_again = Browser::sign_in(&app, "cy@example.com").await;
+    let listed = cy_again.get("/api/v1/account/connected-apps").await;
+    let apps = listed.body["apps"].as_array().expect("apps");
+    assert_eq!(apps.len(), 2, "{}", listed.body);
+    assert!(
+        apps.iter()
+            .all(|app| app["connected_by_in_workspace"] == false),
+        "{}",
+        listed.body
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

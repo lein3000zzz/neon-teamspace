@@ -289,6 +289,9 @@ pub struct Listed {
     pub workspace_slug: String,
     pub identity: Person,
     pub person_name: String,
+    /// The person who consented is still in the grant's workspace. While they are not,
+    /// its tokens are refused; they work again once the person is back.
+    pub person_in_workspace: bool,
 }
 
 /// The grants a person consented to, as themselves or as their agents, last used first.
@@ -303,7 +306,10 @@ pub async fn grants_of_person(
                   c.name AS client_name, w.name AS workspace_name, w.slug AS workspace_slug,
                   u.kind, u.display_name, u.email, u.hue,
                   o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
-                  p.display_name AS person_name
+                  p.display_name AS person_name,
+                  EXISTS (SELECT 1 FROM workspace_members m
+                          WHERE m.workspace_id = g.workspace_id AND m.user_id = g.person_id)
+                      AS "person_in_workspace!"
            FROM oauth_grants g
            JOIN oauth_clients c ON c.id = g.client_id
            JOIN workspaces w ON w.id = g.workspace_id
@@ -333,7 +339,10 @@ pub async fn agent_grants_of_workspace(
                   c.name AS client_name, w.name AS workspace_name, w.slug AS workspace_slug,
                   u.kind, u.display_name, u.email, u.hue,
                   o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
-                  p.display_name AS person_name
+                  p.display_name AS person_name,
+                  EXISTS (SELECT 1 FROM workspace_members m
+                          WHERE m.workspace_id = g.workspace_id AND m.user_id = g.person_id)
+                      AS "person_in_workspace!"
            FROM oauth_grants g
            JOIN oauth_clients c ON c.id = g.client_id
            JOIN workspaces w ON w.id = g.workspace_id
@@ -373,6 +382,7 @@ struct ListedRow {
     owner_name: Option<String>,
     owner_hue: Option<i16>,
     person_name: String,
+    person_in_workspace: bool,
 }
 
 impl TryFrom<ListedRow> for Listed {
@@ -408,6 +418,7 @@ impl TryFrom<ListedRow> for Listed {
             workspace_slug: row.workspace_slug,
             identity,
             person_name: row.person_name,
+            person_in_workspace: row.person_in_workspace,
         })
     }
 }

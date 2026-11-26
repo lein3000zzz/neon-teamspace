@@ -209,7 +209,9 @@ client's, changes nothing, and the answer is the same.
 
 People see the apps they connected under **Account**, **Connected apps**: each one's
 client, workspace, whom it acts as, scopes, and when it was connected and last used, and
-**Disconnect** for each, at a browser. The workspace's owners and admins see the apps that act
+**Disconnect** for each, at a browser. An app of a workspace they are no longer in shows as
+**Stopped**, `connected_by_in_workspace` false in the API: its tokens are refused, and work
+again should they come back, unless they disconnect it. The workspace's owners and admins see the apps that act
 as any of its agents under the workspace's [Agents](/docs/workspace-settings/agents/)
 settings, and the other members those of their own agents, with **Disconnect** too.
 

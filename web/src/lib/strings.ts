@@ -267,8 +267,12 @@ export const strings = {
       connected: "Connected",
       lastUsed: "Last used",
       never: "Never",
+      stopped: "Stopped",
+      stoppedHint:
+        "You are no longer in this workspace: its tokens are refused. They work again if you are back in it; disconnect it to stop it for good.",
       disconnect: "Disconnect",
-      disconnectLabel: (app: string, workspace: string) => `Disconnect ${app} from ${workspace}`,
+      disconnectLabel: (app: string, workspace: string, identity: string) =>
+        `Disconnect ${app} from ${workspace} as ${identity}`,
       disconnectTitle: (app: string) => `Disconnect ${app}?`,
       disconnectLede: "Its tokens stop working at once, and the connections they opened close.",
       disconnected: (app: string) => `${app} is disconnected.`,

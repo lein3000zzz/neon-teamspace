@@ -2836,6 +2836,11 @@ export interface components {
             client: components["schemas"]["ConsentClient"];
             connected_by: components["schemas"]["ConnectedBy"];
             /**
+             * @description False while whoever connected it is out of its workspace: its tokens are refused
+             *     meanwhile, and work again once they are back.
+             */
+            connected_by_in_workspace: boolean;
+            /**
              * Format: date-time
              * @description When it was first connected.
              */
