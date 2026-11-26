@@ -100,10 +100,11 @@ pub(crate) fn page_of(columns: PageColumns) -> sqlx::Result<Page> {
 }
 
 /// What a share's access ranks as in the queries that take the most of several: 1 to
-/// view, 2 to edit, 0 or nothing for none.
+/// view, 2 to comment, 3 to edit, 0 or nothing for none.
 fn from_rank(rank: Option<i32>) -> Option<PageAccess> {
     match rank {
-        Some(2) => Some(PageAccess::Edit),
+        Some(3) => Some(PageAccess::Edit),
+        Some(2) => Some(PageAccess::Comment),
         Some(1) => Some(PageAccess::View),
         _ => None,
     }
@@ -263,7 +264,7 @@ pub async fn facts(
                FROM up u JOIN pages p ON p.id = u.id
                WHERE p.parent_id IS NOT NULL AND u.depth < $3
            ), best AS (
-               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 END) AS rank
+               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 END) AS rank
                FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2
                GROUP BY u.start
            )
@@ -598,6 +599,34 @@ pub async fn recent(
     .await
 }
 
+/// A workspace's pages out of the trash whose titles hold `text`, ignoring case, rows and
+/// databases included, the most recently changed first, at most `limit`. Empty text takes
+/// every title.
+pub async fn titled(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    text: &str,
+    limit: i64,
+) -> sqlx::Result<Vec<Uuid>> {
+    let pattern = format!(
+        "%{}%",
+        text.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+    sqlx::query_scalar!(
+        r#"SELECT id FROM pages
+           WHERE workspace_id = $1 AND trashed_at IS NULL AND title ILIKE $2 ESCAPE '\'
+           ORDER BY GREATEST(updated_at, content_updated_at) DESC, id
+           LIMIT $3"#,
+        workspace_id,
+        pattern,
+        limit,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Which of `ids` are `root` or under it, or no longer exist: the pages a change to
 /// `root` and the pages under it may concern, of those open.
 pub async fn within(
@@ -700,7 +729,7 @@ pub async fn space_tree(
     sqlx::query!(
         r#"WITH RECURSIVE tree (id, path, shared, depth) AS (
                SELECT p.id, p.position COLLATE "C",
-                      CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
+                      CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
                FROM pages p
                LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3
                WHERE p.workspace_id = $1 AND COALESCE(p.parent_id, p.teamspace_id, p.owner_id) = $2
@@ -708,7 +737,7 @@ pub async fn space_tree(
              UNION ALL
                SELECT c.id, (t.path || '!' || c.position) COLLATE "C",
                       GREATEST(t.shared,
-                               CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
+                               CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
                JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'
@@ -787,13 +816,13 @@ pub async fn shared_tree(
                )
            ), tree (id, path, shared, depth) AS (
                SELECT r.id, r.id::text COLLATE "C",
-                      CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
+                      CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
                FROM roots r
                JOIN page_shares s ON s.page_id = r.id AND s.user_id = $2
              UNION ALL
                SELECT c.id, (t.path || '!' || c.position) COLLATE "C",
                       GREATEST(t.shared,
-                               CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
+                               CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
                JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'

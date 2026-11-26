@@ -12,7 +12,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use neon_app::comments::Placing;
 use neon_app::databases::{NewDatabase, NewRow, QueryInput};
+use neon_app::notifications::InboxQuery;
 use neon_app::pages::NewPage;
 use neon_blocks::edit::Edit;
 use neon_domain::auth::{Principal, Scope};
@@ -27,12 +29,14 @@ use uuid::Uuid;
 
 use super::Services;
 use crate::http::ApiError;
+use crate::http::comments::{PostedComment, ThreadList};
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
 use crate::http::databases::{
     AddProperty, Database, Filter, NumberFormat, OptionChange, Property, PropertyKind, Sort,
     embed_in, embedding,
 };
+use crate::http::inbox::{Marked, NotificationList};
 use crate::http::pages::{Page, Placement, TreePage, location};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
@@ -151,7 +155,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 17] = [
+pub(crate) const TOOLS: [Spec; 21] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -359,6 +363,56 @@ pub(crate) const TOOLS: [Spec; 17] = [
         destructive: true,
         idempotent: false,
         schema: schema::<ClaimArguments>,
+    },
+    Spec {
+        name: "list_comments",
+        title: "List comments",
+        description: "A page's threads of comments, oldest first, each with its comments in \
+                      order, their markdown and authors. An inline thread names the block its \
+                      text is in (anchor.block_id) and the text it was made on (anchor.quote), \
+                      or is detached once that text is gone. Resolved threads show unless \
+                      include_resolved is false.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<ListCommentsArguments>,
+    },
+    Spec {
+        name: "add_comment",
+        title: "Add a comment",
+        description: "Comments on a page: starts a thread on the whole page, or on the text of \
+                      one block (block_id, as read_page names blocks), or replies in a thread \
+                      (thread_id). The markdown is inline content alone, at most 10000 \
+                      characters; mention someone as @[Name](user:<id>), with an id \
+                      list_members gives, or a page as @[Title](page:<id>). Those it mentions \
+                      who cannot see the page are told nothing, and come back in unnotified.",
+        writes: true,
+        destructive: false,
+        idempotent: false,
+        schema: schema::<AddCommentArguments>,
+    },
+    Spec {
+        name: "get_inbox",
+        title: "Get the inbox",
+        description: "Your notifications in this workspace, newest first, a part at a time: \
+                      mentions of you in pages and comments, replies in threads you are in, \
+                      comments on pages you follow, and rows assigned to you, each with its \
+                      page, the comment it is about and who did it. unread: true for the \
+                      unread ones alone; pass next back as before for the next part.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<InboxArguments>,
+    },
+    Spec {
+        name: "mark_read",
+        title: "Mark notifications read",
+        description: "Marks notifications of your inbox read, by their ids, or all of them \
+                      (all: true); read: false marks the ones named unread again.",
+        writes: true,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<MarkReadArguments>,
     },
 ];
 
@@ -591,6 +645,73 @@ pub(crate) async fn call(
                 .await
                 .map_err(refused)?;
             answer(Row::from(row))
+        }
+        "list_comments" => {
+            let ListCommentsArguments {
+                page_id,
+                include_resolved,
+            } = arguments(given)?;
+            let mut list = ThreadList::from(
+                s.comments
+                    .threads(principal, page_id)
+                    .await
+                    .map_err(refused)?,
+            );
+            if !include_resolved {
+                list.threads.retain(|thread| thread.resolved_at.is_none());
+            }
+            answer(list)
+        }
+        "add_comment" => add_comment(s, principal, arguments(given)?).await,
+        "get_inbox" => {
+            let InboxArguments {
+                unread,
+                before,
+                limit,
+            } = arguments(given)?;
+            let query = InboxQuery {
+                workspace_id: Some(workspace(principal)?),
+                unread,
+                archived: false,
+                before,
+                limit: limit.map(usize::from),
+            };
+            let page = s.inbox.inbox(principal, query).await.map_err(refused)?;
+            answer(NotificationList::from(page))
+        }
+        "mark_read" => {
+            let MarkReadArguments {
+                notification_ids,
+                all,
+                read,
+            } = arguments(given)?;
+            let marked = if all {
+                if !read {
+                    return Err(ToolError::invalid(
+                        "invalid_arguments",
+                        "all marks every notification read: name the ones to mark unread",
+                    ));
+                }
+                s.inbox
+                    .mark_all_read(principal, Some(workspace(principal)?))
+                    .await
+                    .map_err(refused)?
+            } else {
+                if notification_ids.is_empty() {
+                    return Err(ToolError::invalid(
+                        "invalid_arguments",
+                        "name the notifications to mark, or all: true",
+                    ));
+                }
+                for id in &notification_ids {
+                    s.inbox
+                        .mark(principal, *id, Some(read), None)
+                        .await
+                        .map_err(refused)?;
+                }
+                u64::try_from(notification_ids.len()).unwrap_or(u64::MAX)
+            };
+            answer(Marked { marked })
         }
         other => Err(ToolError {
             code: "internal",
@@ -851,6 +972,110 @@ struct ClaimArguments {
     /// absent.
     #[serde(default)]
     person_property: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ListCommentsArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// False to leave resolved threads out; true when absent.
+    #[serde(default = "yes")]
+    include_resolved: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddCommentArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// The comment: markdown limited to inline content, at most 10000 characters.
+    markdown: String,
+    /// To start a thread on one block's text: its id, as read_page names it.
+    #[serde(default)]
+    block_id: Option<String>,
+    /// To reply in a thread of the page: its id, as list_comments gives it.
+    #[serde(default)]
+    thread_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct InboxArguments {
+    /// True for the unread notifications alone.
+    #[serde(default)]
+    unread: bool,
+    /// The next of the part before.
+    #[serde(default)]
+    before: Option<Uuid>,
+    /// Notifications in the part, 1 to 200; 50 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 200))]
+    limit: Option<u8>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MarkReadArguments {
+    /// The notifications to mark, by id.
+    #[serde(default)]
+    notification_ids: Vec<Uuid>,
+    /// True to mark every notification of the inbox read.
+    #[serde(default)]
+    all: bool,
+    /// False to mark the ones named unread again; true when absent.
+    #[serde(default = "yes")]
+    read: bool,
+}
+
+async fn add_comment(
+    s: &Services,
+    principal: &Principal,
+    given: AddCommentArguments,
+) -> Result<Json, ToolError> {
+    let AddCommentArguments {
+        page_id,
+        markdown,
+        block_id,
+        thread_id,
+    } = given;
+    let posted = match (thread_id, block_id) {
+        (Some(_), Some(_)) => {
+            return Err(ToolError::invalid(
+                "invalid_arguments",
+                "name thread_id to reply, or block_id to start a thread on a block, not both",
+            ));
+        }
+        (Some(thread_id), None) => {
+            let (thread, _) = s
+                .comments
+                .thread(principal, thread_id)
+                .await
+                .map_err(refused)?;
+            if thread.thread.page_id != page_id {
+                return Err(ToolError::invalid(
+                    "not_found",
+                    "the page has no such thread",
+                ));
+            }
+            s.comments
+                .reply(principal, thread_id, &markdown)
+                .await
+                .map_err(refused)?
+        }
+        (None, block_id) => {
+            let placing = block_id.map_or(Placing::Page, Placing::Block);
+            s.comments
+                .start_thread(principal, page_id, &markdown, placing)
+                .await
+                .map_err(refused)?
+        }
+    };
+    answer(PostedComment::from(posted))
 }
 
 async fn create_page(

@@ -346,6 +346,10 @@ async fn every_tool_acts_as_its_caller_sees(pool: PgPool) {
             "create_row",
             "update_row",
             "claim_task",
+            "list_comments",
+            "add_comment",
+            "get_inbox",
+            "mark_read",
         ]
     );
 
@@ -1397,7 +1401,8 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
         .await;
     let task = id(&task);
 
-    // The list: tasks first, then favorites, the pages changed last and each task.
+    // The list: tasks and the inbox first, then favorites, the pages changed last and each
+    // task.
     let templates: Vec<String> = client
         .service
         .list_all_resource_templates()
@@ -1412,7 +1417,8 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
             "neon://page/{id}",
             "neon://database/{id}",
             "neon://database/{id}/view/{view}",
-            "neon://me/tasks"
+            "neon://me/tasks",
+            "neon://me/inbox"
         ]
     );
     let listed: Vec<String> = client
@@ -1424,7 +1430,8 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
         .map(|resource| resource.uri.clone())
         .collect();
     assert_eq!(listed[0], "neon://me/tasks");
-    assert_eq!(listed[1], format!("neon://page/{plan}"));
+    assert_eq!(listed[1], "neon://me/inbox");
+    assert_eq!(listed[2], format!("neon://page/{plan}"));
     assert!(
         listed.contains(&format!("neon://database/{db_id}")),
         "{listed:?}"
@@ -1453,9 +1460,12 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
     let read = client.read("neon://me/tasks").await;
     let tasks: Value = serde_json::from_str(text(&read[0])).expect("JSON");
     assert_eq!(tasks["tasks"][0]["row"]["id"], task.as_str());
+    let read = client.read("neon://me/inbox").await;
+    let inbox: Value = serde_json::from_str(text(&read[0])).expect("JSON");
+    assert!(inbox["notifications"].is_array(), "{inbox}");
     let missing = client
         .service
-        .read_resource(ReadResourceRequestParams::new("neon://me/inbox".to_owned()))
+        .read_resource(ReadResourceRequestParams::new("neon://me/notes".to_owned()))
         .await;
     assert!(missing.is_err());
 
@@ -2605,4 +2615,112 @@ async fn an_identity_at_its_bound_makes_room_by_ending_its_idlest_session(pool: 
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert!(answered.contains_key("retry-after"), "{answered:?}");
     state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_comments_reads_its_inbox_and_hears_it_change(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let plan = page(&t, "Plan", "# Goals\n\nShip on Friday").await;
+    let (token, scout) = agent_of(&t.cy, ws, "Scout").await;
+    let mut agent = Client::connect(&server, &token).await.expect("connected");
+    agent.subscribe("neon://me/inbox").await;
+
+    // Ada mentions the agent on the page: its inbox changes, and says so.
+    let started = t
+        .ada
+        .post(
+            &format!("/api/v1/pages/{plan}/comments"),
+            json!({"markdown": format!("@[Scout](user:{scout}) can you check?")}),
+        )
+        .await;
+    assert_eq!(started.status, StatusCode::CREATED, "{}", started.body);
+    let thread = started.body["thread"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    assert_eq!(agent.updated().await, "neon://me/inbox");
+    let inbox = agent.ok("get_inbox", json!({"unread": true})).await;
+    let first = &inbox["notifications"][0];
+    assert_eq!(first["kind"], "mention");
+    assert_eq!(first["thread_id"], thread.as_str());
+    assert_eq!(first["page"]["id"], plan.as_str());
+    let read = agent.read("neon://me/inbox").await;
+    let listed: Value = serde_json::from_str(text(&read[0])).expect("JSON");
+    assert_eq!(listed["notifications"][0]["id"], first["id"]);
+
+    // It replies in the thread, and starts one on the goal's block.
+    let replied = agent
+        .ok(
+            "add_comment",
+            json!({"page_id": plan, "thread_id": thread, "markdown": "Checked: **fine**."}),
+        )
+        .await;
+    assert_eq!(
+        replied["thread"]["comments"].as_array().map(Vec::len),
+        Some(2)
+    );
+    let markdown = agent.ok("read_page", json!({"page_id": plan})).await["markdown"]
+        .as_str()
+        .expect("markdown")
+        .to_owned();
+    let goal = block_ids(&markdown)[1].clone();
+    let anchored = agent
+        .ok(
+            "add_comment",
+            json!({"page_id": plan, "block_id": goal, "markdown": "Friday is close."}),
+        )
+        .await;
+    assert_eq!(anchored["thread"]["anchor"]["quote"], "Ship on Friday");
+    assert_eq!(anchored["thread"]["anchor"]["block_id"], goal.as_str());
+    let (code, _) = agent
+        .refused(
+            "add_comment",
+            json!({"page_id": plan, "block_id": goal, "thread_id": thread, "markdown": "x"}),
+        )
+        .await;
+    assert_eq!(code, "invalid_arguments");
+
+    let comments = agent.ok("list_comments", json!({"page_id": plan})).await;
+    let threads = comments["threads"].as_array().expect("threads");
+    assert_eq!(threads.len(), 2);
+    assert_eq!(threads[1]["anchor"]["block_id"], goal.as_str());
+    assert_eq!(threads[1]["anchor"]["detached"], false);
+    // Ada's inbox has the agent's reply, named for the person it acts for; resolved
+    // threads can be left out.
+    let ada_inbox = t.ada.get("/api/v1/inbox").await;
+    let reply = ada_inbox.body["notifications"]
+        .as_array()
+        .expect("notifications")
+        .iter()
+        .find(|notification| notification["kind"] == "reply")
+        .cloned()
+        .expect("a reply");
+    assert_eq!(reply["actor"]["owner"]["display_name"], "cy");
+    t.ada
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/threads/{thread}"),
+            Some(json!({"resolved": true})),
+        )
+        .await;
+    let open = agent
+        .ok(
+            "list_comments",
+            json!({"page_id": plan, "include_resolved": false}),
+        )
+        .await;
+    assert_eq!(open["threads"].as_array().map(Vec::len), Some(1));
+
+    let marked = agent.ok("mark_read", json!({"all": true})).await;
+    assert_eq!(marked, json!({"marked": 1}));
+    let inbox = agent.ok("get_inbox", json!({"unread": true})).await;
+    assert_eq!(inbox["notifications"], json!([]));
+    let (code, _) = agent.refused("mark_read", json!({})).await;
+    assert_eq!(code, "invalid_arguments");
+    agent.close().await;
+    finish(&state, server).await;
 }

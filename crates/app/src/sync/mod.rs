@@ -29,6 +29,9 @@
 //!   open: the editors see them at once and they merge with what is being typed. An
 //!   append is logged before the call answers, or, when the database fails then, kept and
 //!   logged later as every edit is.
+//! - **Comments.** A connection that asks follows the page's threads of comments too: it
+//!   hears a message of type [`MESSAGE_COMMENTS`] whenever one changes, through the
+//!   [`Broadcaster`]'s room of the page's comments, and reads them again by the API.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -85,6 +88,7 @@ pub use close::CloseReason;
 pub use content::{ContentError, Edited, MAX_EDITS, changes_document, revision};
 pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
+pub use protocol::{MESSAGE_COMMENTS, comments_changed};
 
 /// RED subsystem of the sync's work: loading, logging and compacting documents.
 pub const SUBSYSTEM: &str = "sync";
@@ -300,6 +304,8 @@ pub struct Admission {
     access: PageAccess,
     /// For an agent or integration, its owner's display name, which its presence shows.
     owner: Option<String>,
+    /// Whether the connection also hears that the page's threads of comments changed.
+    comments: bool,
     /// How many access changes were heard before the rules were asked.
     epoch: u64,
 }
@@ -307,6 +313,14 @@ pub struct Admission {
 impl Admission {
     pub fn access(&self) -> PageAccess {
         self.access
+    }
+
+    /// Has the connection hear, beside the document's messages, one of type
+    /// [`MESSAGE_COMMENTS`] whenever a thread of the page's comments changes: the web
+    /// app's editor asks for them, stock clients do not.
+    pub fn with_comments(mut self, follow: bool) -> Self {
+        self.comments = follow;
+        self
     }
 }
 
@@ -367,6 +381,7 @@ impl SyncService {
             owner,
             principal,
             page_id,
+            comments: false,
             epoch,
         })
     }
@@ -377,10 +392,67 @@ impl SyncService {
         let id = ClientId::next();
         let limits = &self.inner.limits;
         let (outbox, receiver) = Outbox::new(limits.client_queue, limits.client_queue_bytes);
+        // Before the document's sync step 1, so a client that has it hears every change of
+        // the comments after it.
+        if admission.comments {
+            self.inner
+                .broadcaster
+                .join(Room::Comments(admission.page_id), id, outbox.clone());
+        }
+        let joined = self.join(&admission, id, &outbox).await;
+        let (commands, generation) = match joined {
+            Ok(joined) => joined,
+            Err(reason) => {
+                if admission.comments {
+                    self.inner
+                        .broadcaster
+                        .leave(Room::Comments(admission.page_id), id);
+                }
+                return Err(reason);
+            }
+        };
+        metrics::gauge!(OPEN_CONNECTIONS).increment(1.0);
+        let limits = &self.inner.limits;
+        let connection = Connection {
+            id,
+            page_id: admission.page_id,
+            comments: admission.comments,
+            generation,
+            commands: commands.clone(),
+            outbox: receiver,
+            bucket: Bucket::new(limits.messages_per_second, limits.message_burst),
+            inner: Arc::clone(&self.inner),
+            left: false,
+        };
+        if self.inner.epoch.load(Ordering::SeqCst) != admission.epoch {
+            // A change may have committed after the rules were asked, and before the
+            // watcher could see this connection.
+            let recheck = Recheck {
+                page_id: admission.page_id,
+                generation,
+                client: id,
+                principal: admission.principal,
+                commands,
+            };
+            if self.inner.recheck(recheck).await.is_err() {
+                outbox.close(CloseReason::ServerError);
+            }
+        }
+        Ok(connection)
+    }
+
+    /// Joins the connection to the page's live document, opening it again should it unload
+    /// meanwhile, a few times at most.
+    async fn join(
+        &self,
+        admission: &Admission,
+        id: ClientId,
+        outbox: &Outbox,
+    ) -> Result<(mpsc::Sender<Command>, u64), CloseReason> {
         let mut attempt = 0;
-        let (commands, generation) = loop {
+        loop {
             attempt += 1;
-            let (commands, generation) = self.slot(&admission, id)?;
+            let (commands, generation) = self.slot(admission, id)?;
             let (done, answer) = oneshot::channel();
             let user = &admission.principal.user;
             let joining = Joining {
@@ -407,7 +479,7 @@ impl SyncService {
                 Err(_) => None,
             };
             match answered {
-                Some(Ok(())) => break (commands, generation),
+                Some(Ok(())) => return Ok((commands, generation)),
                 Some(Err(reason)) => {
                     self.inner.unregister(admission.page_id, generation, id);
                     return Err(reason);
@@ -421,34 +493,7 @@ impl SyncService {
                     return Err(CloseReason::ServerError);
                 }
             }
-        };
-        metrics::gauge!(OPEN_CONNECTIONS).increment(1.0);
-        let limits = &self.inner.limits;
-        let connection = Connection {
-            id,
-            page_id: admission.page_id,
-            generation,
-            commands: commands.clone(),
-            outbox: receiver,
-            bucket: Bucket::new(limits.messages_per_second, limits.message_burst),
-            inner: Arc::clone(&self.inner),
-            left: false,
-        };
-        if self.inner.epoch.load(Ordering::SeqCst) != admission.epoch {
-            // A change may have committed after the rules were asked, and before the
-            // watcher could see this connection.
-            let recheck = Recheck {
-                page_id: admission.page_id,
-                generation,
-                client: id,
-                principal: admission.principal,
-                commands,
-            };
-            if self.inner.recheck(recheck).await.is_err() {
-                outbox.close(CloseReason::ServerError);
-            }
         }
-        Ok(connection)
     }
 
     /// A page's document as blocks: the live document's, with what was sent to it and is not
@@ -478,6 +523,77 @@ impl SyncService {
         let fragment = neon_blocks::fragment(&doc);
         let read = neon_blocks::read_lenient(&doc.transact(), &fragment);
         Ok(readable(page_id, read))
+    }
+
+    /// Looks at a page's document as it is now: the live one's, with what was sent to it
+    /// and is not saved yet, while the page is open; otherwise the one saved. It opens no
+    /// live document, and asks nothing of the caller's access.
+    async fn look<T, F>(&self, page_id: Uuid, look: F) -> Result<T, LoadError>
+    where
+        T: Send + 'static,
+        F: Fn(&yrs::Doc, &yrs::XmlFragmentRef) -> T + Send + Sync + 'static,
+    {
+        let look = Arc::new(look);
+        let live = self
+            .inner
+            .registry()
+            .docs
+            .get(&page_id)
+            .map(|slot| slot.commands.clone());
+        if let Some(commands) = live {
+            let (done, answer) = oneshot::channel();
+            let at_live = Arc::clone(&look);
+            let command = Command::Look {
+                look: Box::new(move |doc, fragment| {
+                    let _ = done.send(at_live(doc, fragment));
+                }),
+            };
+            if commands.send(command).await.is_ok()
+                && let Ok(found) = answer.await
+            {
+                return Ok(found);
+            }
+            // It unloaded meanwhile, and saved everything first.
+        }
+        let saved = neon_store::documents::saved(&self.inner.pool, page_id).await?;
+        let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
+        let fragment = neon_blocks::fragment(&doc);
+        Ok(look(&doc, &fragment))
+    }
+
+    /// Where the anchors of a page's inline threads are now, each its start and end as Yjs
+    /// encodes them, in order: see [`neon_blocks::anchors::resolve`]. Whether the caller may
+    /// read the page is not asked here.
+    pub async fn anchors(
+        &self,
+        page_id: Uuid,
+        anchors: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<Vec<neon_blocks::anchors::Anchored>, LoadError> {
+        if anchors.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.look(page_id, move |doc, fragment| {
+            let pairs: Vec<(&[u8], &[u8])> = anchors
+                .iter()
+                .map(|(start, end)| (start.as_slice(), end.as_slice()))
+                .collect();
+            neon_blocks::anchors::resolve(&doc.transact(), fragment, &pairs)
+        })
+        .await
+    }
+
+    /// An anchor over the text of the block of a page's document with `block_id`, as a
+    /// selection of it makes one; `None` when no such block holds text. Whether the caller
+    /// may read the page is not asked here.
+    pub async fn block_anchor(
+        &self,
+        page_id: Uuid,
+        block_id: String,
+    ) -> Result<Option<neon_blocks::anchors::BlockAnchor>, LoadError> {
+        self.look(page_id, move |doc, fragment| {
+            neon_blocks::anchors::block_anchor(&doc.transact(), fragment, &block_id)
+        })
+        .await
     }
 
     /// Adds blocks after the last one of a page's document, as the principal, for those who
@@ -753,6 +869,8 @@ impl Ending {
 pub struct Connection {
     id: ClientId,
     page_id: Uuid,
+    /// It follows the page's comments.
+    comments: bool,
     generation: u64,
     commands: mpsc::Sender<Command>,
     outbox: OutboxReceiver,
@@ -824,6 +942,11 @@ impl Drop for Connection {
                     }
                 }
             }
+        }
+        if self.comments {
+            self.inner
+                .broadcaster
+                .leave(Room::Comments(self.page_id), self.id);
         }
         self.inner
             .unregister(self.page_id, self.generation, self.id);

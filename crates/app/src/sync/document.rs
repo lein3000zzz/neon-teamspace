@@ -34,6 +34,8 @@ use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
 use super::protocol::{self, encode};
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
+use crate::notifications::mentions::{self, Mentions};
+use crate::notifications::notify::Notifier;
 
 /// What the server tells a connection that may no longer edit, in y-protocols' auth
 /// message, as permission denied.
@@ -68,6 +70,8 @@ pub(crate) enum Command {
     Read {
         done: oneshot::Sender<neon_blocks::Lenient>,
     },
+    /// A look at the document as it is now, which answers by itself.
+    Look { look: Look },
     /// Blocks to add after the last one, as `author`, told to every connection and logged
     /// at once, or kept to log later when the database fails. The answer is dropped, rather
     /// than sent, when the document is unloading, as for a join.
@@ -86,6 +90,9 @@ pub(crate) enum Command {
         done: oneshot::Sender<Result<Made, Unedited>>,
     },
 }
+
+/// A look at a document and its blocks' fragment, which sends what it finds itself.
+pub(crate) type Look = Box<dyn FnOnce(&Doc, &XmlFragmentRef) + Send>;
 
 /// Why blocks were not added to a live document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -230,6 +237,11 @@ struct Document {
     idle_since: Option<Instant>,
     /// The page was deleted: the document closes.
     gone: bool,
+    /// Whom the text mentions, as the latest snapshot has it.
+    mentions: HashSet<Uuid>,
+    /// When the document will have gone [`Limits::mention_settle`](super::Limits) without a
+    /// change, to look at its mentions then.
+    settle_at: Option<Instant>,
 }
 
 /// What the database holds of the document, and what waits to be written.
@@ -334,14 +346,15 @@ impl Document {
         let guard = inner.red.start("load");
         let loaded = async {
             let saved = documents::saved(&inner.pool, page_id).await?;
+            let mentions = neon_store::comments::page_mentions(&inner.pool, page_id).await?;
             let after = saved
                 .snapshot
                 .as_ref()
                 .map_or(0, |snapshot| snapshot.last_seq);
-            Ok::<_, LoadError>((saved.snapshot, after, saved.updates))
+            Ok::<_, LoadError>((saved.snapshot, after, saved.updates, mentions))
         }
         .await
-        .and_then(|(snapshot, after, updates)| {
+        .and_then(|(snapshot, after, updates, mentions)| {
             let doc = assemble(snapshot.as_ref(), &updates)?;
             let fragment = neon_blocks::fragment(&doc);
             let storage = Storage {
@@ -355,10 +368,11 @@ impl Document {
                 }),
                 ..Storage::default()
             };
-            Ok((doc, fragment, storage))
+            let mentions = mentions.into_iter().map(|(user, _)| user).collect();
+            Ok((doc, fragment, storage, mentions))
         });
         match loaded {
-            Ok((doc, fragment, storage)) => {
+            Ok((doc, fragment, storage, mentions)) => {
                 guard.ok();
                 info!(
                     bytes = storage.size(),
@@ -376,6 +390,8 @@ impl Document {
                     storage,
                     idle_since: Some(Instant::now()),
                     gone: false,
+                    mentions,
+                    settle_at: None,
                 })
             }
             Err(error) => {
@@ -390,6 +406,7 @@ impl Document {
         let inner = Arc::clone(&self.inner);
         loop {
             let flush_at = self.storage.flush_at;
+            let settle_at = self.settle_at;
             let unload_at = self
                 .idle_since
                 .map(|since| since + inner.limits.idle_unload);
@@ -406,6 +423,9 @@ impl Document {
                 },
                 () = sleep_until(flush_at.unwrap_or_else(Instant::now)), if flush_at.is_some() => {
                     self.flush().await;
+                }
+                () = sleep_until(settle_at.unwrap_or_else(Instant::now)), if settle_at.is_some() => {
+                    self.settle().await;
                 }
                 () = sleep_until(unload_at.unwrap_or_else(Instant::now)), if unload_at.is_some() => {
                     if self.unload(commands).await {
@@ -437,6 +457,7 @@ impl Document {
                 let txn = self.awareness.doc().transact();
                 let _ = done.send(neon_blocks::read_lenient(&txn, &self.fragment));
             }
+            Command::Look { look } => look(self.awareness.doc(), &self.fragment),
             Command::Append {
                 author,
                 blocks,
@@ -758,7 +779,7 @@ impl Document {
             return Ok(());
         };
         let (author, access) = (client.user_id, client.access);
-        if access == PageAccess::View {
+        if access != PageAccess::Edit {
             let txn = self.awareness.doc().transact();
             return if protocol::changes(&update, &txn) {
                 Err(CloseReason::ReadOnly)
@@ -803,10 +824,12 @@ impl Document {
         Ok(())
     }
 
-    /// Queues an update to be logged soon, or at once when enough wait.
+    /// Queues an update to be logged soon, or at once when enough wait, and puts off
+    /// looking at the document's mentions until it settles.
     fn queue(&mut self, update: Vec<u8>, author: Uuid) {
         let at = self.inner.clock.now();
         let limits = &self.inner.limits;
+        self.settle_at = Some(Instant::now() + limits.mention_settle);
         self.storage.pending_bytes += update.len();
         self.storage.pending.push(Pending { update, author, at });
         self.storage.edited = Some(Edited {
@@ -947,7 +970,7 @@ impl Document {
         }
         client.access = access;
         let told = match access {
-            PageAccess::View => Message::Auth(Some(READ_ONLY.to_owned())),
+            PageAccess::View | PageAccess::Comment => Message::Auth(Some(READ_ONLY.to_owned())),
             PageAccess::Edit => Message::Auth(None),
         };
         client.outbox.send(encode(&told));
@@ -1004,25 +1027,54 @@ impl Document {
         }
     }
 
+    /// Looks at the document's mentions once it has settled: when it mentions someone the
+    /// latest snapshot does not, it is saved as one now, which tells them, rather than when
+    /// enough changes come or it unloads.
+    async fn settle(&mut self) {
+        self.settle_at = None;
+        let mentioned = {
+            let txn = self.awareness.doc().transact();
+            neon_blocks::read(&txn, &self.fragment)
+                .ok()
+                .map(|document| mentioned_people(&document))
+        };
+        let Some(mentioned) = mentioned else {
+            return;
+        };
+        let now: HashSet<Uuid> = mentioned.iter().map(|(user, _)| *user).collect();
+        if !now.is_subset(&self.mentions) && self.storage.needs_snapshot() {
+            debug!(
+                mentions = now.len(),
+                "the document mentions someone new; saving it"
+            );
+            self.compact().await;
+        }
+    }
+
     /// Saves the whole document as the page's snapshot, in one transaction with deleting
-    /// the updates it takes in and recording its text and latest change on the page.
+    /// the updates it takes in, recording its text and latest change on the page, and
+    /// recording whom it mentions, which tells those it mentions for the first time.
     /// Returns whether it was saved. A failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text) = {
+        let (state, state_vector, text, mentioned) = {
             let txn = self.awareness.doc().transact();
-            let text = match neon_blocks::read(&txn, &self.fragment) {
-                Ok(document) => Some(document.plain_text()),
+            let (text, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
+                Ok(document) => (
+                    Some(document.plain_text()),
+                    Some(mentioned_people(&document)),
+                ),
                 Err(error) => {
                     // Its structure, never its content.
                     warn!(%error, "the document does not read as blocks; its search text stays");
-                    None
+                    (None, None)
                 }
             };
             (
                 txn.encode_state_as_update_v1(&StateVector::default()),
                 txn.state_vector().encode_v1(),
                 text,
+                mentioned,
             )
         };
         let page_id = self.page_id;
@@ -1030,6 +1082,7 @@ impl Document {
         let edited = self.storage.edited;
         let at = self.inner.clock.now();
         let pool = &self.inner.pool;
+        let mut notifier = Notifier::of(&self.inner.pages);
         let saved = async {
             let mut tx = pool.begin().await?;
             documents::save_snapshot(
@@ -1045,6 +1098,16 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            if let Some(mentioned) = &mentioned {
+                let author = edited.and_then(|edited| edited.by);
+                let mentions = Mentions {
+                    page_id,
+                    mentioned,
+                    author,
+                    at,
+                };
+                mentions::page_text(&mut tx, &self.inner.pages, &mut notifier, mentions).await?;
+            }
             tx.commit().await?;
             Ok::<_, sqlx::Error>(deleted)
         }
@@ -1055,6 +1118,10 @@ impl Document {
                 guard.ok();
                 info!(bytes = state.len(), updates = deleted, "document compacted");
                 self.storage.compacted(state.len());
+                if let Some(mentioned) = mentioned {
+                    self.mentions = mentioned.into_iter().map(|(user, _)| user).collect();
+                }
+                notifier.tell();
                 true
             }
             Err(error) if documents::is_page_gone(&error) => {
@@ -1148,6 +1215,23 @@ fn make(
         }
     }
     Ok(made)
+}
+
+/// The people, agents and integrations a document mentions, each once, with the first
+/// block that does.
+fn mentioned_people(document: &neon_blocks::Document) -> Vec<(Uuid, Option<String>)> {
+    let mut found: Vec<(Uuid, Option<String>)> = Vec::new();
+    for (block, mention) in document.mentions() {
+        if mention.props.kind != neon_blocks::MentionKind::User {
+            continue;
+        }
+        if let Ok(user) = Uuid::try_parse(&mention.props.target)
+            && !found.iter().any(|(seen, _)| *seen == user)
+        {
+            found.push((user, block.map(str::to_owned)));
+        }
+    }
+    found
 }
 
 /// The id of a block the server adds.

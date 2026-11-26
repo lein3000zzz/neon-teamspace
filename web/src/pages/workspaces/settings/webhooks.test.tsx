@@ -69,6 +69,8 @@ describe("outgoing webhooks", () => {
     await user.click(
       form.getByRole("checkbox", { name: "Status changed on a row they are assigned to" }),
     );
+    await user.click(form.getByRole("checkbox", { name: "Mentioned on a page or in a comment" }));
+    await user.click(form.getByRole("checkbox", { name: "A reply to their comment" }));
     await user.click(form.getByRole("button", { name: "Register webhook" }));
     expect(form.getByLabelText("For")).toHaveAccessibleDescription(/Fill this in./);
     expect(form.getByText("Choose at least one event.")).toBeInTheDocument();

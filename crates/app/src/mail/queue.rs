@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::compose::{self, Sender};
-use super::{Mail, Message, Outgoing, Recipient};
+use super::{Mail, Message, Notice, Outgoing, Recipient};
 use crate::clock::Clock;
 use crate::crypto::{Envelope, SealError};
 use crate::settings::{INSTANCE_NAME, SettingsService, mail as keys};
@@ -183,6 +183,7 @@ impl MailQueue {
             to: mail.to.clone(),
             text: letter.text(&sender),
             html: letter.html(&sender),
+            unsubscribe: compose::unsubscribe_api(&mail.message, &sender),
             subject: letter.subject,
         })
     }
@@ -260,6 +261,44 @@ enum Body {
     Test {
         sent_by: String,
     },
+    Notification {
+        notice: SealedNotice,
+        unsubscribe: String,
+    },
+    Digest {
+        notices: Vec<SealedNotice>,
+        more: usize,
+        path: String,
+        unsubscribe: String,
+    },
+}
+
+/// A notice as it is sealed into a job.
+#[derive(Serialize, Deserialize)]
+struct SealedNotice {
+    summary: String,
+    excerpt: Option<String>,
+    path: String,
+}
+
+impl From<&Notice> for SealedNotice {
+    fn from(notice: &Notice) -> Self {
+        Self {
+            summary: notice.summary.clone(),
+            excerpt: notice.excerpt.clone(),
+            path: notice.path.clone(),
+        }
+    }
+}
+
+impl From<SealedNotice> for Notice {
+    fn from(notice: SealedNotice) -> Self {
+        Self {
+            summary: notice.summary,
+            excerpt: notice.excerpt,
+            path: notice.path,
+        }
+    }
 }
 
 impl Payload {
@@ -301,6 +340,24 @@ impl Payload {
             },
             Message::Test { sent_by } => Body::Test {
                 sent_by: sent_by.clone(),
+            },
+            Message::Notification {
+                notice,
+                unsubscribe,
+            } => Body::Notification {
+                notice: notice.into(),
+                unsubscribe: token(unsubscribe),
+            },
+            Message::Digest {
+                notices,
+                more,
+                path,
+                unsubscribe,
+            } => Body::Digest {
+                notices: notices.iter().map(SealedNotice::from).collect(),
+                more: *more,
+                path: path.clone(),
+                unsubscribe: token(unsubscribe),
             },
         };
         Self {
@@ -349,6 +406,24 @@ impl From<Payload> for Queued {
             },
             Body::JoinRequested { requester, note } => Message::JoinRequested { requester, note },
             Body::Test { sent_by } => Message::Test { sent_by },
+            Body::Notification {
+                notice,
+                unsubscribe,
+            } => Message::Notification {
+                notice: notice.into(),
+                unsubscribe: Secret::new(unsubscribe),
+            },
+            Body::Digest {
+                notices,
+                more,
+                path,
+                unsubscribe,
+            } => Message::Digest {
+                notices: notices.into_iter().map(Notice::from).collect(),
+                more,
+                path,
+                unsubscribe: Secret::new(unsubscribe),
+            },
         };
         Self {
             mail: Mail {

@@ -1,6 +1,6 @@
 //! Getting messages to clients: each connection's outbox, and the [`Broadcaster`] port that
-//! hands a message to every client in a room, those of a page's live document or of a
-//! database's feed.
+//! hands a message to every client in a room, those of a page's live document, a page's
+//! comments, a database's feed or an inbox.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -199,6 +199,12 @@ pub enum Room {
     /// What follows, on the server, every change to the rows and schemas of a workspace's
     /// databases, as members read them: whom rows are assigned to. No client is in it.
     Workspace(Uuid),
+    /// The connections to a page's live document that follow its comments, which hear that
+    /// a thread changed, and nothing of what it says.
+    Comments(Uuid),
+    /// Someone's inbox, by their account's id, open in their feeds and followed by their MCP
+    /// subscriptions, which hear that it changed.
+    Inbox(Uuid),
 }
 
 /// Hands messages to the clients in a room. It never waits: a client that cannot take a

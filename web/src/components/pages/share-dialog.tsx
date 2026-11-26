@@ -25,7 +25,7 @@ import { attribution } from "@/lib/people";
 import { strings } from "@/lib/strings";
 
 const copy = strings.pages.share;
-const ACCESSES = ["can_edit", "can_view"] as const satisfies readonly ShareAccess[];
+const ACCESSES = ["can_edit", "can_comment", "can_view"] as const satisfies readonly ShareAccess[];
 
 type ShareDialogProps = {
   workspace: WorkspaceSummary;

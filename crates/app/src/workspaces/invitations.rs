@@ -1,10 +1,13 @@
 //! Invitations into a workspace: sent to an account by its address, listed and revoked by
-//! the workspace's owners and admins, accepted or declined by the account.
+//! the workspace's owners and admins, accepted or declined by the account. Each comes to
+//! the account's inbox as it is sent, and shows there while it waits.
 
 use neon_domain::auth::{Email, Principal};
+use neon_domain::notifications::NotificationKind;
 use neon_domain::workspaces::{
     Action, INVITATION_TTL, Invitation, InvitationState, Person, Workspace, WorkspaceRole,
 };
+use neon_store::notifications::Notification;
 use neon_store::{is_unique_violation, users, workspace_invites as repo, workspaces};
 use tracing::info;
 use uuid::Uuid;
@@ -89,7 +92,14 @@ impl WorkspaceService {
                     WorkspaceError::Database(error)
                 }
             })?;
+            let mut notifier = self.notifier();
+            let mut notification =
+                Notification::new(invitee.id, workspace_id, NotificationKind::Invitation, now);
+            notification.actor_id = Some(principal.user.id);
+            notification.invitation_id = Some(invitation.id);
+            notifier.record(&mut tx, &notification).await?;
             tx.commit().await?;
+            notifier.tell();
             info!(
                 actor_id = %principal.user.id,
                 workspace_id = %workspace_id,

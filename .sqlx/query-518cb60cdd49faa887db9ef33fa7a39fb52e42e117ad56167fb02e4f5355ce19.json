@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET\n             read_at = CASE WHEN $3::boolean IS NULL THEN read_at\n                            WHEN $3 THEN COALESCE(read_at, $5) END,\n             archived_at = CASE WHEN $4::boolean IS NULL THEN archived_at\n                                WHEN $4 THEN COALESCE(archived_at, $5) END\n         WHERE id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "518cb60cdd49faa887db9ef33fa7a39fb52e42e117ad56167fb02e4f5355ce19"
+}

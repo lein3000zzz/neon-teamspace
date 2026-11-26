@@ -22,7 +22,12 @@ const ROLES: [WorkspaceRole; 4] = [
     WorkspaceRole::Guest,
 ];
 
-const SHARES: [Option<PageAccess>; 3] = [None, Some(PageAccess::View), Some(PageAccess::Edit)];
+const SHARES: [Option<PageAccess>; 4] = [
+    None,
+    Some(PageAccess::View),
+    Some(PageAccess::Comment),
+    Some(PageAccess::Edit),
+];
 
 fn outcome(result: Result<(), Denied>) -> char {
     match result {
@@ -644,8 +649,9 @@ fn access(cell: &str) -> Option<PageAccess> {
     match cell {
         "none" => None,
         "view" => Some(PageAccess::View),
+        "comment" => Some(PageAccess::Comment),
         "edit" => Some(PageAccess::Edit),
-        other => panic!("an access is none, view or edit: {other:?}"),
+        other => panic!("an access is none, view, comment or edit: {other:?}"),
     }
 }
 
@@ -723,7 +729,7 @@ fn page_table(action: Action, table: &str) {
         let earlier = outcomes.insert(key, cells::<2>(&[people, guest]));
         assert!(earlier.is_none(), "one row each: {row:?}");
     }
-    assert_eq!(outcomes.len(), 18, "{action:?}: a row for every case");
+    assert_eq!(outcomes.len(), 32, "{action:?}: a row for every case");
     every_page(|mine, theirs, role, accesses, label| {
         let Resource::Page { trashed, .. } = mine else {
             unreachable!("a page")
@@ -750,112 +756,218 @@ fn page_table(action: Action, table: &str) {
 
 /// Any access of both shows a live page; edit access of both a trashed one.
 const VIEW_PAGE: &str = "
-    none none live    h h
-    none none trashed h h
-    none view live    h h
-    none view trashed h h
-    none edit live    h h
-    none edit trashed h h
-    view none live    h h
-    view none trashed h h
-    view view live    y y
-    view view trashed h h
-    view edit live    y y
-    view edit trashed h h
-    edit none live    h h
-    edit none trashed h h
-    edit view live    y y
-    edit view trashed h h
-    edit edit live    y y
-    edit edit trashed y y
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          y y
+    view view trashed       h h
+    view comment live       y y
+    view comment trashed    h h
+    view edit live          y y
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       y y
+    comment view trashed    h h
+    comment comment live    y y
+    comment comment trashed h h
+    comment edit live       y y
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          y y
+    edit view trashed       h h
+    edit comment live       y y
+    edit comment trashed    h h
+    edit edit live          y y
+    edit edit trashed       y y
 ";
 
 /// Editing and trashing: edit access of both, out of the trash.
 const EDIT_PAGE: &str = "
-    none none live    h h
-    none none trashed h h
-    none view live    h h
-    none view trashed h h
-    none edit live    h h
-    none edit trashed h h
-    view none live    h h
-    view none trashed h h
-    view view live    f f
-    view view trashed h h
-    view edit live    f f
-    view edit trashed h h
-    edit none live    h h
-    edit none trashed h h
-    edit view live    f f
-    edit view trashed h h
-    edit edit live    y y
-    edit edit trashed f f
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          f f
+    view view trashed       h h
+    view comment live       f f
+    view comment trashed    h h
+    view edit live          f f
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       f f
+    comment view trashed    h h
+    comment comment live    f f
+    comment comment trashed h h
+    comment edit live       f f
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          f f
+    edit view trashed       h h
+    edit comment live       f f
+    edit comment trashed    h h
+    edit edit live          y y
+    edit edit trashed       f f
+";
+
+/// Commenting: comment or edit access of both, out of the trash.
+const COMMENT_PAGE: &str = "
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          f f
+    view view trashed       h h
+    view comment live       f f
+    view comment trashed    h h
+    view edit live          f f
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       f f
+    comment view trashed    h h
+    comment comment live    y y
+    comment comment trashed h h
+    comment edit live       y y
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          f f
+    edit view trashed       h h
+    edit comment live       y y
+    edit comment trashed    h h
+    edit edit live          y y
+    edit edit trashed       f f
 ";
 
 /// Restoring and deleting for good: a page in the trash both could edit.
 const FROM_THE_TRASH: &str = "
-    none none live    h h
-    none none trashed h h
-    none view live    h h
-    none view trashed h h
-    none edit live    h h
-    none edit trashed h h
-    view none live    h h
-    view none trashed h h
-    view view live    f f
-    view view trashed h h
-    view edit live    f f
-    view edit trashed h h
-    edit none live    h h
-    edit none trashed h h
-    edit view live    f f
-    edit view trashed h h
-    edit edit live    f f
-    edit edit trashed y y
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          f f
+    view view trashed       h h
+    view comment live       f f
+    view comment trashed    h h
+    view edit live          f f
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       f f
+    comment view trashed    h h
+    comment comment live    f f
+    comment comment trashed h h
+    comment edit live       f f
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          f f
+    edit view trashed       h h
+    edit comment live       f f
+    edit comment trashed    h h
+    edit edit live          f f
+    edit edit trashed       y y
 ";
 
 /// Who it is shared with: for a page both see, unless the owner is a guest.
 const LIST_SHARES: &str = "
-    none none live    h h
-    none none trashed h h
-    none view live    h h
-    none view trashed h h
-    none edit live    h h
-    none edit trashed h h
-    view none live    h h
-    view none trashed h h
-    view view live    y f
-    view view trashed h h
-    view edit live    y f
-    view edit trashed h h
-    edit none live    h h
-    edit none trashed h h
-    edit view live    y f
-    edit view trashed h h
-    edit edit live    y f
-    edit edit trashed y f
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          y f
+    view view trashed       h h
+    view comment live       y f
+    view comment trashed    h h
+    view edit live          y f
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       y f
+    comment view trashed    h h
+    comment comment live    y f
+    comment comment trashed h h
+    comment edit live       y f
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          y f
+    edit view trashed       h h
+    edit comment live       y f
+    edit comment trashed    h h
+    edit edit live          y f
+    edit edit trashed       y f
 ";
 
 /// Sharing it: for a live page both edit, unless the owner is a guest.
 const SHARE_PAGE: &str = "
-    none none live    h h
-    none none trashed h h
-    none view live    h h
-    none view trashed h h
-    none edit live    h h
-    none edit trashed h h
-    view none live    h h
-    view none trashed h h
-    view view live    f f
-    view view trashed h h
-    view edit live    f f
-    view edit trashed h h
-    edit none live    h h
-    edit none trashed h h
-    edit view live    f f
-    edit view trashed h h
-    edit edit live    y f
-    edit edit trashed f f
+    none none live          h h
+    none none trashed       h h
+    none view live          h h
+    none view trashed       h h
+    none comment live       h h
+    none comment trashed    h h
+    none edit live          h h
+    none edit trashed       h h
+    view none live          h h
+    view none trashed       h h
+    view view live          f f
+    view view trashed       h h
+    view comment live       f f
+    view comment trashed    h h
+    view edit live          f f
+    view edit trashed       h h
+    comment none live       h h
+    comment none trashed    h h
+    comment view live       f f
+    comment view trashed    h h
+    comment comment live    f f
+    comment comment trashed h h
+    comment edit live       f f
+    comment edit trashed    h h
+    edit none live          h h
+    edit none trashed       h h
+    edit view live          f f
+    edit view trashed       h h
+    edit comment live       f f
+    edit comment trashed    h h
+    edit edit live          y f
+    edit edit trashed       f f
 ";
 
 #[test]
@@ -864,6 +976,7 @@ fn delegates_reach_a_page_only_as_far_as_their_owner_does() {
         (Action::ViewPage, VIEW_PAGE),
         (Action::EditPage, EDIT_PAGE),
         (Action::TrashPage, EDIT_PAGE),
+        (Action::CommentPage, COMMENT_PAGE),
         (Action::RestorePage, FROM_THE_TRASH),
         (Action::DeletePage, FROM_THE_TRASH),
         (Action::ListShares, LIST_SHARES),
@@ -873,13 +986,13 @@ fn delegates_reach_a_page_only_as_far_as_their_owner_does() {
     }
 }
 
-/// How one may move a page as its access comes: `none`, `view`, edit through a share only
+/// How one may move a page as its access comes: `none`, `view` (or comment), edit through a share only
 /// (`share`), or edit through its space (`space`), which alone moves a page out of it.
 fn move_class(base: Option<PageAccess>, shared: Option<PageAccess>) -> &'static str {
     match (base, base.max(shared)) {
         (Some(PageAccess::Edit), _) => "space",
         (_, Some(PageAccess::Edit)) => "share",
-        (_, Some(PageAccess::View)) => "view",
+        (_, Some(PageAccess::View | PageAccess::Comment)) => "view",
         (_, None) => "none",
     }
 }

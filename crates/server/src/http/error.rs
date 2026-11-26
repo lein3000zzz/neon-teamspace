@@ -11,7 +11,9 @@ use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
+use neon_app::comments::CommentError;
 use neon_app::databases::DatabaseError;
+use neon_app::notifications::InboxError;
 use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
@@ -280,6 +282,41 @@ impl From<PageError> for ApiError {
             | PageError::TooManyRows => StatusCode::CONFLICT,
             PageError::Database(_) | PageError::Internal(_) => {
                 tracing::error!(error = %error, "a page use case failed");
+                return Self::internal();
+            }
+        };
+        Self::new(status, error.code(), error.to_string())
+    }
+}
+
+impl From<CommentError> for ApiError {
+    /// Expected errors answer with their message, which never quotes a comment. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: CommentError) -> Self {
+        let status = match &error {
+            CommentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            CommentError::Forbidden(_) => StatusCode::FORBIDDEN,
+            CommentError::NotFound(_) => StatusCode::NOT_FOUND,
+            CommentError::TooManyThreads | CommentError::TooManyReplies => StatusCode::CONFLICT,
+            CommentError::Database(_) | CommentError::Internal(_) => {
+                tracing::error!(error = %error, "a comment use case failed");
+                return Self::internal();
+            }
+        };
+        Self::new(status, error.code(), error.to_string())
+    }
+}
+
+impl From<InboxError> for ApiError {
+    /// Expected errors answer with their message. Others are logged with their cause, and
+    /// answer as internal errors.
+    fn from(error: InboxError) -> Self {
+        let status = match &error {
+            InboxError::InvalidInput(_) | InboxError::InvalidToken => StatusCode::BAD_REQUEST,
+            InboxError::Forbidden(_) => StatusCode::FORBIDDEN,
+            InboxError::NotFound(_) => StatusCode::NOT_FOUND,
+            InboxError::Database(_) | InboxError::Internal(_) => {
+                tracing::error!(error = %error, "an inbox use case failed");
                 return Self::internal();
             }
         };

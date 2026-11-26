@@ -141,6 +141,21 @@ pub mod pages {
     pub const TRASH_RETENTION: Key<Duration> = Key::new("pages.trash_retention");
 }
 
+/// The inbox's mail: whether people get it, how soon after a notification, and how often a
+/// digest.
+pub mod notifications {
+    use std::time::Duration;
+
+    use neon_domain::settings::Key;
+
+    /// People get mail of their inbox, each as their preference says.
+    pub const MAIL: Key<bool> = Key::new("notifications.mail");
+    /// How long a notification waits unread before its own mail goes.
+    pub const MAIL_DELAY: Key<Duration> = Key::new("notifications.mail_delay");
+    /// How often, at most, someone who wants a digest gets one.
+    pub const DIGEST_INTERVAL: Key<Duration> = Key::new("notifications.digest_interval");
+}
+
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
 /// From address. Mailing links needs more, which the mail queue checks: a secret key to
 /// seal them while they wait, and the public URL they point to.
@@ -569,12 +584,45 @@ pub fn registry() -> Registry {
             )
             .check(between(MIN_TRASH_RETENTION, MAX_TRASH_RETENTION)),
         )
+        .define(Definition::bool(
+            notifications::MAIL,
+            false,
+            "Mails people of their inbox: of each notification still unread a while after it \
+             came, or a digest every few hours, as each person's preference says, and never \
+             what they may no longer see. Every mail has a link that stops it without signing \
+             in. Needs mail set up.",
+        ))
+        .define(
+            Definition::duration(
+                notifications::MAIL_DELAY,
+                Duration::from_secs(5 * 60),
+                "How long a notification waits unread before the mail of it goes, to those \
+                 who want a mail for each: one read meanwhile, in the app or over MCP, is not \
+                 mailed.",
+            )
+            .check(between(Duration::ZERO, Duration::from_secs(24 * 3600))),
+        )
+        .define(
+            Definition::duration(
+                notifications::DIGEST_INTERVAL,
+                Duration::from_secs(3 * 3600),
+                "How often, at most, those who want a digest get one, of what came to their \
+                 inbox since the last and is still unread.",
+            )
+            .check(between(
+                Duration::from_secs(3600),
+                Duration::from_secs(7 * 24 * 3600),
+            )),
+        )
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
         })
         .rule(auth::VERIFY_EMAIL.name(), |settings| {
             needs_mail(settings, *settings.get(auth::VERIFY_EMAIL))
+        })
+        .rule(notifications::MAIL.name(), |settings| {
+            needs_mail(settings, *settings.get(notifications::MAIL))
         })
         // A refresh token that ends first would leave nothing to renew the access token with.
         .rule(oauth::REFRESH_TOKEN_TTL.name(), |settings| {

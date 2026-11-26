@@ -729,7 +729,7 @@ export const strings = {
         "Each tells a URL, signed, when someone is assigned to a row, or the status of a row they are assigned to changes, about the rows they may see. Owners and admins register them for anyone here; everyone else for themselves and their own agents.",
       register: "Register a webhook",
       identity: "For",
-      identityHint: "Whose assignments it tells of.",
+      identityHint: "Whose assignments, mentions and replies it tells of.",
       identityChoose: "Choose who",
       url: "URL",
       urlHint:
@@ -738,6 +738,8 @@ export const strings = {
       eventNames: {
         "row.assigned": "Assigned to a row",
         "row.status_changed": "Status changed on a row they are assigned to",
+        "page.mentioned": "Mentioned on a page or in a comment",
+        "comment.replied": "A reply to their comment",
       },
       includeOwn: "Also for their own changes",
       includeOwnHint: "Off, nobody is told of what they did themselves.",
@@ -1380,7 +1382,7 @@ export const strings = {
       choose: "Choose someone",
       nobody: "Everyone in the workspace has a share here already.",
       access: "Access",
-      accesses: { can_edit: "Can edit", can_view: "Can view" },
+      accesses: { can_edit: "Can edit", can_comment: "Can comment", can_view: "Can view" },
       accessOf: (name: string) => `Access of ${name}`,
       submit: "Share",
       pending: "Sharing…",
