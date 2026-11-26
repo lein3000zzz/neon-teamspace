@@ -104,7 +104,8 @@ const glyphs: Record<PageKind, typeof FileText> = {
  * The quick search itself. Focus starts in the field; the arrow keys move it
  * down the results and back up to the field, Enter opens the result focused,
  * or from the field the first of what was typed, once its results came, and
- * Escape closes it all.
+ * Escape closes it all. The dialog's own button closes it, so the field shows
+ * no clear button of the browser's beside it.
  */
 function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onClose: () => void }) {
   const navigate = useNavigate();
@@ -221,7 +222,7 @@ function QuickSearch({ workspace, onClose }: { workspace: WorkspaceSummary; onCl
             setEntered(null);
           }}
           onKeyDown={onFieldKey}
-          className="h-(--tap) min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
+          className="h-(--tap) min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
         />
       </search>
       <section aria-label={searching ? copy.results : copy.recent} className="grid gap-1">
