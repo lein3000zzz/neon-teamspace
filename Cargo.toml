@@ -108,3 +108,11 @@ lto = "thin"
 codegen-units = 1
 # Line tables keep profiles and backtraces readable at a small size cost.
 debug = "line-tables-only"
+
+# The server image make e2e tests: the release profile, so the same code, features, assertions
+# and overflow checks, without the link-time optimisation and the single codegen unit that take
+# most of a release build's time. Published images build with release.
+[profile.e2e]
+inherits = "release"
+lto = "off"
+codegen-units = 16

@@ -5,6 +5,27 @@
 #
 # The Rust build runs on the builder's own platform and cross-compiles for the image's, so an
 # arm64 image builds on an amd64 machine, and the reverse, without emulating the compiler.
+#
+# The build argument CARGO_PROFILE names the Cargo profile of the binary: release, the default,
+# for every published image, or e2e, Cargo.toml's quicker build of the same code, which make e2e
+# passes unless E2E_CARGO_PROFILE names another.
+
+# cargo-chef and cargo-about for the builder's platform, amd64 or arm64, as their projects
+# release them, checked against the checksums those releases publish. Compiled from source they
+# took minutes of a CI runner's build. Bumped by hand: a new version needs its new checksums.
+FROM --platform=$BUILDPLATFORM scratch AS tools-amd64
+ADD --unpack=true --checksum=sha256:70ef940ef90d04d122f0176fdb8d6c39069191b484a1eaa29b327370c2e1c3c0 \
+    https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.78/cargo-chef-x86_64-unknown-linux-gnu.tar.xz /
+ADD --unpack=true --checksum=sha256:3ad1e94ea1e63d69d1961f4fb15ccbbe9575d906111f96d2cb4dce6df48f71b4 \
+    https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.3/cargo-about-0.9.3-x86_64-unknown-linux-musl.tar.gz /
+
+FROM --platform=$BUILDPLATFORM scratch AS tools-arm64
+ADD --unpack=true --checksum=sha256:a47e13fba89c2895f5a5c3d0844acd2a5fd416eceb3a6f9dfb26e28155099f4e \
+    https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.78/cargo-chef-aarch64-unknown-linux-gnu.tar.xz /
+ADD --unpack=true --checksum=sha256:eb4d9ff6ebd2518152a8308729431a04b3836e71d2bd5ead7aea69f91a71162e \
+    https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.3/cargo-about-0.9.3-aarch64-unknown-linux-musl.tar.gz /
+
+FROM tools-$BUILDARCH AS tools
 
 # The Rust version rust-toolchain.toml pins, on Debian 13 like the runtime image below, so the
 # binary links against the glibc it runs with. The `chef` stage fails when the two differ.
@@ -16,7 +37,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # cargo-chef builds the dependencies alone, from a recipe of the manifests, into a layer that
 # stays cached until Cargo.lock or a manifest changes.
-RUN cargo install cargo-chef --locked --version 0.1.78
+COPY --from=tools /cargo-chef-*/cargo-chef /usr/local/cargo/bin/
 
 WORKDIR /src
 COPY rust-toolchain.toml ./
@@ -33,10 +54,13 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 # The license notices of the crates the binary links, from each crate's own license files, as
 # about.toml at the repository's root sets out. The same for every platform, so it runs once.
+# They depend on the manifests and Cargo.lock alone, so they are made in the recipe's skeleton
+# of the workspace, which has empty sources, and stay cached while only the code changes.
 FROM chef AS notices
-RUN cargo install cargo-about --locked --version 0.9.3 --features cli
-COPY Cargo.toml Cargo.lock about.toml about.hbs ./
-COPY crates ./crates
+COPY --from=tools /cargo-about-*/cargo-about /usr/local/cargo/bin/
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --no-build --recipe-path recipe.json
+COPY about.toml about.hbs ./
 RUN cargo about generate --locked --fail -m crates/server/Cargo.toml -c about.toml \
         -o /THIRD_PARTY_NOTICES.txt about.hbs
 # jemalloc's own notice, which about.toml adds to its crate's: a newer crate turns that off.
@@ -74,9 +98,13 @@ export AR_$lower=$gnu-ar
 ENV
 EOF
 
+# Declared after the toolchain, which both profiles share. Cargo puts each profile's output in a
+# directory of its name, but dev's, which it names debug.
+ARG CARGO_PROFILE=release
 COPY --from=planner /src/recipe.json recipe.json
 RUN . /cross.env \
-    && cargo chef cook --release --locked --target "$RUST_TARGET" -p neon-server --recipe-path recipe.json
+    && cargo chef cook --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server \
+        --recipe-path recipe.json
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -86,8 +114,8 @@ COPY migrations ./migrations
 COPY .sqlx ./.sqlx
 ENV SQLX_OFFLINE=true
 RUN . /cross.env \
-    && cargo build --release --locked --target "$RUST_TARGET" -p neon-server --bin neon \
-    && cp "target/$RUST_TARGET/release/neon" /neon
+    && cargo build --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server --bin neon \
+    && cp "target/$RUST_TARGET/$CARGO_PROFILE/neon" /neon
 
 # glibc, libgcc and CA certificates, no shell, running as the unprivileged user nonroot.
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
