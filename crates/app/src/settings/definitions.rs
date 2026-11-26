@@ -87,9 +87,11 @@ pub mod mcp {
     /// Whom MCP clients may act as: the person who connects them, `user`, one of their
     /// agents, `agent`, or both.
     pub const IDENTITIES: Key<[String]> = Key::new("mcp.identities");
-    /// How many MCP sessions this server holds at once, and how many one identity may.
+    /// How many MCP sessions this server holds at once, how many one identity may, and how
+    /// many one person may with their agents.
     pub const MAX_SESSIONS: Key<i64> = Key::new("mcp.max_sessions");
     pub const MAX_SESSIONS_PER_IDENTITY: Key<i64> = Key::new("mcp.max_sessions_per_identity");
+    pub const MAX_SESSIONS_PER_PERSON: Key<i64> = Key::new("mcp.max_sessions_per_person");
     /// How long a session without requests or open streams lasts.
     pub const SESSION_IDLE_TIMEOUT: Key<Duration> = Key::new("mcp.session_idle_timeout");
     /// How often, at most, a session hears that one resource it subscribes to changed.
@@ -394,6 +396,16 @@ pub fn registry() -> Registry {
             .check(between_counts(1, 1000)),
         )
         .define(
+            Definition::integer(
+                mcp::MAX_SESSIONS_PER_PERSON,
+                20,
+                "The most MCP sessions one person holds at once on this server, with those of \
+                 their agents together, so nobody takes every session through agents of \
+                 theirs. One more is refused until one of theirs ends.",
+            )
+            .check(between_counts(1, 10_000)),
+        )
+        .define(
             Definition::duration(
                 mcp::SESSION_IDLE_TIMEOUT,
                 Duration::from_secs(30 * 60),
@@ -547,6 +559,7 @@ mod tests {
         assert_eq!(snapshot.get(mcp::IDENTITIES), ["user", "agent"]);
         assert_eq!(*snapshot.get(mcp::MAX_SESSIONS), 1000);
         assert_eq!(*snapshot.get(mcp::MAX_SESSIONS_PER_IDENTITY), 10);
+        assert_eq!(*snapshot.get(mcp::MAX_SESSIONS_PER_PERSON), 20);
         assert_eq!(
             *snapshot.get(mcp::SESSION_IDLE_TIMEOUT),
             Duration::from_secs(1800)

@@ -15,10 +15,10 @@
 //!   has the session looked at again, which ends it when its own token no longer works.
 //! - **Sessions** are this process's, each bound to the identity that opened it: a request
 //!   on a session from another identity, or for another workspace, finds no session. They
-//!   are bounded overall and per identity, end once idle, and end at once when what they
-//!   act as stops working: a token revoked, an agent suspended, access to the workspace
-//!   lost. See [`sessions`].
-//! - **Rate limits** count each identity's requests.
+//!   are bounded overall, per identity and per person with their agents, end once idle, and
+//!   end at once when what they act as stops working: a token revoked, an agent suspended,
+//!   access to the workspace lost. See [`sessions`].
+//! - **Rate limits** count each identity's requests, and each person's with their agents'.
 //! - **Tools and resources** use the app's services, as the API's routes do, so they see
 //!   what the caller may see and no more, and their changes reach the editors, feeds and
 //!   webhooks that the browser's do. See [`tools`] and [`resources`].
@@ -47,7 +47,7 @@ use http_body_util::combinators::BoxBody;
 use neon_app::auth::AuthService;
 use neon_app::databases::DatabaseService;
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
-use neon_app::ratelimit::{Bucket, RateLimiter};
+use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{SettingsService, mcp as keys};
 use neon_app::sync::{Broadcaster, SyncService};
 use neon_app::workspaces::WorkspaceService;
@@ -211,8 +211,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
             return refusal.into_response();
         }
     };
-    let key = principal.user.id.to_string();
-    if let Err(limited) = mcp.inner.limiter.check(Bucket::Mcp, &key).await {
+    if let Err(limited) = rate(&mcp, &principal).await {
         warn!(user_id = %principal.user.id, "MCP requests rate limited");
         return ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
@@ -322,6 +321,21 @@ fn initializes(body: &[u8]) -> bool {
         .is_ok_and(|request| request.method.as_deref() == Some("initialize"))
 }
 
+/// Takes a request from the identity's rate, then from its person's, theirs and their agents'
+/// together.
+async fn rate(mcp: &Mcp, principal: &Principal) -> Result<(), Limited> {
+    let limiter = &mcp.inner.limiter;
+    limiter
+        .check(Bucket::Mcp, &principal.user.id.to_string())
+        .await?;
+    limiter
+        .check(
+            Bucket::McpPerson,
+            &sessions::person_of(principal).to_string(),
+        )
+        .await
+}
+
 /// How many sessions there may be, as the settings say now.
 fn limits(mcp: &Mcp) -> sessions::Limits {
     let settings = mcp.inner.settings.current();
@@ -329,6 +343,7 @@ fn limits(mcp: &Mcp) -> sessions::Limits {
     sessions::Limits {
         overall: count(keys::MAX_SESSIONS),
         per_identity: count(keys::MAX_SESSIONS_PER_IDENTITY),
+        per_person: count(keys::MAX_SESSIONS_PER_PERSON),
     }
 }
 

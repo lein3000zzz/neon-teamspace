@@ -1,6 +1,7 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, edits of pages' content from the API and MCP, and requests to the MCP server.
+//! pages, edits of pages' content from the API and MCP, and requests to the MCP server, by
+//! identity and by person.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -40,6 +41,13 @@ pub const ACCOUNT: Quota = Quota {
 pub const MCP: Quota = Quota {
     burst: 200,
     every: Duration::from_millis(250),
+};
+
+/// Four hundred requests, then ten a second: one person's requests to the MCP server, with
+/// their agents' together, so agents of theirs do not multiply their rate.
+pub const MCP_PERSON: Quota = Quota {
+    burst: 400,
+    every: Duration::from_millis(100),
 };
 
 /// A hundred edits, then two a second: one user's edits of pages' content through the API
@@ -85,10 +93,12 @@ pub enum Bucket {
     PageEdit,
     /// Requests to the MCP server, by identity: a person or an agent.
     Mcp,
+    /// Requests to the MCP server, by person: theirs and their agents' together.
+    McpPerson,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -105,6 +115,7 @@ impl Bucket {
         Self::PageExport,
         Self::PageEdit,
         Self::Mcp,
+        Self::McpPerson,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -126,6 +137,7 @@ impl Bucket {
             Self::PageExport => "page-export:user:",
             Self::PageEdit => "page-edit:user:",
             Self::Mcp => "mcp:user:",
+            Self::McpPerson => "mcp:person:",
         }
     }
 
@@ -134,6 +146,7 @@ impl Bucket {
             Self::LoginEmail => ACCOUNT,
             Self::PageEdit => EDITS,
             Self::Mcp => MCP,
+            Self::McpPerson => MCP_PERSON,
             _ => STANDARD,
         }
     }
@@ -173,6 +186,7 @@ mod tests {
                 Bucket::LoginEmail => ACCOUNT,
                 Bucket::PageEdit => EDITS,
                 Bucket::Mcp => MCP,
+                Bucket::McpPerson => MCP_PERSON,
                 _ => STANDARD,
             };
             assert_eq!(bucket.quota(), want, "{bucket:?}");

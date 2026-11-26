@@ -8,8 +8,10 @@
 //!   workspace its token is bound to. A request on it from another identity, or for another
 //!   workspace, finds no session, as if it were not there. Each request's principal, read
 //!   afresh from its token, replaces the one held, so a token renewed keeps the session.
-//! - **Bounds.** `mcp.max_sessions` sessions at once, and `mcp.max_sessions_per_identity`
-//!   of one identity, those being opened included. One more is refused.
+//! - **Bounds.** `mcp.max_sessions` sessions at once, `mcp.max_sessions_per_identity` of one
+//!   identity, and `mcp.max_sessions_per_person` of one person with their agents together,
+//!   so nobody takes every session through agents of theirs; those being opened included.
+//!   One more is refused.
 //! - **Idle sessions** end: once a session has no request in flight and no stream open for
 //!   `mcp.session_idle_timeout`, it ends with its subscriptions. An open stream counts as
 //!   use, as its client listens; one whose connection broke closes as the transport's pings
@@ -79,6 +81,17 @@ const SUBSCRIPTIONS: &str = "neon_mcp_subscriptions";
 pub(crate) struct Limits {
     pub(crate) overall: usize,
     pub(crate) per_identity: usize,
+    pub(crate) per_person: usize,
+}
+
+/// The person a principal is, or acts for: an agent's owner. An agent whose owner's account
+/// is gone stands for the nil id, as it stands nowhere.
+pub(crate) fn person_of(principal: &Principal) -> Uuid {
+    if principal.user.kind.is_human() {
+        principal.user.id
+    } else {
+        principal.user.owner_id.unwrap_or_default()
+    }
 }
 
 /// Why a session cannot open.
@@ -91,6 +104,11 @@ pub(crate) enum TooMany {
          wait for one to idle out"
     )]
     Identity(usize),
+    #[error(
+        "the person this identity is or acts for holds {0} MCP sessions with their agents, the \
+         most they may: end one with DELETE /mcp, or wait for one to idle out"
+    )]
+    Person(usize),
 }
 
 /// What the session manager's operations fail with.
@@ -121,8 +139,19 @@ struct Worker {
 #[derive(Default)]
 struct State {
     bound: HashMap<SessionId, Binding>,
-    /// Sessions being opened, by identity: their `initialize` is on its way.
+    /// Sessions being opened, by identity and by person: their `initialize` is on its way.
     opening: HashMap<Uuid, usize>,
+    opening_people: HashMap<Uuid, usize>,
+}
+
+/// Takes one from a count of sessions being opened, forgetting it at none.
+fn release(counts: &mut HashMap<Uuid, usize>, key: Uuid) {
+    if let Some(count) = counts.get_mut(&key) {
+        *count -= 1;
+        if *count == 0 {
+            counts.remove(&key);
+        }
+    }
 }
 
 impl State {
@@ -136,6 +165,14 @@ impl State {
             .filter(|binding| binding.principal.user.id == user)
             .count()
             + self.opening.get(&user).copied().unwrap_or(0)
+    }
+
+    fn of_person(&self, person: Uuid) -> usize {
+        self.bound
+            .values()
+            .filter(|binding| person_of(&binding.principal) == person)
+            .count()
+            + self.opening_people.get(&person).copied().unwrap_or(0)
     }
 
     fn subscriptions(&self) -> usize {
@@ -189,6 +226,7 @@ struct Binding {
 pub(crate) struct Opening {
     sessions: Arc<Sessions>,
     user: Uuid,
+    person: Uuid,
 }
 
 impl Opening {
@@ -217,12 +255,8 @@ impl Opening {
 impl Drop for Opening {
     fn drop(&mut self) {
         let mut state = self.sessions.state();
-        if let Some(count) = state.opening.get_mut(&self.user) {
-            *count -= 1;
-            if *count == 0 {
-                state.opening.remove(&self.user);
-            }
-        }
+        release(&mut state.opening, self.user);
+        release(&mut state.opening_people, self.person);
     }
 }
 
@@ -291,7 +325,7 @@ impl Sessions {
         principal: &Principal,
         limits: Limits,
     ) -> Result<Opening, TooMany> {
-        let user = principal.user.id;
+        let (user, person) = (principal.user.id, person_of(principal));
         let mut state = self.state();
         if state.bound.len() + state.opening() >= limits.overall {
             return Err(TooMany::Overall(limits.overall));
@@ -299,10 +333,15 @@ impl Sessions {
         if state.of(user) >= limits.per_identity {
             return Err(TooMany::Identity(limits.per_identity));
         }
+        if state.of_person(person) >= limits.per_person {
+            return Err(TooMany::Person(limits.per_person));
+        }
         *state.opening.entry(user).or_default() += 1;
+        *state.opening_people.entry(person).or_default() += 1;
         Ok(Opening {
             sessions: Arc::clone(self),
             user,
+            person,
         })
     }
 

@@ -109,7 +109,8 @@ session as soon as an access change shows its token stopped working, its agent i
 suspended, or its identity left the workspace. A refused request on a session makes it look
 again at that session, so one whose token expired ends at its next request. Every five
 minutes it also looks again at every session, for what no change tells of. Sessions have
-bounds overall and per identity, and end when idle. The
+bounds overall, per identity, and per person with their agents together, so one person
+cannot take every session through agents they make, and end when idle. The
 [MCP guide](/docs/guides/agents-over-mcp/#what-a-connection-is) lists the bounds.
 
 ## Cross-site requests
@@ -169,6 +170,8 @@ One more key is looser: `login:email:` gives one address 50 sign-ins from every 
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
 cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
 agent to the MCP server, 200 at once, then four a second, since agents work in bursts.
+`mcp:person:` counts them again by person, theirs and their agents' together, 400 at once,
+then ten a second, so agents of one person do not multiply their rate.
 `page-edit:user:` counts one person's or agent's edits of pages' content, through the
 markdown API and MCP's `edit_page` together, 100 at once, then two a second, since each may
 go over the whole page. A request over a limit gets `429` with the code `rate_limited` and a

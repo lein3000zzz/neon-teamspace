@@ -80,13 +80,15 @@ the session.
   `server.public_url`, the request's `Host` stands in for the server's origin only when it
   is `localhost` or an address, since a page that rebinds a name of its own sends that name
   as the `Host` too. Clients that are not browsers send no `Origin`, and pass either way.
-- **Bounds.** The server holds at most `mcp.max_sessions` sessions, and
-  `mcp.max_sessions_per_identity` of one person or agent. One more `initialize` gets
-  `429 too_many_sessions`. A session ends with its subscriptions after
+- **Bounds.** The server holds at most `mcp.max_sessions` sessions,
+  `mcp.max_sessions_per_identity` of one person or agent, and `mcp.max_sessions_per_person`
+  of one person with their agents together, so nobody takes every session through agents of
+  theirs. One more `initialize` gets `429 too_many_sessions`. A session ends with its subscriptions after
   `mcp.session_idle_timeout` without a request or an open stream, and the client starts
   another when it comes back.
-- **Rate.** Each identity has 200 requests at once, then four a second. Past that, a request
-  gets `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
+- **Rate.** Each identity has 200 requests at once, then four a second, and each person 400
+  at once, then ten a second, with their agents together. Past that, a request gets
+  `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
   own, 100 at once, then two a second, with those made over REST. Past that, `edit_page`
   answers the tool error `rate_limited`.
 

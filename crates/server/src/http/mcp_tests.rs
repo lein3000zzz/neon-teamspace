@@ -210,6 +210,14 @@ async fn agent_of(by: &Browser<'_>, workspace: &str, name: &str) -> (String, Str
     (token, made)
 }
 
+/// The id of the account `by` is signed in as.
+async fn account_id(by: &Browser<'_>) -> String {
+    by.get("/api/v1/account/me").await.body["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned()
+}
+
 /// A page in General, with `markdown` as its content.
 async fn page(team: &Team<'_>, title: &str, markdown: &str) -> String {
     let general = general(&team.ada, &team.workspace).await;
@@ -866,46 +874,111 @@ async fn without_a_public_url_only_an_address_or_localhost_stands_in_for_the_ori
     state.mcp.shutdown().await;
 }
 
-/// A limiter that refuses the MCP server's requests.
-struct Refusing;
+/// A limiter that records the keys the MCP server's requests are counted by, and refuses
+/// those of one key in one bucket.
+#[derive(Default)]
+struct Recording {
+    refused: std::sync::Mutex<Option<(Bucket, String)>>,
+    seen: std::sync::Mutex<Vec<(Bucket, String)>>,
+}
+
+impl Recording {
+    fn refuse(&self, bucket: Bucket, key: &str) {
+        *self.refused.lock().expect("not poisoned") = Some((bucket, key.to_owned()));
+    }
+
+    /// The keys seen since last asked, in order.
+    fn seen(&self) -> Vec<(Bucket, String)> {
+        std::mem::take(&mut *self.seen.lock().expect("not poisoned"))
+    }
+}
 
 #[async_trait]
-impl RateLimiter for Refusing {
-    async fn check(&self, bucket: Bucket, _key: &str) -> Result<(), Limited> {
-        match bucket {
-            Bucket::Mcp => Err(Limited {
-                retry_after: Duration::from_secs(3),
-            }),
-            _ => Ok(()),
+impl RateLimiter for Recording {
+    async fn check(&self, bucket: Bucket, key: &str) -> Result<(), Limited> {
+        if !matches!(bucket, Bucket::Mcp | Bucket::McpPerson) {
+            return Ok(());
         }
+        let counted = (bucket, key.to_owned());
+        self.seen
+            .lock()
+            .expect("not poisoned")
+            .push(counted.clone());
+        if self.refused.lock().expect("not poisoned").as_ref() == Some(&counted) {
+            return Err(Limited {
+                retry_after: Duration::from_secs(3),
+            });
+        }
+        Ok(())
     }
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn requests_past_their_rate_are_refused(pool: PgPool) {
+async fn requests_past_their_rate_are_refused_by_identity_and_by_person(pool: PgPool) {
+    let limiter = Arc::new(Recording::default());
     let state = state_with_mcp(
         pool,
         WebConfig::new(None, Vec::new()),
         neon_app::sync::Limits::default(),
-        Arc::new(Refusing),
+        Arc::clone(&limiter) as Arc<dyn RateLimiter>,
     )
     .await;
     let app = router(state.clone(), false);
     let t = team(&state, &app).await;
-    let token = format!(
-        "Bearer {}",
-        bound_token(&t.ada, &t.workspace, &["read"]).await
+    let ws = t.workspace.clone();
+    let (ada, dee) = (account_id(&t.ada).await, account_id(&t.dee).await);
+    let ada_token = format!("Bearer {}", bound_token(&t.ada, &ws, &["read"]).await);
+    let dee_token = format!("Bearer {}", bound_token(&t.dee, &ws, &["read"]).await);
+    let (scout_token, scout) = agent_of(&t.ada, &ws, "Scout").await;
+    let scout_token = format!("Bearer {scout_token}");
+    let initialize_as = |token: &str| {
+        let (app, token) = (app.clone(), token.to_owned());
+        async move {
+            raw(
+                &app,
+                Method::POST,
+                &[("authorization", &token)],
+                Some(initialize()),
+            )
+            .await
+        }
+    };
+
+    // A person counts as themself twice; an agent as itself, then as its owner.
+    let (status, _, body) = initialize_as(&ada_token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        limiter.seen(),
+        [(Bucket::Mcp, ada.clone()), (Bucket::McpPerson, ada.clone())]
     );
-    let (status, headers, body) = raw(
-        &app,
-        Method::POST,
-        &[("authorization", &token)],
-        Some(initialize()),
-    )
-    .await;
+    let (status, _, body) = initialize_as(&scout_token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        limiter.seen(),
+        [
+            (Bucket::Mcp, scout.clone()),
+            (Bucket::McpPerson, ada.clone())
+        ]
+    );
+
+    // Past one identity's rate, it is refused, and others are not.
+    limiter.refuse(Bucket::Mcp, &ada);
+    let (status, headers, body) = initialize_as(&ada_token).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(code_of(&body), "rate_limited");
     assert_eq!(headers["retry-after"], "3");
+    for token in [&scout_token, &dee_token] {
+        let (status, _, body) = initialize_as(token).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    // Past one person's rate, their agents are refused too.
+    limiter.refuse(Bucket::McpPerson, &ada);
+    let (status, _, body) = initialize_as(&scout_token).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    let (status, _, body) = initialize_as(&dee_token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(limiter.seen().last(), Some(&(Bucket::McpPerson, dee)));
     state.mcp.shutdown().await;
 }
 
@@ -988,6 +1061,64 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
     assert_eq!(me["identity"]["display_name"], "dee");
     listening.close().await;
     finish(&state, server).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn one_person_s_agents_share_one_bound_and_leave_room_for_others(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+    set(&state, "mcp.max_sessions_per_person", json!(2)).await;
+    let mut agents = Vec::new();
+    for name in ["A1", "A2", "A3"] {
+        agents.push(format!("Bearer {}", agent_of(&t.ada, &ws, name).await.0));
+    }
+    let initialize_as = |token: &str| {
+        let (app, token) = (app.clone(), token.to_owned());
+        async move {
+            raw(
+                &app,
+                Method::POST,
+                &[("authorization", &token)],
+                Some(initialize()),
+            )
+            .await
+        }
+    };
+
+    let (status, opened, body) = initialize_as(&agents[0]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first = opened["mcp-session-id"].to_str().expect("an id").to_owned();
+    let (status, _, body) = initialize_as(&agents[1]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // A third agent of hers, and she herself, find her bound taken, each identity of hers
+    // far from its own.
+    let ada = format!("Bearer {}", bound_token(&t.ada, &ws, &["read"]).await);
+    for token in [&agents[2], &ada] {
+        let (status, _, body) = initialize_as(token).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        assert_eq!(code_of(&body), "too_many_sessions");
+        assert!(body.contains("with their agents"), "{body}");
+    }
+    // Others still connect.
+    let dee = format!("Bearer {}", bound_token(&t.dee, &ws, &["read"]).await);
+    let (status, _, body) = initialize_as(&dee).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(state.mcp.session_count(), 3);
+
+    // One of hers ended, another of hers opens.
+    let (status, _, _) = raw(
+        &app,
+        Method::DELETE,
+        &[("authorization", &agents[0]), ("mcp-session-id", &first)],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, _, body) = initialize_as(&agents[2]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    state.mcp.shutdown().await;
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
