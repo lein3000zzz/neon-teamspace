@@ -296,3 +296,79 @@ test("a database made inside a page, from the slash menu, shows and edits there"
     }
   }
 });
+
+test("a database with four views fits a phone's screen, its tabs scrolling on their own", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const run = String(Date.now());
+  const owner = account("pocket", run);
+  const contexts: BrowserContext[] = [];
+  try {
+    const adminContext = await browser.newContext();
+    contexts.push(adminContext);
+    await makeAccounts(await adminContext.newPage(), [owner]);
+
+    const screen = { width: 390, height: 844 };
+    const phone = await browser.newContext({
+      viewport: screen,
+      deviceScaleFactor: 2,
+      isMobile: true,
+      hasTouch: true,
+    });
+    contexts.push(phone);
+    const page = await phone.newPage();
+    await page.goto("/login");
+    await signIn(page, owner.email, PASSWORD);
+    await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+
+    // A database with a cover, four views and a few rows.
+    const workspace = await callApi<Workspace>(
+      page,
+      "POST",
+      "/api/v1/workspaces",
+      { name: `Pocket ${run}` },
+      201,
+    );
+    const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    const database = await callApi<{ page: { id: string } }>(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/databases`,
+      { teamspace_id: general?.id, title: "Sprint" },
+      201,
+    );
+    const at = `/api/v1/databases/${database.page.id}`;
+    await callApi(page, "PATCH", `/api/v1/pages/${database.page.id}`, { cover: "sunrise" }, 200);
+    for (const [name, layout] of [
+      ["Open work", "table"],
+      ["List", "list"],
+    ] as const) {
+      await callApi(page, "POST", `${at}/views`, { name, layout }, 201);
+    }
+    for (const title of ["Write the demo script", "Rate-limit the public endpoints"]) {
+      await callApi(page, "POST", `${at}/rows`, { values: { Name: title } }, 201);
+    }
+
+    // Whichever view shows, nothing but the views themselves is wider than the screen.
+    await page.goto(`/w/${workspace.slug}/p/${database.page.id}`);
+    const views = page.getByRole("region", { name: "Database Sprint" });
+    for (const name of ["Table", "Board", "Open work", "List"]) {
+      const tab = views.getByRole("tab", { name });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(tab).toBeInViewport({ ratio: 1 });
+      await expect(views.getByText("2 rows")).toBeVisible();
+      // A phone's browser widens its viewport to what overflows it, so the width is the
+      // screen's, as the context set it.
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(wide, name).toBe(screen.width);
+    }
+  } finally {
+    for (const context of contexts) {
+      await context.close();
+    }
+  }
+});
