@@ -30,6 +30,20 @@ const messagePermissionGranted = 1;
  */
 export const messageComments = 100;
 
+/** The thread a comments message names, when it names one. */
+function threadNamed(payload: Uint8Array): string | undefined {
+  try {
+    const message: unknown = JSON.parse(new TextDecoder().decode(payload));
+    if (typeof message === "object" && message !== null && "thread_id" in message) {
+      const id = (message as { thread_id: unknown }).thread_id;
+      return typeof id === "string" ? id : undefined;
+    }
+  } catch {
+    // Not JSON: read every thread again.
+  }
+  return undefined;
+}
+
 /** The first pause after the server asked for one, doubled each time up to the longest. */
 const FIRST_PAUSE_MS = 1000;
 const LONGEST_PAUSE_MS = 30 * 1000;
@@ -95,7 +109,7 @@ function syncSource(
   pageId: string,
   selfId: string,
   onAccessChanged: () => void,
-  onComments: () => void,
+  onComments: (threadId?: string) => void,
 ) {
   let snapshot = CLOSED_SNAPSHOT;
   return {
@@ -120,6 +134,10 @@ function syncSource(
 
       provider.on("sync", (synced) => {
         if (synced) {
+          // Synced again after a break: what the comments did meanwhile went untold.
+          if (loaded) {
+            onComments();
+          }
           loaded = true;
           status("connected");
           clearTimeout(steady);
@@ -167,10 +185,9 @@ function syncSource(
         }
         onAccessChanged();
       };
-      // A thread changed: the comments are read again, whatever the message says.
+      // A thread changed: it is read again, or every one when the message names none.
       provider.messageHandlers[messageComments] = (_encoder, decoder) => {
-        decoding.readVarUint8Array(decoder);
-        onComments();
+        onComments(threadNamed(decoding.readVarUint8Array(decoder)));
       };
       // Others' presence is cleaned before the editor sees it: see cleanState.
       provider.messageHandlers[messageAwareness] = (_encoder, decoder, from) => {
@@ -232,14 +249,15 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
  * page goes or changes. `onAccessChanged` runs when the server says the user
  * may now do more or less with the page, or ends the connection for good, so
  * the page can read again what the user may do with it, and `onComments`
- * when a thread of its comments changed; a new one opens the connection
- * afresh, so each should keep its identity.
+ * when a thread of its comments changed, with its id, or, without one, when
+ * the connection synced again after a break, whatever changed meanwhile; a
+ * new one opens the connection afresh, so each should keep its identity.
  */
 export function useSyncSession(
   pageId: string,
   selfId: string,
   onAccessChanged: () => void,
-  onComments: () => void,
+  onComments: (threadId?: string) => void,
 ): Snapshot {
   const source = useMemo(
     () => syncSource(pageId, selfId, onAccessChanged, onComments),

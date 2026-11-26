@@ -180,8 +180,14 @@ document, to the `XmlFragment` named `document-store` that
   table that makes an inline database under the page and gives its id to a new block.
 
 The page's comments live beside the editor (`web/src/components/comments/`), read from
-`GET /api/v1/pages/{id}/comments` and read again whenever the page's connection, opened with
-`?comments=true`, says a thread changed, in its message of type `100`:
+`GET /api/v1/pages/{id}/comments` a part at a time: every part of the open threads, so each
+is highlighted, and the resolved ones a part at a time as the panel shows them. When the
+page's connection, opened with `?comments=true`, says a thread changed, in its message of type
+`100`, the app reads that thread alone, `GET /api/v1/threads/{id}`, and puts it in its place
+in the lists, or takes it out once it is gone; a change made here puts the thread it answers
+with in place the same way. Once the connection comes back after a break, every list is read
+again, as what changed meanwhile went untold. A long thread shows its first comment and its
+latest; the replies between come from `GET /api/v1/threads/{id}/comments` on asking.
 
 - The highlights are a ProseMirror plugin (`comment-highlights.ts`), registered on the
   editor once it is made. It turns each open inline thread's two Yjs relative positions into

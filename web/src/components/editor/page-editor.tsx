@@ -80,8 +80,11 @@ export type EditorComments = {
    * identity; `changed` likewise, as a new one opens the connection afresh.
    */
   handlers: CommentHandlers;
-  /** A thread of the page changed, as its connection tells. */
-  changed: () => void;
+  /**
+   * A thread of the page changed, as its connection tells, by its id; without
+   * one, any may have.
+   */
+  changed: (threadId?: string) => void;
 };
 
 export type PageEditorProps = {

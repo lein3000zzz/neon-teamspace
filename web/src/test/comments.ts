@@ -30,6 +30,9 @@ const LATER = "2026-11-25T09:00:00Z";
 
 const MENTION = /@\[((?:\\.|[^\]\\])*)\]\((user|page):([^)\s]+)\)/g;
 
+/** How many of a thread's comments the server lists: its first and its latest. */
+const LISTED = 10;
+
 /** A comment's markdown as the server reads it: its text, and its mentions as mentions. */
 export function runsFrom(markdown: string): InlineRun[] {
   const runs: InlineRun[] = [];
@@ -90,9 +93,25 @@ export function pageThread(
   };
 }
 
+/** A thread as the server lists it: its first comment and its nine latest, and its count. */
+function listed(thread: Thread): Thread {
+  const [first, ...rest] = thread.comments;
+  return {
+    ...thread,
+    comments: first === undefined ? [] : [first, ...rest.slice(-(LISTED - 1))],
+    comment_count: thread.comments.length,
+  };
+}
+
+function resolvedOf(thread: Thread): boolean {
+  return (thread.resolved_at ?? null) !== null;
+}
+
 type Options = {
   threads?: Thread[];
   mayComment?: boolean;
+  /** Whether the user edits the page, and so deletes anyone's comment; as mayComment unless set. */
+  mayModerate?: boolean;
   following?: boolean;
   /** Who a mention may name, and whether each sees the page. */
   people?: MentionPerson[];
@@ -110,11 +129,16 @@ export function fakeComments(options: Options = {}) {
   const state = {
     threads: options.threads ?? [],
     mayComment: options.mayComment ?? true,
+    mayModerate: options.mayModerate ?? options.mayComment ?? true,
     following: options.following ?? false,
   };
   const changes: Recorded[] = [];
   /** Each search for mentions, by what was typed after `@`. */
   const searches: string[] = [];
+  /** Each part of a list of threads asked for: of which kind, and after which thread. */
+  const lists: { resolved: string | null; after: string | null }[] = [];
+  /** Each thread read on its own, by id. */
+  const reads: string[] = [];
   let threadsMade = 0;
   let commentsMade = 0;
 
@@ -135,7 +159,7 @@ export function fakeComments(options: Options = {}) {
   };
   const posted = (thread: Thread, commentId: string, status = 201) =>
     HttpResponse.json(
-      { thread, comment_id: commentId, unnotified: options.unnotified ?? [] },
+      { thread: listed(thread), comment_id: commentId, unnotified: options.unnotified ?? [] },
       { status },
     );
   const findComment = (id: string) => {
@@ -149,18 +173,59 @@ export function fakeComments(options: Options = {}) {
   };
 
   server.use(
-    http.get("/api/v1/pages/:id/comments", ({ params }) => {
-      const threads = state.threads
-        .filter((thread) => thread.page_id === params["id"])
-        .map((thread) => ({ ...thread, comment_count: thread.comments.length }));
+    http.get("/api/v1/pages/:id/comments", ({ params, request }) => {
+      const query = new URL(request.url).searchParams;
+      const onPage = state.threads.filter((thread) => thread.page_id === params["id"]);
+      const resolved = query.get("resolved");
+      const after = query.get("after");
+      const limit = Number(query.get("limit") ?? "50");
+      const kept = onPage
+        .filter((thread) => resolved === null || resolvedOf(thread) === (resolved === "true"))
+        .filter((thread) => after === null || thread.id > after)
+        .toSorted((a, b) => (a.id < b.id ? -1 : 1));
+      const part = kept.slice(0, limit);
+      lists.push({ resolved, after });
       return HttpResponse.json({
-        threads,
-        open_threads: threads.filter((thread) => (thread.resolved_at ?? null) === null).length,
+        threads: part.map(listed),
+        ...(part.length === limit ? { next: part.at(-1)?.id } : {}),
+        open_threads: onPage.filter((thread) => !resolvedOf(thread)).length,
         may_comment: state.mayComment,
-        may_moderate: state.mayComment,
+        may_moderate: state.mayModerate,
         following: state.following,
       });
     }),
+    http.get("/api/v1/threads/:id", ({ params }) => {
+      reads.push(params["id"] as string);
+      const thread = state.threads.find((each) => each.id === params["id"]);
+      return thread === undefined
+        ? apiError(404, "not_found", "no such thread")
+        : HttpResponse.json(listed(thread));
+    }),
+    http.get("/api/v1/threads/:id/comments", ({ params, request }) => {
+      const thread = state.threads.find((each) => each.id === params["id"]);
+      if (thread === undefined) {
+        return apiError(404, "not_found", "no such thread");
+      }
+      const query = new URL(request.url).searchParams;
+      const after = query.get("after");
+      const limit = Number(query.get("limit") ?? "50");
+      const at = after === null ? 0 : thread.comments.findIndex((each) => each.id === after) + 1;
+      const part = thread.comments.slice(at, at + limit);
+      return HttpResponse.json({
+        comments: part,
+        ...(part.length === limit ? { next: part.at(-1)?.id } : {}),
+      });
+    }),
+    http.delete(
+      "/api/v1/threads/:id",
+      record((_body, params) => {
+        const before = state.threads.length;
+        state.threads = state.threads.filter((each) => each.id !== params["id"]);
+        return state.threads.length === before
+          ? apiError(404, "not_found", "no such thread")
+          : new HttpResponse(null, { status: 204 });
+      }),
+    ),
     http.get("/api/v1/pages/:id/mentions", ({ request }) => {
       const q = new URL(request.url).searchParams.get("q") ?? "";
       searches.push(q);
@@ -219,7 +284,7 @@ export function fakeComments(options: Options = {}) {
           delete thread.resolved_at;
           delete thread.resolved_by;
         }
-        return HttpResponse.json(thread);
+        return HttpResponse.json(listed(thread));
       }),
     ),
     http.patch(
@@ -266,5 +331,5 @@ export function fakeComments(options: Options = {}) {
       }),
     ),
   );
-  return { state, changes, searches };
+  return { state, changes, searches, lists, reads };
 }

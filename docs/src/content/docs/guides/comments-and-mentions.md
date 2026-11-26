@@ -141,7 +141,9 @@ panel. In it:
 - **Open** and **Resolved** show the threads of each kind;
 - each thread has its passage, with **Show in page**, which selects it and scrolls to it, or
   says the passage is gone; then its comments, with **Edit** and **Delete** on your own, an
-  edited one marked so; then **Reply** and **Resolve**, or **Reopen**;
+  edited one marked so, and **Delete** on anyone's for those who edit the page; a long thread
+  shows its first comment and its latest, with **Show earlier replies** between; then
+  **Reply** and **Resolve**, or **Reopen**, and **Delete thread** for those who edit the page;
 - **Follow** says whether you follow the page's comments, and changes it.
 
 In the page, the text of each open inline thread is underlined and tinted, the one open in

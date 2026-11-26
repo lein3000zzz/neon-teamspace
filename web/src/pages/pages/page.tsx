@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ImagePlus, Maximize2, MessageSquare, Smile, Star, UserPlus } from "lucide-react";
 import {
@@ -12,7 +12,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { commentsQuery, refreshComments, type Thread } from "@/api/comments";
+import {
+  isResolved,
+  refreshComments,
+  refreshThread,
+  threadQuery,
+  threadsQuery,
+  type Thread,
+} from "@/api/comments";
 import { databaseQuery } from "@/api/databases";
 import { hasCode } from "@/api/errors";
 import { keys } from "@/api/keys";
@@ -313,6 +320,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
           active={comments.active}
           focusRequest={comments.focusRequest}
           onActive={comments.setActive}
+          linked={comments.linked}
           draft={comments.draft}
           onDraft={comments.setDraft}
           selection={
@@ -344,7 +352,19 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
   const { comment: linkedThread, block: linkedBlock } = useSearch({ from: ROUTE });
   const thread = enabled ? linkedThread : undefined;
   const block = enabled ? linkedBlock : undefined;
-  const list = useQuery({ ...commentsQuery(workspace.id, page.id), enabled });
+  const open = useInfiniteQuery({ ...threadsQuery(workspace.id, page.id, false), enabled });
+  // Every open thread is read, a part at a time, so the editor highlights each.
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = open;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
+      void fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  // The thread a link names, which may be resolved, or not read yet.
+  const linkedQuery = useQuery({
+    ...threadQuery(workspace.id, page.id, thread ?? ""),
+    enabled: thread !== undefined,
+  });
   const [panelOpen, setPanelOpen] = useState(thread !== undefined);
   const [active, setActive] = useState<string | null>(thread ?? null);
   const [focusRequest, setFocusRequest] = useState<{ threadId: string } | null>(null);
@@ -353,12 +373,12 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
   // Whether the editor opened the page where the link says, which it does once.
   const [opened, setOpened] = useState(false);
 
-  const threads = list.data?.threads;
+  const threads = useMemo(() => open.data?.pages.flatMap((part) => part.threads), [open.data]);
   const anchors = useMemo(
     () =>
       (threads ?? []).flatMap((each): ThreadAnchor[] => {
         const anchor = each.anchor ?? null;
-        return anchor === null || anchor.detached || (each.resolved_at ?? null) !== null
+        return anchor === null || anchor.detached || isResolved(each)
           ? []
           : [{ id: each.id, start: anchor.start, end: anchor.end }];
       }),
@@ -383,7 +403,10 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
     [],
   );
   const changed = useCallback(
-    () => refreshComments(queryClient, workspace.id, page.id),
+    (threadId?: string) =>
+      threadId === undefined
+        ? refreshComments(queryClient, workspace.id, page.id)
+        : void refreshThread(queryClient, workspace.id, page.id, threadId),
     [queryClient, workspace.id, page.id],
   );
   const editor: EditorComments = useMemo(
@@ -406,7 +429,8 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
   );
 
   // Where the editor opens the page: the linked thread's text, while it has some, or the block.
-  const linkedAnchor = threads?.find((each) => each.id === thread)?.anchor ?? null;
+  const linked = threads?.find((each) => each.id === thread) ?? linkedQuery.data;
+  const linkedAnchor = linked?.anchor ?? null;
   const { start, end } = linkedAnchor ?? { start: undefined, end: undefined };
   const reachable = linkedAnchor !== null && !linkedAnchor.detached;
   const openAt: OpenAt | null = useMemo(() => {
@@ -431,7 +455,8 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
     draft,
     setDraft,
     unseen,
-    openCount: (threads ?? []).filter((each) => (each.resolved_at ?? null) === null).length,
+    openCount: open.data?.pages[0]?.open_threads ?? 0,
+    linked,
     openPanel: () => setPanelOpen(true),
     close,
     openAt,

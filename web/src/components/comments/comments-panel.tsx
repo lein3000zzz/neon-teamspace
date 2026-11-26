@@ -1,10 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Check, MessageSquarePlus, Pencil, RotateCcw, Trash2, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  commentsQuery,
+  isResolved,
   runsOf,
+  threadCommentsQuery,
+  threadsQuery,
   useDeleteComment,
+  useDeleteThread,
   useEditComment,
   useFollowPage,
   useReply,
@@ -44,6 +47,8 @@ export type CommentsPanelProps = {
   /** A thread to move focus to, as when the keyboard opened it; each request a new object. */
   focusRequest: { threadId: string } | null;
   onActive: (threadId: string | null) => void;
+  /** The thread a link names, shown in its part of the list though that part is not read yet. */
+  linked?: Thread | undefined;
   /** The text selected to start a thread on, waiting for its first comment. */
   draft: DraftAnchor | null;
   onDraft: (draft: DraftAnchor | null) => void;
@@ -67,6 +72,7 @@ export function CommentsPanel({
   active,
   focusRequest,
   onActive,
+  linked,
   draft,
   onDraft,
   selection,
@@ -77,22 +83,44 @@ export function CommentsPanel({
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const comments = useQuery(commentsQuery(workspace.id, page.id));
+  const [shown, setShown] = useState<Shown>("unresolved");
+  const open = useInfiniteQuery(threadsQuery(workspace.id, page.id, false));
+  const settled = useInfiniteQuery({
+    ...threadsQuery(workspace.id, page.id, true),
+    enabled: shown === "resolved",
+  });
   const start = useStartThread(workspace.id, page.id);
   const follow = useFollowPage(workspace.id, page.id);
-  const [shown, setShown] = useState<Shown>("unresolved");
   const [unseen, setUnseen] = useState<readonly Person[]>([]);
   const [noSelection, setNoSelection] = useState(false);
-  const threads = comments.data?.threads ?? [];
-  const activeThread = threads.find((thread) => thread.id === active);
+  const openThreads = useMemo(
+    () => open.data?.pages.flatMap((part) => part.threads) ?? [],
+    [open.data],
+  );
+  const settledThreads = useMemo(
+    () => settled.data?.pages.flatMap((part) => part.threads) ?? [],
+    [settled.data],
+  );
+  const activeThread =
+    openThreads.find((thread) => thread.id === active) ??
+    settledThreads.find((thread) => thread.id === active) ??
+    (linked?.id === active ? linked : undefined);
   // The thread opened shows in its part of the list, resolved or not.
   const [shownFor, setShownFor] = useState<string | null>(null);
   if (activeThread !== undefined && shownFor !== activeThread.id) {
     setShownFor(activeThread.id);
     setShown(isResolved(activeThread) ? "resolved" : "unresolved");
   }
-  const listed = threads.filter((thread) => isResolved(thread) === (shown === "resolved"));
-  const mayComment = comments.data?.may_comment ?? false;
+  const comments = shown === "resolved" ? settled : open;
+  const listed = withActive(
+    shown === "resolved" ? settledThreads : openThreads,
+    activeThread !== undefined && isResolved(activeThread) === (shown === "resolved")
+      ? activeThread
+      : undefined,
+  );
+  const flags = open.data?.pages[0];
+  const mayComment = flags?.may_comment ?? false;
+  const mayModerate = flags?.may_moderate ?? false;
 
   useEffect(() => {
     heading.current?.focus();
@@ -145,16 +173,16 @@ export function CommentsPanel({
           {copy.label}
         </h2>
         <div className="flex items-center gap-1">
-          {comments.data !== undefined && (
+          {flags !== undefined && (
             <Button
               variant="outline"
               size="sm"
-              aria-pressed={comments.data.following}
+              aria-pressed={flags.following}
               title={copy.followHint}
               disabled={follow.isPending}
-              onClick={() => follow.mutate(!comments.data.following)}
+              onClick={() => follow.mutate(!flags.following)}
             >
-              {comments.data.following && <Check aria-hidden />}
+              {flags.following && <Check aria-hidden />}
               {copy.follow}
             </Button>
           )}
@@ -169,16 +197,16 @@ export function CommentsPanel({
         <UnseenNotice people={unseen} page={page} onDismiss={() => setUnseen([])} />
       )}
 
-      {comments.isPending && <Loading label={copy.loading} />}
-      {comments.isError && (
+      {open.isPending && <Loading label={copy.loading} />}
+      {open.isError && !open.isFetchNextPageError && (
         <ErrorNotice
-          error={comments.error}
-          retrying={comments.isFetching}
-          onRetry={() => void comments.refetch()}
+          error={open.error}
+          retrying={open.isFetching}
+          onRetry={() => void open.refetch()}
         />
       )}
 
-      {comments.data !== undefined && !mayComment && (
+      {flags !== undefined && !mayComment && (
         <p className="text-sm text-muted-foreground">{copy.readOnly}</p>
       )}
       {mayComment && draft !== null && (
@@ -238,7 +266,7 @@ export function CommentsPanel({
         </section>
       )}
 
-      {comments.data !== undefined && (
+      {flags !== undefined && (
         <section aria-label={copy.shown} className="grid gap-3">
           <ToggleGroup
             type="single"
@@ -253,12 +281,21 @@ export function CommentsPanel({
             <ToggleGroupItem value="unresolved">{copy.unresolved}</ToggleGroupItem>
             <ToggleGroupItem value="resolved">{copy.resolved}</ToggleGroupItem>
           </ToggleGroup>
-          {listed.length === 0 ? (
+          {shown === "resolved" && settled.isError && !settled.isFetchNextPageError && (
+            <ErrorNotice
+              error={settled.error}
+              retrying={settled.isFetching}
+              onRetry={() => void settled.refetch()}
+            />
+          )}
+          {comments.isPending ? (
+            <Loading label={copy.loading} />
+          ) : listed.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {shown === "resolved" ? copy.noneResolved : copy.none}
             </p>
           ) : (
-            <ul className="grid gap-3 pb-4">
+            <ul className="grid gap-3">
               {listed.map((thread) => (
                 <ThreadItem
                   key={thread.id}
@@ -266,6 +303,7 @@ export function CommentsPanel({
                   thread={thread}
                   people={people}
                   mayComment={mayComment}
+                  mayModerate={mayModerate}
                   active={thread.id === active}
                   focusRequest={focusRequest}
                   onActive={onActive}
@@ -276,14 +314,48 @@ export function CommentsPanel({
               ))}
             </ul>
           )}
+          {comments.isFetchNextPageError && <ErrorNotice error={comments.error} />}
+          {comments.hasNextPage && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-self-start"
+              disabled={comments.isFetchingNextPage}
+              onClick={() => void comments.fetchNextPage()}
+            >
+              {comments.isFetchingNextPage ? copy.loadingMore : copy.moreThreads}
+            </Button>
+          )}
+          <div className="pb-4" />
         </section>
       )}
     </aside>
   );
 }
 
-function isResolved(thread: Thread): boolean {
-  return (thread.resolved_at ?? null) !== null;
+/** A list of threads with the one open in the panel, in its place, should its part not be read yet. */
+function withActive(threads: readonly Thread[], active: Thread | undefined): readonly Thread[] {
+  if (active === undefined || threads.some((thread) => thread.id === active.id)) {
+    return threads;
+  }
+  return [...threads, active].toSorted((a, b) => (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * A thread's comments as far as they are read: its first, those read after
+ * it, then, after a gap of `hidden` others, its latest.
+ */
+function threadComments(thread: Thread, read: readonly Comment[]) {
+  const [first, ...latest] = thread.comments;
+  const head = first === undefined ? [] : [first];
+  for (const comment of read) {
+    if (!head.some((each) => each.id === comment.id)) {
+      head.push(comment);
+    }
+  }
+  const tail = latest.filter((comment) => !head.some((each) => each.id === comment.id));
+  const hidden = Math.max(0, thread.comment_count - head.length - tail.length);
+  return { head, tail, hidden };
 }
 
 /** Someone a comment names, as the workspace knows them now, or as the comment does. */
@@ -304,6 +376,8 @@ type ThreadItemProps = {
   thread: Thread;
   people: ReadonlyMap<string, Someone>;
   mayComment: boolean;
+  /** The user edits the page: they delete anyone's comment, and the thread. */
+  mayModerate: boolean;
   active: boolean;
   focusRequest: { threadId: string } | null;
   onActive: (threadId: string | null) => void;
@@ -317,6 +391,7 @@ function ThreadItem({
   thread,
   people,
   mayComment,
+  mayModerate,
   active,
   focusRequest,
   onActive,
@@ -327,7 +402,20 @@ function ThreadItem({
   const workspace = useWorkspace();
   const reply = useReply(workspace.id, page.id);
   const resolve = useResolveThread(workspace.id, page.id);
+  const removeThread = useDeleteThread(workspace.id, page.id);
   const [replying, setReplying] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // The replies between the first and the latest, read once asked for.
+  const [earlier, setEarlier] = useState(false);
+  const middle = useInfiniteQuery({
+    ...threadCommentsQuery(workspace.id, page.id, thread),
+    enabled: earlier,
+  });
+  const read = useMemo(
+    () => middle.data?.pages.flatMap((part) => part.comments) ?? [],
+    [middle.data],
+  );
+  const { head, tail, hidden } = threadComments(thread, read);
   const item = useRef<HTMLElement>(null);
   const resolved = isResolved(thread);
   const anchor = thread.anchor ?? null;
@@ -380,16 +468,40 @@ function ThreadItem({
           </div>
         )}
         <ol className="grid gap-3">
-          {thread.comments.map((comment) => (
-            <CommentItem key={comment.id} page={page} comment={comment} people={people} />
+          {[...head, ...tail].map((comment, at) => (
+            <CommentItem
+              key={comment.id}
+              page={page}
+              comment={comment}
+              people={people}
+              mayModerate={mayModerate}
+              onPosted={onPosted}
+              onUnseen={onUnseen}
+              before={
+                at === head.length && hidden > 0 ? (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="justify-self-start"
+                    disabled={middle.isFetching}
+                    onClick={() => (earlier ? void middle.fetchNextPage() : setEarlier(true))}
+                  >
+                    {middle.isFetching ? copy.loadingMore : copy.earlier(hidden)}
+                  </Button>
+                ) : null
+              }
+            />
           ))}
         </ol>
+        {middle.isError && <ErrorNotice error={middle.error} />}
         {resolved && (
           <p className="text-xs text-muted-foreground">
             {copy.resolvedBy(resolver, formatDateTime(thread.resolved_at ?? thread.created_at))}
           </p>
         )}
-        {(reply.isError || resolve.isError) && <ErrorNotice error={reply.error ?? resolve.error} />}
+        {(reply.isError || resolve.isError || removeThread.isError) && (
+          <ErrorNotice error={reply.error ?? resolve.error ?? removeThread.error} />
+        )}
         {mayComment && replying && (
           <CommentComposer
             workspaceId={workspace.id}
@@ -427,22 +539,56 @@ function ThreadItem({
               {resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
               {resolved ? copy.reopen : copy.resolve}
             </Button>
+            {mayModerate && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={removeThread.isPending}
+                onClick={() => setConfirming(true)}
+              >
+                <Trash2 aria-hidden />
+                {copy.deleteThread}
+              </Button>
+            )}
           </div>
         )}
+        <ConfirmDialog
+          open={confirming}
+          title={copy.deleteThreadTitle}
+          description={copy.deleteThreadLede}
+          confirm={copy.delete}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            removeThread.mutate(thread.id);
+          }}
+        />
       </article>
     </li>
   );
 }
 
+type CommentItemProps = {
+  page: Page;
+  comment: Comment;
+  people: ReadonlyMap<string, Someone>;
+  /** The user edits the page: they delete this comment, whoever wrote it. */
+  mayModerate: boolean;
+  onPosted: (result: PostedComment) => void;
+  onUnseen: (person: Person) => void;
+  /** What shows before it, as the replies left out before the latest. */
+  before: ReactNode;
+};
+
 function CommentItem({
   page,
   comment,
   people,
-}: {
-  page: Page;
-  comment: Comment;
-  people: ReadonlyMap<string, Someone>;
-}) {
+  mayModerate,
+  onPosted,
+  onUnseen,
+  before,
+}: CommentItemProps) {
   const workspace = useWorkspace();
   const me = useMe();
   const edit = useEditComment(workspace.id, page.id);
@@ -457,22 +603,25 @@ function CommentItem({
 
   return (
     <li className="grid gap-1">
+      {before}
       <div className="flex min-w-0 items-center justify-between gap-2">
         <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <PersonLabel person={author} className="text-foreground" />
           <time dateTime={comment.created_at}>{when}</time>
           {edited && <span>({copy.edited})</span>}
         </p>
-        {mine && !editing && (
+        {(mine || mayModerate) && !editing && (
           <div className="flex shrink-0">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={copy.actionLabel(copy.edit, who, when)}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil aria-hidden />
-            </Button>
+            {mine && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={copy.actionLabel(copy.edit, who, when)}
+                onClick={() => setEditing(true)}
+              >
+                <Pencil aria-hidden />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -495,10 +644,11 @@ function CommentItem({
             submitLabel={copy.save}
             initial={comment.markdown}
             onSubmit={async (markdown) => {
-              await edit.mutateAsync({ commentId: comment.id, markdown });
+              onPosted(await edit.mutateAsync({ commentId: comment.id, markdown }));
               setEditing(false);
             }}
             onCancel={() => setEditing(false)}
+            onUnseen={onUnseen}
           />
         </>
       ) : (
@@ -513,7 +663,7 @@ function CommentItem({
         onCancel={() => setConfirming(false)}
         onConfirm={() => {
           setConfirming(false);
-          remove.mutate(comment.id);
+          remove.mutate({ commentId: comment.id, threadId: comment.thread_id });
         }}
       />
     </li>

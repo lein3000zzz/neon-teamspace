@@ -294,7 +294,7 @@ describe("a page's comments", () => {
     expect(thread.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
-  it("reads the comments again when the page's connection says a thread changed", async () => {
+  it("reads the one thread the page's connection says changed, not the list", async () => {
     fakeWorkspaces();
     fakePages();
     const sync = fakeSync();
@@ -302,6 +302,7 @@ describe("a page's comments", () => {
     const { user } = renderApp(PATH);
     const panel = await openPanel(user, "Comments, 1 open");
     const thread = within(await panel.findByRole("article", { name: "Thread by Ada" }));
+    const listsBefore = api.lists.length;
 
     // Bob replies from his own browser.
     const only = api.state.threads[0];
@@ -316,6 +317,171 @@ describe("a page's comments", () => {
     sync.send(commentsMessage(COMMENT_IDS.thread));
 
     expect(await thread.findByText("Ten is fine")).toBeInTheDocument();
+    expect(api.reads).toContain(COMMENT_IDS.thread);
+    expect(api.lists).toHaveLength(listsBefore);
+
+    // Deleted elsewhere: the thread leaves the list.
+    api.state.threads = [];
+    sync.send(commentsMessage(COMMENT_IDS.thread));
+    expect(await panel.findByText("No comments on this page yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Comments" })).toBeInTheDocument();
+  });
+
+  it("reads every comment again once the page's connection comes back", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const api = fakeComments({ threads: [pageThread(PAGE_IDS.roadmap, "Kick-off at ten")] });
+    const { user } = renderApp(PATH);
+    const panel = await openPanel(user, "Comments, 1 open");
+    const thread = within(await panel.findByRole("article", { name: "Thread by Ada" }));
+
+    // While the connection is down, Bob replies: nothing tells of it.
+    sync.close(1012, "restarting");
+    api.state.threads[0]?.comments.push(
+      comment({
+        id: COMMENT_IDS.reply,
+        thread: COMMENT_IDS.thread,
+        markdown: "Ten is fine",
+        author: people.bob,
+      }),
+    );
+
+    expect(await thread.findByText("Ten is fine", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(sync.urls).toHaveLength(2);
+  });
+
+  it("shows a long thread's first comment and its latest, and the replies between on asking", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const thread = pageThread(PAGE_IDS.roadmap, "Where do we start?");
+    for (let n = 1; n <= 14; n += 1) {
+      thread.comments.push(
+        comment({
+          id: `0193a5b2-0000-7000-8000-${n.toString(16).padStart(12, "0")}`,
+          thread: thread.id,
+          markdown: `Reply ${n}`,
+          author: people.bob,
+        }),
+      );
+    }
+    fakeComments({ threads: [thread] });
+    const { user } = renderApp(PATH);
+    const panel = await openPanel(user, "Comments, 1 open");
+    const item = within(await panel.findByRole("article", { name: "Thread by Ada" }));
+
+    expect(item.getByText("Where do we start?")).toBeInTheDocument();
+    expect(item.getByText("Reply 14")).toBeInTheDocument();
+    expect(item.getByText("Reply 6")).toBeInTheDocument();
+    expect(item.queryByText("Reply 5")).toBeNull();
+    await user.click(item.getByRole("button", { name: "Show 5 earlier replies" }));
+
+    expect(await item.findByText("Reply 1")).toBeInTheDocument();
+    expect(item.getByText("Reply 5")).toBeInTheDocument();
+    expect(item.queryByRole("button", { name: /earlier repl/ })).toBeNull();
+    expect(item.getAllByRole("listitem")).toHaveLength(15);
+  });
+
+  it("reads every open thread a part at a time, and counts them", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const threads = Array.from({ length: 120 }, (_, n) =>
+      pageThread(
+        PAGE_IDS.roadmap,
+        `Thread ${n + 1}`,
+        undefined,
+        `0193a5b2-0000-7000-8000-${(0xe00 + n).toString(16).padStart(12, "0")}`,
+      ),
+    );
+    const api = fakeComments({ threads });
+    const { user } = renderApp(PATH);
+
+    const panel = await openPanel(user, "Comments, 120 open");
+    expect(await panel.findByText("Thread 120")).toBeInTheDocument();
+    expect(api.lists).toEqual([
+      { resolved: "false", after: null },
+      { resolved: "false", after: threads[99]?.id ?? "" },
+    ]);
+  });
+
+  it("lets one who edits the page delete others' comments and whole threads", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const thread = pageThread(PAGE_IDS.roadmap, "Mine");
+    thread.comments.push(
+      comment({ id: COMMENT_IDS.reply, thread: thread.id, markdown: "Bob's", author: people.bob }),
+    );
+    const api = fakeComments({ threads: [thread] });
+    const { user } = renderApp(PATH);
+    const panel = await openPanel(user, "Comments, 1 open");
+    const item = within(await panel.findByRole("article", { name: "Thread by Ada" }));
+
+    expect(item.queryByRole("button", { name: /^Edit: Bob/ })).toBeNull();
+    await user.click(item.getByRole("button", { name: /^Delete: Bob/ }));
+    await user.click(
+      within(await screen.findByRole("alertdialog", { name: "Delete this comment?" })).getByRole(
+        "button",
+        { name: "Delete" },
+      ),
+    );
+    await waitFor(() => expect(item.queryByText("Bob's")).toBeNull());
+    await user.click(item.getByRole("button", { name: "Delete thread" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog", { name: "Delete this thread?" })).getByRole(
+        "button",
+        { name: "Delete" },
+      ),
+    );
+
+    expect(await panel.findByText("No comments on this page yet.")).toBeInTheDocument();
+    expect(api.changes.map((change) => `${change.method} ${change.path}`)).toEqual([
+      `DELETE /api/v1/comments/${COMMENT_IDS.reply}`,
+      `DELETE /api/v1/threads/${COMMENT_IDS.thread}`,
+    ]);
+  });
+
+  it("lets one who only comments delete no one else's comment, nor a thread", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const thread = pageThread(PAGE_IDS.roadmap, "Bob's", people.bob);
+    fakeComments({ threads: [thread], mayModerate: false });
+    const { user } = renderApp(PATH);
+    const panel = await openPanel(user, "Comments, 1 open");
+    const item = within(await panel.findByRole("article", { name: "Thread by Bob" }));
+
+    expect(item.getByRole("button", { name: "Reply" })).toBeInTheDocument();
+    expect(item.queryByRole("button", { name: /^Delete: Bob/ })).toBeNull();
+    expect(item.queryByRole("button", { name: "Delete thread" })).toBeNull();
+  });
+
+  it("says who a changed comment's new mention cannot tell", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    fakeComments({
+      threads: [pageThread(PAGE_IDS.roadmap, "Ask")],
+      people: [{ person: people.cy, sees_page: false }],
+      unnotified: [people.cy],
+    });
+    const { user } = renderApp(PATH);
+    const panel = await openPanel(user, "Comments, 1 open");
+    const item = within(await panel.findByRole("article", { name: "Thread by Ada" }));
+
+    await user.click(item.getByRole("button", { name: /^Edit: Ada/ }));
+    const field = item.getByRole("combobox", { name: "Your comment" });
+    await user.type(field, " @c");
+    await user.click(await panel.findByRole("option", { name: /Cy/ }));
+    expect(await panel.findByText(/Cy cannot see this page/)).toBeInTheDocument();
+    await user.click(panel.getByRole("button", { name: "Dismiss" }));
+    expect(panel.queryByText(/Cy cannot see this page/)).toBeNull();
+
+    // Saved, the server says so too.
+    await user.click(item.getByRole("button", { name: "Save" }));
+    expect(await panel.findByText(/Cy cannot see this page/)).toBeInTheDocument();
   });
 
   it("opens at the thread a link names, the resolved ones shown for a resolved one", async () => {

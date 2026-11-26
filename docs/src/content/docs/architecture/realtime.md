@@ -116,10 +116,12 @@ y-protocols writes a message's bytes:
 ```
 
 It says that a thread was started, answered, changed, resolved, reopened or deleted, once
-that change committed, and nothing of what it holds: the client reads the page's comments
-again through the API, which leaves out what the caller may not see. The connection joins
-the page's room of comments before it sends its first sync step, so a thread that changes
-once the client has the document is never missed. y-websocket hands a type it does not know
+that change committed, and nothing of what it holds: the client reads that thread again
+through the API, `GET /api/v1/threads/{id}`, which leaves out what the caller may not see and
+answers `404` once it is gone. The connection joins the page's room of comments before it
+sends its first sync step, so a thread that changes once the client has the document is never
+missed; what changed while a client was not connected is told by nothing, so a client that
+syncs again after a break reads the page's comments again. y-websocket hands a type it does not know
 to `messageHandlers`, which the web app fills for type `100`; a client that did not ask gets
 none.
 
