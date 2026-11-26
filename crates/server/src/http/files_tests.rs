@@ -175,6 +175,19 @@ async fn an_image_uploads_and_reads_back_in_place(pool: PgPool) {
     )
     .await;
     assert_eq!(foreign.status, StatusCode::FORBIDDEN);
+
+    // A header claiming a side past what is kept leaves the image without a size.
+    let mut wide = png();
+    wide[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
+    let uploaded = upload(&t.ada, &page, "image", "wide.png", &wide).await;
+    assert_eq!(uploaded.status, StatusCode::CREATED, "{}", uploaded.json());
+    assert_eq!(
+        (
+            uploaded.json()["width"].clone(),
+            uploaded.json()["height"].clone()
+        ),
+        (Value::Null, Value::Null)
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

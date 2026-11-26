@@ -71,8 +71,11 @@ fn size_column(file: &File) -> sqlx::Result<i64> {
 }
 
 pub async fn insert(executor: impl PgExecutor<'_>, file: &File) -> sqlx::Result<()> {
-    let (width, height) = file.dimensions.unzip();
-    let dimension = |value: Option<u32>| value.and_then(|value| i32::try_from(value).ok());
+    // Both sides or neither, as the table keeps them.
+    let (width, height) = file
+        .dimensions
+        .and_then(|(width, height)| Some((i32::try_from(width).ok()?, i32::try_from(height).ok()?)))
+        .unzip();
     sqlx::query!(
         "INSERT INTO files (id, workspace_id, page_id, uploaded_by, kind, storage_key, name,
                             content_type, size_bytes, sha256, width, height, created_at)
@@ -87,8 +90,8 @@ pub async fn insert(executor: impl PgExecutor<'_>, file: &File) -> sqlx::Result<
         file.media.as_str(),
         size_column(file)?,
         &file.sha256[..],
-        dimension(width).filter(|_| height.is_some()),
-        dimension(height).filter(|_| width.is_some()),
+        width,
+        height,
         file.created_at,
     )
     .execute(executor)

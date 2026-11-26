@@ -381,16 +381,21 @@ fn markup(text: &str) -> MediaType {
 }
 
 /// An image's width and height in pixels, from its first bytes, up to
-/// [`DIMENSION_BYTES`]: `None` for a type without them, or when what was read does not
-/// say.
+/// [`DIMENSION_BYTES`]: `None` for a type without them, when what was read does not say,
+/// or when either side is past `i32::MAX`, the most the database keeps, which no real image
+/// is.
 pub fn dimensions(media: MediaType, head: &[u8]) -> Option<(u32, u32)> {
     if !media.has_dimensions() {
         return None;
     }
     let size = imagesize::blob_size(&head[..head.len().min(DIMENSION_BYTES)]).ok()?;
-    let width = u32::try_from(size.width).ok()?;
-    let height = u32::try_from(size.height).ok()?;
-    (width > 0 && height > 0).then_some((width, height))
+    let side = |pixels: usize| {
+        i32::try_from(pixels)
+            .ok()
+            .filter(|side| *side > 0)
+            .map(i32::unsigned_abs)
+    };
+    Some((side(size.width)?, side(size.height)?))
 }
 
 /// A file as kept: what it is, whose page it belongs to, and where its bytes are.
@@ -759,6 +764,18 @@ mod tests {
             Some((320, 240))
         );
         assert_eq!(dimensions(M::Png, &png(0, 480)), None, "no area");
+        let widest = u32::try_from(i32::MAX).expect("positive");
+        assert_eq!(dimensions(M::Png, &png(widest, 1)), Some((widest, 1)));
+        assert_eq!(
+            dimensions(M::Png, &png(u32::MAX, 1)),
+            None,
+            "past what is kept"
+        );
+        assert_eq!(
+            dimensions(M::Png, &png(1, widest + 1)),
+            None,
+            "past what is kept"
+        );
         assert_eq!(dimensions(M::Png, b"\x89PNG\r\n\x1a\n"), None, "cut short");
         assert_eq!(dimensions(M::Svg, b"<svg width=\"10\"/>"), None);
         assert_eq!(dimensions(M::Pdf, &png(1, 1)), None);
