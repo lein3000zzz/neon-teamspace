@@ -19,6 +19,7 @@ use super::{
     PageView, check_parent, check_space,
 };
 use crate::databases::events::{self, RowChange};
+use crate::history::record;
 use crate::standing::Standing;
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
@@ -110,7 +111,7 @@ impl PageService {
             };
             repo::insert(&mut *tx, &page).await?;
             if let Some(content) = &new.content {
-                save_content(&mut tx, page.id, content, now).await?;
+                save_content(&mut tx, page.id, content, now, user).await?;
             }
             tx.commit().await?;
             info!(
@@ -624,13 +625,15 @@ pub(super) async fn teamspace_space(
     })
 }
 
-/// Saves a new page's content as its document's first snapshot, and its text as the
-/// page's search text, on the transaction that makes the page.
+/// Saves a new page's content as its document's first snapshot, its text as the page's
+/// search text and its blocks as its first version, by `author`, on the transaction that
+/// makes the page.
 pub(crate) async fn save_content(
     conn: &mut PgConnection,
     page_id: Uuid,
     content: &ImportedContent,
     at: time::OffsetDateTime,
+    author: Uuid,
 ) -> Result<(), PageError> {
     documents::save_snapshot(
         &mut *conn,
@@ -644,5 +647,16 @@ pub(crate) async fn save_content(
     )
     .await?;
     documents::set_content(&mut *conn, page_id, Some(&content.text), None).await?;
+    record::record(
+        &mut *conn,
+        record::Snapshot {
+            page_id,
+            document: &content.document,
+            authors: &[author],
+            at,
+            restored_from: None,
+        },
+    )
+    .await?;
     Ok(())
 }

@@ -52,6 +52,7 @@ use http_body_util::BodyExt as _;
 use http_body_util::combinators::BoxBody;
 use neon_app::auth::AuthService;
 use neon_app::databases::DatabaseService;
+use neon_app::history::HistoryService;
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::settings::{SettingsService, mcp as keys};
@@ -93,6 +94,7 @@ pub struct Services {
     pub workspaces: WorkspaceService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub history: HistoryService,
     pub databases: DatabaseService,
     /// Where pages' documents and databases tell of their changes, which subscriptions
     /// follow.

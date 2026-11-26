@@ -43,7 +43,7 @@ impl ImportedPage {
 }
 
 /// A page's document, ready to be its first snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportedContent {
     /// The whole Yjs document, encoded as one update.
     pub state: Vec<u8>,
@@ -51,6 +51,8 @@ pub struct ImportedContent {
     pub state_vector: Vec<u8>,
     /// Its plain text, for search.
     pub text: String,
+    /// Its blocks, with the ids they were written with: the page's first version.
+    pub document: Document,
 }
 
 impl ImportedContent {
@@ -64,11 +66,14 @@ impl ImportedContent {
         let fragment = neon_blocks::fragment(&doc);
         let mut txn = doc.transact_mut();
         let mut ids = || Uuid::now_v7().to_string();
-        neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
+        let mut document = document.clone();
+        document.fill_ids(&mut ids);
+        neon_blocks::replace(&mut txn, &fragment, &document, &mut ids);
         Some(Self {
             state: txn.encode_state_as_update_v1(&StateVector::default()),
             state_vector: txn.state_vector().encode_v1(),
             text: document.plain_text(),
+            document,
         })
     }
 }
@@ -177,7 +182,7 @@ impl PageService {
                 };
                 repo::insert(&mut *tx, &page).await?;
                 if let Some(content) = &imported.content {
-                    save_content(&mut tx, page.id, content, now).await?;
+                    save_content(&mut tx, page.id, content, now, user).await?;
                 }
                 count += 1;
                 let keys = position::sequence(imported.children.len());

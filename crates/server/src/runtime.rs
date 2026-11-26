@@ -29,6 +29,7 @@ use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
 use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::history::HistoryService;
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
 use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
@@ -280,6 +281,13 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .broadcaster(Arc::clone(&broadcaster))
         .limiter(Arc::clone(&limiter))
         .build();
+    let history = HistoryService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        live.clone(),
+    )
+    .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
@@ -307,6 +315,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             workspaces: workspaces.clone(),
             pages: pages.clone(),
             sync: live.clone(),
+            history: history.clone(),
             databases: databases.clone(),
             broadcaster,
         },
@@ -315,7 +324,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     );
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
-    start_workspace_upkeep(shutdown, &workspaces, &pages);
+    start_workspace_upkeep(shutdown, &workspaces, &pages, &history);
     start_oauth_upkeep(shutdown, &oauth);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
@@ -346,6 +355,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             oauth,
             pages,
             sync: live,
+            history,
             databases,
             live: feeds,
             transfer,
@@ -428,10 +438,20 @@ fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
     );
 }
 
-/// Starts the hourly cleanup of ended invitations and invite links and of the pages' trash,
-/// which stops before the pool closes.
-fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pages: &PageService) {
-    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), pages.clone(), CLEANUP_INTERVAL);
+/// Starts the hourly cleanup of ended invitations and invite links, of the pages' trash and
+/// of the versions the pages' history no longer keeps, which stops before the pool closes.
+fn start_workspace_upkeep(
+    shutdown: &Shutdown,
+    workspaces: &WorkspaceService,
+    pages: &PageService,
+    history: &HistoryService,
+) {
+    let cleanup = WorkspaceCleanup::spawn(
+        workspaces.clone(),
+        pages.clone(),
+        history.clone(),
+        CLEANUP_INTERVAL,
+    );
     on_stop(
         shutdown,
         "workspace cleanup",

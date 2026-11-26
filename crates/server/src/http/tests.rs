@@ -11,6 +11,7 @@ use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
+use neon_app::history::HistoryService;
 use neon_app::mail::MailQueue;
 use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
@@ -202,6 +203,13 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         .broadcaster(Arc::clone(&broadcaster))
         .limiter(Arc::clone(&limiter))
         .build();
+    let history = HistoryService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        sync.clone(),
+    )
+    .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
@@ -230,6 +238,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
             workspaces: workspaces.clone(),
             pages: pages.clone(),
             sync: sync.clone(),
+            history: history.clone(),
             databases: databases.clone(),
             broadcaster,
         },
@@ -244,6 +253,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         oauth,
         pages,
         sync,
+        history,
         databases,
         live,
         transfer,

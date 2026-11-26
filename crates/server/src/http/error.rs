@@ -12,6 +12,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::databases::DatabaseError;
+use neon_app::history::HistoryError;
 use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
@@ -348,6 +349,27 @@ impl From<ContentError> for ApiError {
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, other.code(), other.to_string())
+            }
+        }
+    }
+}
+
+impl From<HistoryError> for ApiError {
+    /// Expected errors answer with their message, which never quotes a page. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: HistoryError) -> Self {
+        match error {
+            HistoryError::Page(error) => error.into(),
+            HistoryError::Content(error) => error.into(),
+            HistoryError::NoVersion => {
+                Self::new(StatusCode::NOT_FOUND, error.code(), error.to_string())
+            }
+            HistoryError::InvalidInput(_) => {
+                Self::new(StatusCode::BAD_REQUEST, error.code(), error.to_string())
+            }
+            HistoryError::Database(_) | HistoryError::Internal(_) => {
+                tracing::error!(error = %error, "a history use case failed");
+                Self::internal()
             }
         }
     }

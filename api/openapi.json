@@ -7174,6 +7174,473 @@
         ]
       }
     },
+    "/api/v1/pages/{id}/versions": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "List a page's versions",
+        "description": "The page's versions, latest first, a part at a time: each with when its latest change was made, who changed the page since the version before, and how many blocks they added, changed and removed. A version is kept each time the server saves the page changed, and the hourly cleanup thins them out as the history settings say. The page as it is now, being edited, may be newer than the latest. A database has no body, and no history.",
+        "operationId": "list_versions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Where the part starts: the `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Versions in the part, 1 to 100; 100 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The versions, or a part of them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a limit out of bounds, a cursor from no list, or a database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/versions/{version_id}": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Read a version",
+        "description": "A version of the page, read-only: its blocks in BlockNote's JSON and as markdown with their ids.",
+        "operationId": "get_version",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "description": "The version's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such page, or no such version of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/versions/{version_id}/compare": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Compare a version with the page",
+        "description": "What changed from the version to the page as it is now, what is being edited included, block by block: every block of both, in the page's order, the version's removed ones where they were, each the same, changed, added or removed. Blocks are told apart by their ids. Answers the revision the page is at, which a restore names as its base.",
+        "operationId": "compare_version",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "description": "The version's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The comparison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such page, or no such version of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/versions/{version_id}/restore": {
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Restore a version",
+        "description": "Makes the page hold the version's blocks again, as one change through its live document: whoever has it open sees it at once. Blocks the version and the page share stay as they are, so what is typed in them meanwhile stays. The page as it was is kept as a version first, so restoring that one undoes it. base is the revision the comparison answered: once the page is at another, as when someone edited it since, nothing changes and the answer is edit_conflict, to compare again. Needs edit access to the page, out of the trash, and counts as an edit of its content.",
+        "operationId": "restore_version",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "description": "The version's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The page restored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such page, or no such version of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "edit_conflict: the page is no longer at base; nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "document_too_large: the page would grow past what it holds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many edits of pages' content; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "unavailable: the page could not be saved first, or the server is stopping.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/rows/{id}": {
       "get": {
         "tags": [
@@ -14845,6 +15312,55 @@
           }
         }
       },
+      "BlockChange": {
+        "type": "object",
+        "description": "One block of a comparison, without the blocks under it, which follow it a level deeper.",
+        "required": [
+          "change",
+          "depth"
+        ],
+        "properties": {
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The block as the page has it, as markdown, unless it was removed."
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The block as the version has it, as markdown, when it changed or was removed."
+          },
+          "block_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The block's id, on the page or else in the version."
+          },
+          "change": {
+            "$ref": "#/components/schemas/BlockChangeKind"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "How deep the block is: 0 at the top of the page.",
+            "minimum": 0
+          }
+        }
+      },
+      "BlockChangeKind": {
+        "type": "string",
+        "description": "What happened to a block, from the version to the page as it is.",
+        "enum": [
+          "same",
+          "changed",
+          "added",
+          "removed"
+        ]
+      },
       "BoundWorkspace": {
         "type": "object",
         "description": "The workspace a token is bound to.",
@@ -15140,6 +15656,52 @@
           }
         },
         "additionalProperties": false
+      },
+      "Comparison": {
+        "type": "object",
+        "description": "A version compared with the page as it is now.",
+        "required": [
+          "page",
+          "version",
+          "changes",
+          "added",
+          "changed",
+          "removed",
+          "revision"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "description": "How many blocks the page added, changed and removed since the version.",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockChange"
+            },
+            "description": "Every block of both, in the page's order, with the version's removed ones where they\nwere."
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "string",
+            "description": "The page's revision now, which a restore names as its base.",
+            "example": "AAAAAAAAAAAAAAAAAAAAAA"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        }
       },
       "Condition": {
         "type": "object",
@@ -18108,6 +18670,35 @@
           }
         }
       },
+      "PageVersion": {
+        "type": "object",
+        "description": "A version with its content.",
+        "required": [
+          "page",
+          "version",
+          "blocks",
+          "markdown"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Value"
+            },
+            "description": "Its blocks in BlockNote's JSON, as `/ws/pages/{id}` would give the editor them."
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Its blocks as markdown, each after a line `<!-- block <id> -->` that names it, as\n`GET /pages/{id}/markdown` writes them."
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        }
+      },
       "Palette": {
         "type": "string",
         "description": "The colour set.",
@@ -18702,6 +19293,43 @@
           }
         },
         "additionalProperties": false
+      },
+      "RestoreVersion": {
+        "type": "object",
+        "required": [
+          "base"
+        ],
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "The revision of the page the version was compared with, as the comparison answered:\nonce the page is at another, the restore is refused with `edit_conflict`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RestoredPage": {
+        "type": "object",
+        "description": "What a restore did.",
+        "required": [
+          "page",
+          "version"
+        ],
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page's revision once restored."
+          },
+          "version": {
+            "$ref": "#/components/schemas/Version",
+            "description": "The version restored."
+          }
+        }
       },
       "RevokeForm": {
         "type": "object",
@@ -20255,6 +20883,97 @@
           }
         }
       },
+      "Version": {
+        "type": "object",
+        "description": "A version of a page: its content each time the server saved it changed.",
+        "required": [
+          "id",
+          "page_id",
+          "created_at",
+          "authors",
+          "added",
+          "changed",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "description": "How many blocks it added, changed and removed since the version before, at any\ndepth; the first version counts every block as added.",
+            "minimum": 0
+          },
+          "authors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Who changed the page since the version before: people, agents and integrations, by\nmember id. Empty for guests, who know no other member."
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its latest change was made."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "page_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "restored_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For a version a restore made: the version restored, while it is kept."
+          },
+          "restored_from_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "And when that one was made."
+          }
+        }
+      },
+      "VersionList": {
+        "type": "object",
+        "description": "A part of a page's history, latest first.",
+        "required": [
+          "page",
+          "versions"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass it as `after` for the next part; absent on the last one."
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Version"
+            }
+          }
+        }
+      },
       "View": {
         "type": "object",
         "description": "A view of a database, its settings naming properties by id.",
@@ -20797,6 +21516,10 @@
     {
       "name": "pages",
       "description": "Pages and their trees, sharing, and the trash."
+    },
+    {
+      "name": "history",
+      "description": "Pages' versions: listing them, reading one, comparing one with the page as it is, and restoring one through the page's live document."
     },
     {
       "name": "databases",

@@ -119,6 +119,12 @@ settings:
     # requests: false
     # Mail people whose request to join was denied.
     # request_denied_mail: true
+  history:
+    # Every version of a page is kept this long; older, the latest of each day until
+    # keep_daily, then of each week; at most max_versions a page, the latest.
+    # keep_all: 7d
+    # keep_daily: 90d
+    # max_versions: 500
   mail:
     # Send mail through an SMTP server, once host and from are set too. Mail also needs
     # server.public_url, which its links point to, and secrets.keys, which seals it while

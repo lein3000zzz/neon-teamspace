@@ -10,6 +10,7 @@ pub mod agents;
 pub mod auth;
 pub mod databases;
 pub mod duration;
+pub mod history;
 pub mod hue;
 pub mod jobs;
 pub mod mail;

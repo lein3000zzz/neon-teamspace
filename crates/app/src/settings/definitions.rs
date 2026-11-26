@@ -141,6 +141,20 @@ pub mod pages {
     pub const TRASH_RETENTION: Key<Duration> = Key::new("pages.trash_retention");
 }
 
+/// Page history: which versions of each page the hourly cleanup keeps.
+pub mod history {
+    use std::time::Duration;
+
+    use neon_domain::settings::Key;
+
+    /// How long every version of a page is kept.
+    pub const KEEP_ALL: Key<Duration> = Key::new("history.keep_all");
+    /// Until how old the latest version of each day is kept; older, that of each week.
+    pub const KEEP_DAILY: Key<Duration> = Key::new("history.keep_daily");
+    /// The most versions a page keeps, the latest.
+    pub const MAX_VERSIONS: Key<i64> = Key::new("history.max_versions");
+}
+
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
 /// From address. Mailing links needs more, which the mail queue checks: a secret key to
 /// seal them while they wait, and the public URL they point to.
@@ -176,6 +190,12 @@ fn within_unused_clients_bounds(n: &i64) -> Result<(), String> {
 /// The shortest and longest the trash keeps pages.
 const MIN_TRASH_RETENTION: Duration = Duration::from_secs(3600);
 const MAX_TRASH_RETENTION: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
+
+/// The shortest and longest a page's versions are kept whole, and one a day.
+const HISTORY_BOUNDS: (Duration, Duration) = (
+    Duration::from_secs(3600),
+    Duration::from_secs(10 * 365 * 24 * 3600),
+);
 
 /// Every runtime setting the server reads.
 ///
@@ -569,6 +589,35 @@ pub fn registry() -> Registry {
             )
             .check(between(MIN_TRASH_RETENTION, MAX_TRASH_RETENTION)),
         )
+        .define(
+            Definition::duration(
+                history::KEEP_ALL,
+                Duration::from_secs(7 * 24 * 3600),
+                "How long every version of a page is kept. A version is the page's content \
+                 each time the server saves it changed. Older versions thin out to one a day, \
+                 then one a week; the hourly cleanup applies it to every page.",
+            )
+            .check(between(HISTORY_BOUNDS.0, HISTORY_BOUNDS.1)),
+        )
+        .define(
+            Definition::duration(
+                history::KEEP_DAILY,
+                Duration::from_secs(90 * 24 * 3600),
+                "Until how old a page keeps the latest version of each day, once older than \
+                 history.keep_all; older still, it keeps that of each week, Monday to Sunday, \
+                 UTC's days and weeks. At least history.keep_all.",
+            )
+            .check(between(HISTORY_BOUNDS.0, HISTORY_BOUNDS.1)),
+        )
+        .define(
+            Definition::integer(
+                history::MAX_VERSIONS,
+                500,
+                "The most versions a page keeps, the latest, however young; the latest one \
+                 always stays.",
+            )
+            .check(between_counts(1, 100_000)),
+        )
         // The confirmation and the invite of a request to join go by mail.
         .rule(auth::REQUESTS.name(), |settings| {
             needs_mail(settings, *settings.get(auth::REQUESTS))
@@ -585,6 +634,18 @@ pub fn registry() -> Registry {
                 Err(format!(
                     "must be longer than oauth.access_token_ttl, {}",
                     duration::format(access)
+                ))
+            }
+        })
+        // A version is kept whole before it is thinned to one a day.
+        .rule(history::KEEP_DAILY.name(), |settings| {
+            let all = *settings.get(history::KEEP_ALL);
+            if *settings.get(history::KEEP_DAILY) >= all {
+                Ok(())
+            } else {
+                Err(format!(
+                    "must be at least history.keep_all, {}",
+                    duration::format(all)
                 ))
             }
         })

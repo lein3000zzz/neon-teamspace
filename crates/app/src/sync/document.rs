@@ -8,7 +8,7 @@
 //! are logged, or the document unloads or the server stops, the whole document is saved as
 //! a snapshot that takes them in.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +34,7 @@ use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
 use super::protocol::{self, encode};
 use super::{CloseReason, Inner, LIVE_DOCUMENTS, MESSAGES};
+use crate::history::record;
 
 /// What the server tells a connection that may no longer edit, in y-protocols' auth
 /// message, as permission denied.
@@ -85,6 +86,17 @@ pub(crate) enum Command {
         base: Option<String>,
         done: oneshot::Sender<Result<Made, Unedited>>,
     },
+    /// A version of the page to hold again, restored by `author` on the revision `base`:
+    /// the document as it is is kept as a version first, then the restore is made as one
+    /// change, and kept as a version naming `from`, the version restored and when it was
+    /// made.
+    Restore {
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        from: (Uuid, time::OffsetDateTime),
+        base: String,
+        done: oneshot::Sender<Result<Made, Unedited>>,
+    },
 }
 
 /// Why blocks were not added to a live document.
@@ -120,6 +132,8 @@ pub(crate) enum Unedited {
     TooLarge,
     /// The page was deleted.
     Gone,
+    /// The document as it was could not be saved first, as a restore needs.
+    Unsaved,
 }
 
 /// A connection opening the document.
@@ -250,6 +264,10 @@ struct Storage {
     failures: u32,
     /// The latest change, which the next snapshot records on the page.
     edited: Option<Edited>,
+    /// Who changed the document since the last snapshot, whom its version names.
+    authors: BTreeSet<Uuid>,
+    /// The version a restore made the document from, which the next version names.
+    restored: Option<(Uuid, time::OffsetDateTime)>,
 }
 
 #[derive(Debug)]
@@ -309,6 +327,8 @@ impl Storage {
     /// A snapshot of `bytes` took in everything.
     fn compacted(&mut self, bytes: usize) {
         self.snapshot_bytes = bytes;
+        self.authors.clear();
+        self.restored = None;
         self.logged = 0;
         self.logged_bytes = 0;
         self.pending.clear();
@@ -353,6 +373,10 @@ impl Document {
                     at: last.created_at,
                     by: last.author_id,
                 }),
+                authors: updates
+                    .iter()
+                    .filter_map(|logged| logged.author_id)
+                    .collect(),
                 ..Storage::default()
             };
             Ok((doc, fragment, storage))
@@ -453,6 +477,16 @@ impl Document {
             } => {
                 let edited = self.edit(author, &edits, base.as_deref()).await;
                 let _ = done.send(edited);
+            }
+            Command::Restore {
+                author,
+                blocks,
+                from,
+                base,
+                done,
+            } => {
+                let restored = self.restore(author, blocks, from, &base).await;
+                let _ = done.send(restored);
             }
         }
     }
@@ -581,6 +615,44 @@ impl Document {
             revision: on_base.then(|| self.revision()),
             applied,
         })
+    }
+
+    /// Makes the document hold a version's blocks again, as `author`, when it is still at
+    /// the revision `base` the restorer compared against: refused otherwise, so nothing
+    /// written since is replaced unseen. The document as it is is saved first, and kept as
+    /// a version unless the latest one holds it already, so the restore can be undone; then
+    /// the restore is made as one edit, which merges as edits do with what is typed
+    /// meanwhile in the blocks it keeps, and saved again, its version naming the one
+    /// restored. Saving that last snapshot may fail, and is tried again as every snapshot
+    /// is; the restore stands.
+    async fn restore(
+        &mut self,
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        from: (Uuid, time::OffsetDateTime),
+        base: &str,
+    ) -> Result<Made, Unedited> {
+        if self.gone {
+            return Err(Unedited::Gone);
+        }
+        if base != self.revision() {
+            return Err(Unedited::Conflict);
+        }
+        if !self.compact().await {
+            return Err(if self.gone {
+                Unedited::Gone
+            } else {
+                Unedited::Unsaved
+            });
+        }
+        let made = self
+            .edit(author, &[Edit::Restore { blocks }], Some(base))
+            .await?;
+        self.storage.restored = Some(from);
+        if self.storage.needs_snapshot() {
+            self.compact().await;
+        }
+        Ok(made)
     }
 
     /// The document's revision now, as reading it gives it.
@@ -809,6 +881,7 @@ impl Document {
         let limits = &self.inner.limits;
         self.storage.pending_bytes += update.len();
         self.storage.pending.push(Pending { update, author, at });
+        self.storage.authors.insert(author);
         self.storage.edited = Some(Edited {
             at,
             by: Some(author),
@@ -1005,30 +1078,37 @@ impl Document {
     }
 
     /// Saves the whole document as the page's snapshot, in one transaction with deleting
-    /// the updates it takes in and recording its text and latest change on the page.
-    /// Returns whether it was saved. A failure is logged, and the updates stay.
+    /// the updates it takes in, recording its text and latest change on the page, and
+    /// keeping its blocks as a version when they changed. Returns whether it was saved. A
+    /// failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text) = {
+        let (state, state_vector, text, document) = {
             let txn = self.awareness.doc().transact();
-            let text = match neon_blocks::read(&txn, &self.fragment) {
-                Ok(document) => Some(document.plain_text()),
+            let (text, document) = match neon_blocks::read(&txn, &self.fragment) {
+                Ok(document) => (Some(document.plain_text()), document),
                 Err(error) => {
                     // Its structure, never its content.
                     warn!(%error, "the document does not read as blocks; its search text stays");
-                    None
+                    (
+                        None,
+                        neon_blocks::read_lenient(&txn, &self.fragment).document,
+                    )
                 }
             };
             (
                 txn.encode_state_as_update_v1(&StateVector::default()),
                 txn.state_vector().encode_v1(),
                 text,
+                document,
             )
         };
         let page_id = self.page_id;
         let last_seq = self.storage.last_seq;
         let edited = self.storage.edited;
         let at = self.inner.clock.now();
+        let authors: Vec<Uuid> = self.storage.authors.iter().copied().collect();
+        let restored = self.storage.restored;
         let pool = &self.inner.pool;
         let saved = async {
             let mut tx = pool.begin().await?;
@@ -1045,15 +1125,31 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            let versioned = record::record(
+                &mut tx,
+                record::Snapshot {
+                    page_id,
+                    document: &document,
+                    authors: &authors,
+                    at: edited.map_or(at, |edited| edited.at),
+                    restored_from: restored,
+                },
+            )
+            .await?;
             tx.commit().await?;
-            Ok::<_, sqlx::Error>(deleted)
+            Ok::<_, sqlx::Error>((deleted, versioned))
         }
         .instrument(info_span!("sync compact", bytes = state.len()))
         .await;
         match saved {
-            Ok(deleted) => {
+            Ok((deleted, versioned)) => {
                 guard.ok();
-                info!(bytes = state.len(), updates = deleted, "document compacted");
+                info!(
+                    bytes = state.len(),
+                    updates = deleted,
+                    versioned,
+                    "document compacted"
+                );
                 self.storage.compacted(state.len());
                 true
             }

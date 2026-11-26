@@ -1453,6 +1453,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pages/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a page's versions
+         * @description The page's versions, latest first, a part at a time: each with when its latest change was made, who changed the page since the version before, and how many blocks they added, changed and removed. A version is kept each time the server saves the page changed, and the hourly cleanup thins them out as the history settings say. The page as it is now, being edited, may be newer than the latest. A database has no body, and no history.
+         */
+        get: operations["list_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a version
+         * @description A version of the page, read-only: its blocks in BlockNote's JSON and as markdown with their ids.
+         */
+        get: operations["get_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/versions/{version_id}/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare a version with the page
+         * @description What changed from the version to the page as it is now, what is being edited included, block by block: every block of both, in the page's order, the version's removed ones where they were, each the same, changed, added or removed. Blocks are told apart by their ids. Answers the revision the page is at, which a restore names as its base.
+         */
+        get: operations["compare_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/versions/{version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a version
+         * @description Makes the page hold the version's blocks again, as one change through its live document: whoever has it open sees it at once. Blocks the version and the page share stay as they are, so what is typed in them meanwhile stays. The page as it was is kept as a version first, so restoring that one undoes it. base is the revision the comparison answered: once the page is at another, as when someone edited it since, nothing changes and the answer is edit_conflict, to compare again. Needs edit access to the page, out of the trash, and counts as an edit of its content.
+         */
+        post: operations["restore_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rows/{id}": {
         parameters: {
             query?: never;
@@ -2732,6 +2812,23 @@ export interface components {
             /** @description Sent back as it is; at most 1024 printable ASCII characters. */
             state?: string | null;
         };
+        /** @description One block of a comparison, without the blocks under it, which follow it a level deeper. */
+        BlockChange: {
+            /** @description The block as the page has it, as markdown, unless it was removed. */
+            after?: string | null;
+            /** @description The block as the version has it, as markdown, when it changed or was removed. */
+            before?: string | null;
+            /** @description The block's id, on the page or else in the version. */
+            block_id?: string | null;
+            change: components["schemas"]["BlockChangeKind"];
+            /** @description How deep the block is: 0 at the top of the page. */
+            depth: number;
+        };
+        /**
+         * @description What happened to a block, from the version to the page as it is.
+         * @enum {string}
+         */
+        BlockChangeKind: "same" | "changed" | "added" | "removed";
         /** @description The workspace a token is bound to. */
         BoundWorkspace: {
             /** Format: uuid */
@@ -2820,6 +2917,25 @@ export interface components {
         CodeRequest: {
             /** @example inv_4yVd0q3oJ2... */
             code: string;
+        };
+        /** @description A version compared with the page as it is now. */
+        Comparison: {
+            /** @description How many blocks the page added, changed and removed since the version. */
+            added: number;
+            changed: number;
+            /**
+             * @description Every block of both, in the page's order, with the version's removed ones where they
+             *     were.
+             */
+            changes: components["schemas"]["BlockChange"][];
+            page: components["schemas"]["Page"];
+            removed: number;
+            /**
+             * @description The page's revision now, which a restore names as its base.
+             * @example AAAAAAAAAAAAAAAAAAAAAA
+             */
+            revision: string;
+            version: components["schemas"]["Version"];
         };
         /** @description A condition on one property. */
         Condition: {
@@ -4064,6 +4180,18 @@ export interface components {
              */
             pages: components["schemas"]["TreePage"][];
         };
+        /** @description A version with its content. */
+        PageVersion: {
+            /** @description Its blocks in BlockNote's JSON, as `/ws/pages/{id}` would give the editor them. */
+            blocks: components["schemas"]["Value"][];
+            /**
+             * @description Its blocks as markdown, each after a line `<!-- block <id> -->` that names it, as
+             *     `GET /pages/{id}/markdown` writes them.
+             */
+            markdown: string;
+            page: components["schemas"]["Page"];
+            version: components["schemas"]["Version"];
+        };
         /**
          * @description The colour set.
          * @enum {string}
@@ -4284,6 +4412,21 @@ export interface components {
             password: string;
             /** @description The token in the link. */
             token: string;
+        };
+        RestoreVersion: {
+            /**
+             * @description The revision of the page the version was compared with, as the comparison answered:
+             *     once the page is at another, the restore is refused with `edit_conflict`.
+             */
+            base: string;
+        };
+        /** @description What a restore did. */
+        RestoredPage: {
+            page: components["schemas"]["Page"];
+            /** @description The page's revision once restored. */
+            revision?: string | null;
+            /** @description The version restored. */
+            version: components["schemas"]["Version"];
         };
         /**
          * @description A request to revoke a token, a form (RFC 7009). A `token_type_hint` may come along;
@@ -4926,6 +5069,47 @@ export interface components {
         Verified: {
             /** @example ada@example.com */
             email: string;
+        };
+        /** @description A version of a page: its content each time the server saved it changed. */
+        Version: {
+            /**
+             * @description How many blocks it added, changed and removed since the version before, at any
+             *     depth; the first version counts every block as added.
+             */
+            added: number;
+            /**
+             * @description Who changed the page since the version before: people, agents and integrations, by
+             *     member id. Empty for guests, who know no other member.
+             */
+            authors: string[];
+            changed: number;
+            /**
+             * Format: date-time
+             * @description When its latest change was made.
+             */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            page_id: string;
+            removed: number;
+            /**
+             * Format: uuid
+             * @description For a version a restore made: the version restored, while it is kept.
+             */
+            restored_from?: string | null;
+            /**
+             * Format: date-time
+             * @description And when that one was made.
+             */
+            restored_from_at?: string | null;
+        };
+        /** @description A part of a page's history, latest first. */
+        VersionList: {
+            /** @description Pass it as `after` for the next part; absent on the last one. */
+            next?: string | null;
+            page: components["schemas"]["Page"];
+            versions: components["schemas"]["Version"][];
         };
         /** @description A view of a database, its settings naming properties by id. */
         View: {
@@ -10498,6 +10682,329 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_versions: {
+        parameters: {
+            query?: {
+                /** @description Where the part starts: the `next` of the part before. */
+                after?: string;
+                /** @description Versions in the part, 1 to 100; 100 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions, or a part of them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionList"];
+                };
+            };
+            /** @description invalid_input: a limit out of bounds, a cursor from no list, or a database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+                /** @description The version's id. */
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageVersion"];
+                };
+            };
+            /** @description invalid_input: a database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such page, or no such version of it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    compare_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+                /** @description The version's id. */
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comparison. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            /** @description invalid_input: a database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such page, or no such version of it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    restore_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+                /** @description The version's id. */
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreVersion"];
+            };
+        };
+        responses: {
+            /** @description The page restored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoredPage"];
+                };
+            };
+            /** @description invalid_input: a database. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: no such page, or no such version of it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description edit_conflict: the page is no longer at base; nothing changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description document_too_large: the page would grow past what it holds. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many edits of pages' content; Retry-After says when to try again. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unavailable: the page could not be saved first, or the server is stopping. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

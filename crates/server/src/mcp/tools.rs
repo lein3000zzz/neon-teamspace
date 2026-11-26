@@ -33,6 +33,7 @@ use crate::http::databases::{
     AddProperty, Database, Filter, NumberFormat, OptionChange, Property, PropertyKind, Sort,
     embed_in, embedding,
 };
+use crate::http::history::{PageVersion, VersionList};
 use crate::http::pages::{Page, Placement, TreePage, location};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
@@ -151,7 +152,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 17] = [
+pub(crate) const TOOLS: [Spec; 18] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -201,11 +202,26 @@ pub(crate) const TOOLS: [Spec; 17] = [
                       it, `<!-- block <id> -->`, which edit_page names; the revision they are \
                       at, which edit_page takes as base; and for a row of a database, its \
                       properties with their values. A database itself has no body: use \
-                      get_database and query_database.",
+                      get_database and query_database. With version_id, a version of the page \
+                      from list_versions instead, read-only: its markdown, with no revision to \
+                      edit from.",
         writes: false,
         destructive: false,
         idempotent: true,
-        schema: schema::<PageArguments>,
+        schema: schema::<ReadPageArguments>,
+    },
+    Spec {
+        name: "list_versions",
+        title: "List a page's versions",
+        description: "A page's history, latest first, a part at a time: pass `next` back as \
+                      `after`. Each version is the page's content when the server saved it \
+                      changed, with when, who changed it since the version before, and how many \
+                      blocks they added, changed and removed. Read one with read_page and its \
+                      version_id.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<VersionsArguments>,
     },
     Spec {
         name: "create_page",
@@ -450,8 +466,34 @@ pub(crate) async fn call(
         }
         "get_page_tree" => tree(s, principal, arguments(given)?).await,
         "read_page" => {
-            let PageArguments { page_id } = arguments(given)?;
-            answer(page_markdown(&s.sync, &s.databases, principal, page_id).await?)
+            let ReadPageArguments {
+                page_id,
+                version_id,
+            } = arguments(given)?;
+            match version_id {
+                Some(version_id) => {
+                    let content = s
+                        .history
+                        .version(principal, page_id, version_id)
+                        .await
+                        .map_err(refused)?;
+                    answer(PageVersion::new(content)?)
+                }
+                None => answer(page_markdown(&s.sync, &s.databases, principal, page_id).await?),
+            }
+        }
+        "list_versions" => {
+            let VersionsArguments {
+                page_id,
+                after,
+                limit,
+            } = arguments(given)?;
+            let list = s
+                .history
+                .versions(principal, page_id, after.as_deref(), limit)
+                .await
+                .map_err(refused)?;
+            answer(VersionList::from(list))
         }
         "create_page" => create_page(s, principal, arguments(given)?).await,
         "edit_page" => {
@@ -611,6 +653,30 @@ struct NoArguments {}
 struct PageArguments {
     /// The page's id, a UUID.
     page_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ReadPageArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// A version of the page to read instead, from list_versions.
+    #[serde(default)]
+    version_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct VersionsArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// The `next` of the part before.
+    #[serde(default)]
+    after: Option<String>,
+    /// Versions in the part, 1 to 100; 100 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

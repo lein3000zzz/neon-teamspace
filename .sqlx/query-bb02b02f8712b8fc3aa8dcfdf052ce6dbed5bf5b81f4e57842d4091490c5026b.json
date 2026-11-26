@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO page_versions (id, page_id, created_at, authors, content, added, changed,\n                                    removed, restored_from, restored_from_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8,\n                 (SELECT id FROM page_versions WHERE id = $9), $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "UuidArray",
+        "Jsonb",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb02b02f8712b8fc3aa8dcfdf052ce6dbed5bf5b81f4e57842d4091490c5026b"
+}

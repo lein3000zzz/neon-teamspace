@@ -174,29 +174,7 @@ impl SyncService {
             if base.is_none() && edits.iter().any(Edit::removes) {
                 return Err(ContentError::NoBase);
             }
-            let view = self.inner.pages.document_access(principal, page_id).await?;
-            if view.page.kind == PageKind::Database {
-                return Err(ContentError::Database);
-            }
-            if view.page.is_trashed() {
-                return Err(
-                    PageError::Forbidden("this page is in the trash: restore it first").into(),
-                );
-            }
-            if view.access != PageAccess::Edit {
-                return Err(PageError::Forbidden(
-                    "you may only view this page: editing it needs edit access, and a token \
-                     with the write scope",
-                )
-                .into());
-            }
-            let user = principal.user.id.to_string();
-            if let Err(limited) = self.inner.limiter.check(Bucket::PageEdit, &user).await {
-                warn!(user_id = %principal.user.id, "edits of pages' content rate limited");
-                return Err(ContentError::RateLimited {
-                    retry_after: limited.retry_after,
-                });
-            }
+            let view = self.editable(principal, page_id).await?;
             let parts: Vec<&'static str> = edits.iter().map(Edit::name).collect();
             let made = self
                 .apply(
@@ -222,6 +200,71 @@ impl SyncService {
         .await
     }
 
+    /// Makes a page hold the blocks of a version of it again, `from` naming that version and
+    /// when it was made, on the revision `base` the caller compared against, refused once the
+    /// page is at another: see [`crate::history`]. It counts as the principal's edit of the
+    /// page, needs what editing it needs, and goes through its live document as one change,
+    /// so whoever has the page open sees it at once.
+    pub async fn restore(
+        &self,
+        principal: &Principal,
+        page_id: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        from: (Uuid, time::OffsetDateTime),
+        base: String,
+    ) -> Result<Edited, ContentError> {
+        self.observe("restore", async {
+            let view = self.editable(principal, page_id).await?;
+            let made = self
+                .send(view.page.workspace_id, page_id, |done| Command::Restore {
+                    author: principal.user.id,
+                    blocks: blocks.clone(),
+                    from,
+                    base: base.clone(),
+                    done,
+                })
+                .await?;
+            Ok(Edited {
+                page: view,
+                applied: made.applied,
+                revision: made.revision,
+            })
+        })
+        .await
+    }
+
+    /// A page the principal may edit the content of now, its edit counted against their
+    /// rate: as editing in the browser needs, edit access, out of the trash, through a
+    /// token with the write scope. A database has no content of its own.
+    async fn editable(
+        &self,
+        principal: &Principal,
+        page_id: Uuid,
+    ) -> Result<PageView, ContentError> {
+        let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.page.kind == PageKind::Database {
+            return Err(ContentError::Database);
+        }
+        if view.page.is_trashed() {
+            return Err(PageError::Forbidden("this page is in the trash: restore it first").into());
+        }
+        if view.access != PageAccess::Edit {
+            return Err(PageError::Forbidden(
+                "you may only view this page: editing it needs edit access, and a token with \
+                 the write scope",
+            )
+            .into());
+        }
+        let user = principal.user.id.to_string();
+        if let Err(limited) = self.inner.limiter.check(Bucket::PageEdit, &user).await {
+            warn!(user_id = %principal.user.id, "edits of pages' content rate limited");
+            return Err(ContentError::RateLimited {
+                retry_after: limited.retry_after,
+            });
+        }
+        Ok(view)
+    }
+
     /// Hands the edits to the page's live document, opening it again should it unload
     /// meanwhile.
     async fn apply(
@@ -232,18 +275,29 @@ impl SyncService {
         edits: Vec<Edit>,
         base: Option<String>,
     ) -> Result<Made, ContentError> {
+        self.send(workspace_id, page_id, |done| Command::Edit {
+            author,
+            edits: edits.clone(),
+            base: base.clone(),
+            done,
+        })
+        .await
+    }
+
+    /// Hands a command that edits the page to its live document, opening it again should it
+    /// unload meanwhile, and reads what it made.
+    async fn send(
+        &self,
+        workspace_id: Uuid,
+        page_id: Uuid,
+        command: impl Fn(oneshot::Sender<Result<Made, Unedited>>) -> Command,
+    ) -> Result<Made, ContentError> {
         for _ in 0..JOIN_ATTEMPTS {
             let commands = self
                 .document(page_id, workspace_id)
                 .map_err(ContentError::Unavailable)?;
             let (done, answer) = oneshot::channel();
-            let command = Command::Edit {
-                author,
-                edits: edits.clone(),
-                base: base.clone(),
-                done,
-            };
-            if commands.send(command).await.is_err() {
+            if commands.send(command(done)).await.is_err() {
                 continue;
             }
             // Dropped unanswered when the document unloaded first: it opens afresh.
@@ -255,6 +309,7 @@ impl SyncService {
                 Unedited::Refused(index, error) => ContentError::Refused { index, error },
                 Unedited::TooLarge => ContentError::TooLarge(self.inner.limits.max_document),
                 Unedited::Gone => PageError::NotFound("no such page").into(),
+                Unedited::Unsaved => ContentError::Unavailable(CloseReason::ServerError),
             });
         }
         Err(ContentError::Unavailable(CloseReason::ServerError))

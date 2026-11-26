@@ -7,6 +7,7 @@ pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod databases;
+pub mod history;
 pub mod jobs;
 pub mod mail;
 pub mod oauth;

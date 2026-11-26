@@ -14,6 +14,7 @@ pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+pub(crate) mod history;
 mod hooks;
 mod incoming_webhooks;
 mod meta;
@@ -43,6 +44,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::history::HistoryService;
 use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
@@ -81,6 +83,7 @@ pub struct AppState {
     pub oauth: OAuthService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub history: HistoryService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub transfer: TransferService,
@@ -236,6 +239,10 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
         .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(history::list_versions))
+        .routes(routes!(history::get_version))
+        .routes(routes!(history::compare_version))
+        .routes(routes!(history::restore_version))
         .routes(routes!(pages::recent_pages))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
@@ -437,6 +444,8 @@ mod auth_tests;
 mod content_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod incoming_tests;
 #[cfg(test)]
