@@ -148,33 +148,48 @@ pub struct BlockChange {
     pub depth: usize,
     /// The block's id, on the page or else in the version.
     pub block_id: Option<String>,
+    /// The block's type, as BlockNote names it, such as `paragraph`, `heading`,
+    /// `bulletListItem` or `file`: on the page, or else in the version.
+    #[schema(example = "bulletListItem")]
+    pub kind: String,
     /// The block as the version has it, as markdown, when it changed or was removed.
     pub before: Option<String>,
     /// The block as the page has it, as markdown, unless it was removed.
     pub after: Option<String>,
+    /// `before` as plain text, as search reads it: without markdown's marks, a file's name and
+    /// caption each on a line, a table's cells apart by tabs.
+    pub before_text: Option<String>,
+    /// `after` as plain text, likewise.
+    pub after_text: Option<String>,
 }
 
-fn alone(block: Block) -> String {
-    to_markdown(&Document::new(vec![block]))
+/// A block on its own, as markdown and as plain text.
+fn alone(block: Block) -> (String, String) {
+    let document = Document::new(vec![block]);
+    (to_markdown(&document), document.plain_text())
 }
 
 impl From<Line> for BlockChange {
     fn from(line: Line) -> Self {
-        let block_id = line
-            .after
-            .as_ref()
-            .or(line.before.as_ref())
-            .and_then(|block| block.id.clone());
-        let before = match line.change {
-            Change::Changed | Change::Removed => line.before.map(alone),
-            Change::Same | Change::Added => None,
+        let shown = line.after.as_ref().or(line.before.as_ref());
+        let block_id = shown.and_then(|block| block.id.clone());
+        let kind = shown
+            .map_or("paragraph", |block| block.kind.name())
+            .to_owned();
+        let (before, before_text) = match line.change {
+            Change::Changed | Change::Removed => line.before.map(alone).unzip(),
+            Change::Same | Change::Added => (None, None),
         };
+        let (after, after_text) = line.after.map(alone).unzip();
         Self {
             change: line.change.into(),
             depth: line.depth,
             block_id,
+            kind,
             before,
-            after: line.after.map(alone),
+            after,
+            before_text,
+            after_text,
         }
     }
 }

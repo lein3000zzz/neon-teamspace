@@ -151,9 +151,9 @@ scopes, as reading the history only reads.
 ```json
 {
   "changes": [
-    { "change": "same", "depth": 0, "block_id": "b1", "after": "# Plan\n" },
-    { "change": "changed", "depth": 0, "block_id": "b2", "before": "Ship in May\n", "after": "Ship in June\n" },
-    { "change": "added", "depth": 1, "block_id": "b3", "after": "Hire a designer\n" }
+    { "change": "same", "depth": 0, "block_id": "b1", "kind": "heading", "after": "# Plan\n", "after_text": "Plan" },
+    { "change": "changed", "depth": 0, "block_id": "b2", "kind": "paragraph", "before": "Ship in May\n", "after": "Ship in June\n", "before_text": "Ship in May", "after_text": "Ship in June" },
+    { "change": "added", "depth": 1, "block_id": "b3", "kind": "bulletListItem", "after": "- Hire a designer\n", "after_text": "Hire a designer" }
   ],
   "added": 1,
   "changed": 1,
@@ -162,13 +162,14 @@ scopes, as reading the history only reads.
 }
 ```
 
-Each block of a comparison comes as markdown, alone, without the blocks under it, which
-follow it a level deeper. A version of another page, or of none, answers `404 not_found`, a
-database `400 invalid_input`, and every route `403 forbidden` to those who only view the
-page. A restore answers as an edit of the page's content does: `409 edit_conflict` when the
-page changed since `base`, and `429 rate_limited` past the edits a user may make. Restores
-also count on their own, 10 at once, then one every 30 seconds, as each keeps a whole copy
-of the page.
+Each block of a comparison comes alone, without the blocks under it, which follow it a level
+deeper: as markdown, as plain text, which `before_text` and `after_text` hold, and with its
+type as BlockNote names it, in `kind`. A version of another page, or of none, answers `404
+not_found`, a database `400 invalid_input`, and every route `403 forbidden` to those who
+only view the page. A restore answers as an edit of the page's content does: `409
+edit_conflict` when the page changed since `base`, and `429 rate_limited` past the edits a
+user may make. Restores also count on their own, 10 at once, then one every 30 seconds, as
+each keeps a whole copy of the page.
 
 [Agents over MCP](/docs/guides/agents-over-mcp/#pages) list a page's versions with
 `list_versions` and read one with `read_page` and its `version_id`.
