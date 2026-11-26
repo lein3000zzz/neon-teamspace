@@ -19500,7 +19500,7 @@
       },
       "NotifiedInvitation": {
         "type": "object",
-        "description": "An invitation a notification is, while it waits for an answer, which\n`POST /me/invitations/{id}/accept` and `/decline` give.",
+        "description": "An invitation a notification is, while it waits for an answer, which\n`POST /account/invitations/{id}/accept` and `/decline` answer.",
         "required": [
           "id",
           "role",

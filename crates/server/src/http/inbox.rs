@@ -53,7 +53,7 @@ impl From<domain::NotificationKind> for NotificationKind {
 }
 
 /// An invitation a notification is, while it waits for an answer, which
-/// `POST /me/invitations/{id}/accept` and `/decline` give.
+/// `POST /account/invitations/{id}/accept` and `/decline` answer.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct NotifiedInvitation {
     pub id: Uuid,

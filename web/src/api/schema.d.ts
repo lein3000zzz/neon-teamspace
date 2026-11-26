@@ -4299,7 +4299,7 @@ export interface components {
         };
         /**
          * @description An invitation a notification is, while it waits for an answer, which
-         *     `POST /me/invitations/{id}/accept` and `/decline` give.
+         *     `POST /account/invitations/{id}/accept` and `/decline` answer.
          */
         NotifiedInvitation: {
             /** Format: date-time */
