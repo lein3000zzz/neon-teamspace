@@ -2742,8 +2742,10 @@ export interface components {
             delivery_id?: string | null;
             /**
              * @description Why it failed or was skipped: `unresolvable`, `address_refused`, `connect`, `tls`,
-             *     `timeout`, `protocol`, `redirect`, `http_status`; for a skipped one `no_access`, the
-             *     identity no longer seeing the row, or `disabled`.
+             *     `timeout`, `protocol`, `redirect`, `http_status`, or `internal`, the server failing to
+             *     make it; for a skipped one `no_access`, the identity or whoever set the URL no longer
+             *     seeing the row, `lapsed`, whoever set the URL no longer allowed to register it, or
+             *     `disabled`.
              * @example http_status
              */
             error_kind?: string | null;

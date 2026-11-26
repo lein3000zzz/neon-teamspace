@@ -157,8 +157,10 @@ pub struct DeliveryAttempt {
     pub status_code: Option<i32>,
     pub latency_ms: Option<i32>,
     /// Why it failed or was skipped: `unresolvable`, `address_refused`, `connect`, `tls`,
-    /// `timeout`, `protocol`, `redirect`, `http_status`; for a skipped one `no_access`, the
-    /// identity no longer seeing the row, or `disabled`.
+    /// `timeout`, `protocol`, `redirect`, `http_status`, or `internal`, the server failing to
+    /// make it; for a skipped one `no_access`, the identity or whoever set the URL no longer
+    /// seeing the row, `lapsed`, whoever set the URL no longer allowed to register it, or
+    /// `disabled`.
     #[schema(example = "http_status")]
     pub error_kind: Option<String>,
     /// The start of the answer's body, at most 256 bytes.

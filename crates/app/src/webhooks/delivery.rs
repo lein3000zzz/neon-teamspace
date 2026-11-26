@@ -122,12 +122,14 @@ struct Sent {
     failure: Option<Failure>,
 }
 
-/// Why an attempt that was sent did not go through.
+/// Why an attempt did not go through.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Failure {
     Send(SendError),
     Redirect(u16),
     Status(u16),
+    /// The server failed, as the job's own error says.
+    Internal,
 }
 
 impl Failure {
@@ -136,11 +138,13 @@ impl Failure {
             Self::Send(error) => error.kind(),
             Self::Redirect(_) => "redirect",
             Self::Status(_) => "http_status",
+            Self::Internal => "internal",
         }
     }
 
     fn describe(&self) -> String {
         match self {
+            Self::Internal => "the server failed to make it".to_owned(),
             Self::Send(error) => error.to_string(),
             Self::Redirect(status) => {
                 format!("the receiver answered {status}, a redirect, which webhooks do not follow")
@@ -199,8 +203,43 @@ impl WebhookService {
                     record_unexpected(&span, &error);
                     guard.err();
                 }
+                self.failed_inside(job, &delivery).instrument(span).await;
                 Err(JobError::retry(error.code()))
             }
+        }
+    }
+
+    /// Logs an attempt that failed in the server, before or after it was sent, and counts it
+    /// as given up on when it was the last, so it shows and turns the webhook off as any
+    /// other failure does. As far as it can: the failure may be the database's own.
+    async fn failed_inside(&self, job: &Job, delivery: &Delivery) {
+        let last = job.attempt >= job.max_attempts;
+        let outcome = if last {
+            Outcome::Failed
+        } else {
+            Outcome::Retrying
+        };
+        let failure = Failure::Internal;
+        let logged = async {
+            if last {
+                self.gave_up(delivery.webhook_id, &failure).await?;
+            }
+            let attempt = record(
+                job,
+                delivery,
+                outcome,
+                None,
+                Some(failure.kind()),
+                self.now(),
+            );
+            self.log(&attempt).await
+        };
+        if let Err(error) = logged.await {
+            warn!(
+                webhook_id = %delivery.webhook_id,
+                error = %error,
+                "could not log a delivery that failed in the server"
+            );
         }
     }
 
@@ -211,19 +250,8 @@ impl WebhookService {
         delivery: &Delivery,
     ) -> Result<Result<(), JobError>, WebhookError> {
         let event = &delivery.event;
-        let record = |outcome, sent: Option<&Sent>, error_kind: Option<&str>| Attempt {
-            id: Uuid::now_v7(),
-            webhook_id: delivery.webhook_id,
-            delivery_id: Some(job.id),
-            event_id: event.id,
-            event_type: event.kind.clone(),
-            attempt: job.attempt,
-            outcome: Outcome::as_str(outcome).to_owned(),
-            status_code: sent.and_then(|sent| sent.status).map(i32::from),
-            latency_ms: sent.map(|sent| millis(sent.latency)),
-            error_kind: error_kind.map(str::to_owned),
-            excerpt: sent.and_then(|sent| sent.excerpt.clone()),
-            at: self.now(),
+        let record = |outcome, sent: Option<&Sent>, error_kind: Option<&str>| {
+            record(job, delivery, outcome, sent, error_kind, self.now())
         };
         let Some(webhook) = repo::by_id(self.pool(), delivery.webhook_id).await? else {
             // Deleted since: nothing to tell, nowhere to log it.
@@ -278,7 +306,7 @@ impl WebhookService {
                     Outcome::Retrying
                 };
                 if last {
-                    self.gave_up(&webhook, failure).await?;
+                    self.gave_up(webhook.id, failure).await?;
                 }
                 self.log(&record(outcome, Some(&sent), Some(failure.kind())))
                     .await?;
@@ -297,7 +325,7 @@ impl WebhookService {
 
     /// One more delivery given up on, which turns the webhook off after [`DISABLE_AFTER`]
     /// in a row.
-    async fn gave_up(&self, webhook: &Webhook, failure: &Failure) -> Result<(), WebhookError> {
+    async fn gave_up(&self, webhook_id: Uuid, failure: &Failure) -> Result<(), WebhookError> {
         let reason = format!(
             "turned off after {DISABLE_AFTER} deliveries in a row failed; the last: {}",
             failure.describe()
@@ -305,10 +333,10 @@ impl WebhookService {
         if let Some(GaveUp {
             failures,
             disabled: true,
-        }) = repo::gave_up(self.pool(), webhook.id, DISABLE_AFTER, &reason, self.now()).await?
+        }) = repo::gave_up(self.pool(), webhook_id, DISABLE_AFTER, &reason, self.now()).await?
         {
             warn!(
-                webhook_id = %webhook.id,
+                webhook_id = %webhook_id,
                 failures,
                 "webhook turned off after deliveries kept failing"
             );
@@ -543,6 +571,31 @@ impl WebhookService {
     }
 }
 
+/// An attempt at a delivery, as its webhook's log keeps it.
+fn record(
+    job: &Job,
+    delivery: &Delivery,
+    outcome: Outcome,
+    sent: Option<&Sent>,
+    error_kind: Option<&str>,
+    at: OffsetDateTime,
+) -> Attempt {
+    Attempt {
+        id: Uuid::now_v7(),
+        webhook_id: delivery.webhook_id,
+        delivery_id: Some(job.id),
+        event_id: delivery.event.id,
+        event_type: delivery.event.kind.clone(),
+        attempt: job.attempt,
+        outcome: outcome.as_str().to_owned(),
+        status_code: sent.and_then(|sent| sent.status).map(i32::from),
+        latency_ms: sent.map(|sent| millis(sent.latency)),
+        error_kind: error_kind.map(str::to_owned),
+        excerpt: sent.and_then(|sent| sent.excerpt.clone()),
+        at,
+    }
+}
+
 /// A row event's payload; see the module docs.
 fn row_payload(event: &Event, identity: &User, facts: &RowFacts) -> Json {
     let schema = facts.schema.as_ref().map(|(_, schema)| schema);
@@ -766,6 +819,7 @@ mod tests {
         assert_eq!(Failure::Status(500).kind(), "http_status");
         assert_eq!(Failure::Send(SendError::Timeout).kind(), "timeout");
         assert_eq!(Failure::Status(503).describe(), "the receiver answered 503");
+        assert_eq!(Failure::Internal.kind(), "internal");
         assert_eq!(millis(Duration::from_millis(1500)), 1500);
     }
 }

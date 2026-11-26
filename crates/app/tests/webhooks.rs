@@ -1,6 +1,7 @@
 //! Outgoing webhooks' events: every writer of a row's values queues the deliveries its
-//! change makes, on its own transaction, for the webhooks that ask for them; and a delivery
-//! carries the trace of the change that caused it.
+//! change makes, on its own transaction, for the webhooks that ask for them; a delivery
+//! carries the trace of the change that caused it; and one that fails in the server is
+//! logged and counted as any other.
 //!
 //! Telemetry is installed once per process, so these tests sit in their own binary.
 
@@ -10,7 +11,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
+use neon_app::crypto::{Envelope, Keyring};
 use neon_app::databases::PropertySpec;
 use neon_app::databases::{GroupMove, NewDatabase, NewProperty, NewRow, NewView, RowMove};
 use neon_app::jobs::{RedHook, Worker, WorkerConfig, run_span};
@@ -453,6 +457,92 @@ async fn a_delivery_carries_the_trace_of_the_change_that_caused_it(pool: PgPool)
     assert!(header("neon-webhook-signature").is_some_and(|value| value.starts_with("v1=")));
     let body: Value = serde_json::from_slice(&sent[0].body).expect("JSON");
     assert_eq!(body["identity"]["id"], dee.to_string());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn deliveries_that_fail_in_the_server_are_logged_and_counted(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let dee = t.dee.user.id;
+    // A service whose key has the same name as the one the secret was sealed with, and
+    // other bytes: the secret does not open, and nothing is sent.
+    let other =
+        Keyring::parse(&[format!("k1:{}", STANDARD.encode([8u8; 32]))]).expect("a valid key");
+    let (_, feed) = access_feed();
+    let sync =
+        SyncService::builder(t.h.pool.clone(), t.h.pages.clone(), t.h.auth.clone(), feed).build();
+    let broken = WebhookService::builder(
+        t.h.pool.clone(),
+        Arc::clone(&t.h.settings),
+        Services {
+            workspaces: t.h.workspaces.clone(),
+            agents: t.h.agents.clone(),
+            pages: t.h.pages.clone(),
+            databases: t.h.databases.clone(),
+            sync,
+        },
+        Arc::clone(&t.kept) as Arc<dyn WebhookTransport>,
+    )
+    .envelope(Envelope::new(other))
+    .clock(t.h.time.clock())
+    .build();
+    t.h.databases
+        .create_row(
+            &t.ada,
+            t.db,
+            NewRow {
+                values: values(json!({"Name": "Sealed", "Assignee": [dee.to_string()]})),
+                ..NewRow::default()
+            },
+        )
+        .await
+        .expect("a row");
+    let worker = Worker::new(
+        pool.clone(),
+        WorkerConfig {
+            poll_interval: Duration::from_millis(20),
+            backoff: Backoff {
+                base: Duration::from_millis(5),
+                max: Duration::from_millis(20),
+            },
+            ..WorkerConfig::default()
+        },
+    )
+    .handler(DeliveryJob::new(broken))
+    .start()
+    .await
+    .expect("starts");
+
+    let max = usize::try_from(MAX_ATTEMPTS).expect("a count");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let log = loop {
+        let log = t
+            .webhooks
+            .webhook_attempts(&t.dee, t.workspace, t.hook)
+            .await
+            .expect("the log");
+        if log.first().is_some_and(|last| last.outcome == "failed") {
+            break log;
+        }
+        assert!(Instant::now() < deadline, "the log stayed {log:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    worker.stop().await;
+
+    assert_eq!(log.len(), max);
+    assert!(
+        log.iter()
+            .all(|attempt| attempt.error_kind.as_deref() == Some("internal"))
+    );
+    assert!(log[1..].iter().all(|attempt| attempt.outcome == "retrying"));
+    assert_eq!(log[0].attempt, MAX_ATTEMPTS);
+    assert!(t.kept.sent().is_empty());
+    let read = t
+        .webhooks
+        .webhook(&t.dee, t.workspace, t.hook)
+        .await
+        .expect("the webhook");
+    assert_eq!(read.failures, 1);
+    assert_eq!(read.disabled_at, None);
 }
 
 /// The principal an incoming webhook's integration acts as, as the webhook makes it.

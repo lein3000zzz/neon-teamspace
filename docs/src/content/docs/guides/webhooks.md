@@ -229,6 +229,7 @@ Failures are named:
 | `protocol` | The answer is not HTTP. |
 | `redirect` | A 3xx answer. |
 | `http_status` | Another answer outside 2xx. |
+| `internal` | The server failed to make the delivery, such as a secret that no longer opens with `secrets.keys`. It is retried, and counts toward turning the webhook off, as any failure does. |
 | `no_access` | Skipped: the identity, or whoever set the URL, no longer sees the row. |
 | `lapsed` | Skipped: whoever set the URL may no longer register it, and the webhook turned off. |
 | `disabled` | Skipped: the webhook was turned off before it was sent. |

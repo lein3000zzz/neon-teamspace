@@ -14072,7 +14072,7 @@
               "string",
               "null"
             ],
-            "description": "Why it failed or was skipped: `unresolvable`, `address_refused`, `connect`, `tls`,\n`timeout`, `protocol`, `redirect`, `http_status`; for a skipped one `no_access`, the\nidentity no longer seeing the row, or `disabled`.",
+            "description": "Why it failed or was skipped: `unresolvable`, `address_refused`, `connect`, `tls`,\n`timeout`, `protocol`, `redirect`, `http_status`, or `internal`, the server failing to\nmake it; for a skipped one `no_access`, the identity or whoever set the URL no longer\nseeing the row, `lapsed`, whoever set the URL no longer allowed to register it, or\n`disabled`.",
             "example": "http_status"
           },
           "event_id": {

@@ -262,7 +262,21 @@ describe("outgoing webhooks", () => {
 
   it("shows its delivery log, each attempt's outcome, status and the start of the answer", async () => {
     fakeWorkspaces();
-    fakeWebhooks({ webhooks: [adaHook], attempts: [delivered, retried] });
+    const internal = {
+      ...retried,
+      id: "0193a5b2-0000-7000-8000-00000000f203",
+      status_code: null,
+      latency_ms: null,
+      error_kind: "internal",
+      excerpt: null,
+    };
+    const lapsed = {
+      ...internal,
+      id: "0193a5b2-0000-7000-8000-00000000f204",
+      outcome: "skipped" as const,
+      error_kind: "lapsed",
+    };
+    fakeWebhooks({ webhooks: [adaHook], attempts: [delivered, retried, internal, lapsed] });
     const { user } = renderApp("/w/design/settings/webhooks");
 
     const card = await webhookCard("Ada", adaHook.url);
@@ -273,7 +287,13 @@ describe("outgoing webhooks", () => {
       await card.findByRole("region", { name: `Delivery log of the webhook to ${adaHook.url}` }),
     );
     const entries = log.getAllByRole("listitem");
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(4);
+    expect(
+      within(entries[2] as HTMLElement).getByText("the server failed to make it"),
+    ).toBeInTheDocument();
+    const last = within(entries[3] as HTMLElement);
+    expect(last.getByText("Skipped")).toBeInTheDocument();
+    expect(last.getByText("whoever set its URL may no longer register it")).toBeInTheDocument();
     expect(within(entries[0] as HTMLElement).getByText("Delivered")).toBeInTheDocument();
     expect(within(entries[0] as HTMLElement).getByText("42 ms")).toBeInTheDocument();
     const second = within(entries[1] as HTMLElement);
