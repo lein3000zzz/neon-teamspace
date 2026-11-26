@@ -1,6 +1,6 @@
 //! Keeping a version: in the transaction that saves a page's snapshot, its blocks become a
-//! version when they differ from the latest one's, and a page that keeps more versions than
-//! the retention's cap is thinned at once.
+//! version when they differ from the latest one's, with the files they show, and a page that
+//! keeps more versions than the retention's cap is thinned at once.
 
 use neon_blocks::Document;
 use neon_blocks::diff::{Summary, diff};
@@ -26,8 +26,9 @@ pub(crate) struct Snapshot<'a> {
 }
 
 /// Keeps the snapshot's blocks as a version, compared with the latest version, unless they
-/// are the same; says whether it kept one. A latest version that does not read, which the
-/// server never writes, counts as an empty page.
+/// are the same, with the files they show, which the attachments' cleanup keeps while the
+/// version is kept; says whether it kept one. A latest version that does not read, which
+/// the server never writes, counts as an empty page.
 pub(crate) async fn record(
     conn: &mut PgConnection,
     snapshot: Snapshot<'_>,
@@ -51,10 +52,11 @@ pub(crate) async fn record(
     let mut authors = snapshot.authors.to_vec();
     authors.sort_unstable();
     authors.dedup();
+    let id = Uuid::now_v7();
     versions::insert(
         &mut *conn,
         NewVersion {
-            id: Uuid::now_v7(),
+            id,
             page_id: snapshot.page_id,
             created_at: snapshot.at,
             authors: &authors,
@@ -66,6 +68,10 @@ pub(crate) async fn record(
         },
     )
     .await?;
+    let files = crate::attachments::shown_files(snapshot.document);
+    if !files.is_empty() {
+        neon_store::files::set_version_refs(&mut *conn, id, &files).await?;
+    }
     Ok(true)
 }
 

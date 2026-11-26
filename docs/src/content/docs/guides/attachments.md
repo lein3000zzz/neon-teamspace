@@ -177,11 +177,14 @@ cover, and `null` takes it off. `GET /api/v1/files/{id}` reads a file, with `Ran
   or once [`pages.trash_retention`](/docs/reference/settings/) is over, its files go with it.
 - **With their workspace.** Deleting a workspace deletes all its files.
 - **Once nothing shows them.** The hourly cleanup keeps every file that any page's document or
-  cover shows, in a block or as a link of its text. It marks a file nothing shows, and deletes it once it has stayed that way for
-  [`attachments.orphan_grace`](/docs/reference/settings/), 30 days unless set. A file shown
-  again within that time, after an undo, a paste of its block or a restored older version of
-  a page, stays and starts over. An older version than that may show a file deleted since, and
-  its block then stays empty.
+  cover shows, in a block or as a link of its text, and every file that a version the
+  [page history](/docs/guides/history/) keeps shows, so restoring a version brings back its
+  files with its blocks. It marks a file nothing shows, and deletes it once it has stayed that
+  way for [`attachments.orphan_grace`](/docs/reference/settings/), 30 days unless set. A file
+  shown again within that time, after an undo or a paste of its block, stays and starts over.
+  A file taken out of a page goes only once the history has thinned out every version that
+  shows it, as the [`history.*` settings](/docs/guides/history/#how-long-versions-are-kept)
+  say, and its grace has passed since; until then it counts against the workspace's storage.
 
 A file belongs to the page it was uploaded to. A block copied into another page shows the file
 to those who may see the page it came from, and the cleanup keeps the file while the copy shows

@@ -151,7 +151,8 @@ pub mod attachments {
     pub const S3_PATH_STYLE: Key<bool> = Key::new("attachments.s3.path_style");
     /// The largest file one upload takes, in bytes.
     pub const MAX_FILE_BYTES: Key<i64> = Key::new("attachments.max_file_bytes");
-    /// How long a file no page's document or cover shows is kept before it is deleted.
+    /// How long a file no page's document, cover or kept version shows is kept before it is
+    /// deleted.
     pub const ORPHAN_GRACE: Key<Duration> = Key::new("attachments.orphan_grace");
 }
 
@@ -787,10 +788,10 @@ pub fn registry() -> Registry {
             Definition::duration(
                 attachments::ORPHAN_GRACE,
                 Duration::from_secs(30 * 24 * 3600),
-                "How long a file that no page's content and no cover shows any more is kept, \
-                 from when the hourly cleanup first finds it so, before it is deleted for \
-                 good. Undoing the removal, or putting the file back from an older version \
-                 of its page, within it keeps the file.",
+                "How long a file that no page's content, no cover and no version the page \
+                 history keeps shows any more is kept, from when the hourly cleanup first \
+                 finds it so, before it is deleted for good. Undoing the removal within it \
+                 keeps the file; restoring a kept version always does.",
             )
             .check(between(MIN_ORPHAN_GRACE, MAX_ORPHAN_GRACE)),
         )

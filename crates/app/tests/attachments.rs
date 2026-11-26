@@ -1,8 +1,8 @@
 //! Attachments: uploads streamed to the blob store as their bytes come, the files each page's
-//! document and cover show, and the cleanup that keeps those, deletes the rest once past
-//! their grace, and deletes the blobs of every file gone, with its page, its workspace or an
-//! upload that never finished; and the storage limit, which uploads and imports that reach
-//! it at once keep to.
+//! document, cover and kept versions show, and the cleanup that keeps those, deletes the rest
+//! once past their grace, and deletes the blobs of every file gone, with its page, its
+//! workspace or an upload that never finished; restoring a version that shows files; and the
+//! storage limit, which uploads and imports that reach it at once keep to.
 
 mod support;
 
@@ -15,7 +15,9 @@ use neon_app::attachments::{
     AttachmentError, AttachmentService, BlobError, BlobRead, BlobStore, BlobWriter, CleanupReport,
     ObjectBlobs,
 };
+use neon_app::history::HistoryService;
 use neon_app::pages::{Location, NewPage, PageUpdate};
+use neon_app::settings::Change as Setting;
 use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed, revision};
 use neon_blocks::edit::Edit;
 use neon_blocks::{Block, BlockKind, Document, ImageProps};
@@ -190,6 +192,29 @@ impl Files {
             .expect("edited");
     }
 
+    /// Deletes the versions that show `file`, as the history thins versions out.
+    async fn forget_versions_showing(&self, file: &File) {
+        sqlx::query(
+            "DELETE FROM page_versions v USING version_file_refs r
+             WHERE r.version_id = v.id AND r.file_id = $1",
+        )
+        .bind(file.id)
+        .execute(&self.h.pool)
+        .await
+        .expect("deleted");
+    }
+
+    fn history(&self) -> HistoryService {
+        HistoryService::builder(
+            self.h.pool.clone(),
+            Arc::clone(&self.h.settings),
+            self.h.pages.clone(),
+            self.sync.clone(),
+        )
+        .clock(self.h.time.clock())
+        .build()
+    }
+
     /// Waits until a page's last snapshot names `files`.
     async fn snapshot_shows(&self, page: Uuid, files: &[Uuid]) {
         let mut wanted = files.to_vec();
@@ -320,9 +345,12 @@ async fn files_no_page_shows_go_once_past_their_grace(pool: PgPool) {
     t.h.time.advance(Duration::from_secs(2 * 24 * 3600));
     assert_eq!(t.cleanup().await, CleanupReport::default());
 
-    // Taken out of the page, it waits its whole grace again from then.
+    // Taken out of the page, it stays while the version that showed it is kept; once the
+    // history thins that out, it waits its whole grace again from then.
     t.set_blocks(page, vec![Block::paragraph("no image")]).await;
     t.snapshot_shows(page, &[]).await;
+    assert_eq!(t.cleanup().await.marked, 0, "a version shows it");
+    t.forget_versions_showing(&file).await;
     assert_eq!(t.cleanup().await.marked, 1);
     t.h.time.advance(Duration::from_secs(29 * 24 * 3600));
     assert_eq!(t.cleanup().await.deleted, 0);
@@ -335,6 +363,77 @@ async fn files_no_page_shows_go_once_past_their_grace(pool: PgPool) {
         t.attachments.file(&t.ada, file.id).await,
         Err(AttachmentError::NotFound)
     ));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_version_keeps_the_files_it_shows_and_a_restore_brings_them_back(pool: PgPool) {
+    let t = files(pool).await;
+    let history = t.history();
+    let page = t.page("Plan", None).await;
+    let shown = t
+        .upload(page, FileKind::Image, "shown.png", &png(), 1024)
+        .await
+        .expect("uploaded");
+    let linked = t
+        .upload(page, FileKind::File, "linked.pdf", b"%PDF-1.4 notes", 1024)
+        .await
+        .expect("uploaded");
+    let mut blocks =
+        neon_blocks::markdown::from_markdown(&format!("See [the notes]({}).\n", path(linked.id)))
+            .blocks;
+    blocks.push(image(shown.id));
+    t.set_blocks(page, blocks).await;
+    t.snapshot_shows(page, &[shown.id, linked.id]).await;
+    let with_files = history
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions[0]
+        .id;
+
+    // Taken out of the page, both stay past their grace: the version that shows them is
+    // kept.
+    t.h.time.advance(Duration::from_secs(60));
+    t.set_blocks(page, vec![Block::paragraph("Nothing to see")])
+        .await;
+    t.snapshot_shows(page, &[]).await;
+    assert_eq!(t.cleanup().await.marked, 0);
+    t.h.time.advance(Duration::from_secs(40 * 24 * 3600));
+    assert_eq!(t.cleanup().await, CleanupReport::default());
+    assert!(t.exists(&shown).await && t.exists(&linked).await);
+
+    // Restored, the page shows them again, and they read.
+    let compared = history
+        .compare(&t.ada, page, with_files)
+        .await
+        .expect("compared");
+    history
+        .restore(&t.ada, page, with_files, compared.revision)
+        .await
+        .expect("restored");
+    t.snapshot_shows(page, &[shown.id, linked.id]).await;
+    for file in [&shown, &linked] {
+        t.attachments.file(&t.dee, file.id).await.expect("reads");
+        assert!(t.kept(file).await);
+    }
+
+    // A history that keeps one version keeps only the files the page shows now: taken out
+    // again, they are marked, and go once past their grace.
+    t.h.settings
+        .update(
+            [("history.max_versions".to_owned(), Setting::Set(json!(1)))],
+            None,
+        )
+        .await
+        .expect("set");
+    t.h.time.advance(Duration::from_secs(60));
+    t.set_blocks(page, vec![Block::paragraph("Gone again")])
+        .await;
+    t.snapshot_shows(page, &[]).await;
+    assert_eq!(t.cleanup().await.marked, 2);
+    t.h.time.advance(Duration::from_secs(31 * 24 * 3600));
+    assert_eq!(t.cleanup().await.deleted, 2);
+    assert!(!t.exists(&shown).await && !t.exists(&linked).await);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

@@ -117,8 +117,8 @@ settings:
       # access_key_id:
       # secret_access_key:
       # path_style: true
-    # The largest file one upload takes, in bytes, and how long a file no page shows any
-    # more is kept before it is deleted.
+    # The largest file one upload takes, in bytes, and how long a file no page and no kept
+    # version shows any more is kept before it is deleted.
     # max_file_bytes: 52428800
     # orphan_grace: 30d
   auth:

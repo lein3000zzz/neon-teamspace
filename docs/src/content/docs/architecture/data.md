@@ -260,8 +260,9 @@ properties, search and attachments are kept as below.
   of its files' sizes, which every upload checks against its limit with the workspace's row
   locked, so uploads at once cannot together pass it. `pages.cover_file_id` names a page's
   cover image, one of its own files. Each snapshot of a page records the files its
-  document shows in `page_file_refs`, by the ids in their paths, in the same transaction, for
-  the cleanup to keep them. A file's row going, however it goes, leaves its key in
+  document shows in `page_file_refs`, by the ids in their paths, in the same transaction, and
+  each version the history keeps those it shows in `version_file_refs`, which go with the
+  version, for the cleanup to keep them. A file's row going, however it goes, leaves its key in
   `blob_deletions` through a trigger, and so does an upload as it starts, due half an hour
   later and taken out once its row is in; the hourly cleanup deletes the blobs due, then
   their rows. [Attachments](/docs/guides/attachments/#when-files-are-deleted) has the rules.

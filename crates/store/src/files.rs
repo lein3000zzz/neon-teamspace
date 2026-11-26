@@ -230,7 +230,25 @@ pub async fn set_page_refs(
     Ok(())
 }
 
-/// A file that no page's last snapshot shows, nor any cover.
+/// Records the files a version of a page shows, by the ids in their paths, as it is kept.
+pub async fn set_version_refs(
+    executor: impl PgExecutor<'_>,
+    version_id: Uuid,
+    file_ids: &[Uuid],
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "INSERT INTO version_file_refs (version_id, file_id)
+         SELECT $1, id FROM UNNEST($2::uuid[]) AS ids (id)
+         ON CONFLICT DO NOTHING",
+        version_id,
+        file_ids,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// A file that no page's last snapshot shows, nor any kept version, nor any cover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unreferenced {
     pub id: Uuid,
@@ -239,8 +257,9 @@ pub struct Unreferenced {
     pub since: Option<OffsetDateTime>,
 }
 
-/// Files no page's last snapshot shows and no page has as its cover: those not marked so
-/// yet, or, with `marked_before`, those marked so before it. Oldest first, at most `limit`.
+/// Files no page's last snapshot shows, no kept version of a page shows and no page has as
+/// its cover: those not marked so yet, or, with `marked_before`, those marked so before it.
+/// Oldest first, at most `limit`.
 pub async fn unreferenced(
     executor: impl PgExecutor<'_>,
     marked_before: Option<OffsetDateTime>,
@@ -252,6 +271,7 @@ pub async fn unreferenced(
          WHERE ($1::timestamptz IS NULL AND f.unreferenced_since IS NULL
                 OR f.unreferenced_since < $1)
            AND NOT EXISTS (SELECT 1 FROM page_file_refs r WHERE r.file_id = f.id)
+           AND NOT EXISTS (SELECT 1 FROM version_file_refs v WHERE v.file_id = f.id)
            AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.cover_file_id = f.id)
          ORDER BY f.unreferenced_since NULLS FIRST, f.created_at, f.id
          LIMIT $2",
@@ -309,14 +329,16 @@ pub async fn mark_unreferenced(
     Ok(result.rows_affected())
 }
 
-/// Unmarks the files marked as shown by no document that a page's last snapshot or a cover
-/// shows again, and those of `shown`, which a document shows since its last snapshot.
+/// Unmarks the files marked as shown by no document that a page's last snapshot, a kept
+/// version or a cover shows again, and those of `shown`, which a document shows since its
+/// last snapshot.
 pub async fn unmark_referenced(executor: impl PgExecutor<'_>, shown: &[Uuid]) -> sqlx::Result<u64> {
     let result = sqlx::query!(
         "UPDATE files f SET unreferenced_since = NULL
          WHERE f.unreferenced_since IS NOT NULL
            AND (f.id = ANY($1)
                 OR EXISTS (SELECT 1 FROM page_file_refs r WHERE r.file_id = f.id)
+                OR EXISTS (SELECT 1 FROM version_file_refs v WHERE v.file_id = f.id)
                 OR EXISTS (SELECT 1 FROM pages p WHERE p.cover_file_id = f.id))",
         shown,
     )
@@ -326,8 +348,8 @@ pub async fn unmark_referenced(executor: impl PgExecutor<'_>, shown: &[Uuid]) ->
 }
 
 /// Deletes those of `ids` marked as shown by no document since before `before` that no
-/// page's last snapshot or cover shows still: their blobs are then left to delete. Says
-/// how many went.
+/// page's last snapshot, kept version or cover shows still: their blobs are then left to
+/// delete. Says how many went.
 pub async fn delete_unreferenced(
     executor: impl PgExecutor<'_>,
     ids: &[Uuid],
@@ -337,6 +359,7 @@ pub async fn delete_unreferenced(
         "DELETE FROM files f
          WHERE f.id = ANY($1) AND f.unreferenced_since < $2
            AND NOT EXISTS (SELECT 1 FROM page_file_refs r WHERE r.file_id = f.id)
+           AND NOT EXISTS (SELECT 1 FROM version_file_refs v WHERE v.file_id = f.id)
            AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.cover_file_id = f.id)",
         ids,
         before,

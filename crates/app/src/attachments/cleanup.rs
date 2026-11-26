@@ -1,8 +1,8 @@
 //! The hourly cleanup of attachments: files no page shows any more, past their grace, and
 //! the blobs of files deleted.
 //!
-//! A page's last snapshot names the files its document shows, and a cover the file it
-//! shows. A document with updates logged since its snapshot may show more, and so may one
+//! A page's last snapshot names the files its document shows, each version the history
+//! keeps those it shows, and a cover the file it shows. A document with updates logged since its snapshot may show more, and so may one
 //! open now, so the cleanup reads each such document of the workspaces it looks at, as it
 //! is now. A file shown
 //! nowhere is marked, then deleted once it has stayed so for `attachments.orphan_grace`; a

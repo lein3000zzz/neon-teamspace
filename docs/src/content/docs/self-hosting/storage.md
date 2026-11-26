@@ -123,7 +123,8 @@ deletes it, once no page shows it. The
 ## What the server deletes
 
 The hourly cleanup deletes the bytes of every file deleted, whether it went with its page,
-with its workspace or once no page had shown it for `attachments.orphan_grace`.
+with its workspace or once no page nor kept version had shown it for
+`attachments.orphan_grace`.
 [Attachments](/docs/guides/attachments/#when-files-are-deleted) says when files go. Each run
 deletes them a thousand at a time until none are left, for up to ten minutes, so a workspace
 of many files is gone from the store within the hour after it is deleted unless the store is
