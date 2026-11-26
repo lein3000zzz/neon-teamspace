@@ -408,7 +408,11 @@ each tool does, with the same tokens.
 
 Over REST, the [live connections](/docs/architecture/realtime/) take the place of
 subscriptions, `/ws/pages/{id}` for a page's document and `/ws/databases/{id}` for a
-database.
+database. For `neon://me/tasks`, an [outgoing webhook](/docs/guides/webhooks/#outgoing-webhooks)
+registered for the identity takes its place: `row.assigned` and `row.status_changed` tell a
+program that runs elsewhere of its work as it comes, without a socket held open. A claim
+refused over REST answers `409 already_claimed` with the same `holders` beside its code and
+message, each with `id` and `name`.
 
 ## Observability
 

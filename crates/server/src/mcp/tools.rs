@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use neon_app::databases::{DatabaseError, NewDatabase, NewRow, QueryInput};
+use neon_app::databases::{NewDatabase, NewRow, QueryInput};
 use neon_app::pages::NewPage;
 use neon_blocks::edit::Edit;
 use neon_domain::auth::{Principal, Scope};
@@ -80,7 +80,9 @@ impl ToolError {
 
 impl From<ApiError> for ToolError {
     /// The API's answer as a tool's. A wait the API would send as `Retry-After` is the
-    /// error's `retry_after`, in whole seconds rounded up, and its message says it too.
+    /// error's `retry_after`, in whole seconds rounded up, and its message says it too; the
+    /// holders of a row a claim was refused for are its `holders`, as the API's error has
+    /// them.
     fn from(error: ApiError) -> Self {
         let wait = error
             .retry_after()
@@ -89,11 +91,16 @@ impl From<ApiError> for ToolError {
             Some(seconds) => format!("{}: try again in {seconds}s", error.message()),
             None => error.message().to_owned(),
         };
+        let details = match wait {
+            Some(seconds) => Some(("retry_after", json!(seconds))),
+            None if !error.holders().is_empty() => Some(("holders", json!(error.holders()))),
+            None => None,
+        };
         Self {
             code: error.code(),
             message,
             expected: !error.status().is_server_error(),
-            details: wait.map(|seconds| ("retry_after", json!(seconds))),
+            details,
         }
     }
 }
@@ -528,27 +535,12 @@ pub(crate) async fn call(
                 person_property,
             } = arguments(given)?;
             let row_id = row_named(s, principal, row_id, database_id, unique_id).await?;
-            match s
+            let row = s
                 .databases
                 .claim_row(principal, row_id, person_property.as_deref())
                 .await
-            {
-                Ok(row) => answer(Row::from(row)),
-                Err(DatabaseError::AlreadyClaimed(holders)) => {
-                    let message = DatabaseError::AlreadyClaimed(holders.clone()).to_string();
-                    let holders = holders
-                        .into_iter()
-                        .map(|holder| json!({"id": holder.id, "name": holder.name}))
-                        .collect();
-                    Err(ToolError {
-                        code: "already_claimed",
-                        message,
-                        expected: true,
-                        details: Some(("holders", Json::Array(holders))),
-                    })
-                }
-                Err(error) => Err(refused(error)),
-            }
+                .map_err(refused)?;
+            answer(Row::from(row))
         }
         other => Err(ToolError {
             code: "internal",

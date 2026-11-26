@@ -338,6 +338,12 @@ async fn rows_are_read_with_their_properties_claimed_and_changed_by_unique_id(po
             .await;
     assert_eq!(held.status, StatusCode::CONFLICT, "{}", held.body);
     assert_eq!(held.code(), "already_claimed");
+    assert_eq!(
+        held.body["error"]["holders"],
+        json!([{"id": dee_id, "name": "dee"}]),
+        "{}",
+        held.body
+    );
     let message = held.body["error"]["message"].as_str().expect("a message");
     assert!(
         message.contains(dee_id.as_str().expect("an id")),

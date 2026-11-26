@@ -3430,6 +3430,8 @@ export interface components {
              * @example not_found
              */
             code: string;
+            /** @description For `already_claimed`: whom the row's person property names. */
+            holders?: components["schemas"]["HolderDetail"][];
             /**
              * @description What went wrong, for people.
              * @example no such route
@@ -3468,6 +3470,16 @@ export interface components {
             order?: (string | null)[];
             /** @description The property, by id or name. */
             property: string;
+        };
+        /** @description Someone who holds a row: a person or an agent the row's person property names. */
+        HolderDetail: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description As the workspace names them: an agent with its owner's name.
+             * @example Scout · via Ada Lovelace
+             */
+            name: string;
         };
         /** @description What an import made. */
         ImportResult: {
@@ -8664,7 +8676,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description already_claimed, naming who holds it. */
+            /** @description already_claimed, naming who holds it in its message and holders. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10679,7 +10691,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description already_claimed: the person property names someone already, whom the message names with their ids. */
+            /** @description already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list. */
             409: {
                 headers: {
                     [name: string]: unknown;

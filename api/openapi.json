@@ -4663,7 +4663,7 @@
             }
           },
           "409": {
-            "description": "already_claimed, naming who holds it.",
+            "description": "already_claimed, naming who holds it in its message and holders.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7427,7 +7427,7 @@
             }
           },
           "409": {
-            "description": "already_claimed: the person property names someone already, whom the message names with their ids.",
+            "description": "already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16556,6 +16556,13 @@
             "description": "Stable and meant for programs, such as `not_found` or `invalid_json`.",
             "example": "not_found"
           },
+          "holders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HolderDetail"
+            },
+            "description": "For `already_claimed`: whom the row's person property names."
+          },
           "message": {
             "type": "string",
             "description": "What went wrong, for people.",
@@ -16663,6 +16670,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "HolderDetail": {
+        "type": "object",
+        "description": "Someone who holds a row: a person or an agent the row's person property names.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "As the workspace names them: an agent with its owner's name.",
+            "example": "Scout · via Ada Lovelace"
+          }
+        }
       },
       "ImportResult": {
         "type": "object",

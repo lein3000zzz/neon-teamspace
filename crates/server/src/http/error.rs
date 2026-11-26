@@ -1,5 +1,6 @@
 //! The one error shape of the API: `{"error": {"code": string, "message": string}}`, with
-//! the problems of each field when there were several.
+//! the problems of each field when there were several, and who holds a row a claim was
+//! refused for.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -40,6 +41,18 @@ pub struct ErrorDetail {
     /// Each field that is wrong and why, when a request had several, such as settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<ProblemDetail>,
+    /// For `already_claimed`: whom the row's person property names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holders: Vec<HolderDetail>,
+}
+
+/// Someone who holds a row: a person or an agent the row's person property names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct HolderDetail {
+    pub id: uuid::Uuid,
+    /// As the workspace names them: an agent with its owner's name.
+    #[schema(example = "Scout · via Ada Lovelace")]
+    pub name: String,
 }
 
 /// One field that is wrong.
@@ -59,6 +72,7 @@ pub struct ApiError {
     code: &'static str,
     message: Cow<'static, str>,
     problems: Vec<Problem>,
+    holders: Vec<HolderDetail>,
     /// Sent as `Retry-After`, in whole seconds rounded up.
     retry_after: Option<Duration>,
 }
@@ -74,6 +88,7 @@ impl ApiError {
             code,
             message: message.into(),
             problems: Vec::new(),
+            holders: Vec::new(),
             retry_after: None,
         }
     }
@@ -126,6 +141,11 @@ impl ApiError {
         &self.message
     }
 
+    /// For `already_claimed`: who holds the row.
+    pub fn holders(&self) -> &[HolderDetail] {
+        &self.holders
+    }
+
     /// How long the client should wait before it tries again, as `Retry-After` says.
     pub fn retry_after(&self) -> Option<Duration> {
         self.retry_after
@@ -157,6 +177,7 @@ impl IntoResponse for ApiError {
                         message: problem.message,
                     })
                     .collect(),
+                holders: self.holders,
             },
         };
         let mut response = (self.status, axum::Json(body)).into_response();
@@ -286,7 +307,17 @@ impl From<DatabaseError> for ApiError {
                     | DatabaseError::AlreadyClaimed(_) => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
-                Self::new(status, expected.code(), expected.to_string())
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                if let DatabaseError::AlreadyClaimed(holders) = expected {
+                    api.holders = holders
+                        .into_iter()
+                        .map(|holder| HolderDetail {
+                            id: holder.id,
+                            name: holder.name,
+                        })
+                        .collect();
+                }
+                api
             }
         }
     }

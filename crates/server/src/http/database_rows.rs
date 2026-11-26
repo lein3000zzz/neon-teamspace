@@ -503,7 +503,7 @@ pub struct Claim {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the row and does not edit it, it is in the trash, or the caller is a guest; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "already_claimed: the person property names someone already, whom the message names with their ids.", body = ErrorBody),
+        (status = CONFLICT, description = "already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -539,7 +539,7 @@ pub(super) async fn claim_row(
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden, as for `POST /rows/{id}/claim`; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: the database, or no row of it has the id.", body = ErrorBody),
-        (status = CONFLICT, description = "already_claimed, naming who holds it.", body = ErrorBody),
+        (status = CONFLICT, description = "already_claimed, naming who holds it in its message and holders.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
