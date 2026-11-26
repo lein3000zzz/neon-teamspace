@@ -12,6 +12,7 @@ use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
+use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
@@ -63,6 +64,21 @@ pub(super) async fn state_for(
         limits,
         LiveLimits::default(),
         Arc::new(MemoryLimiter::new()),
+        Clock::system(),
+    )
+    .await
+}
+
+/// The state with `web`, its sessions, tokens and OAuth reading the time from `clock`.
+pub(super) async fn state_at(pool: PgPool, web: WebConfig, clock: Clock) -> AppState {
+    build_state(
+        pool,
+        Envelope::default(),
+        web,
+        SyncLimits::default(),
+        LiveLimits::default(),
+        Arc::new(MemoryLimiter::new()),
+        clock,
     )
     .await
 }
@@ -76,6 +92,7 @@ pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppSta
         SyncLimits::default(),
         limits,
         Arc::new(MemoryLimiter::new()),
+        Clock::system(),
     )
     .await
 }
@@ -95,6 +112,7 @@ pub(crate) async fn state_with_mcp(
         limits,
         LiveLimits::default(),
         limiter,
+        Clock::system(),
     )
     .await
 }
@@ -106,6 +124,7 @@ async fn build_state(
     limits: SyncLimits,
     feeds: LiveLimits,
     limiter: Arc<dyn RateLimiter>,
+    clock: Clock,
 ) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -132,6 +151,7 @@ async fn build_state(
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope.clone())
+        .clock(clock.clone())
         .mail(mail)
         .access_changes(Arc::clone(&listener))
         .build()
@@ -142,6 +162,10 @@ async fn build_state(
         .access_changes(Arc::clone(&listener))
         .build();
     let agents = AgentService::new(workspaces.clone());
+    let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
+        .clock(clock)
+        .access_changes(Arc::clone(&listener))
+        .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
         .broadcaster(Arc::clone(&broadcaster))
@@ -174,6 +198,7 @@ async fn build_state(
         auth,
         workspaces,
         agents,
+        oauth,
         pages,
         sync,
         databases,

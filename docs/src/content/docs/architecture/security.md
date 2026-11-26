@@ -14,14 +14,15 @@ the same features from the side of the people using them.
 | Passwords | argon2id PHC strings: `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`, a 16-byte salt and a 32-byte hash. |
 | Session tokens | SHA-256 of the token. |
 | API tokens | SHA-256 of the token, and its first 10 characters to show in lists. |
+| OAuth codes, access tokens and refresh tokens | SHA-256 of each. |
 | Invite codes | SHA-256 of the code in lowercase, and a copy sealed with the instance's key when one is configured. |
 | Workspace invite links | SHA-256 of the link's token, and a copy sealed with the instance's key when one is configured. |
 | Mailed links | SHA-256 of the link's token. |
 | Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
 
-Session tokens, API tokens, made invite codes, invite links and mailed links are 32 random
-bytes from a
+Session tokens, API tokens, OAuth codes and tokens, made invite codes, invite links and
+mailed links are 32 random bytes from a
 CSPRNG, written in base64url. A fast hash is enough for values that random, so they need no
 salt and no stretching. Someone who reads the database learns no token that works.
 
@@ -43,10 +44,14 @@ which accounts exist or are disabled.
 
 ## How a request proves who it is
 
-A request carries one of two credentials:
+A request carries one of three credentials:
 
 - `Authorization: Bearer nw_…`, an API token. A bearer header that does not work is refused
   with `401`, without trying the cookie.
+- `Authorization: Bearer nwo_…`, an OAuth access token, read the same way. It stands for the
+  same principal as an API token bound to its grant's workspace, acting as the person who
+  consented or the agent they chose, while the grant works; see
+  [OAuth](#oauth).
 - The session cookie, `neon_session`, or `__Host-neon_session` when `server.public_url` is
   https. It is `HttpOnly`, `SameSite=Lax` and `Path=/`, `Secure` over https, and lasts until
   the session's absolute expiry. The `__Host-` prefix makes browsers refuse a cookie of that
@@ -121,9 +126,15 @@ match `server.public_url`. When that is unset, it must match the `Host` the requ
 to. Anything else gets `403`, and the server logs the origin it refused.
 
 Bearer requests are exempt because browsers never add an `Authorization` header on their
-own. A request with neither header passes. Browsers send `Origin` on every cross-site
+own. So are OAuth's registration, token and revocation endpoints, which clients in
+browsers of any origin post to and which never read the session cookie, only what the
+request carries. A request with neither header passes. Browsers send `Origin` on every cross-site
 request that changes something, and `SameSite=Lax` keeps the session cookie off cross-site
 posts besides.
+
+Those three endpoints and OAuth's metadata allow CORS from any origin, without
+credentials, as the OAuth specifications expect of them. No other path sends an
+`Access-Control-Allow-Origin` header, so scripts of other origins read nothing else.
 
 A WebSocket upgrade is a `GET`, yet the connection it opens changes pages, and `SameSite=Lax`
 does not keep the cookie off it. So an upgrade whose `Origin` is not the server's own gets
@@ -165,6 +176,8 @@ attempts, then one more every 30 seconds:
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
+| `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
+| `oauth-token:grant:` | Exchanges of OAuth codes and refresh tokens, by grant. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -210,8 +223,8 @@ their query strings. Logs name accounts by id. A test runs every flow with loggi
 most verbose and checks that none of the secrets it used appears.
 
 The auth use cases are measured in the RED metrics of the `auth` subsystem, as
-`neon_auth_operations_total` and its siblings, by operation, and the workspace use cases in
-those of `workspaces`. A wrong password or an expired
+`neon_auth_operations_total` and its siblings, by operation, the workspace use cases in
+those of `workspaces`, and the OAuth server's in those of `oauth`. A wrong password or an expired
 link counts as `ok`, as a `4xx` answer does for HTTP, and leaves its span's status unset with
 the reason recorded. Only a failure of the server, such as a database that does not answer,
 counts as `error`.
@@ -231,6 +244,42 @@ only to this host. The mail password, and the settings that say where it goes, c
 from a browser session, so an API token that leaked cannot point the password, or the reset
 links, at another server. Errors carry the relay's answer, never the password, and logs
 name a mail by its kind, never its recipient or link. See [Mail](/docs/self-hosting/mail/).
+
+## OAuth
+
+MCP clients and other programs connect through an OAuth 2.1 server, which
+[Connecting apps over OAuth](/docs/guides/oauth/) describes. What keeps it safe:
+
+- **Public clients and PKCE.** Clients register themselves and get no secret. Every
+  authorization needs PKCE with `S256`; `plain`, which would send the verifier itself
+  through the browser, is refused. A code is exchanged only with its verifier, its client
+  and the redirect URI it was sent to, within 60 seconds, once.
+- **Redirect URIs.** A client registers `https` ones, `http` ones to this machine alone, or
+  schemes of native apps' own, never one the browser or the system runs itself, and a
+  request names one of them exactly, but for the port of a loopback address. A request
+  that does not hold is shown to the person, never sent to the client's redirect URI on its
+  own, so the server sends nobody's browser where a stranger registered.
+- **Consent at a browser.** Approving and denying need a browser session and come from the
+  server's own origin, as every request that changes something with the cookie does; no
+  token approves anything. The page names the client as its own word and shows the host the
+  browser goes back to in ASCII.
+- **Rotation and reuse.** A refresh token works once and is replaced each time. A code or
+  refresh token used a second time ends its grant and every token of it, as one of the two
+  uses was a copy. Spent refresh tokens are kept until they would have expired, to catch
+  that, and each grant exchanges a few at a time, so that a client refreshing in a loop
+  keeps no more.
+- **Every use is checked.** An access token stands for its grant's person or agent, bound
+  to its workspace, with no more scopes than the grant has now. The grant is read again on
+  every request: it stops when it is revoked, when its person is disabled or leaves the
+  workspace, when its agent is suspended, turned off, deleted or handed to someone else, or
+  when `mcp.identities` drops its mode. Agents never get `admin`, and the account's and the
+  instance admins' routes refuse every OAuth token.
+- **Bounded registration.** Registering is rate limited by source, an IPv4 address or an
+  IPv6 /64, the clients nobody connected are bounded in number for each source and for all
+  together, so that one source cannot take the room every other has, and those are removed
+  after a while.
+- **Small requests.** The endpoints anyone may call read no more than a request of theirs
+  needs: 64 KiB of a registration, 16 KiB and 16 parameters of a form.
 
 ## The last admin
 
@@ -284,4 +333,5 @@ before, requests to join decided 30 days before, and unconfirmed requests a day 
 link stopped working. It also removes workspace invitations answered, revoked or expired 30
 days before, invite links that expired or were revoked 30 days before, and pages that have
 been in the trash for `pages.trash_retention`, 30 days unless set, with the pages under
-them.
+them. OAuth's expired codes and tokens go too, with the grants none of whose codes or tokens
+works any more, and the clients nobody connected within `oauth.unused_client_ttl`.

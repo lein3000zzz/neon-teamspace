@@ -1,7 +1,8 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, edits of pages' content from the API and MCP, and requests to the MCP server, by
-//! identity and by person.
+//! pages, edits of pages' content from the API and MCP, requests to the MCP server, by
+//! identity and by person, OAuth clients registering themselves, and the exchanges of each
+//! OAuth grant.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -95,10 +96,16 @@ pub enum Bucket {
     Mcp,
     /// Requests to the MCP server, by person: theirs and their agents' together.
     McpPerson,
+    /// OAuth clients registering themselves, by source, an IPv4 address or an IPv6 /64:
+    /// anyone may, and each is kept a while.
+    OAuthRegister,
+    /// Exchanging an OAuth code or refresh token, by grant: each exchange keeps the
+    /// refresh token it spent until it expires, to catch a second use.
+    OAuthToken,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 19] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -116,6 +123,8 @@ impl Bucket {
         Self::PageEdit,
         Self::Mcp,
         Self::McpPerson,
+        Self::OAuthRegister,
+        Self::OAuthToken,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -138,6 +147,8 @@ impl Bucket {
             Self::PageEdit => "page-edit:user:",
             Self::Mcp => "mcp:user:",
             Self::McpPerson => "mcp:person:",
+            Self::OAuthRegister => "oauth-register:source:",
+            Self::OAuthToken => "oauth-token:grant:",
         }
     }
 

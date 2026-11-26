@@ -100,6 +100,7 @@ export default defineConfig({
             'guides/workspace-rules',
             'guides/agents',
             'guides/agents-over-mcp',
+            'guides/oauth',
             'guides/editing-pages',
             'guides/pages',
             'guides/databases-and-boards',

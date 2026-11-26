@@ -34,11 +34,13 @@ mod tools;
 mod watch;
 
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{AUTHORIZATION, ORIGIN, WWW_AUTHENTICATE};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt as _;
@@ -206,7 +208,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
                 mcp.inner.sessions.look_again_soon(id);
             }
             if refusal.status() == StatusCode::UNAUTHORIZED {
-                return challenge(&state, headers, refusal);
+                return challenge(&state, &parts, refusal);
             }
             return refusal.into_response();
         }
@@ -421,8 +423,12 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal
 
 /// A 401 that names where the protected resource's metadata is, so a client finds how to
 /// get a token.
-fn challenge(state: &AppState, headers: &HeaderMap, error: ApiError) -> Response {
-    let origin = state.web.public_origin(headers);
+fn challenge(state: &AppState, parts: &Parts, error: ApiError) -> Response {
+    let peer = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip());
+    let origin = state.web.public_origin(peer, &parts.headers);
     let mut response = error.into_response();
     let value = format!("Bearer resource_metadata=\"{origin}{RESOURCE_METADATA}\"");
     if let Ok(value) = HeaderValue::from_str(&value) {

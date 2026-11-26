@@ -23,6 +23,7 @@ import { Route as AuthResetRouteImport } from './routes/_auth/reset'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AppAccountIndexRouteImport } from './routes/_app/account/index'
 import { Route as AppAccountAppearanceRouteImport } from './routes/_app/account/appearance'
+import { Route as AppAccountAppsRouteImport } from './routes/_app/account/apps'
 import { Route as AppAccountInvitationsRouteImport } from './routes/_app/account/invitations'
 import { Route as AppAccountSessionsRouteImport } from './routes/_app/account/sessions'
 import { Route as AppAccountTokensRouteImport } from './routes/_app/account/tokens'
@@ -35,6 +36,7 @@ import { Route as AppWSlugRouteImport } from './routes/_app/w/$slug'
 import { Route as AppWorkspacesNewRouteImport } from './routes/_app/workspaces/new'
 import { Route as AuthJoinIndexRouteImport } from './routes/_auth/join/index'
 import { Route as AuthJoinConfirmRouteImport } from './routes/_auth/join/confirm'
+import { Route as AuthOauthConsentRouteImport } from './routes/_auth/oauth/consent'
 import { Route as AuthWorkspaceInviteIndexRouteImport } from './routes/_auth/workspace-invite/index'
 import { Route as AuthWorkspaceInviteTokenRouteImport } from './routes/_auth/workspace-invite/$token'
 import { Route as AppWSlugIndexRouteImport } from './routes/_app/w/$slug/index'
@@ -116,6 +118,11 @@ const AppAccountAppearanceRoute = AppAccountAppearanceRouteImport.update({
   path: '/appearance',
   getParentRoute: () => AppAccountRoute,
 } as any)
+const AppAccountAppsRoute = AppAccountAppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
+  getParentRoute: () => AppAccountRoute,
+} as any)
 const AppAccountInvitationsRoute = AppAccountInvitationsRouteImport.update({
   id: '/invitations',
   path: '/invitations',
@@ -174,6 +181,11 @@ const AuthJoinIndexRoute = AuthJoinIndexRouteImport.update({
 const AuthJoinConfirmRoute = AuthJoinConfirmRouteImport.update({
   id: '/join/confirm',
   path: '/join/confirm',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthOauthConsentRoute = AuthOauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
   getParentRoute: () => AuthRoute,
 } as any)
 const AuthWorkspaceInviteIndexRoute =
@@ -253,6 +265,7 @@ export interface FileRoutesByFullPath {
   '/reset': typeof AuthResetRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/apps': typeof AppAccountAppsRoute
   '/account/invitations': typeof AppAccountInvitationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
@@ -263,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/w/$slug': typeof AppWSlugRouteWithChildren
   '/workspaces/new': typeof AppWorkspacesNewRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
+  '/oauth/consent': typeof AuthOauthConsentRoute
   '/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/account/': typeof AppAccountIndexRoute
   '/admin/': typeof AppAdminIndexRoute
@@ -289,6 +303,7 @@ export interface FileRoutesByTo {
   '/reset': typeof AuthResetRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
+  '/account/apps': typeof AppAccountAppsRoute
   '/account/invitations': typeof AppAccountInvitationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
@@ -298,6 +313,7 @@ export interface FileRoutesByTo {
   '/admin/workspaces': typeof AppAdminWorkspacesRoute
   '/workspaces/new': typeof AppWorkspacesNewRoute
   '/join/confirm': typeof AuthJoinConfirmRoute
+  '/oauth/consent': typeof AuthOauthConsentRoute
   '/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/account': typeof AppAccountIndexRoute
   '/admin': typeof AppAdminIndexRoute
@@ -328,6 +344,7 @@ export interface FileRoutesById {
   '/_auth/verify': typeof AuthVerifyRoute
   '/_app/': typeof AppIndexRoute
   '/_app/account/appearance': typeof AppAccountAppearanceRoute
+  '/_app/account/apps': typeof AppAccountAppsRoute
   '/_app/account/invitations': typeof AppAccountInvitationsRoute
   '/_app/account/sessions': typeof AppAccountSessionsRoute
   '/_app/account/tokens': typeof AppAccountTokensRoute
@@ -338,6 +355,7 @@ export interface FileRoutesById {
   '/_app/w/$slug': typeof AppWSlugRouteWithChildren
   '/_app/workspaces/new': typeof AppWorkspacesNewRoute
   '/_auth/join/confirm': typeof AuthJoinConfirmRoute
+  '/_auth/oauth/consent': typeof AuthOauthConsentRoute
   '/_auth/workspace-invite/$token': typeof AuthWorkspaceInviteTokenRoute
   '/_app/account/': typeof AppAccountIndexRoute
   '/_app/admin/': typeof AppAdminIndexRoute
@@ -368,6 +386,7 @@ export interface FileRouteTypes {
     | '/reset'
     | '/verify'
     | '/account/appearance'
+    | '/account/apps'
     | '/account/invitations'
     | '/account/sessions'
     | '/account/tokens'
@@ -378,6 +397,7 @@ export interface FileRouteTypes {
     | '/w/$slug'
     | '/workspaces/new'
     | '/join/confirm'
+    | '/oauth/consent'
     | '/workspace-invite/$token'
     | '/account/'
     | '/admin/'
@@ -404,6 +424,7 @@ export interface FileRouteTypes {
     | '/reset'
     | '/verify'
     | '/account/appearance'
+    | '/account/apps'
     | '/account/invitations'
     | '/account/sessions'
     | '/account/tokens'
@@ -413,6 +434,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/workspaces/new'
     | '/join/confirm'
+    | '/oauth/consent'
     | '/workspace-invite/$token'
     | '/account'
     | '/admin'
@@ -442,6 +464,7 @@ export interface FileRouteTypes {
     | '/_auth/verify'
     | '/_app/'
     | '/_app/account/appearance'
+    | '/_app/account/apps'
     | '/_app/account/invitations'
     | '/_app/account/sessions'
     | '/_app/account/tokens'
@@ -452,6 +475,7 @@ export interface FileRouteTypes {
     | '/_app/w/$slug'
     | '/_app/workspaces/new'
     | '/_auth/join/confirm'
+    | '/_auth/oauth/consent'
     | '/_auth/workspace-invite/$token'
     | '/_app/account/'
     | '/_app/admin/'
@@ -574,6 +598,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountAppearanceRouteImport
       parentRoute: typeof AppAccountRoute
     }
+    '/_app/account/apps': {
+      id: '/_app/account/apps'
+      path: '/apps'
+      fullPath: '/account/apps'
+      preLoaderRoute: typeof AppAccountAppsRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
     '/_app/account/invitations': {
       id: '/_app/account/invitations'
       path: '/invitations'
@@ -656,6 +687,13 @@ declare module '@tanstack/react-router' {
       path: '/join/confirm'
       fullPath: '/join/confirm'
       preLoaderRoute: typeof AuthJoinConfirmRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/oauth/consent': {
+      id: '/_auth/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof AuthOauthConsentRouteImport
       parentRoute: typeof AuthRoute
     }
     '/_auth/workspace-invite/': {
@@ -747,6 +785,7 @@ declare module '@tanstack/react-router' {
 
 interface AppAccountRouteChildren {
   AppAccountAppearanceRoute: typeof AppAccountAppearanceRoute
+  AppAccountAppsRoute: typeof AppAccountAppsRoute
   AppAccountInvitationsRoute: typeof AppAccountInvitationsRoute
   AppAccountSessionsRoute: typeof AppAccountSessionsRoute
   AppAccountTokensRoute: typeof AppAccountTokensRoute
@@ -755,6 +794,7 @@ interface AppAccountRouteChildren {
 
 const AppAccountRouteChildren: AppAccountRouteChildren = {
   AppAccountAppearanceRoute: AppAccountAppearanceRoute,
+  AppAccountAppsRoute: AppAccountAppsRoute,
   AppAccountInvitationsRoute: AppAccountInvitationsRoute,
   AppAccountSessionsRoute: AppAccountSessionsRoute,
   AppAccountTokensRoute: AppAccountTokensRoute,
@@ -853,6 +893,7 @@ interface AuthRouteChildren {
   AuthResetRoute: typeof AuthResetRoute
   AuthVerifyRoute: typeof AuthVerifyRoute
   AuthJoinConfirmRoute: typeof AuthJoinConfirmRoute
+  AuthOauthConsentRoute: typeof AuthOauthConsentRoute
   AuthWorkspaceInviteTokenRoute: typeof AuthWorkspaceInviteTokenRoute
   AuthJoinIndexRoute: typeof AuthJoinIndexRoute
   AuthWorkspaceInviteIndexRoute: typeof AuthWorkspaceInviteIndexRoute
@@ -865,6 +906,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthResetRoute: AuthResetRoute,
   AuthVerifyRoute: AuthVerifyRoute,
   AuthJoinConfirmRoute: AuthJoinConfirmRoute,
+  AuthOauthConsentRoute: AuthOauthConsentRoute,
   AuthWorkspaceInviteTokenRoute: AuthWorkspaceInviteTokenRoute,
   AuthJoinIndexRoute: AuthJoinIndexRoute,
   AuthWorkspaceInviteIndexRoute: AuthWorkspaceInviteIndexRoute,

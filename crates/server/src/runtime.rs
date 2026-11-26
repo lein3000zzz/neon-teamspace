@@ -4,10 +4,10 @@
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains,
 //! the job worker stops, the gauges stop if metrics are on, the live documents close their
-//! connections and are saved, the hourly workspace and auth cleanups stop, the auth work
-//! begun after earlier answers finishes, the database pool closes, the admin listener stops,
-//! and the telemetry flushes last, so what the other parts log while stopping is still
-//! written.
+//! connections and are saved, the hourly OAuth, workspace and auth cleanups stop, the auth
+//! work begun after earlier answers finishes, the database pool closes, the admin listener
+//! stops, and the telemetry flushes last, so what the other parts log while stopping is
+//! still written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -31,6 +31,7 @@ use neon_app::crypto::Envelope;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
+use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
@@ -265,6 +266,10 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .access_changes(Arc::clone(&access))
         .build();
     let agents = AgentService::new(workspaces.clone());
+    let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
+        .limiter(Arc::clone(&limiter))
+        .access_changes(Arc::clone(&access))
+        .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(access)
         .broadcaster(Arc::clone(&broadcaster))
@@ -294,6 +299,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
+    start_oauth_upkeep(shutdown, &oauth);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
     let listener = TcpListener::bind(config.server.listen)
@@ -314,6 +320,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             auth,
             workspaces,
             agents,
+            oauth,
             pages,
             sync: live,
             databases,
@@ -404,6 +411,18 @@ fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pa
     on_stop(
         shutdown,
         "workspace cleanup",
+        DEFAULT_HOOK_TIMEOUT,
+        cleanup.stop(),
+    );
+}
+
+/// Starts the hourly cleanup of OAuth's expired codes and tokens, spent grants and unused
+/// clients, which stops before the pool closes.
+fn start_oauth_upkeep(shutdown: &Shutdown, oauth: &OAuthService) {
+    let cleanup = OAuthCleanup::spawn(oauth.clone(), CLEANUP_INTERVAL);
+    on_stop(
+        shutdown,
+        "oauth cleanup",
         DEFAULT_HOOK_TIMEOUT,
         cleanup.stop(),
     );

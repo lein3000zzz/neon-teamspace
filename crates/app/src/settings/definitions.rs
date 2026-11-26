@@ -6,6 +6,9 @@ use neon_domain::auth::password::{DEFAULT_MIN_PASSWORD_LENGTH, MIN_PASSWORD_LENG
 use neon_domain::auth::{Email, RegistrationMode, session};
 use neon_domain::duration;
 use neon_domain::mail::{self as rules, Security};
+use neon_domain::oauth::{
+    ACCESS_TTL_BOUNDS, DEFAULT_ACCESS_TTL, DEFAULT_REFRESH_TTL, REFRESH_TTL_BOUNDS,
+};
 use neon_domain::settings::{Definition, Key, Registry, Snapshot, checks};
 use neon_domain::workspaces::WorkspaceCreation;
 
@@ -98,6 +101,27 @@ pub mod mcp {
     pub const NOTIFICATION_INTERVAL: Key<Duration> = Key::new("mcp.notification_interval");
 }
 
+/// The OAuth server MCP clients and other programs connect through.
+pub mod oauth {
+    use std::time::Duration;
+
+    use neon_domain::settings::Key;
+
+    /// Clients may register themselves (RFC 7591).
+    pub const REGISTRATION: Key<bool> = Key::new("oauth.registration");
+    /// How long an access token works.
+    pub const ACCESS_TOKEN_TTL: Key<Duration> = Key::new("oauth.access_token_ttl");
+    /// How long a refresh token works, if not exchanged first.
+    pub const REFRESH_TOKEN_TTL: Key<Duration> = Key::new("oauth.refresh_token_ttl");
+    /// The most clients without a grant there may be at once.
+    pub const MAX_UNUSED_CLIENTS: Key<i64> = Key::new("oauth.max_unused_clients");
+    /// The most clients without a grant that registered from one source there may be.
+    pub const MAX_UNUSED_CLIENTS_PER_SOURCE: Key<i64> =
+        Key::new("oauth.max_unused_clients_per_source");
+    /// How long a client without a grant is kept after it registered or was last used.
+    pub const UNUSED_CLIENT_TTL: Key<Duration> = Key::new("oauth.unused_client_ttl");
+}
+
 /// Pages: how long the trash keeps them.
 pub mod pages {
     use std::time::Duration;
@@ -122,6 +146,23 @@ const NEEDS_MAIL: &str = "needs mail set up first: mail.enabled on, with mail.ho
 
 /// The longest a session may last, either way.
 const MAX_SESSION_TTL: Duration = Duration::from_secs(365 * 24 * 3600);
+
+/// The bounds of how long an unused OAuth client is kept, and of how many there may be.
+const UNUSED_CLIENT_TTL_BOUNDS: (Duration, Duration) = (
+    Duration::from_secs(3600),
+    Duration::from_secs(90 * 24 * 3600),
+);
+const MAX_UNUSED_CLIENTS_BOUNDS: (i64, i64) = (1, 100_000);
+
+/// Checks a bound on unused OAuth clients against [`MAX_UNUSED_CLIENTS_BOUNDS`].
+fn within_unused_clients_bounds(n: &i64) -> Result<(), String> {
+    let (least, most) = MAX_UNUSED_CLIENTS_BOUNDS;
+    if (least..=most).contains(n) {
+        Ok(())
+    } else {
+        Err(format!("must be between {least} and {most}"))
+    }
+}
 
 /// The shortest and longest the trash keeps pages.
 const MIN_TRASH_RETENTION: Duration = Duration::from_secs(3600);
@@ -376,6 +417,68 @@ pub fn registry() -> Registry {
              agent's API tokens are refused; the agents made stay, and work again once it is \
              back.",
         ))
+        .define(Definition::bool(
+            oauth::REGISTRATION,
+            true,
+            "MCP clients and other programs may register themselves with the OAuth server \
+             (RFC 7591 dynamic client registration), as they do before a person first \
+             connects them. Off, none registers; those registered keep working.",
+        ))
+        .define(
+            Definition::duration(
+                oauth::ACCESS_TOKEN_TTL,
+                DEFAULT_ACCESS_TTL,
+                "How long an OAuth access token works. A client gets a new one with its \
+                 refresh token. Applies to tokens issued from now.",
+            )
+            .check(between(ACCESS_TTL_BOUNDS.0, ACCESS_TTL_BOUNDS.1)),
+        )
+        .define(
+            Definition::duration(
+                oauth::REFRESH_TOKEN_TTL,
+                DEFAULT_REFRESH_TTL,
+                "How long an OAuth refresh token works. Each works once, and is replaced by \
+                 a new one as the client uses it; a client unused this long is connected \
+                 again. Longer than oauth.access_token_ttl. Applies to tokens issued from \
+                 now.",
+            )
+            .check(between(REFRESH_TTL_BOUNDS.0, REFRESH_TTL_BOUNDS.1)),
+        )
+        .define(
+            Definition::integer(
+                oauth::MAX_UNUSED_CLIENTS,
+                1000,
+                "The most OAuth clients that nobody has connected there may be at once, as \
+                 anyone may register one. Past it, registering waits until the hourly \
+                 cleanup removes some; clients people connected never count.",
+            )
+            .check(within_unused_clients_bounds),
+        )
+        .define(
+            Definition::integer(
+                oauth::MAX_UNUSED_CLIENTS_PER_SOURCE,
+                20,
+                "The most OAuth clients that nobody has connected there may be from one \
+                 place at once: one IPv4 address, or one /64 network of IPv6 addresses. Past \
+                 it, that place registers no more until some are connected or the hourly \
+                 cleanup removes them, so that no one place takes all of \
+                 oauth.max_unused_clients.",
+            )
+            .check(within_unused_clients_bounds),
+        )
+        .define(
+            Definition::duration(
+                oauth::UNUSED_CLIENT_TTL,
+                Duration::from_secs(24 * 3600),
+                "How long an OAuth client that nobody connected, or whose connections all \
+                 ended, is kept after it registered or was last used, before the hourly \
+                 cleanup removes it.",
+            )
+            .check(between(
+                UNUSED_CLIENT_TTL_BOUNDS.0,
+                UNUSED_CLIENT_TTL_BOUNDS.1,
+            )),
+        )
         .define(
             Definition::integer(
                 mcp::MAX_SESSIONS,
@@ -446,6 +549,18 @@ pub fn registry() -> Registry {
         })
         .rule(auth::VERIFY_EMAIL.name(), |settings| {
             needs_mail(settings, *settings.get(auth::VERIFY_EMAIL))
+        })
+        // A refresh token that ends first would leave nothing to renew the access token with.
+        .rule(oauth::REFRESH_TOKEN_TTL.name(), |settings| {
+            let access = *settings.get(oauth::ACCESS_TOKEN_TTL);
+            if *settings.get(oauth::REFRESH_TOKEN_TTL) > access {
+                Ok(())
+            } else {
+                Err(format!(
+                    "must be longer than oauth.access_token_ttl, {}",
+                    duration::format(access)
+                ))
+            }
         })
         .rule(mail::TLS.name(), |settings| {
             let security = Security::parse(settings.get(mail::TLS)).unwrap_or(Security::DEFAULT);
@@ -568,6 +683,21 @@ mod tests {
             *snapshot.get(mcp::NOTIFICATION_INTERVAL),
             Duration::from_secs(2)
         );
+        assert!(*snapshot.get(oauth::REGISTRATION));
+        assert_eq!(
+            *snapshot.get(oauth::ACCESS_TOKEN_TTL),
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            *snapshot.get(oauth::REFRESH_TOKEN_TTL),
+            Duration::from_secs(30 * 24 * 3600)
+        );
+        assert_eq!(*snapshot.get(oauth::MAX_UNUSED_CLIENTS), 1000);
+        assert_eq!(*snapshot.get(oauth::MAX_UNUSED_CLIENTS_PER_SOURCE), 20);
+        assert_eq!(
+            *snapshot.get(oauth::UNUSED_CLIENT_TTL),
+            Duration::from_secs(24 * 3600)
+        );
         assert_eq!(
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
@@ -627,6 +757,34 @@ mod tests {
         assert_eq!(
             refuse("pages.trash_retention", "30m"),
             "must be between 1h and 3650d"
+        );
+        assert_eq!(
+            refuse("oauth.access_token_ttl", "4m"),
+            "must be between 5m and 1d"
+        );
+        assert_eq!(
+            refuse("oauth.access_token_ttl", "25h"),
+            "must be between 5m and 1d"
+        );
+        assert_eq!(
+            refuse("oauth.refresh_token_ttl", "59m"),
+            "must be between 1h and 90d"
+        );
+        assert_eq!(
+            refuse("oauth.refresh_token_ttl", "91d"),
+            "must be between 1h and 90d"
+        );
+        assert_eq!(
+            refuse("oauth.max_unused_clients", "0"),
+            "must be between 1 and 100000"
+        );
+        assert_eq!(
+            refuse("oauth.max_unused_clients_per_source", "0"),
+            "must be between 1 and 100000"
+        );
+        assert_eq!(
+            refuse("oauth.unused_client_ttl", "30m"),
+            "must be between 1h and 90d"
         );
         assert_eq!(refuse("mail.tls", "ssl"), "want one of starttls, tls, none");
         assert_eq!(
@@ -731,6 +889,39 @@ mod tests {
             ]),
             Ok(()),
             "no password, nothing to protect"
+        );
+    }
+
+    #[test]
+    fn a_refresh_token_outlives_its_access_token() {
+        assert_eq!(
+            check(&[
+                (
+                    "oauth.access_token_ttl",
+                    Value::Duration(Duration::from_secs(2 * 3600))
+                ),
+                (
+                    "oauth.refresh_token_ttl",
+                    Value::Duration(Duration::from_secs(2 * 3600))
+                ),
+            ]),
+            Err(vec![Problem::new(
+                "oauth.refresh_token_ttl",
+                "must be longer than oauth.access_token_ttl, 2h"
+            )])
+        );
+        assert_eq!(
+            check(&[
+                (
+                    "oauth.access_token_ttl",
+                    Value::Duration(Duration::from_secs(2 * 3600))
+                ),
+                (
+                    "oauth.refresh_token_ttl",
+                    Value::Duration(Duration::from_secs(3 * 3600))
+                ),
+            ]),
+            Ok(())
         );
     }
 

@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@/api/agents";
+import type { ConnectedApp } from "@/api/oauth";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
@@ -334,5 +335,39 @@ describe("the agents of a workspace", () => {
     const tabs = await screen.findByRole("navigation", { name: "Workspace settings" });
     await waitFor(() => expect(within(tabs).getAllByRole("link")).toHaveLength(1));
     expect(within(tabs).queryByRole("link", { name: "Agents" })).toBeNull();
+  });
+
+  it("lists the apps acting as agents, and disconnects one", async () => {
+    const app: ConnectedApp = {
+      id: "0193a5b2-0000-7000-8000-00000000e003",
+      client: { id: "0193a5b2-0000-7000-8000-00000000d003", name: "Hermes" },
+      workspace: { id: ID, name: "Design", slug: "design" },
+      identity: asPerson(ranger),
+      connected_by: { id: people.cy.id, display_name: "Cy" },
+      scopes: ["read", "write"],
+      resource: "mcp",
+      created_at: "2026-11-20T09:00:00Z",
+      updated_at: "2026-11-20T09:00:00Z",
+      last_used_at: null,
+    };
+    const api = fakeWorkspaces({ agents: [scout, ranger], apps: [app] });
+    const { user } = renderApp("/w/design/settings/agents");
+
+    const region = within(await screen.findByRole("region", { name: "Apps acting as agents" }));
+    const card = within(await region.findByRole("listitem", { name: "Hermes" }));
+    expect(card.getByText("Hermes")).toBeInTheDocument();
+    expect(card.getByText("Cy")).toBeInTheDocument();
+    expect(card.getByText("Never")).toBeInTheDocument();
+    await user.click(card.getByRole("button", { name: "Disconnect Hermes acting as Ranger" }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    await user.click(dialog.getByRole("button", { name: "Disconnect" }));
+
+    expect(await region.findByText("No app acts as an agent here.")).toBeInTheDocument();
+    expect(await region.findByText("Hermes is disconnected.")).toBeInTheDocument();
+    expect(api.changes).toContainEqual({
+      method: "DELETE",
+      path: `${base}/connected-apps/${app.id}`,
+      body: undefined,
+    });
   });
 });

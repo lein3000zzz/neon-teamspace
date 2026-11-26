@@ -9,6 +9,7 @@ pub mod crypto;
 pub mod databases;
 pub mod jobs;
 pub mod mail;
+pub mod oauth;
 pub mod pages;
 pub mod periodic;
 pub mod ratelimit;

@@ -37,8 +37,10 @@ pub enum AccessChange {
     /// ended, or their account was disabled or changed role. Whoever holds pages open for
     /// them checks that the session or token they opened them with still holds.
     Account { user_id: Uuid },
-    /// Every page, for every agent: whether agents work on the instance changed. Whoever
-    /// holds pages open for an agent checks that its token still holds.
+    /// Every page, for every agent and every token bound to a workspace: whom tokens may
+    /// act as on the instance, `mcp.identities`, changed, which decides whether agents work
+    /// and whether OAuth tokens act as their people or their agents. Whoever holds pages
+    /// open for one of them checks that its token still holds.
     Agents,
 }
 

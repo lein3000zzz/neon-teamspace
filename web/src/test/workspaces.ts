@@ -13,6 +13,7 @@ import type {
 } from "@/api/workspaces";
 import type { Agent } from "@/api/agents";
 import type { ApiToken } from "@/api/account";
+import type { ConnectedApp } from "@/api/oauth";
 import { hueFor } from "@/lib/hue";
 import { ada, apiError } from "./fixtures";
 import { server } from "./server";
@@ -178,6 +179,8 @@ type Options = {
   received?: ReceivedInvitation[];
   /** The workspace's agents; none unless given. */
   agents?: Agent[];
+  /** The apps connected over OAuth that act as its agents; none unless given. */
+  apps?: ConnectedApp[];
 };
 
 /** A request a test may look at: what was asked, and with what body. */
@@ -219,6 +222,7 @@ export function fakeWorkspaces(options: Options = {}) {
     received: options.received ?? [],
     agents: options.agents ?? [],
     agentTokens: {} as Record<string, ApiToken[]>,
+    apps: options.apps ?? [],
   };
   for (const agent of state.agents) {
     if (agent.status !== "deleted") {
@@ -644,6 +648,14 @@ export function fakeWorkspaces(options: Options = {}) {
         state.agentTokens[id] = (state.agentTokens[id] ?? []).filter(
           (entry) => entry.id !== params["token_id"],
         );
+        return noContent();
+      }),
+    ),
+    http.get(`${base}/connected-apps`, () => HttpResponse.json({ apps: state.apps })),
+    http.delete(
+      `${base}/connected-apps/:app_id`,
+      record((_, params) => {
+        state.apps = state.apps.filter((entry) => entry.id !== params["app_id"]);
         return noContent();
       }),
     ),
