@@ -117,6 +117,9 @@ impl OAuthService {
 
     /// The code's grant and scopes, the code marked used. Refused, the code stays as it
     /// was, so a client that sent a wrong parameter may try again within its minute.
+    ///
+    /// It locks the grant, then the code, the order in which revoking a grant locks them,
+    /// so that an exchange and a revocation or a second exchange take turns.
     async fn exchange(
         &self,
         tx: &mut PgConnection,
@@ -136,7 +139,13 @@ impl OAuthService {
             return Err(Refused(invalid_grant("no such code")));
         }
         let hash = hash_secret(code);
-        let found = repo::lock_code(&mut *tx, &hash).await.map_err(failed)?;
+        let locked = repo::lock_grant_of_code(&mut *tx, &hash)
+            .await
+            .map_err(failed)?;
+        let found = match locked {
+            Some(_) => repo::lock_code(&mut *tx, &hash).await.map_err(failed)?,
+            None => None,
+        };
         let Some(found) = found else {
             return Err(Refused(invalid_grant("no such code")));
         };
@@ -169,6 +178,8 @@ impl OAuthService {
     /// The refresh token's grant and the scopes of its successor, the token marked used.
     /// Refused, it stays as it was, so a client whose agent is suspended for now may
     /// refresh once it resumes.
+    ///
+    /// It locks the grant, then the refresh token, as [`exchange`](Self::exchange) does.
     async fn refresh(
         &self,
         tx: &mut PgConnection,
@@ -183,9 +194,14 @@ impl OAuthService {
         if !secret.starts_with(REFRESH_TOKEN_PREFIX) || secret.len() > MAX_SECRET {
             return Err(Refused(invalid_grant("no such refresh token")));
         }
-        let found = repo::lock_refresh(&mut *tx, &hash_secret(secret))
+        let hash = hash_secret(secret);
+        let locked = repo::lock_grant_of_refresh(&mut *tx, &hash)
             .await
             .map_err(failed)?;
+        let found = match locked {
+            Some(_) => repo::lock_refresh(&mut *tx, &hash).await.map_err(failed)?,
+            None => None,
+        };
         let Some(old) = found else {
             return Err(Refused(invalid_grant("no such refresh token")));
         };

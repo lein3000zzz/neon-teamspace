@@ -427,8 +427,47 @@ pub async fn insert_code(
     Ok(())
 }
 
+/// Locks the grant of the code of a hash until the transaction ends, and gives its id:
+/// `None` when there is no such code, or its grant is gone.
+///
+/// Whatever changes a grant together with its codes and tokens locks the grant first:
+/// deleting it does, and so do exchanging a code and a refresh token, with this and
+/// [`lock_grant_of_refresh`], before they lock the code or token. Each then waits for the
+/// other, and none waits for one that waits for it.
+pub async fn lock_grant_of_code(
+    executor: impl PgExecutor<'_>,
+    hash: &[u8],
+) -> sqlx::Result<Option<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT g.id FROM oauth_grants g
+         WHERE g.id = (SELECT c.grant_id FROM oauth_codes c WHERE c.hash = $1)
+         FOR UPDATE",
+        hash,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
+/// Locks the grant of the refresh token of a hash until the transaction ends, as
+/// [`lock_grant_of_code`] does a code's.
+pub async fn lock_grant_of_refresh(
+    executor: impl PgExecutor<'_>,
+    hash: &[u8],
+) -> sqlx::Result<Option<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT g.id FROM oauth_grants g
+         WHERE g.id = (SELECT t.grant_id FROM oauth_tokens t
+                       WHERE t.hash = $1 AND t.kind = 'refresh')
+         FOR UPDATE",
+        hash,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
 /// A code by its hash, locked until the transaction ends, so that two exchanges of it
-/// take turns and the second finds it used.
+/// take turns and the second finds it used. Lock its grant first, with
+/// [`lock_grant_of_code`].
 pub async fn lock_code(executor: impl PgExecutor<'_>, hash: &[u8]) -> sqlx::Result<Option<Code>> {
     sqlx::query!(
         "SELECT grant_id, redirect_uri, challenge, scopes, audience, created_at, expires_at,
@@ -533,7 +572,7 @@ impl TryFrom<TokenRow> for Token {
 }
 
 /// A refresh token by its hash, locked until the transaction ends, as [`lock_code`] locks
-/// codes.
+/// codes. Lock its grant first, with [`lock_grant_of_refresh`].
 pub async fn lock_refresh(
     executor: impl PgExecutor<'_>,
     hash: &[u8],
