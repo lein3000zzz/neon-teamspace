@@ -201,20 +201,25 @@ macro_rules! search_sql {
                -- The page past the part tells that more follow, and is not marked. A
                -- snippet is marked in $20 characters of the values, text and comments, from
                -- $21 before the first place one of the query's words is, or from the start.
+               -- ts_headline drops what reads as an HTML tag, such as the <id> of
+               -- plants/<id>/moisture, so each < stands as U+0003 while it marks.
                SELECT r.id AS "id!", r.rank AS "rank!", r.n AS "n!",
                       CASE WHEN $2::text IS NOT NULL AND r.n <= $16 THEN
-                          ts_headline('simple', translate(r.title, E'\x01\x02', ''),
-                                      to_tsquery('simple', $2),
-                                      E'StartSel=\x01, StopSel=\x02, HighlightAll=true')
+                          translate(ts_headline('simple',
+                                                translate(r.title, E'<\x01\x02\x03', E'\x03'),
+                                                to_tsquery('simple', $2),
+                                                E'StartSel=\x01, StopSel=\x02, HighlightAll=true'),
+                                    E'\x03', '<')
                       END AS title,
                       CASE WHEN t.body IS NOT NULL THEN
-                          ts_headline('simple',
-                                      translate(substr(t.body,
-                                                       greatest(1, COALESCE(m.at, 1) - $21),
-                                                       $20),
-                                                E'\x01\x02', ''),
-                                      to_tsquery('simple', $2),
-                                      E'StartSel=\x01, StopSel=\x02, MaxWords=30, MinWords=12, ShortWord=2, MaxFragments=2, FragmentDelimiter=" … "')
+                          translate(ts_headline('simple',
+                                                translate(substr(t.body,
+                                                                 greatest(1, COALESCE(m.at, 1) - $21),
+                                                                 $20),
+                                                          E'<\x01\x02\x03', E'\x03'),
+                                                to_tsquery('simple', $2),
+                                                E'StartSel=\x01, StopSel=\x02, MaxWords=30, MinWords=12, ShortWord=2, MaxFragments=2, FragmentDelimiter=" … "'),
+                                    E'\x03', '<')
                       END AS snippet
                FROM numbered r
                LEFT JOIN LATERAL (

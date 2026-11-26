@@ -64,7 +64,8 @@ More of the query's words, and more matches, rank higher. Between results that r
 same, the one changed last comes first.
 
 Each result has its title and a snippet of up to two passages of about thirty words around
-the matches, both in runs that mark what matched. The snippet comes from the 5,000
+the matches, both in runs that mark what matched. Both keep what reads as markup, such as the
+`<id>` of `plants/<id>/moisture`, as it is written. The snippet comes from the 5,000
 characters around the first place one of the query's words is, in a row's values, then the
 page's text, then its comments, so on a long page it shows the first matches, not the best
 ones further on. A loose title match has nothing marked.

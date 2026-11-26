@@ -324,8 +324,9 @@ A test searches as every kind of caller and fails on any such log line, so a dif
 shows there rather than as short pages of results.
 Ranking is `ts_rank` of the vector, plus the title's word similarity to the query, plus one
 for a title that is the query's words, however short. Snippets are `ts_headline`, which
-costs more than in proportion to the text it reads, so it reads 5,000 characters of the
-values and the text, from 1,000 before the first place one of the query's words is, and
+drops what reads as an HTML tag, so each `<` stands as a control character while it marks
+them. It costs more than in proportion to the text it reads, so it reads 5,000 characters of
+the values and the text, from 1,000 before the first place one of the query's words is, and
 only for the results answered, not the one read past them to tell whether more follow.
 
 A search holds a connection of the pool while it runs, so what it may take is bounded: each

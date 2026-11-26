@@ -959,6 +959,38 @@ async fn titles_rank_first_and_matches_are_marked(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn snippets_and_titles_keep_what_reads_as_markup(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page(
+        "Broker <topics>",
+        "Topic `plants/<id>/moisture` carries a moisture reading.\n",
+    )
+    .await;
+
+    let found = t.find(&t.dee, "moisture").await;
+    let marked: Vec<(&str, bool)> = found.hits[0]
+        .snippet
+        .iter()
+        .map(|run| (run.text.as_str(), run.highlight))
+        .collect();
+    assert_eq!(
+        marked,
+        [
+            ("Topic plants/<id>/moisture carries a ", false),
+            ("moisture", true),
+            (" reading", false)
+        ]
+    );
+    let found = t.find(&t.dee, "broker").await;
+    let title: String = found.hits[0]
+        .title
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(title, "Broker <topics>");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_title_that_is_a_short_query_ranks_first(pool: PgPool) {
     let t = team(pool).await;
     t.general_page("Go", "").await;
