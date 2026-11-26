@@ -3,8 +3,9 @@
 //! subscribed to with a notification after another client's change, the gate's refusals,
 //! the rates and bounds on sessions, by identity and by person, a session ending when its
 //! agent is suspended, its token revoked or expired, or people are kept out, a person's
-//! token beside an agent's and one across the instance, concurrent claims, and an edit
-//! merging with a page-sync client typing.
+//! token beside an agent's and one across the instance, concurrent claims, an edit
+//! merging with a page-sync client typing, and a client that finds the OAuth server from
+//! `/mcp`'s challenge, connects as an agent and acts there as it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,10 +33,11 @@ use tokio::time::{Instant, sleep, timeout};
 use tower::ServiceExt as _;
 
 use super::agents_tests::{Bearer, agent, agent_token};
-use super::auth_tests::admin;
-use super::pages_tests::general;
+use super::auth_tests::{admin, call};
+use super::oauth_tests::{REDIRECT, code, exchange, register, request, tokens, verifier};
+use super::pages_tests::{create, general};
 use super::sync_tests::{Peer, Server};
-use super::tests::{state, state_with_mcp};
+use super::tests::{PUBLIC_URL, state, state_with_mcp};
 use super::workspaces_tests::{Browser, Team, id, team};
 use super::*;
 
@@ -1836,5 +1838,160 @@ async fn each_tool_call_is_a_red_operation_of_its_own(pool: PgPool) {
     assert_eq!(count("read_page", "error"), 0);
     assert_eq!(count("list_resources", "ok"), 1);
     client.close().await;
+    finish(&state, server).await;
+}
+
+/// A client that `by` registers and connects over OAuth in `workspace` as `agent`, for
+/// `/mcp` with `scopes`, as an MCP client asks: its access token.
+async fn connected_over_oauth(
+    app: &Router,
+    by: &Browser<'_>,
+    workspace: &str,
+    agent: &str,
+    scopes: &[&str],
+) -> String {
+    let client = register(app, &[REDIRECT]).await;
+    let verifier = verifier('m');
+    let mut asked = request(&client, &verifier, Some(&scopes.join(" ")));
+    asked["resource"] = json!(format!("{PUBLIC_URL}{}", crate::mcp::PATH));
+    let code = code(by, &asked, workspace, Some(agent), scopes).await;
+    tokens(&client, &exchange(app, &client, &code, &verifier).await).access
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_oauth_client_finds_the_server_from_mcp_and_acts_there_as_the_agent_chosen(
+    pool: PgPool,
+) {
+    let url = url::Url::parse(PUBLIC_URL).expect("a URL");
+    let state = state_with_mcp(
+        pool,
+        WebConfig::new(Some(&url), Vec::new()),
+        neon_app::sync::Limits::default(),
+        Arc::new(MemoryLimiter::new()),
+    )
+    .await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+
+    // Asked without a token, /mcp names its metadata, which names /mcp and the server
+    // whose own metadata says where a client registers.
+    let (status, answered, _) = raw(&app, Method::POST, &[], Some(initialize())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let challenge = answered[WWW_AUTHENTICATE].to_str().expect("text");
+    let metadata = challenge
+        .strip_prefix("Bearer resource_metadata=\"")
+        .and_then(|rest| rest.strip_suffix('"'))
+        .and_then(|address| address.strip_prefix(PUBLIC_URL))
+        .unwrap_or_else(|| panic!("a challenge naming the metadata: {challenge}"));
+    let resource = call(&app, Method::GET, metadata, &[], None).await;
+    assert_eq!(resource.status, StatusCode::OK, "{}", resource.body);
+    assert_eq!(
+        resource.body["resource"],
+        format!("{PUBLIC_URL}{}", crate::mcp::PATH)
+    );
+    assert_eq!(resource.body["authorization_servers"], json!([PUBLIC_URL]));
+    let authorization = call(
+        &app,
+        Method::GET,
+        "/.well-known/oauth-authorization-server",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(
+        authorization.body["registration_endpoint"],
+        format!("{PUBLIC_URL}/api/v1/oauth/register")
+    );
+
+    // Cy connects a client as Scout: it acts as Scout at /mcp, for Cy, in the workspace.
+    let scout = agent(&t.cy, &ws, "Scout").await;
+    let token = connected_over_oauth(&app, &t.cy, &ws, &scout, &["read", "write"]).await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+    let me = client.ok("whoami", json!({})).await;
+    assert_eq!(me["identity"]["id"], scout.as_str(), "{me}");
+    assert_eq!(me["identity"]["kind"], "agent");
+    assert_eq!(me["identity"]["owner"]["display_name"], "cy");
+    assert_eq!(me["workspace"]["id"], ws.as_str());
+    assert_eq!(me["scopes"], json!(["read", "write"]));
+
+    // A page shared with Scout alone stays out of its reach while Cy, whose access bounds
+    // its own, cannot see it. Shared with Cy too, it reads, still as only Scout's share
+    // lets it: to view, though Cy may edit.
+    let board = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces"),
+            json!({"name": "Board", "access": "private"}),
+        )
+        .await;
+    assert_eq!(board.status, StatusCode::CREATED, "{}", board.body);
+    let minutes = create(&t.ada, &ws, json!({"teamspace_id": id(&board)}), "Minutes").await;
+    let cy = account_id(&t.cy).await;
+    let shares = format!("/api/v1/pages/{minutes}/shares");
+    let shared = t
+        .ada
+        .post(&shares, json!({"user_id": scout, "access": "can_view"}))
+        .await;
+    assert_eq!(shared.status, StatusCode::CREATED, "{}", shared.body);
+    let (code, _) = client
+        .refused("read_page", json!({"page_id": minutes}))
+        .await;
+    assert_eq!(code, "not_found");
+    let shared = t
+        .ada
+        .post(&shares, json!({"user_id": cy, "access": "can_edit"}))
+        .await;
+    assert_eq!(shared.status, StatusCode::CREATED, "{}", shared.body);
+    let read = client.ok("read_page", json!({"page_id": minutes})).await;
+    assert_eq!(read["page"]["title"], "Minutes", "{read}");
+    let append = json!({"page_id": minutes, "operations": [{"op": "append", "markdown": "Noted"}]});
+    let (code, _) = client.refused("edit_page", append).await;
+    assert_eq!(code, "forbidden");
+
+    // Disconnected by Cy, the app's session ends at once, unasked.
+    assert_eq!(state.mcp.session_count(), 1);
+    let apps = t.cy.get("/api/v1/account/connected-apps").await;
+    let app_id = apps.body["apps"][0]["id"]
+        .as_str()
+        .expect("an app")
+        .to_owned();
+    let disconnected =
+        t.cy.send(
+            Method::DELETE,
+            &format!("/api/v1/account/connected-apps/{app_id}"),
+            None,
+        )
+        .await;
+    assert_eq!(disconnected.status, StatusCode::NO_CONTENT);
+    eventually("the disconnected app's session to end", || async {
+        state.mcp.session_count() == 0
+    })
+    .await;
+    let after = client
+        .service
+        .call_tool(CallToolRequestParams::new("whoami"))
+        .await;
+    assert!(after.is_err(), "{after:?}");
+    client.close().await;
+
+    // A client allowed to read alone reads, and changes nothing.
+    let reader = Client::connect(
+        &server,
+        &connected_over_oauth(&app, &t.cy, &ws, &scout, &["read"]).await,
+    )
+    .await
+    .expect("connects");
+    reader.ok("read_page", json!({"page_id": minutes})).await;
+    let general = general(&t.cy, &ws).await;
+    let (code, _) = reader
+        .refused(
+            "create_page",
+            json!({"teamspace_id": general, "title": "Draft"}),
+        )
+        .await;
+    assert_eq!(code, "insufficient_scope");
+    reader.close().await;
     finish(&state, server).await;
 }

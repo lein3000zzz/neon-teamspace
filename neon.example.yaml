@@ -130,8 +130,8 @@ settings:
     # notifications: true
   mcp:
     # Whom MCP clients may act as: the person who connects them (user), one of their
-    # agents (agent), or both. Without agent, nobody makes agents and agents' tokens are
-    # refused.
+    # agents (agent), or both, with a token or over OAuth. Without agent, nobody makes
+    # agents and agents' tokens are refused.
     # identities: [user, agent]
     # The most sessions the server holds at once, one person or agent may, and one person
     # may with their agents together.
@@ -142,6 +142,12 @@ settings:
     # session_idle_timeout: 30m
     # How often, at most, a session hears that one resource it subscribes to changed.
     # notification_interval: 2s
+  oauth:
+    # Whether MCP clients and other programs may register themselves with the OAuth server.
+    # registration: true
+    # How long an access token works, and a refresh token if not exchanged first.
+    # access_token_ttl: 1h
+    # refresh_token_ttl: 30d
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d

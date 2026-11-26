@@ -8,11 +8,13 @@
 //!   stream of notifications, and a `DELETE` ends the session. A request whose `Origin` is
 //!   not the server's own is refused with 403, against DNS rebinding: see [`own_origin`].
 //! - **Authentication.** Every request, not only the first, carries `Authorization: Bearer`
-//!   and is authenticated as the API routes authenticate it; a session cookie is not taken.
-//!   One without a working token gets 401 and a `WWW-Authenticate` header naming the
-//!   protected resource's metadata. The token must be bound to one workspace, as an agent's
-//!   always is, and the server acts in that workspace alone. A refused request on a session
-//!   has the session looked at again, which ends it when its own token no longer works.
+//!   and is authenticated as the API routes authenticate it, an API token or an OAuth access
+//!   token alike; a session cookie is not taken. One without a working token gets 401 and a
+//!   `WWW-Authenticate` header naming the protected resource's metadata, which the OAuth
+//!   server publishes, so that a client finds where to get a token. The token must be bound
+//!   to one workspace, as an agent's and every OAuth token always is, and the server acts in
+//!   that workspace alone. A refused request on a session has the session looked at again,
+//!   which ends it when its own token no longer works.
 //! - **Sessions** are this process's, each bound to the identity that opened it: a request
 //!   on a session from another identity, or for another workspace, finds no session. They
 //!   are bounded overall, per identity and per person with their agents, end once idle, and
@@ -34,11 +36,10 @@ mod tools;
 mod watch;
 
 use std::convert::Infallible;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{Request, State};
 use axum::http::header::{AUTHORIZATION, ORIGIN, WWW_AUTHENTICATE};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
@@ -55,6 +56,7 @@ use neon_app::sync::{Broadcaster, SyncService};
 use neon_app::workspaces::WorkspaceService;
 use neon_domain::agents::IdentityMode;
 use neon_domain::auth::{Principal, UserKind};
+use neon_domain::oauth::RESOURCE_METADATA_PATH;
 use neon_observability::red::Red;
 use rmcp::transport::StreamableHttpService;
 use rmcp::transport::common::http_header::HEADER_SESSION_ID;
@@ -70,12 +72,8 @@ use sessions::{Activity, Sessions};
 /// RED subsystem of the MCP server's tools and resource requests.
 pub const SUBSYSTEM: &str = "mcp";
 
-/// Where the server is mounted.
+/// Where the server is mounted: the resource OAuth's tokens for MCP name.
 pub const PATH: &str = "/mcp";
-
-/// Where the metadata of the resource `/mcp` is, as OAuth's protected resources publish it
-/// (RFC 9728), below the server's public origin.
-pub const RESOURCE_METADATA: &str = "/.well-known/oauth-protected-resource";
 
 /// The span of the HTTP request a call came in, for the call's own span to be under.
 #[derive(Clone)]
@@ -379,7 +377,8 @@ fn track(
 async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal, ApiError> {
     let Some(header) = headers.get(AUTHORIZATION) else {
         return Err(ApiError::unauthenticated(
-            "the MCP server wants Authorization: Bearer and a token bound to one workspace",
+            "the MCP server wants Authorization: Bearer and a token bound to one workspace: \
+             connect through OAuth, or with an agent's token or a person's made for it",
         ));
     };
     let principal = crate::http::principal::bearer(state, header).await?;
@@ -421,16 +420,12 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal
     Ok(principal)
 }
 
-/// A 401 that names where the protected resource's metadata is, so a client finds how to
-/// get a token.
+/// A 401 that names where the OAuth server publishes the metadata of `/mcp` (RFC 9728),
+/// below the public origin its metadata names, so a client finds how to get a token.
 fn challenge(state: &AppState, parts: &Parts, error: ApiError) -> Response {
-    let peer = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip());
-    let origin = state.web.public_origin(peer, &parts.headers);
+    let origin = state.web.request_origin(parts);
     let mut response = error.into_response();
-    let value = format!("Bearer resource_metadata=\"{origin}{RESOURCE_METADATA}\"");
+    let value = format!("Bearer resource_metadata=\"{origin}{RESOURCE_METADATA_PATH}\"");
     if let Ok(value) = HeaderValue::from_str(&value) {
         response.headers_mut().insert(WWW_AUTHENTICATE, value);
     }

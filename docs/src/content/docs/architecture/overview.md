@@ -139,7 +139,7 @@ configure. Under it:
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
 | `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
 | `/hooks/*` | Incoming webhooks, **planned**. |
-| `/.well-known/oauth-*` | OAuth metadata for agents, **planned**. |
+| `/.well-known/oauth-*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). |
 | `/docs` | These docs. |
 | Anything else | The web app. |
 

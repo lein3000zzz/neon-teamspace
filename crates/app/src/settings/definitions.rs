@@ -413,8 +413,10 @@ pub fn registry() -> Registry {
             IdentityMode::OPTIONS,
             IdentityMode::DEFAULT,
             "Whom MCP clients may act as: the person who connects them (user), one of that \
-             person's agents (agent), or both. Without agent, nobody makes agents and every \
-             agent's API tokens are refused; the agents made stay, and work again once it is \
+             person's agents (agent), or both. Without user, /mcp refuses people's tokens, \
+             OAuth's consent offers no acting as oneself, and the OAuth connections acting as \
+             people stop. Without agent, nobody makes agents and every agent's API tokens and \
+             OAuth connections are refused. What either leaves out works again once it is \
              back.",
         ))
         .define(Definition::bool(

@@ -22,7 +22,7 @@ use std::collections::HashSet;
 
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequestParts, Request, State};
+use axum::extract::{DefaultBodyLimit, FromRequestParts, Request, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_TYPE, LOCATION, PRAGMA, RETRY_AFTER,
@@ -131,13 +131,7 @@ impl FromRequestParts<AppState> for Base {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let peer = parts
-            .extensions
-            .get::<ConnectInfo<std::net::SocketAddr>>()
-            .map(|ConnectInfo(addr)| addr.ip());
-        Ok(Self(Endpoints::new(
-            &state.web.public_origin(peer, &parts.headers),
-        )))
+        Ok(Self(Endpoints::new(&state.web.request_origin(parts))))
     }
 }
 

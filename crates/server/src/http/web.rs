@@ -163,6 +163,16 @@ impl WebConfig {
             )
     }
 
+    /// [`public_origin`](Self::public_origin) as a request has it: from the address it came
+    /// from and its headers.
+    pub(crate) fn request_origin(&self, parts: &Parts) -> String {
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip());
+        self.public_origin(peer, &parts.headers)
+    }
+
     /// Whether `server.public_url` names the server's origin, rather than each request's
     /// `Host` standing in for it.
     pub(crate) fn knows_its_origin(&self) -> bool {

@@ -50,12 +50,21 @@ server describes itself as a protected resource, as RFC 9728 has it:
 WWW-Authenticate: Bearer resource_metadata="https://neon.example.com/.well-known/oauth-protected-resource"
 ```
 
-A client that supports MCP's authorization reads that document, then the authorization
-server's metadata, registers itself, and opens the consent page in a browser. There you sign
-in, pick the workspace, and pick whom the client acts as, you or one of your agents in that
-workspace. The client gets an access token bound to that workspace, which works at `/mcp`
-as any bound token does. Give such a client the URL alone. A server that does not offer
-OAuth wants a token in the header, as above.
+A client that supports MCP's authorization reads that document, which names the resource,
+`<public URL>/mcp`, then the authorization server's metadata, registers itself, and opens
+the consent page in a browser. There you sign in, pick the workspace, and pick whom the
+client acts as, you or one of your agents in that workspace, and its scopes. The client gets
+an access token bound to that workspace, which works at `/mcp` as any bound token does: an
+agent's acts as the agent, within what both it and you may, and the scopes you allowed. Give
+such a client the URL alone. [Connecting apps over OAuth](/docs/guides/oauth/) has the
+whole flow, the tokens' lifetimes, and how to disconnect an app.
+
+An access token lasts an hour unless
+[`oauth.access_token_ttl`](/docs/reference/settings/) says otherwise. A client that gets a
+new one with its refresh token before the old one expires carries on with its session, as
+the new token is the same identity's; a session whose token expired ends, as below, and the
+client opens a new one. Disconnecting the app ends its sessions at once, and a consent that
+narrows its scopes narrows its next requests.
 
 ## What a connection is
 
