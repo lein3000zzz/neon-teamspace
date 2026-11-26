@@ -1509,7 +1509,7 @@ export const strings = {
       teamspace: "Teamspace",
       anyTeamspace: "Any teamspace",
       kind: "Kind",
-      anyKind: "Pages, databases and rows",
+      anyKind: "Any kind",
       kinds: { page: "Pages", database: "Databases", row: "Rows" },
       createdBy: "Created by",
       editedBy: "Last edited by",

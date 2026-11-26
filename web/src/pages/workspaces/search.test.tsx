@@ -106,10 +106,7 @@ describe("the search page", () => {
       within: "7d",
     });
     // Back to any kind.
-    await user.selectOptions(
-      filters.getByRole("combobox", { name: "Kind" }),
-      "Pages, databases and rows",
-    );
+    await user.selectOptions(filters.getByRole("combobox", { name: "Kind" }), "Any kind");
     await waitFor(() => expect(api.asked.at(-1)?.["kind"]).toBeUndefined());
   });
 
