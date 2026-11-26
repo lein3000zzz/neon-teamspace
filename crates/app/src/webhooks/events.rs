@@ -1,5 +1,5 @@
-//! The events a change to a row's values makes, and their deliveries, queued on the
-//! transaction of the change.
+//! The events a change to a row's values makes, and those of mentions and replies, and
+//! their deliveries, queued on the transaction of the change.
 //!
 //! A row's assignees are the identities in its person properties. Every writer of values,
 //! the API, MCP and the web app alike, goes through the database service, which hands each
@@ -10,6 +10,14 @@
 //! - **`row.status_changed`**, when a change sets the database's status property, its first
 //!   in the schema, to another value, for each identity in one of the row's person
 //!   properties once the change is made. A new row's status changes nothing.
+//!
+//! The comments and notifications of pages hand over two more, each in the transaction that
+//! makes its notification:
+//!
+//! - **`page.mentioned`**, for each identity a comment, or a page's text once stored,
+//!   mentions, who may see the page.
+//! - **`comment.replied`**, for each identity that wrote an earlier comment of a thread
+//!   someone replies in, who may see the page.
 //!
 //! Each event goes to every webhook of its identity that is on and asks for its type, as a
 //! job of its own, but not for the identity's own change unless the webhook says so. A
@@ -81,11 +89,63 @@ impl Event {
     }
 }
 
+/// An event about a page rather than a row: someone mentioned on it, or a reply to a
+/// comment on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PageEvent {
+    pub(crate) id: Uuid,
+    #[serde(rename = "type")]
+    pub(crate) kind: String,
+    /// Unix time in microseconds.
+    pub(crate) occurred_at: i64,
+    pub(crate) workspace_id: Uuid,
+    pub(crate) page_id: Uuid,
+    /// The identity it concerns.
+    pub(crate) identity_id: Uuid,
+    /// Who mentioned or replied.
+    pub(crate) actor_id: Option<Uuid>,
+    /// The comment it is about, none for a mention in the page's text.
+    pub(crate) thread_id: Option<Uuid>,
+    pub(crate) comment_id: Option<Uuid>,
+}
+
+impl PageEvent {
+    pub(crate) fn occurred_at(&self) -> OffsetDateTime {
+        OffsetDateTime::from_unix_timestamp_nanos(i128::from(self.occurred_at) * 1000)
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+    }
+}
+
+/// What a delivery tells of: a row's change, or a page's mention or reply. A row's event
+/// names its database, so the payloads read apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Told {
+    Row(Event),
+    Page(PageEvent),
+}
+
+impl Told {
+    pub(crate) fn id(&self) -> Uuid {
+        match self {
+            Self::Row(event) => event.id,
+            Self::Page(event) => event.id,
+        }
+    }
+
+    pub(crate) fn kind(&self) -> &str {
+        match self {
+            Self::Row(event) => &event.kind,
+            Self::Page(event) => &event.kind,
+        }
+    }
+}
+
 /// A delivery's job payload: which webhook, and what to tell it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Delivery {
     pub(crate) webhook_id: Uuid,
-    pub(crate) event: Event,
+    pub(crate) event: Told,
 }
 
 /// An event a change makes, before it is given to webhooks.
@@ -213,7 +273,7 @@ pub(crate) async fn queue(conn: &mut PgConnection, change: RowChange<'_>) -> sql
             }) {
                 let payload = serde_json::to_value(Delivery {
                     webhook_id: subscriber.webhook_id,
-                    event: event.clone(),
+                    event: Told::Row(event.clone()),
                 })
                 .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
                 let job = NewJob::new(DELIVERY_KIND, payload).max_attempts(MAX_ATTEMPTS);
@@ -227,6 +287,77 @@ pub(crate) async fn queue(conn: &mut PgConnection, change: RowChange<'_>) -> sql
                 queued += 1;
             }
         }
+    }
+    Ok(queued)
+}
+
+/// The identities a change adds to a row's person properties, each with the property,
+/// a new row's everyone in them: whom it assigns.
+pub(crate) fn assignments(
+    schema: &Schema,
+    before: Option<&Json>,
+    after: &Json,
+) -> Vec<(Uuid, Uuid)> {
+    detect(schema, before, after)
+        .into_iter()
+        .filter(|event| event.kind == EventType::Assigned)
+        .map(|event| (event.identity, event.property))
+        .collect()
+}
+
+/// A page's event, before it is given to webhooks.
+pub(crate) struct PageChange {
+    pub(crate) kind: EventType,
+    pub(crate) workspace_id: Uuid,
+    pub(crate) page_id: Uuid,
+    pub(crate) identity: Uuid,
+    pub(crate) actor: Option<Uuid>,
+    pub(crate) thread_id: Option<Uuid>,
+    pub(crate) comment_id: Option<Uuid>,
+    pub(crate) at: OffsetDateTime,
+}
+
+/// Queues the deliveries of a page's event on the caller's transaction, to every webhook of
+/// its identity that is on and asks for it, but not for the identity's own doing unless the
+/// webhook says so. Says how many.
+pub(crate) async fn queue_page(conn: &mut PgConnection, change: PageChange) -> sqlx::Result<usize> {
+    let subscribers = repo::subscribers(
+        &mut *conn,
+        change.workspace_id,
+        &[change.identity],
+        change.kind.as_str(),
+    )
+    .await?;
+    let event = PageEvent {
+        id: Uuid::now_v7(),
+        kind: change.kind.as_str().to_owned(),
+        occurred_at: i64::try_from(change.at.unix_timestamp_nanos() / 1000).unwrap_or(i64::MAX),
+        workspace_id: change.workspace_id,
+        page_id: change.page_id,
+        identity_id: change.identity,
+        actor_id: change.actor,
+        thread_id: change.thread_id,
+        comment_id: change.comment_id,
+    };
+    let mut queued = 0;
+    for subscriber in subscribers.iter().filter(|subscriber| {
+        subscriber.user_id == change.identity
+            && (subscriber.include_own || Some(subscriber.user_id) != change.actor)
+    }) {
+        let payload = serde_json::to_value(Delivery {
+            webhook_id: subscriber.webhook_id,
+            event: Told::Page(event.clone()),
+        })
+        .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+        let job = NewJob::new(DELIVERY_KIND, payload).max_attempts(MAX_ATTEMPTS);
+        let id = jobs::enqueue(&mut *conn, &job).await?;
+        debug!(
+            webhook_id = %subscriber.webhook_id,
+            delivery_id = %id,
+            event = change.kind.as_str(),
+            "webhook delivery queued"
+        );
+        queued += 1;
     }
     Ok(queued)
 }
@@ -380,5 +511,63 @@ mod tests {
         };
         assert_eq!(event.occurred_at().unix_timestamp(), 1_795_348_800);
         assert_eq!(event.occurred_at().microsecond(), 1);
+    }
+}
+
+#[cfg(test)]
+mod told_tests {
+    use super::*;
+
+    #[test]
+    fn deliveries_of_rows_and_of_pages_read_back_as_what_they_were() {
+        let row = Delivery {
+            webhook_id: Uuid::from_u128(1),
+            event: Told::Row(Event {
+                id: Uuid::from_u128(2),
+                kind: EventType::Assigned.as_str().to_owned(),
+                occurred_at: 1,
+                workspace_id: Uuid::from_u128(3),
+                database_id: Uuid::from_u128(4),
+                row_id: Uuid::from_u128(5),
+                property_id: Uuid::from_u128(6),
+                identity_id: Uuid::from_u128(7),
+                from: None,
+                to: None,
+            }),
+        };
+        let page = Delivery {
+            webhook_id: Uuid::from_u128(1),
+            event: Told::Page(PageEvent {
+                id: Uuid::from_u128(8),
+                kind: EventType::Mentioned.as_str().to_owned(),
+                occurred_at: 2,
+                workspace_id: Uuid::from_u128(3),
+                page_id: Uuid::from_u128(9),
+                identity_id: Uuid::from_u128(7),
+                actor_id: Some(Uuid::from_u128(10)),
+                thread_id: None,
+                comment_id: None,
+            }),
+        };
+        for delivery in [row, page] {
+            let json = serde_json::to_value(&delivery).expect("serializes");
+            let back: Delivery = serde_json::from_value(json).expect("reads");
+            assert_eq!(back, delivery);
+        }
+        assert_eq!(
+            Told::Page(PageEvent {
+                id: Uuid::from_u128(8),
+                kind: "page.mentioned".into(),
+                occurred_at: 2,
+                workspace_id: Uuid::nil(),
+                page_id: Uuid::nil(),
+                identity_id: Uuid::nil(),
+                actor_id: None,
+                thread_id: None,
+                comment_id: None,
+            })
+            .kind(),
+            "page.mentioned"
+        );
     }
 }

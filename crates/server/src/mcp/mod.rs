@@ -51,8 +51,10 @@ use futures_util::StreamExt as _;
 use http_body_util::BodyExt as _;
 use http_body_util::combinators::BoxBody;
 use neon_app::auth::AuthService;
+use neon_app::comments::CommentService;
 use neon_app::databases::DatabaseService;
 use neon_app::history::HistoryService;
+use neon_app::notifications::InboxService;
 use neon_app::pages::{AccessChange, AccessChanges, PageService};
 use neon_app::ratelimit::{Bucket, Limited, RateLimiter};
 use neon_app::search::SearchService;
@@ -98,8 +100,10 @@ pub struct Services {
     pub history: HistoryService,
     pub search: SearchService,
     pub databases: DatabaseService,
-    /// Where pages' documents and databases tell of their changes, which subscriptions
-    /// follow.
+    pub comments: CommentService,
+    pub inbox: InboxService,
+    /// Where pages' documents, databases and inboxes tell of their changes, which
+    /// subscriptions follow.
     pub broadcaster: Arc<dyn Broadcaster>,
 }
 

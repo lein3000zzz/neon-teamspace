@@ -5,11 +5,13 @@
 
 pub mod auth;
 pub mod clock;
+pub mod comments;
 pub mod crypto;
 pub mod databases;
 pub mod history;
 pub mod jobs;
 pub mod mail;
+pub mod notifications;
 pub mod oauth;
 pub mod pages;
 pub mod periodic;

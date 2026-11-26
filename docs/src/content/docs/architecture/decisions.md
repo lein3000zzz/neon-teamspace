@@ -91,8 +91,8 @@ has no meaning a CRDT could add.
 stored; markdown is how content comes in and goes out. Shortcuts work while typing, pasted
 markdown becomes blocks, `.md` files and zips import, and pages and teamspaces export as
 markdown. Agents read and write markdown over MCP, as language models read and write it well.
-Toggles and embedded databases, which markdown has no syntax for, use a small extension of
-it, as callouts and mentions will, **planned**. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
+Toggles, embedded databases and mentions, which markdown has no syntax for, use a small
+extension of it, as callouts will, **planned**. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
 schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
 edit is applied to the live document, where it merges with the people typing there. Import
 and export exist, as [Import and export](/docs/guides/import-export/) describes, and agents
@@ -143,8 +143,8 @@ tokens checked without a lookup, so revoking one stops it at once;
 tokens, for scripts and bots that do not speak MCP, and a test holds the table of them.
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
-a row assigned to it or a status changed on one, without polling, and of mentions once they
-exist, **planned**. Incoming webhooks are members of kind integration, so what they write
+a row assigned to it or a status changed on one, without polling, and of mentions and
+replies. Incoming webhooks are members of kind integration, so what they write
 carries the same attribution, permissions and limits as an agent's;
 [Webhooks](/docs/guides/webhooks/) has both.
 

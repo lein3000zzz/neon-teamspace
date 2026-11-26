@@ -61,8 +61,9 @@ workspace at its agent limit refuses, and the form says so.
 
 ### Each incoming webhook
 
-Each card shows its name, its target, **On** or **Off**, **Signed** or **Unsigned**, its
-integration's status and owner. A suspended integration says why it refuses what is sent.
+Each card shows its name, its target, **On** or **Off**, **Signed** or **Unsigned**, and
+its integration's owner. While its integration is suspended, turned off with agents or
+deleted, the card says so and why it refuses what is sent.
 
 - **Requests** shows its last requests: how each was answered, its status, action, client
   address and time.

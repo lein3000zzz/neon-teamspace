@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE shared (id, depth) AS (\n               SELECT s.page_id, 0 FROM page_shares s\n               JOIN pages r ON r.id = s.page_id\n               WHERE s.user_id = $2 AND r.workspace_id = $1\n             UNION\n               SELECT c.id, d.depth + 1 FROM shared d\n               JOIN pages c ON c.parent_id = d.id\n               WHERE d.depth < $6\n           ),\n           visible AS MATERIALIZED (\n               SELECT p.id FROM pages p\n               LEFT JOIN teamspaces t ON t.id = p.teamspace_id\n               WHERE p.workspace_id = $1 AND p.trashed_at IS NULL\n                 AND ((NOT $3 AND p.teamspace_id IS NOT NULL\n                       AND (t.access <> 'private'\n                            OR EXISTS (SELECT 1 FROM teamspace_members m\n                                       WHERE m.teamspace_id = p.teamspace_id\n                                         AND m.user_id = $2)))\n                      OR (NOT $3 AND p.owner_id = $2)\n                      OR p.id IN (SELECT id FROM shared))\n           )\n           SELECT p.id FROM pages p\n           JOIN visible v ON v.id = p.id\n           WHERE p.title ILIKE $4 ESCAPE '\\'\n           ORDER BY GREATEST(p.updated_at, p.content_updated_at) DESC, p.id\n           LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Text",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fa81f595c84c041b71fc81808a748dc628c3ddc649880a25d5be2c468ca7d770"
+}

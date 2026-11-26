@@ -36,7 +36,7 @@
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
-		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 	}
 	header -Server
 	# Only over HTTPS, which Caddy serves when NEON_DOMAIN is set. Behind TLS that ends in

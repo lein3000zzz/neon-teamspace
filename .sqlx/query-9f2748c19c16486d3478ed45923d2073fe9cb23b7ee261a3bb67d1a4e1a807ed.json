@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT n.user_id FROM notifications n\n         WHERE n.thread_id = $1\n            OR n.comment_id IN (SELECT c.id FROM comments c WHERE c.thread_id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9f2748c19c16486d3478ed45923d2073fe9cb23b7ee261a3bb67d1a4e1a807ed"
+}

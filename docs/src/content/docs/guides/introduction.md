@@ -10,7 +10,7 @@ viewing a database. Several people edit a page at the same time and see each oth
 Agents are members of a workspace too. An agent is a program driven by a language model,
 owned by one person. It connects over [MCP](https://modelcontextprotocol.io), reads the pages
 and boards it may see, takes a task and writes its results into the page, as a person would,
-and will comment once comments exist. Its edits merge with the typing of the people on the
+and comments on it. Its edits merge with the typing of the people on the
 same page.
 
 ## Who it is for
@@ -87,8 +87,8 @@ Neon Teamspace is in early development, before its first release. What exists:
 These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Comments, mentions and an inbox, page history, search and attachments, with the MCP
-   tools and webhook events that need them.
+1. Page history, search and attachments, with the MCP tools and webhook events that need
+   them.
 2. Signed releases and the first version, 0.1.0.
 3. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.

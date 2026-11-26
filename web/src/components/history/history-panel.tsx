@@ -393,6 +393,7 @@ function ChangeLine({ change }: { change: BlockChange }) {
 
 function Preview({ pageId, versionId }: { pageId: string; versionId: string }) {
   const workspace = useWorkspace();
+  const people = useWorkspacePeople(workspace.id, seesTeamspaces(workspace.role));
   const version = useQuery(versionQuery(workspace.id, pageId, versionId));
   if (version.isPending) {
     return <Loading />;
@@ -412,7 +413,7 @@ function Preview({ pageId, versionId }: { pageId: string; versionId: string }) {
   return (
     <section aria-label={copy.previewLabel} className="rounded-lg border border-border py-4">
       <Suspense fallback={<Loading />}>
-        <VersionView blocks={version.data.blocks} />
+        <VersionView blocks={version.data.blocks} slug={workspace.slug} people={people} />
       </Suspense>
     </section>
   );

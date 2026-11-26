@@ -1,6 +1,6 @@
 ---
 title: Agents over MCP
-description: Connect an MCP client to a workspace with a token bound to it, or with OAuth, and the tools and resources it gets, claiming tasks, and how pages' blocks are named.
+description: Connect an MCP client to a workspace with a token bound to it, or with OAuth, and the tools and resources it gets, claiming tasks, comments and the inbox, and how pages' blocks are named.
 ---
 
 The server speaks the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`,
@@ -230,6 +230,39 @@ or the number alone.
 }}
 ```
 
+### Comments and the inbox
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `list_comments` | `page_id`; `include_resolved`, true unless set; `limit` 1 to 100, 50 unless set; `after`; `thread_id` for one thread's comments | The page's threads, oldest first, a part at a time, each with its first comment and its latest replies, their `markdown`, `content` and authors, and `comment_count`; `next` passed as `after` gives the next part. An inline thread's `anchor` names the block its text is in, `block_id`, and the text it was made on, `quote`, or says it is `detached` once that text is gone. With `thread_id`, every comment of that thread instead, in order, a part at a time, `after` then naming a comment. |
+| `add_comment` | `page_id`, `markdown`; `thread_id` to reply in a thread, or `block_id` to start one on that block's text | Starts a thread on the page or on a block, or replies, and answers with the thread, the comment's id, and `unnotified`: those it mentions who may not see the page, and were told nothing. |
+| `get_inbox` | `unread`, false unless set; `limit` 1 to 200, 50 unless set; `before` | The caller's notifications in the workspace, newest first, a part at a time; `next` passed as `before` gives the next part. |
+| `mark_read` | `notification_ids`, or `all: true`; `read`, true unless set | Marks the notifications named read, or unread with `read: false`, all or none: one not found marks nothing and answers `not_found`. Or marks every one read. |
+
+A comment is markdown limited to inline content: text with its styles, links, and mentions,
+`@[Name](user:<id>)` with an id `list_members` gives, or `@[Title](page:<id>)`; at most 10000
+characters. [Comments and mentions](/docs/guides/comments-and-mentions/) has the rules: who
+may comment, and whom a comment tells. An agent that may only view a page, its own access or
+its owner's, may read its comments but not add one, and `add_comment` answers it `forbidden`.
+
+An agent hears of its mentions and replies three ways: in `get_inbox`; from
+`neon://me/inbox`, which a subscription tells of each change; and from an
+[outgoing webhook](/docs/guides/webhooks/#events) for `page.mentioned` and
+`comment.replied`, when it runs where no session stays open. A reply goes back with
+`add_comment` and the notification's `thread_id`:
+
+```json
+{"name": "add_comment", "arguments": {
+  "page_id": "0193a5b2-0000-7000-8000-0000000000d3",
+  "thread_id": "0193a5b2-0000-7000-8000-0000000000e4",
+  "markdown": "Added the date: **25 November**."
+}}
+```
+
+then `mark_read` with the notification's id. Each notification is checked again, as the
+inbox lists it, against what the caller may see now, so one about a page it lost access to
+is not listed.
+
 ## Block ids
 
 `read_page` gives a page's blocks as markdown, each block's id on a line of its own before
@@ -374,6 +407,7 @@ person properties name. The caller's own webhooks hear of their own claims only 
 | `neon://database/{id}` | The database's page, properties and views, as JSON. |
 | `neon://database/{id}/view/{view}` | The rows the view shows, in its order, as JSON, at most 1000. |
 | `neon://me/tasks` | The rows whose person properties name the caller, out of the trash, the most recently changed first, at most 100, each with its database's title and its status. |
+| `neon://me/inbox` | The caller's notifications in the workspace, the newest 50, as `get_inbox` answers them. |
 
 A URI writes its ids lowercase and hyphenated, as the server lists them and tells of their
 changes, and a URI that writes them another way is not found.
@@ -381,8 +415,8 @@ changes, and a URI that writes them another way is not found.
 A page's earlier versions have no resource: a version never changes, so there is nothing to
 subscribe to, and `read_page` with `version_id` reads one.
 
-`resources/list` gives `neon://me/tasks`, then the caller's favorites, at most 50, the 20
-pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
+`resources/list` gives `neon://me/tasks` and `neon://me/inbox`, then the caller's
+favorites, at most 50, the 20 pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
 own.
 
 `resources/subscribe` works on every one of them. The server then sends
@@ -395,7 +429,9 @@ never asks the database again to find them. A subscription hears of:
 - a database when its properties or views change;
 - a view's rows when a row of the database, its schema or that view changes;
 - the tasks when what the caller sees of them changes: a row of theirs changes, or a row
-  starts or stops naming them. A change in a database the caller cannot see is never told.
+  starts or stops naming them. A change in a database the caller cannot see is never told;
+- the inbox when a notification comes to it, or one of them is marked read, unread or
+  archived, in the app or over MCP.
 
 A subscription ends with its session, with `resources/unsubscribe`, and as soon as the caller
 can no longer see the resource. A session subscribes to at most 100 resources.
@@ -430,13 +466,20 @@ each tool does, with the same tokens.
 | `update_row` | `PATCH /api/v1/rows/{id}`, `PATCH /api/v1/databases/{id}/rows/{unique_id}` |
 | `claim_task` | `POST /api/v1/rows/{id}/claim`, `POST /api/v1/databases/{id}/rows/{unique_id}/claim`, with `?person_property=` |
 | `neon://me/tasks` | `GET /api/v1/workspaces/{id}/tasks` |
+| `list_comments` | `GET /api/v1/pages/{id}/comments` |
+| `add_comment` | `POST /api/v1/pages/{id}/comments`, `POST /api/v1/threads/{id}/comments` |
+| `get_inbox`, `neon://me/inbox` | `GET /api/v1/inbox`, with `?workspace_id=` |
+| `mark_read` | `PATCH /api/v1/notifications/{id}`, `POST /api/v1/inbox/read` |
 | `resources/list` | `GET /api/v1/account/favorites`, `GET /api/v1/workspaces/{id}/recent-pages`, and the tasks |
 
 Over REST, the [live connections](/docs/architecture/realtime/) take the place of
 subscriptions, `/ws/pages/{id}` for a page's document and `/ws/databases/{id}` for a
 database. For `neon://me/tasks`, an [outgoing webhook](/docs/guides/webhooks/#outgoing-webhooks)
 registered for the identity takes its place: `row.assigned` and `row.status_changed` tell a
-program that runs elsewhere of its work as it comes, without a socket held open. A claim
+program that runs elsewhere of its work as it comes, without a socket held open. For
+`neon://me/inbox`, the same webhook's `page.mentioned` and `comment.replied`, or the inbox's
+live feed, `/ws/inbox`, which the [realtime page](/docs/architecture/realtime/#the-inbox-feed)
+describes. A claim
 refused over REST answers `409 already_claimed` with the same `holders` beside its code and
 message, each with `id` and `name`.
 

@@ -33,6 +33,12 @@ pub enum WebhookEvent {
     /// The status of a row the identity is in a person property of changed.
     #[serde(rename = "row.status_changed")]
     RowStatusChanged,
+    /// A page's text, or a comment on it, mentions the identity.
+    #[serde(rename = "page.mentioned")]
+    PageMentioned,
+    /// Someone replied in a thread of comments the identity wrote in.
+    #[serde(rename = "comment.replied")]
+    CommentReplied,
 }
 
 impl WebhookEvent {
@@ -40,6 +46,8 @@ impl WebhookEvent {
         match self {
             Self::RowAssigned => EventType::Assigned.as_str(),
             Self::RowStatusChanged => EventType::StatusChanged.as_str(),
+            Self::PageMentioned => EventType::Mentioned.as_str(),
+            Self::CommentReplied => EventType::Replied.as_str(),
         }
     }
 }
@@ -49,6 +57,8 @@ impl From<EventType> for WebhookEvent {
         match event {
             EventType::Assigned => Self::RowAssigned,
             EventType::StatusChanged => Self::RowStatusChanged,
+            EventType::Mentioned => Self::PageMentioned,
+            EventType::Replied => Self::CommentReplied,
         }
     }
 }

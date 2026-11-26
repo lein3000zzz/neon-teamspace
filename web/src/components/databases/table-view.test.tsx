@@ -567,6 +567,59 @@ describe("a database's table", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("lays its columns out as wide as the view keeps them, with each value whole on hover", async () => {
+    fakeWorkspaces();
+    fakePages({ pages: databasePages(samplePages(), "edit") });
+    const [kept, ...others] = views();
+    if (kept === undefined) {
+      throw new Error("the sample has a table");
+    }
+    const widths: Record<string, number> = { [DB.name]: 250, [DB.status]: 40, [DB.owner]: 170 };
+    fakeDatabase({
+      views: [
+        {
+          ...kept,
+          properties: kept.properties.map((entry) =>
+            entry.property in widths
+              ? Object.assign({}, entry, { width: widths[entry.property] ?? null })
+              : entry,
+          ),
+        },
+        ...others,
+      ],
+    });
+    fakeFeed({ access: "edit", ready: true });
+    renderApp(DATABASE_PATH);
+    const rows = await table();
+
+    // Narrower than the least a column may be, it is that wide; one never resized starts at
+    // its type's width; the last takes what is left.
+    const columns = [...screen.getByRole("table", { name: "Table" }).querySelectorAll("col")];
+    expect(columns.map((column) => column.style.width)).toEqual([
+      "250px",
+      "80px",
+      "180px",
+      "170px",
+      "180px",
+      "180px",
+      "180px",
+      "180px",
+      "180px",
+      "",
+    ]);
+    expect(rows.getByRole("button", { name: /^Status of Write docs/ })).toHaveAttribute(
+      "title",
+      "In progress",
+    );
+    expect(rows.getByRole("button", { name: /^Owner of Write docs/ })).toHaveAttribute(
+      "title",
+      "Ada",
+    );
+    expect(
+      within(rows.getByRole("rowheader", { name: /Write docs/ })).getByText("Write docs"),
+    ).toHaveAttribute("title", "Write docs");
+  });
+
   it("resizes a column from the keyboard, saving its width once it settles", async () => {
     const { db } = openDatabase();
     const rows = await table();

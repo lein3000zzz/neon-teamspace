@@ -102,3 +102,32 @@ export class McpClient {
     return result.structuredContent as T;
   }
 }
+
+/**
+ * The session's stream of notifications, opened as a client listens, read with fetch as it
+ * arrives, compressed if Caddy compresses it: what it hears, and whether it ended.
+ */
+export async function listen(origin: string, client: McpClient) {
+  const response = await fetch(`${origin}/mcp`, {
+    headers: { ...client.headers(), Accept: "text/event-stream", "Accept-Encoding": "gzip" },
+  });
+  expect(response.status).toBe(200);
+  const heard: Message[] = [];
+  const stream = { heard, ended: false };
+  const reader = response.body?.pipeThrough(new TextDecoderStream()).getReader();
+  void (async () => {
+    let pending = "";
+    for (;;) {
+      const read = await reader?.read().catch(() => undefined);
+      if (read === undefined || read.done) {
+        stream.ended = true;
+        return;
+      }
+      // Events end with a blank line; the text after the last one is an event on its way.
+      const parts = (pending + read.value).split(/\r?\n\r?\n/);
+      pending = parts.pop() ?? "";
+      heard.push(...parts.flatMap(events));
+    }
+  })();
+  return stream;
+}

@@ -48,6 +48,8 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
         (name = "search", description = "Searching a workspace's pages, databases and rows by their titles, text and rows' values, among those the caller may see."),
         (name = "history", description = "Pages' versions: listing them, reading one, comparing one with the page as it is, and restoring one through the page's live document."),
+        (name = "comments", description = "Threads of comments on pages, on a page as a whole or on a range of its text, their replies, following a page's comments, and what a mention may name. Open pages' editors hear that a thread changed over `GET /ws/pages/{id}`, which the docs describe."),
+        (name = "notifications", description = "The inbox: mentions, replies, comments on followed pages, assignments and invitations, each checked again against what its person may see; how one wants mail of it, and the link that stops that mail. The app follows it live at `GET /ws/inbox`, which the docs describe."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),
         (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )

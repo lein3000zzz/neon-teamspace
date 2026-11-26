@@ -230,10 +230,11 @@ async fn an_account_has_one_pending_invitation_per_workspace(pool: PgPool) {
         .await
         .expect("another workspace may invite too");
 
-    assert!(
+    assert_eq!(
         workspace_invites::decide(&pool, design.id, first.id, InvitationState::Declined, now())
             .await
-            .expect("declined")
+            .expect("declined"),
+        Some(first.user_id)
     );
     workspace_invites::insert(&pool, &invitation(design.id, ada))
         .await

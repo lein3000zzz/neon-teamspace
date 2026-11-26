@@ -191,8 +191,9 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            let cells = patch(
+            let (cells, notifier) = patch(
                 &mut tx,
+                self.pages(),
                 Written {
                     page: &page,
                     database_id: data.database_id,
@@ -204,6 +205,7 @@ impl DatabaseService {
             )
             .await?;
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %principal.user.id,
                 database_id = %data.database_id,

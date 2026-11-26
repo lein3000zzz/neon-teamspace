@@ -134,8 +134,9 @@ them.
 
 ## Sharing
 
-A page can be shared with a member or guest of its workspace, to view it (`can_view`) or to
-edit it (`can_edit`). A share holds for the page and every page under it. It adds to what
+A page can be shared with a member or guest of its workspace, to view it (`can_view`), to
+view it and [comment](/docs/guides/comments-and-mentions/) on it (`can_comment`), or to edit
+it (`can_edit`). A share holds for the page and every page under it. It adds to what
 the person may do there already and never takes anything away: a teamspace's member who is
 given `can_view` still edits. What a person may do with a page is the most of what its
 space gives them and every share on it or on a page above it.

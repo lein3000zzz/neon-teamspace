@@ -11,8 +11,8 @@ use neon_domain::auth::preferences::DEFAULT_ACCENT_HUE;
 use time::OffsetDateTime;
 use url::form_urlencoded;
 
-use super::Message;
 use super::color;
+use super::{Message, Notice};
 
 /// The app's page that verifies an address, given `?token=`.
 pub const VERIFY_PAGE: &str = "/verify";
@@ -25,13 +25,20 @@ pub const REGISTER_PAGE: &str = "/register";
 pub const JOIN_CONFIRM_PAGE: &str = "/join/confirm";
 /// The admin page listing requests to join.
 pub const JOIN_REQUESTS_PAGE: &str = "/admin/join-requests";
+/// The app's page that stops notification mail without signing in, given `?token=`.
+pub const UNSUBSCRIBE_PAGE: &str = "/unsubscribe";
+/// The API's address that does the same for a mail client, which posts to it as RFC 8058
+/// has it, given `?token=`.
+pub const UNSUBSCRIBE_API: &str = "/api/v1/unsubscribe";
 
-/// What a mail says: its subject, its paragraphs of plain text, and a link to act on.
+/// What a mail says: its subject, its paragraphs of plain text, a link to act on, and the
+/// link that stops mail of its kind, for mail people may stop.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Letter {
     pub subject: String,
     pub paragraphs: Vec<String>,
     pub link: Option<Link>,
+    pub unsubscribe: Option<String>,
 }
 
 /// A button in the HTML, and a line in the text.
@@ -63,6 +70,25 @@ impl Sender<'_> {
 
     fn footer(&self) -> String {
         format!("{}, {}", self.name, self.origin)
+    }
+}
+
+/// The address a mail client posts to, to stop mail of `message`'s kind, for those people
+/// may stop.
+pub fn unsubscribe_api(message: &Message, sender: &Sender<'_>) -> Option<String> {
+    match message {
+        Message::Notification { unsubscribe, .. } | Message::Digest { unsubscribe, .. } => {
+            Some(sender.page(UNSUBSCRIBE_API, Some(("token", unsubscribe.expose()))))
+        }
+        _ => None,
+    }
+}
+
+/// A notice as a paragraph: its sentence, and the comment it quotes on a line of its own.
+fn notice_paragraph(notice: &Notice) -> String {
+    match &notice.excerpt {
+        Some(excerpt) => format!("{}:\n“{excerpt}”", notice.summary),
+        None => format!("{}.", notice.summary),
     }
 }
 
@@ -204,11 +230,52 @@ pub fn write(message: &Message, sender: &Sender<'_>) -> Letter {
             ],
             None,
         ),
+        Message::Notification { notice, .. } => (
+            notice.summary.clone(),
+            vec![
+                notice_paragraph(notice),
+                format!(
+                    "You get a mail like this for each notification left unread a few \
+                     minutes. What you read in {name} first is not mailed, and your account's \
+                     notifications there change how much mail you get."
+                ),
+            ],
+            link(&format!("Open in {name}"), sender.page(&notice.path, None)),
+        ),
+        Message::Digest {
+            notices,
+            more,
+            path,
+            ..
+        } => {
+            let count = notices.len() + more;
+            let subject = if count == 1 {
+                format!("1 new in your {name} inbox")
+            } else {
+                format!("{count} new in your {name} inbox")
+            };
+            let mut paragraphs: Vec<String> = notices.iter().map(notice_paragraph).collect();
+            if *more > 0 {
+                paragraphs.push(format!("And {more} more in your inbox."));
+            }
+            (
+                subject,
+                paragraphs,
+                link("Open your inbox", sender.page(path, None)),
+            )
+        }
+    };
+    let unsubscribe = match message {
+        Message::Notification { unsubscribe, .. } | Message::Digest { unsubscribe, .. } => {
+            Some(sender.page(UNSUBSCRIBE_PAGE, Some(("token", unsubscribe.expose()))))
+        }
+        _ => None,
     };
     Letter {
         subject: one_line(&subject),
         paragraphs,
         link,
+        unsubscribe,
     }
 }
 
@@ -223,6 +290,9 @@ impl Letter {
             let _ = write!(text, "{}: {}\n\n", link.text, link.url);
         }
         let _ = writeln!(text, "-- \n{}", sender.footer());
+        if let Some(url) = &self.unsubscribe {
+            let _ = writeln!(text, "Stop these mails: {url}");
+        }
         text
     }
 
@@ -267,7 +337,7 @@ impl Letter {
 <tr><td style="padding:0 0 16px;border-bottom:1px solid #d8d8d8;font-size:13px;font-weight:600;letter-spacing:0.04em">{name}</td></tr>
 <tr><td style="padding:24px 0 8px">
 {body}</td></tr>
-<tr><td style="padding:16px 0 0;border-top:1px solid #d8d8d8;font-size:13px;color:#6e6e6e">{footer}</td></tr>
+<tr><td style="padding:16px 0 0;border-top:1px solid #d8d8d8;font-size:13px;color:#6e6e6e">{footer}{unsubscribe}</td></tr>
 </table>
 </td></tr>
 </table>
@@ -277,6 +347,13 @@ impl Letter {
             subject = escape(&self.subject),
             name = escape(sender.name),
             footer = escape(&sender.footer()),
+            unsubscribe = self
+                .unsubscribe
+                .as_ref()
+                .map_or_else(String::new, |url| format!(
+                    r#"<br><a href="{url}" style="color:#6e6e6e">Stop these mails</a>"#,
+                    url = escape(url)
+                )),
         )
     }
 }
@@ -467,6 +544,103 @@ mod tests {
         assert!(invite.paragraphs[1].contains("until 1 January 1970 at 00:00 UTC"));
     }
 
+    fn notice(summary: &str, excerpt: Option<&str>) -> Notice {
+        Notice {
+            summary: summary.to_owned(),
+            excerpt: excerpt.map(str::to_owned),
+            path: "/w/design/p/0193a5b2-0000-7000-8000-0000000000b1?comment=t1".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_notification_says_what_happened_and_how_to_stop_such_mail() {
+        let message = Message::Notification {
+            notice: notice(
+                "Ada mentioned you on Roadmap",
+                Some("Can you <check> this?"),
+            ),
+            unsubscribe: Secret::new("u.k.m"),
+        };
+        let letter = write(&message, &SENDER);
+        assert_eq!(letter.subject, "Ada mentioned you on Roadmap");
+        assert_eq!(
+            letter.paragraphs[0],
+            "Ada mentioned you on Roadmap:\n“Can you <check> this?”"
+        );
+        assert_eq!(
+            letter.link.as_ref().map(|link| link.url.as_str()),
+            Some(
+                "https://neon.example.com/w/design/p/0193a5b2-0000-7000-8000-0000000000b1?comment=t1"
+            )
+        );
+        assert_eq!(
+            letter.unsubscribe.as_deref(),
+            Some("https://neon.example.com/unsubscribe?token=u.k.m")
+        );
+        let text = letter.text(&SENDER);
+        assert!(
+            text.ends_with("Stop these mails: https://neon.example.com/unsubscribe?token=u.k.m\n"),
+            "{text}"
+        );
+        let html = letter.html(&SENDER);
+        assert!(html.contains("Can you &lt;check&gt; this?"), "{html}");
+        assert!(
+            html.contains(r#"<a href="https://neon.example.com/unsubscribe?token=u.k.m""#),
+            "{html}"
+        );
+        assert_eq!(
+            unsubscribe_api(&message, &SENDER).as_deref(),
+            Some("https://neon.example.com/api/v1/unsubscribe?token=u.k.m")
+        );
+        assert_eq!(
+            unsubscribe_api(
+                &Message::Test {
+                    sent_by: "grace@example.com".into()
+                },
+                &SENDER
+            ),
+            None,
+            "mail people may not stop has no such address"
+        );
+    }
+
+    #[test]
+    fn a_digest_counts_what_came_and_lists_it() {
+        let message = Message::Digest {
+            notices: vec![
+                notice("Ada mentioned you on Roadmap", Some("Look")),
+                notice("Bea assigned you to Fix login", None),
+            ],
+            more: 3,
+            path: "/inbox".into(),
+            unsubscribe: Secret::new("u.k.m"),
+        };
+        let letter = write(&message, &SENDER);
+        assert_eq!(letter.subject, "5 new in your Neon Teamspace inbox");
+        assert_eq!(
+            letter.paragraphs,
+            [
+                "Ada mentioned you on Roadmap:\n“Look”",
+                "Bea assigned you to Fix login.",
+                "And 3 more in your inbox."
+            ]
+        );
+        assert_eq!(
+            letter.link.map(|link| link.url),
+            Some("https://neon.example.com/inbox".to_owned())
+        );
+        let one = Message::Digest {
+            notices: vec![notice("Ada commented on Roadmap", None)],
+            more: 0,
+            path: "/inbox".into(),
+            unsubscribe: Secret::new("u.k.m"),
+        };
+        assert_eq!(
+            write(&one, &SENDER).subject,
+            "1 new in your Neon Teamspace inbox"
+        );
+    }
+
     #[test]
     fn the_text_part_carries_the_link_and_a_signature() {
         let letter = Letter {
@@ -476,6 +650,7 @@ mod tests {
                 text: "Go".into(),
                 url: "https://neon.example.com/go".into(),
             }),
+            unsubscribe: None,
         };
 
         assert_eq!(

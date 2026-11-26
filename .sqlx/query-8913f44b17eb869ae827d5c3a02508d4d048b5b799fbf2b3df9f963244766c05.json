@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_mail (user_id, due_at) VALUES ($1, $2)\n         ON CONFLICT (user_id) DO UPDATE\n             SET due_at = GREATEST($2, notification_mail.sent_at + $3)\n             WHERE notification_mail.due_at IS NULL OR notification_mail.due_at < $4\n         RETURNING due_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "due_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notification_mail",
+            "name": "due_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Interval",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8913f44b17eb869ae827d5c3a02508d4d048b5b799fbf2b3df9f963244766c05"
+}

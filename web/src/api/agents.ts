@@ -4,6 +4,7 @@ import { api, type Schemas } from "./client";
 import { keys } from "./keys";
 
 export type Agent = Schemas["Agent"];
+export type AgentTeamspace = Schemas["AgentTeamspace"];
 export type AgentStatus = Schemas["AgentStatus"];
 export type CreatedApiToken = Schemas["CreatedApiToken"];
 
@@ -78,6 +79,25 @@ export function useDeleteAgent(id: string) {
     mutationFn: (agentId: string) =>
       send(api.DELETE("/api/v1/workspaces/{id}/agents/{agent_id}", path(id, agentId))),
     onSuccess: () => refreshAgents(queryClient, id),
+  });
+}
+
+/**
+ * The teamspaces an agent is in, of those the user sees, never a private one
+ * they are not in, with whether they may take it out of each.
+ */
+export function agentTeamspacesQuery(id: string, agentId: string) {
+  return queryOptions({
+    queryKey: keys.agentTeamspaces(id, agentId),
+    queryFn: async ({ signal }) =>
+      (
+        await call(
+          api.GET("/api/v1/workspaces/{id}/agents/{agent_id}/teamspaces", {
+            ...path(id, agentId),
+            signal,
+          }),
+        )
+      ).teamspaces,
   });
 }
 

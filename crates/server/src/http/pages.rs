@@ -27,8 +27,10 @@ use super::principal::Authenticated;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageAccess {
-    /// Read it and the pages under it.
+    /// Read it and the pages under it, and their comments.
     View,
+    /// Also comment on it.
+    Comment,
     /// Also change it, add pages under it, move it and trash it.
     Edit,
 }
@@ -37,6 +39,7 @@ impl From<domain::PageAccess> for PageAccess {
     fn from(access: domain::PageAccess) -> Self {
         match access {
             domain::PageAccess::View => Self::View,
+            domain::PageAccess::Comment => Self::Comment,
             domain::PageAccess::Edit => Self::Edit,
         }
     }

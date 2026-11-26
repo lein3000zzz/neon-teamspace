@@ -6,7 +6,10 @@ import { ada, defaultAuthConfig, defaultPreferences } from "./fixtures";
 export const testMeta: Schemas["Meta"] = { name: "Test instance", version: "0.1.0" };
 
 /** Every page's live connection, as the editor opens it; fakeSync() answers on it. */
-export const syncLink = ws.link(/\/ws\/pages\/[^/?]+$/);
+export const syncLink = ws.link(/\/ws\/pages\/[^/?]+(\?[^/]*)?$/);
+
+/** The inbox's live feed, as the signed-in shell opens it; fakeInboxFeed() answers on it. */
+export const inboxLink = ws.link(/\/ws\/inbox$/);
 
 /** Every database's live feed, as its views open it; fakeFeed() answers on it. */
 export const feedLink = ws.link(/\/ws\/databases\/[^/?]+$/);
@@ -32,6 +35,11 @@ export const server = setupServer(
   http.get("/api/v1/workspaces/:id/private-pages", () => HttpResponse.json({ pages: [] })),
   http.get("/api/v1/workspaces/:id/shared-pages", () => HttpResponse.json({ pages: [] })),
   http.get("/api/v1/account/favorites", () => HttpResponse.json({ pages: [] })),
+  http.get("/api/v1/inbox/count", () => HttpResponse.json({ unread: 0 })),
+  http.get("/api/v1/pages/:id/comments", () =>
+    HttpResponse.json({ threads: [], may_comment: true, following: false }),
+  ),
   syncLink.addEventListener("connection", () => {}),
   feedLink.addEventListener("connection", () => {}),
+  inboxLink.addEventListener("connection", () => {}),
 );

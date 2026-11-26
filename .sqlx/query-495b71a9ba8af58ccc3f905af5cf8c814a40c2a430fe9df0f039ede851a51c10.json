@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET mailed_at = $2 WHERE id = ANY($1) AND mailed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "495b71a9ba8af58ccc3f905af5cf8c814a40c2a430fe9df0f039ede851a51c10"
+}

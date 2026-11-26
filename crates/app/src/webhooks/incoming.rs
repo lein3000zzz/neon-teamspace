@@ -42,6 +42,7 @@ use super::outgoing::Creator;
 use super::payload::{self, Order, TargetKind};
 use super::signature::{self, SECRET_PREFIX};
 use super::{NO_WORKSPACE, ROTATION_OVERLAP, WebhookService};
+use crate::comments::Placing;
 use crate::crypto::{Envelope, hash_secret, new_secret};
 use crate::databases::NewRow;
 use crate::pages::Facts;
@@ -160,7 +161,7 @@ pub enum BodyError {
 /// What a request did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Accepted {
-    /// `create_row`, `update_row` or `append`.
+    /// `create_row`, `update_row`, `append` or `comment`.
     pub action: &'static str,
     /// The row made or changed: its id and unique id.
     pub row: Option<(Uuid, String)>,
@@ -682,6 +683,17 @@ impl WebhookService {
                     .await?;
                 Ok(Accepted {
                     action: "append",
+                    row: None,
+                })
+            }
+            Order::Comment { markdown, block_id } => {
+                let placing = block_id.map_or(Placing::Page, Placing::Block);
+                self.inner
+                    .comments
+                    .start_thread(&principal, hook.target_id, &markdown, placing)
+                    .await?;
+                Ok(Accepted {
+                    action: "comment",
                     row: None,
                 })
             }

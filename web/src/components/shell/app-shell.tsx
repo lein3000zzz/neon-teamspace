@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useInboxFeed } from "@/api/inbox-feed";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { PageNavProvider } from "@/components/pages/page-nav-state";
 import { QuickSearchProvider } from "@/components/search/quick-search";
@@ -16,10 +17,12 @@ import { Sidebar } from "./sidebar";
  * top bar, so the page keeps the full width of a phone. The accent follows
  * the workspace the sidebar shows, for whoever chose none of their own. A
  * page set to full width takes the whole column beside the sidebar. ⌘K or
- * Ctrl+K opens the quick search of that workspace from anywhere.
+ * Ctrl+K opens the quick search of that workspace from anywhere. The inbox's
+ * live feed stays open while it shows, for the sidebar's count.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  useInboxFeed();
 
   return (
     <PageNavProvider>

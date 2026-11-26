@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications n SET read_at = $4\n         WHERE n.user_id = $1 AND n.read_at IS NULL\n           AND CASE WHEN n.kind = 'invitation'\n                    THEN $3 AND EXISTS (SELECT 1 FROM workspace_invitations i\n                                        WHERE i.id = n.invitation_id AND i.state = 'pending'\n                                          AND i.expires_at > $4)\n                    ELSE $2::uuid IS NULL OR n.workspace_id = $2 END",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a123b883c70bc2aa1898cd8f120c1e739ff3159ba36c3a78f002b672d36e0caa"
+}

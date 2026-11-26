@@ -6,6 +6,7 @@ mod admin;
 mod admin_workspaces;
 mod agents;
 mod auth;
+pub(crate) mod comments;
 pub(crate) mod content;
 mod database_live;
 pub(crate) mod database_rows;
@@ -16,6 +17,8 @@ mod extract;
 mod favorites;
 pub(crate) mod history;
 mod hooks;
+pub(crate) mod inbox;
+mod inbox_live;
 mod incoming_webhooks;
 mod meta;
 mod oauth;
@@ -44,8 +47,10 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use neon_app::auth::AuthService;
+use neon_app::comments::CommentService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::history::HistoryService;
+use neon_app::notifications::{InboxFeeds, InboxService};
 use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
 use neon_app::search::SearchService;
@@ -89,6 +94,9 @@ pub struct AppState {
     pub search: SearchService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
+    pub comments: CommentService,
+    pub inbox: InboxService,
+    pub inbox_feeds: InboxFeeds,
     pub transfer: TransferService,
     pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
@@ -124,6 +132,15 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(account::list_my_invitations))
         .routes(routes!(account::accept_invitation))
         .routes(routes!(account::decline_invitation))
+        .routes(routes!(
+            inbox::get_notification_settings,
+            inbox::put_notification_settings
+        ))
+        .routes(routes!(inbox::list_inbox))
+        .routes(routes!(inbox::inbox_count))
+        .routes(routes!(inbox::mark_all_read))
+        .routes(routes!(inbox::change_notification))
+        .routes(routes!(inbox::unsubscribe))
         .routes(routes!(admin::list_users, admin::create_user))
         .routes(routes!(admin::update_user))
         .routes(routes!(admin::send_verification))
@@ -175,6 +192,7 @@ fn api() -> OpenApiRouter<AppState> {
             agents::delete_agent
         ))
         .routes(routes!(agents::transfer_agent))
+        .routes(routes!(agents::list_agent_teamspaces))
         .routes(routes!(
             agents::list_agent_tokens,
             agents::create_agent_token
@@ -246,6 +264,16 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(history::get_version))
         .routes(routes!(history::compare_version))
         .routes(routes!(history::restore_version))
+        .routes(routes!(comments::list_comments, comments::start_thread))
+        .routes(routes!(comments::list_thread_comments, comments::reply))
+        .routes(routes!(
+            comments::get_thread,
+            comments::change_thread,
+            comments::delete_thread
+        ))
+        .routes(routes!(comments::edit_comment, comments::delete_comment))
+        .routes(routes!(comments::follow_page))
+        .routes(routes!(comments::mention_candidates))
         .routes(routes!(pages::recent_pages))
         .routes(routes!(search::search_workspace))
         .routes(routes!(pages::teamspace_pages))
@@ -325,6 +353,7 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        .route("/ws/inbox", get(inbox_live::follow_inbox))
         .route("/hooks/in/{token}", post(hooks::receive_hook))
         // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
         // resources.
@@ -444,6 +473,8 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 mod agents_tests;
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod comments_tests;
 #[cfg(test)]
 mod content_tests;
 #[cfg(test)]

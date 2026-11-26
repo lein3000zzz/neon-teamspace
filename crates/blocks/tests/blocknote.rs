@@ -252,6 +252,9 @@ fn the_fixtures_cover_every_block_type_and_style() {
                         styles.insert("link");
                         runs.extend(&link.content);
                     }
+                    Inline::Mention(_) => {
+                        styles.insert("mention");
+                    }
                 }
             }
             for run in runs {
@@ -298,6 +301,7 @@ fn the_fixtures_cover_every_block_type_and_style() {
         "textColor",
         "backgroundColor",
         "link",
+        "mention",
     ]);
     assert_eq!(types, all_types);
     assert_eq!(styles, all_styles);
@@ -375,6 +379,7 @@ fn view_inline(content: &[Inline]) -> Vec<Inline> {
                 href: link.href.clone(),
                 content: link.content.iter().map(strip).collect(),
             }),
+            Inline::Mention(mention) => Inline::Mention(mention.clone()),
         })
         .collect();
     Inline::normalize(&colourless)

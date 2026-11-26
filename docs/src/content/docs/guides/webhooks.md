@@ -1,15 +1,17 @@
 ---
 title: Webhooks
-description: Outgoing webhooks, which tell a URL, signed, when someone is assigned to a row or its status changes, and incoming webhooks, which make and change rows or add to a page with what is posted to them.
+description: Outgoing webhooks, which tell a URL, signed, when someone is assigned to a row or its status changes, is mentioned or gets a reply, and incoming webhooks, which make and change rows, add to a page or comment on it with what is posted to them.
 ---
 
 Webhooks connect a workspace to programs outside it, both ways:
 
-- An **outgoing webhook** tells a URL when someone is assigned to a row, or when the status
-  of a row they are assigned to changes. A program that works on tasks, an agent running
-  elsewhere among them, learns of its work without asking.
+- An **outgoing webhook** tells a URL when someone is assigned to a row, when the status
+  of a row they are assigned to changes, when they are mentioned, and when someone replies
+  to their comment. A program that works on tasks, an agent running elsewhere among them,
+  learns of its work without asking.
 - An **incoming webhook** takes what a program posts to its URL and, as an integration of
-  the workspace, makes and changes rows of one database, or adds to one page.
+  the workspace, makes and changes rows of one database, or adds to one page and comments
+  on it.
 
 Both are under [Webhooks](/docs/workspace-settings/webhooks/) in a workspace's settings, and
 in the API under `/api/v1/workspaces/{id}/webhooks` and
@@ -29,13 +31,13 @@ tells of that identity's events. It is registered by:
 
 Agents and integrations register none, their own included: their owners do it for them.
 Guests register none either. A person may register one for themselves as nothing it sends
-is new to them: each event is about a row they may see, checked again before every
+is new to them: each event is about a row or page they may see, checked again before every
 delivery, and the URL is held to the same rules as anyone's. A webhook goes with its
 identity's membership: once they are out of the workspace, or an agent is deleted, its
 webhooks are gone.
 
 A webhook's URL is bound to whoever set it last, as it was registered or changed since. It
-is told only of rows they may see too, so an admin who registers one for someone else, or
+is told only of rows and pages they may see too, so an admin who registers one for someone else, or
 points someone's at a URL of their own, learns nothing they could not read in the
 workspace themselves. And it is told of nothing once they may no longer register webhooks
 for its identity: an admin made a member, someone out of the workspace or disabled, the
@@ -52,18 +54,24 @@ it wants, at least one:
 |---|---|
 | `row.assigned` | The identity was added to a person property of a row, a new row's included: once for each property it is added to. |
 | `row.status_changed` | The row's status property, the database's first property of type status, was set to another value, or cleared, while the identity is in one of the row's person properties after the change. A new row's status changes nothing. |
+| `page.mentioned` | A comment mentions the identity, or a change to a page's text mentions them where it did not before, once the change is stored, a page made with text included. A comment changed later tells only those it mentions anew. A mention in a page's text removed and written again tells again, read or not. |
+| `comment.replied` | Someone replied in a thread the identity wrote in before. |
+
+[Comments and mentions](/docs/guides/comments-and-mentions/) has when a mention counts: never
+the identity's own, and only while they may see the page; a mention of someone who may not
+tells them nothing, now or later.
 
 Every change to a row's values counts, whoever makes it and however: in the web app, through
 the API, from an agent over [MCP](/docs/guides/agents-over-mcp/), its `claim_task`,
 `create_row` and `update_row` included, or from an incoming webhook; moving a card on a
 board grouped by a person or a status changes values too. Changes to a database's schema, such as deleting a
 person property or one of its status's options, change no row's values in this sense and
-make no event. Integrations are never in person properties, so their webhooks hear nothing
-yet.
+make no event. Integrations are never in person properties, so they hear only of mentions
+and replies.
 
 A webhook is not told of the identity's own changes, an agent claiming a task itself say,
-unless it asks to be with `include_own`. More event types come later, such as mentions:
-receivers must ignore a `type` they do not know.
+unless it asks to be with `include_own`. More event types come later: receivers must ignore
+a `type` they do not know.
 
 The events are queued in the same transaction as the change that makes them, so a change
 that fails, or rolls back, tells nobody.
@@ -80,7 +88,8 @@ longer register it, the delivery is skipped too, the log says `lapsed`, and the 
 turns off. Its title and the database's are read as they are when it is sent. For an
 identity, or a URL's setter, who sees the row only through a share of the row itself, the
 database's title and the names of its properties and options are left out, as the row shows
-them no database either.
+them no database either. An event of a page goes out likewise only while the identity and
+whoever set the URL may see the page, and while the comment it is about is still there.
 
 ### The payload
 
@@ -113,13 +122,43 @@ Each delivery is a `POST` of a JSON object, version 1:
 |---|---|
 | `version` | `1`. A change that removes or renames a field makes a new version. |
 | `id` | The event's id: the same on every attempt, and for every webhook of the identity. Receivers drop the ones they have seen. |
-| `type` | `row.assigned`, `row.status_changed`, or `webhook.test` for a test event. |
+| `type` | `row.assigned`, `row.status_changed`, `page.mentioned`, `comment.replied`, or `webhook.test` for a test event. |
 | `occurred_at` | When the change was made, RFC 3339. |
 | `workspace` | `{"id"}`. |
 | `identity` | Whose event it is: `id`, `kind`, `human`, `agent` or `integration`, and `name`. |
 | `row` | `id`, `unique_id`, such as `NW-42`, `title`, `database`, `{"id", "title"}` or null, and `status`, the row's status now, `{"id", "name"}` or null. Null for a test event. |
 | `property` | The property the event is about: `id`, `name`, and `type`, `person` or `status`. Null for a test event. |
 | `change` | For `row.status_changed` alone: `from` and `to`, each `{"id", "name"}` or null. |
+
+The events of pages carry `version`, `id`, `type`, `occurred_at`, `workspace` and
+`identity` the same way, and in place of `row`, `property` and `change`:
+
+```json
+{
+  "version": 1,
+  "id": "0193a5b2-0000-7000-8000-0000000000e2",
+  "type": "comment.replied",
+  "occurred_at": "2026-11-25T12:05:00Z",
+  "workspace": { "id": "0193a5b2-0000-7000-8000-0000000000a1" },
+  "identity": { "id": "0193a5b2-0000-7000-8000-0000000000c1", "kind": "agent", "name": "Scout" },
+  "actor": { "id": "0193a5b2-0000-7000-8000-0000000000c2", "kind": "human", "name": "Ada Lovelace" },
+  "page": { "id": "0193a5b2-0000-7000-8000-0000000000d3", "title": "Release notes", "kind": "page" },
+  "comment": {
+    "id": "0193a5b2-0000-7000-8000-0000000000e3",
+    "thread_id": "0193a5b2-0000-7000-8000-0000000000e4",
+    "markdown": "Can you add the date, @[Scout](user:0193a5b2-0000-7000-8000-0000000000c1)?"
+  }
+}
+```
+
+| Field | What it holds |
+|---|---|
+| `actor` | Who mentioned or replied: `id`, `kind` and `name`; null once their account is gone. |
+| `page` | The page: `id`, `title` and `kind`, `page`, `database` or `row`, as they are when sent. |
+| `comment` | The comment that mentions or replies: `id`, `thread_id` and its `markdown` as it is when sent; null for a mention in the page's text. |
+
+An agent that hears of a reply answers in the same thread with `add_comment` and the
+`thread_id`, over [MCP](/docs/guides/agents-over-mcp/#comments-and-the-inbox).
 
 The request carries these headers:
 
@@ -295,7 +334,7 @@ answer's body is read; the rest is dropped with the connection.
 A workspace's owners and admins make incoming webhooks, each with a name and a target:
 
 - a **database**: it makes rows, and changes them by their unique id;
-- a **page**: it adds markdown at its end.
+- a **page**: it adds markdown at its end, and comments on it.
 
 Making one makes an **integration** of the workspace, owned by whoever made it, named after
 the webhook: what it writes shows as `CI · via Ada Lovelace`, like an
@@ -353,6 +392,7 @@ action its target does not take answers `400 invalid_payload`, saying what is wr
 | `create_row` | a database | `values`: values by property name or id, as the API's rows take them. The title property's value is the row's title. |
 | `update_row` | a database | `unique_id`, such as `NW-42`, its prefix in any case, or `42`; and `values`, at least one. `null` clears a value. |
 | `append` | a page | `markdown`: what to add at the page's end, at least one block, in the markdown [import](/docs/guides/import-export/) reads, its blocks nested at most [32 levels deep](/docs/architecture/documents/#what-markdown-loses). |
+| `comment` | a page | `markdown`: a comment, inline content alone, at most 10000 characters, mentions written as [comments](/docs/guides/comments-and-mentions/#markdown) write them; and `block_id`, to put it on the text of one block of the page rather than the page as a whole. |
 
 Values take the types the [databases](/docs/guides/databases/) guide lists: a select or
 status by its option's name or id, a person property by members' ids.
@@ -389,6 +429,21 @@ curl -X POST "$HOOK_URL" \
 { "ok": true, "action": "append" }
 ```
 
+Comment on it, on the whole page or on one block's text:
+
+```sh
+curl -X POST "$HOOK_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"version": 1, "action": "comment", "markdown": "Deployed **v1.4.0** to production."}'
+```
+
+```json
+{ "ok": true, "action": "comment" }
+```
+
+A comment starts a thread, written by the integration, and tells those it mentions and those
+who follow the page, as anyone's does.
+
 What is added to a page goes through the page's live document: everyone editing it sees the
 blocks at once, and they merge with what is being typed. Rows made and changed go through the
 database service like any other change, so everyone following the database sees them, and
@@ -422,7 +477,7 @@ curl -X POST "$HOOK_URL" \
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
 | `400` | `invalid_body` | The body could not be read to its end. |
 | `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. An unknown field is named with the fields its action takes. |
-| `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member. |
+| `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member; a block the page does not hold, or one without text, to comment on. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
 | `403` | `hook_disabled` | The webhook is turned off. |
 | `403` | `integration_suspended` | Its owner is out of the workspace, a guest there or disabled. |
@@ -430,6 +485,7 @@ curl -X POST "$HOOK_URL" \
 | `403` | `forbidden` | Its integration, or its owner, may not edit the target any more. |
 | `404` | `not_found` | No webhook has this URL; or the row of `update_row`, or the target, is not found. |
 | `409` | `too_many_rows`, `limit_reached` | The database holds as many rows as it may, or the row's values would be too large. |
+| `409` | `too_many_threads` | The page holds as many threads of comments as it may, 1000. |
 | `413` | `payload_too_large` | The body is larger than 256 KiB. |
 | `415` | `unsupported_media_type` | The body is not sent as JSON. |
 | `429` | `rate_limited` | Too many requests, with `Retry-After`. |

@@ -1,10 +1,11 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { KeyRound } from "lucide-react";
+import { KeyRound, Lock } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import type { ApiToken } from "@/api/account";
 import {
   agentsQuery,
+  agentTeamspacesQuery,
   agentTokensQuery,
   useCreateAgent,
   useCreateAgentToken,
@@ -13,17 +14,19 @@ import {
   useTransferAgent,
   useUpdateAgent,
   type Agent,
+  type AgentTeamspace,
   type CreatedApiToken,
 } from "@/api/agents";
 import { hasCode } from "@/api/errors";
 import { useDisconnectWorkspaceApp, workspaceAppsQuery, type ConnectedApp } from "@/api/oauth";
-import { teamspaceMembersQuery, teamspacesQuery, useAddTeamspaceMember } from "@/api/teamspaces";
+import { teamspacesQuery, useAddTeamspaceMember, useRemoveTeamspaceMember } from "@/api/teamspaces";
 import { membersQuery, workspaceQuery, type Workspace } from "@/api/workspaces";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { CopyField } from "@/components/feedback/copy-field";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { CheckboxField, Field, focusFirstInvalid } from "@/components/forms/field";
 import { Chip, ChipList } from "@/components/nodes/chip";
+import { EntityMark } from "@/components/nodes/entity-mark";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { KeyValueList, KeyValueRow } from "@/components/nodes/key-value";
 import { KindBadge, PersonLabel } from "@/components/people/person-label";
@@ -51,7 +54,7 @@ type AgentScope = (typeof AGENT_SCOPES)[number];
  * The workspace's agents and integrations: making one, for whom the workspace
  * lets, and for each its owner and status, renaming and recolouring it for its
  * owner, handing it over for owners and admins, deleting it, its tokens, and
- * adding it to teamspaces.
+ * the teamspaces it is in.
  */
 export function AgentsSettingsPage() {
   const workspace = useWorkspace();
@@ -334,8 +337,8 @@ function AgentCard({ agent, onDone }: { agent: Agent; onDone: (message: string) 
             onDone={onDone}
           />
         )}
-        {live && managing && agent.kind === "agent" && (
-          <AddToTeamspace agent={agent} own={own} onDone={onDone} />
+        {live && agent.kind === "agent" && (
+          <AgentTeamspaces agent={agent} own={own} managing={managing} onDone={onDone} />
         )}
         {agent.kind === "agent" && managing && <Tokens agent={agent} own={own} />}
       </div>
@@ -543,6 +546,109 @@ function TransferForm({ agent, pending, onChoose, onSettled, onDone }: TransferF
 }
 
 /**
+ * The teamspaces an agent is in, of those the user sees, each with the way to
+ * take it out where they may; then, for its owner and the workspace's owners
+ * and admins, the way to add it to another.
+ */
+function AgentTeamspaces({
+  agent,
+  own,
+  managing,
+  onDone,
+}: {
+  agent: Agent;
+  own: boolean;
+  managing: boolean;
+  onDone: (message: string) => void;
+}) {
+  const workspace = useWorkspace();
+  const theirs = useQuery(agentTeamspacesQuery(workspace.id, agent.id));
+  return (
+    <section aria-label={copy.teamspacesOf(agent.name)} className="grid gap-2">
+      <p className="text-sm font-medium">{copy.inTeamspaces}</p>
+      {theirs.isError && (
+        <ErrorNotice
+          error={theirs.error}
+          retrying={theirs.isFetching}
+          onRetry={() => void theirs.refetch()}
+        />
+      )}
+      {theirs.data?.length === 0 && (
+        <p className="text-sm text-muted-foreground">{copy.inNoTeamspace}</p>
+      )}
+      {theirs.data !== undefined && theirs.data.length > 0 && (
+        <ul aria-label={copy.inTeamspaces} className="grid max-w-sm gap-0.5">
+          {theirs.data.map((teamspace) => (
+            <AgentTeamspaceRow
+              key={teamspace.id}
+              agent={agent}
+              teamspace={teamspace}
+              onDone={onDone}
+            />
+          ))}
+        </ul>
+      )}
+      {managing && theirs.data !== undefined && (
+        <AddToTeamspace agent={agent} own={own} theirs={theirs.data} onDone={onDone} />
+      )}
+    </section>
+  );
+}
+
+function AgentTeamspaceRow({
+  agent,
+  teamspace,
+  onDone,
+}: {
+  agent: Agent;
+  teamspace: AgentTeamspace;
+  onDone: (message: string) => void;
+}) {
+  const workspace = useWorkspace();
+  const remove = useRemoveTeamspaceMember(workspace.id, teamspace.id);
+  const [confirming, setConfirming] = useState(false);
+  const priv = teamspace.access === "private";
+  return (
+    <li className="grid gap-1">
+      <div className="flex min-h-(--tap-sm) min-w-0 items-center gap-2 text-sm">
+        <EntityMark name={teamspace.name} icon={teamspace.icon} hue={teamspace.hue} size="sm" />
+        <span className="min-w-0 truncate">
+          {teamspace.name}
+          {priv && <span className="sr-only">, {copy.privateTeamspace}</span>}
+        </span>
+        {priv && <Lock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />}
+        {teamspace.removable && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={remove.isPending}
+            aria-label={copy.takeOutLabel(agent.name, teamspace.name)}
+            onClick={() => setConfirming(true)}
+            className="ml-auto"
+          >
+            {copy.takeOut}
+          </Button>
+        )}
+      </div>
+      {remove.isError && <ErrorNotice error={remove.error} />}
+      <ConfirmDialog
+        open={confirming}
+        title={copy.takeOutTitle(agent.name, teamspace.name)}
+        description={copy.takeOutLede}
+        confirm={copy.takeOut}
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          remove.mutate(agent.id, {
+            onSuccess: () => onDone(copy.takenOut(agent.name, teamspace.name)),
+          });
+        }}
+      />
+    </li>
+  );
+}
+
+/**
  * The teamspaces it may be added to and is not in yet: for its owner, those
  * they are in themselves, whatever their role in the workspace; for the
  * workspace's owners and admins, any but General, which it is in already.
@@ -550,28 +656,27 @@ function TransferForm({ agent, pending, onChoose, onSettled, onDone }: TransferF
 function AddToTeamspace({
   agent,
   own,
+  theirs,
   onDone,
 }: {
   agent: Agent;
   own: boolean;
+  /** The teamspaces it is in already. */
+  theirs: readonly AgentTeamspace[];
   onDone: (message: string) => void;
 }) {
   const workspace = useWorkspace();
   const teamspaces = useQuery(teamspacesQuery(workspace.id));
   const [teamspaceId, setTeamspaceId] = useState("");
   const add = useAddTeamspaceMember(workspace.id, teamspaceId);
-  const open =
+  const joined = new Set(theirs.map((teamspace) => teamspace.id));
+  const choices =
     teamspaces.data?.teamspaces.filter(
       (teamspace) =>
         teamspace.access !== "default" &&
+        !joined.has(teamspace.id) &&
         (own ? teamspace.role !== undefined && teamspace.role !== null : manages(workspace.role)),
     ) ?? [];
-  const members = useQueries({
-    queries: open.map((teamspace) => teamspaceMembersQuery(workspace.id, teamspace.id)),
-  });
-  const choices = open.filter(
-    (_, index) => members[index]?.data?.some((member) => member.user.id === agent.id) !== true,
-  );
   if (teamspaces.isPending) {
     return null;
   }

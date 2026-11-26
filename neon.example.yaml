@@ -158,6 +158,14 @@ settings:
     # session_idle_timeout: 30m
     # How often, at most, a session hears that one resource it subscribes to changed.
     # notification_interval: 2s
+  notifications:
+    # Mail people of their inbox, each as their preference says: a mail for each
+    # notification left unread a while, or a digest. Needs mail set up.
+    # mail: false
+    # How long a notification waits unread before its own mail goes, and how often, at
+    # most, a digest goes.
+    # mail_delay: 5m
+    # digest_interval: 3h
   oauth:
     # Whether MCP clients and other programs may register themselves with the OAuth server.
     # registration: true

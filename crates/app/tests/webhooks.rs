@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
+use neon_app::comments::CommentService;
 use neon_app::crypto::{Envelope, Keyring};
 use neon_app::databases::PropertySpec;
 use neon_app::databases::{GroupMove, NewDatabase, NewProperty, NewRow, NewView, RowMove};
@@ -164,6 +165,7 @@ async fn team(pool: PgPool) -> Team {
             agents: h.agents.clone(),
             pages: h.pages.clone(),
             databases: h.databases.clone(),
+            comments: CommentService::new(h.pages.clone(), sync.clone()),
             sync,
         },
         Arc::clone(&kept) as Arc<dyn WebhookTransport>,
@@ -478,6 +480,7 @@ async fn deliveries_that_fail_in_the_server_are_logged_and_counted(pool: PgPool)
             agents: t.h.agents.clone(),
             pages: t.h.pages.clone(),
             databases: t.h.databases.clone(),
+            comments: CommentService::new(t.h.pages.clone(), sync.clone()),
             sync,
         },
         Arc::clone(&t.kept) as Arc<dyn WebhookTransport>,

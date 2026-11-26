@@ -23,7 +23,8 @@ const copy = strings.workspaces.home;
 /**
  * A workspace's first page: the ways to a new page and onward, the user's
  * favorites, their teamspaces, and the pages shared with them, which are all
- * a guest has.
+ * a guest has. A part with nothing to show leaves no room, and whichever comes
+ * first under the header goes without a rule, as the header's space parts them.
  */
 export function WorkspaceHomePage() {
   const workspace = useWorkspace();
@@ -31,7 +32,7 @@ export function WorkspaceHomePage() {
   const newPage = useNewPage(workspace);
   const [importing, setImporting] = useState(false);
   return (
-    <div className="grid gap-10">
+    <>
       <PageHeader
         eyebrow={
           <span className="flex items-center gap-2">
@@ -88,10 +89,12 @@ export function WorkspaceHomePage() {
           onOpenChange={setImporting}
         />
       )}
-      <Favorites />
-      {!guest && <YourTeamspaces />}
-      <SharedWithYou guest={guest} />
-    </div>
+      <div className="grid gap-10 [&>:first-child]:border-t-0 [&>:first-child]:pt-0">
+        <Favorites />
+        {!guest && <YourTeamspaces />}
+        <SharedWithYou guest={guest} />
+      </div>
+    </>
   );
 }
 

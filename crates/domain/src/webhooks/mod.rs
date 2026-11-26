@@ -3,9 +3,9 @@
 //!
 //! - **Outgoing webhooks** belong to one identity of a workspace, a person, an agent or an
 //!   integration, and are told of the [`EventType`]s they name about the rows that
-//!   identity is assigned to. They go to an `http` or `https` URL whose host is checked by
-//!   [`address`] before every delivery, so none reaches the server's own network unless
-//!   the instance allows it.
+//!   identity is assigned to, the mentions of it and the replies to its comments. They go
+//!   to an `http` or `https` URL whose host is checked by [`address`] before every
+//!   delivery, so none reaches the server's own network unless the instance allows it.
 //! - **Incoming webhooks** each act as an integration of their workspace, on one target: a
 //!   database, whose rows they make and change, or a page, whose content they add to.
 //!
@@ -27,6 +27,10 @@ text_enum! {
         /// The status property of a row changed, while the identity is in one of its person
         /// properties.
         StatusChanged => "row.status_changed",
+        /// A page's text, or a comment on it, mentions the identity.
+        Mentioned => "page.mentioned",
+        /// Someone replied in a thread of comments the identity wrote in.
+        Replied => "comment.replied",
     }
 }
 

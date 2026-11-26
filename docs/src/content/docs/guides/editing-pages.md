@@ -25,8 +25,9 @@ Under the workspace switcher, the sidebar lists a workspace's pages in sections:
 | **Shared with you** | Pages shared with you from places you do not otherwise reach, with the pages under them. Shown while there are any. For a guest, it is everything. |
 
 **Search**, at the top with **Home**, opens the [quick search](/docs/guides/search/#in-the-web-app),
-as **⌘K** or **Ctrl+K** does anywhere. **Trash** opens the [trash](#the-trash). On a phone
-the sidebar is a drawer, opened from the button at the top left.
+as **⌘K** or **Ctrl+K** does anywhere. **Inbox** opens your [inbox](/docs/guides/inbox/), with
+the number unread beside it, and **Trash** the [trash](#the-trash). On a phone the sidebar is
+a drawer, opened from the button at the top left.
 
 Each page is a row: the arrow before it opens and closes the pages under it, the title opens
 the page, and the row's buttons add a page inside it and open its menu. A database shows with
@@ -88,10 +89,11 @@ their access from where they land.
 
 Above the page, the way down to it: its teamspace, or **Private**, then each page above it
 you can see. A guest's starts at the page shared with them. Beside it are the state of the
-[live connection](#the-live-connection), **History**, the favorite star, **Share**, the
-**Style** menu and the page's menu. **History** opens the page's earlier versions, to see
-what changed since one and to restore it, as [Page history](/docs/guides/history/#in-the-web-app)
-describes.
+[live connection](#the-live-connection), **Comments**, which opens the page's
+[comments](/docs/guides/comments-and-mentions/#in-the-web-app) beside it, **History**, the
+favorite star, **Share**, the **Style** menu and the page's menu. **History** opens the page's
+earlier versions, to see what changed since one and to restore it, as
+[Page history](/docs/guides/history/#in-the-web-app) describes.
 
 | Part | What it does |
 |---|---|
@@ -172,7 +174,7 @@ keeps of a page, and the limits.
 **Share**, in a page's header or its menu, opens the page's shares:
 
 - **Share with someone** picks a person in the workspace and what the share gives, **Can
-  view** or **Can edit**, and adds it.
+  view**, **Can comment** or **Can edit**, and adds it.
 - Each share on the page itself has its access, which changes on the spot, and **Remove**.
 - Shares set on a page above hold here too. They are listed after the page's own, with the
   page they come from, and change on that page.

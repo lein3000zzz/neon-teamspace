@@ -58,6 +58,8 @@ type ViewTabsProps = {
  * The database's views as tabs: arrow keys move between them, and the one in
  * view has a menu to rename it, duplicate it, show it in another layout, move
  * it, or delete it, for those who edit the database; then the way to add one.
+ * Tabs that do not fit scroll sideways on their own, the one in view kept in
+ * sight, and the way to add one stays beside them.
  */
 export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
   const workspace = useWorkspace();
@@ -65,6 +67,9 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
   const create = useCreateView(workspace.id, database.page.id);
   const [renaming, setRenaming] = useState<string | null>(null);
   const tabs = useRef(new Map<string, HTMLButtonElement>());
+  const list = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState<More>({ start: false, end: false });
   // The tab a rename ended from the keyboard, to have the focus back.
   const refocus = useRef<string | null>(null);
   const views = database.views;
@@ -86,6 +91,47 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
       tabs.current.get(target.id)?.focus();
     }
   };
+
+  // Whether tabs are out of sight on either side, which that side fades to say: read as the
+  // row scrolls, and as it or its tabs change size.
+  useEffect(() => {
+    const row = list.current;
+    const content = strip.current;
+    if (row === null || content === null) {
+      return;
+    }
+    const measure = () => {
+      const start = row.scrollLeft > 1;
+      const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
+      setMore((now) => (now.start === start && now.end === end ? now : { start, end }));
+    };
+    measure();
+    row.addEventListener("scroll", measure, { passive: true });
+    const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    resized?.observe(row);
+    resized?.observe(content);
+    return () => {
+      row.removeEventListener("scroll", measure);
+      resized?.disconnect();
+    };
+  }, []);
+
+  // The tab in view, with its menu when it has one, scrolls clear of the fades, however it
+  // was chosen: the browser brings a focused tab only to the row's very edge.
+  useEffect(() => {
+    const row = list.current;
+    const tab = document.getElementById(`${panelId}-${active.id}`)?.parentElement;
+    if (row === null || tab === null || tab === undefined) {
+      return;
+    }
+    const start = tab.offsetLeft - FADE;
+    const end = tab.offsetLeft + tab.offsetWidth + FADE;
+    if (start < row.scrollLeft) {
+      row.scrollLeft = start;
+    } else if (end > row.scrollLeft + row.clientWidth) {
+      row.scrollLeft = end - row.clientWidth;
+    }
+  }, [active.id, panelId]);
 
   useEffect(() => {
     const back = refocus.current;
@@ -110,64 +156,68 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
   return (
     <div className="flex min-w-0 items-center gap-1">
       <div
+        ref={list}
         role="tablist"
         aria-label={copy.label}
-        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto overscroll-x-contain"
+        style={{ maskImage: fade(more) }}
+        className="relative min-w-0 overflow-x-auto overscroll-x-contain"
       >
-        {views.map((view, index) => {
-          const Icon = LAYOUT_ICONS[view.layout];
-          const selected = view.id === active.id;
-          if (renaming === view.id) {
-            return (
-              <RenameView
-                key={view.id}
-                view={view}
-                onDone={(fromKeyboard) => {
-                  refocus.current = fromKeyboard ? view.id : null;
-                  setRenaming(null);
-                }}
-              />
-            );
-          }
-          return (
-            <span key={view.id} className="flex shrink-0 items-center">
-              <button
-                ref={(element) => {
-                  if (element === null) {
-                    tabs.current.delete(view.id);
-                  } else {
-                    tabs.current.set(view.id, element);
-                  }
-                }}
-                type="button"
-                role="tab"
-                id={`${panelId}-${view.id}`}
-                aria-selected={selected}
-                aria-controls={panelId}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => onSelect(view.id)}
-                onKeyDown={(event) => onKeyDown(event, index)}
-                className={cn(
-                  "inline-flex h-(--tap-sm) items-center gap-1.5 rounded-md px-2.5 text-sm whitespace-nowrap outline-offset-[-2px] transition-colors",
-                  selected
-                    ? "bg-accent font-medium text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                <Icon aria-hidden className="size-4" />
-                {view.name}
-              </button>
-              {selected && editsDatabase && (
-                <ViewMenu
+        <div ref={strip} role="none" className="flex w-max items-center gap-0.5">
+          {views.map((view, index) => {
+            const Icon = LAYOUT_ICONS[view.layout];
+            const selected = view.id === active.id;
+            if (renaming === view.id) {
+              return (
+                <RenameView
+                  key={view.id}
                   view={view}
-                  index={index}
-                  onRename={() => setRenaming(view.id)}
-                  onSelect={onSelect}
+                  onDone={(fromKeyboard) => {
+                    refocus.current = fromKeyboard ? view.id : null;
+                    setRenaming(null);
+                  }}
                 />
-              )}
-            </span>
-          );
-        })}
+              );
+            }
+            return (
+              <span key={view.id} className="flex shrink-0 items-center">
+                <button
+                  ref={(element) => {
+                    if (element === null) {
+                      tabs.current.delete(view.id);
+                    } else {
+                      tabs.current.set(view.id, element);
+                    }
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${panelId}-${view.id}`}
+                  aria-selected={selected}
+                  aria-controls={panelId}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => onSelect(view.id)}
+                  onKeyDown={(event) => onKeyDown(event, index)}
+                  className={cn(
+                    "inline-flex h-(--tap-sm) items-center gap-1.5 rounded-md px-2.5 text-sm whitespace-nowrap outline-offset-[-2px] transition-colors",
+                    selected
+                      ? "bg-accent font-medium text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <Icon aria-hidden className="size-4" />
+                  {view.name}
+                </button>
+                {selected && editsDatabase && (
+                  <ViewMenu
+                    view={view}
+                    index={index}
+                    onRename={() => setRenaming(view.id)}
+                    onSelect={onSelect}
+                  />
+                )}
+              </span>
+            );
+          })}
+        </div>
       </div>
       {editsDatabase && (
         <DropdownMenu modal={false}>
@@ -200,6 +250,22 @@ export function ViewTabs({ view: active, panelId, onSelect }: ViewTabsProps) {
       )}
     </div>
   );
+}
+
+/** Whether tabs are scrolled out of sight before the first shown, and after the last. */
+type More = { start: boolean; end: boolean };
+
+/** How far, in pixels, the row of tabs fades out on a side where more of them are. */
+const FADE = 24;
+
+/** A mask that fades the row of tabs out on the sides where more of them are, or none. */
+function fade({ start, end }: More): string | undefined {
+  if (!start && !end) {
+    return undefined;
+  }
+  const from = start ? `transparent, #000 ${FADE}px` : "#000";
+  const to = end ? `#000 calc(100% - ${FADE}px), transparent` : "#000";
+  return `linear-gradient(to right, ${from}, ${to})`;
 }
 
 /** A name for a new view no other has: "Board", then "Board 2". */

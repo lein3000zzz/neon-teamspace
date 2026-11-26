@@ -12,7 +12,8 @@
 //!       paragraph backgroundColor="default" textColor="default" textAlignment="left"
 //!         XmlText "Some bold text" (bold: {} over "bold")
 //!         hardBreak
-//!         XmlText "after the break"
+//!         XmlText "after the break, for "
+//!         mention kind="user" target="..." label="Ada"
 //!       blockGroup                      (the block's children, if it has any)
 //!         blockContainer id="..."
 //!           ...
@@ -43,9 +44,9 @@ use crate::ids::IdSource;
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_COLOR, DatabaseProps,
-    Document, FileProps, HeadingProps, ImageProps, Inline, NoProps, NumberedListItemProps,
-    QuoteProps, TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment,
-    TextProps,
+    Document, FileProps, HeadingProps, ImageProps, Inline, Mention, MentionKind, NoProps,
+    NumberedListItemProps, QuoteProps, TableCell, TableCellProps, TableContent, TableProps,
+    TableRow, TextAlignment, TextProps,
 };
 
 /// The name of the `XmlFragment` that holds a page's blocks, which the web app passes to
@@ -55,6 +56,7 @@ pub const FRAGMENT: &str = "document-store";
 pub(crate) const BLOCK_GROUP: &str = "blockGroup";
 pub(crate) const BLOCK_CONTAINER: &str = "blockContainer";
 const HARD_BREAK: &str = "hardBreak";
+pub(crate) const MENTION: &str = "mention";
 pub(crate) const TABLE: &str = "table";
 pub(crate) const TABLE_ROW: &str = "tableRow";
 pub(crate) const TABLE_CELL: &str = "tableCell";
@@ -148,6 +150,63 @@ pub fn read_lenient<T: ReadTxn>(txn: &T, fragment: &XmlFragmentRef) -> Lenient {
         document: Document::new(blocks),
         dropped,
     }
+}
+
+/// A mention in a document's text, as its Yjs document holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MentionItem {
+    /// The block it is in.
+    pub block_id: Option<String>,
+    pub mention: Mention,
+    /// The Yjs id of its element: the client that made it and where in that client's
+    /// clock, which tells whose change wrote it.
+    pub id: Option<yrs::ID>,
+}
+
+/// Every mention of a fragment's text, table cells included, in document order, as
+/// [`Document::mentions`] lists them, each with the Yjs id of its element. A mention whose
+/// attributes do not read fails as [`read`] does.
+pub fn mention_items<T: ReadTxn>(
+    txn: &T,
+    fragment: &XmlFragmentRef,
+) -> Result<Vec<MentionItem>, ReadError> {
+    fn walk<T: ReadTxn>(
+        txn: &T,
+        children: impl Iterator<Item = XmlOut>,
+        block_id: Option<&str>,
+        found: &mut Vec<MentionItem>,
+    ) -> Result<(), ReadError> {
+        for child in children {
+            let XmlOut::Element(element) = child else {
+                continue;
+            };
+            match element.tag().as_ref() {
+                MENTION => {
+                    let branch: &yrs::branch::Branch = element.as_ref();
+                    found.push(MentionItem {
+                        block_id: block_id.map(str::to_owned),
+                        mention: read_mention(txn, &element)?,
+                        id: match branch.id() {
+                            yrs::BranchID::Nested(id) => Some(id),
+                            yrs::BranchID::Root(_) => None,
+                        },
+                    });
+                }
+                BLOCK_CONTAINER => {
+                    let id = match element.get_attribute(txn, "id") {
+                        Some(Out::Any(Any::String(id))) => Some(id.to_string()),
+                        _ => None,
+                    };
+                    walk(txn, element.children(txn), id.as_deref(), found)?;
+                }
+                _ => walk(txn, element.children(txn), block_id, found)?,
+            }
+        }
+        Ok(())
+    }
+    let mut found = Vec::new();
+    walk(txn, fragment.children(txn), None, &mut found)?;
+    Ok(found)
 }
 
 /// Replaces everything in the fragment with `document`. Blocks without an id get one from
@@ -527,7 +586,7 @@ fn static_name(name: &str) -> Option<&'static str> {
     NAMES.into_iter().find(|known| *known == name)
 }
 
-/// The inline content of an element: its texts' runs and its hard breaks.
+/// The inline content of an element: its texts' runs, its hard breaks and its mentions.
 fn read_inline<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<Vec<Inline>, ReadError> {
     let mut pieces = Vec::new();
     for child in element.children(txn) {
@@ -536,11 +595,30 @@ fn read_inline<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Result<Vec<Inlin
             XmlOut::Element(node) if node.tag().as_ref() == HARD_BREAK => {
                 pieces.push(Piece::Break);
             }
+            XmlOut::Element(node) if node.tag().as_ref() == MENTION => {
+                pieces.push(Piece::Mention(read_mention(txn, &node)?));
+            }
             XmlOut::Element(node) => return Err(ReadError::UnknownInline(node.tag().to_string())),
             XmlOut::Fragment(_) => return Err(ReadError::UnknownInline("fragment".to_owned())),
         }
     }
     Ok(to_inline(pieces))
+}
+
+/// A mention's props, with the schema's defaults.
+fn read_mention<T: ReadTxn>(txn: &T, node: &XmlElementRef) -> Result<Mention, ReadError> {
+    let attrs = Attrs {
+        txn,
+        element: node,
+        node: MENTION,
+    };
+    let kind = MentionKind::parse(&attrs.string("kind", MentionKind::User.as_str())?)
+        .ok_or_else(|| attrs.invalid("kind"))?;
+    Ok(Mention::new(
+        kind,
+        attrs.string("target", "")?,
+        attrs.string("label", "")?,
+    ))
 }
 
 fn read_text<T: ReadTxn>(
@@ -889,7 +967,8 @@ pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind
 }
 
 /// Writes inline content as y-prosemirror does: each run of text nodes one `XmlText`, each
-/// hard break an element between them.
+/// hard break and each mention an element between them, a mention's attributes in its
+/// props' order.
 fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[Inline]) {
     let mut texts: Vec<(String, Marks)> = Vec::new();
     for piece in to_pieces(content) {
@@ -898,6 +977,18 @@ fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[In
             Piece::Break => {
                 write_text(txn, element, &std::mem::take(&mut texts));
                 element.push_back(txn, XmlElementPrelim::empty(HARD_BREAK));
+            }
+            Piece::Mention(mention) => {
+                write_text(txn, element, &std::mem::take(&mut texts));
+                let node = element.push_back(txn, XmlElementPrelim::empty(MENTION));
+                let props = &mention.props;
+                let mut attrs = Writer {
+                    txn,
+                    element: &node,
+                };
+                attrs.set("kind", props.kind.as_str());
+                attrs.set("target", props.target.as_str());
+                attrs.set("label", props.label.as_str());
             }
         }
     }
@@ -1094,6 +1185,80 @@ mod tests {
     fn an_empty_fragment_is_an_empty_document() {
         let doc = Doc::new();
         assert_eq!(read_doc(&doc), Ok(Document::default()));
+    }
+
+    #[test]
+    fn mention_items_name_each_mentions_block_and_the_client_that_wrote_it() {
+        use yrs::updates::decoder::Decode as _;
+
+        let written = crate::markdown::from_markdown(
+            "Ask @[Bea](user:b1)\n\n- and @[Cy](user:c1)\n  - under @[Plan](page:p1)",
+        );
+        let first = Doc::with_client_id(1);
+        let fragment_one = fragment(&first);
+        {
+            let mut txn = first.transact_mut();
+            replace(
+                &mut txn,
+                &fragment_one,
+                &written,
+                &mut SequentialIds::new("one"),
+            );
+        }
+        // A second client adds a block of its own.
+        let second = Doc::with_client_id(2);
+        let fragment_two = fragment(&second);
+        let update = {
+            let txn = first.transact();
+            txn.encode_state_as_update_v1(&yrs::StateVector::default())
+        };
+        let added = {
+            let mut txn = second.transact_mut();
+            txn.apply_update(yrs::Update::decode_v1(&update).expect("an update"))
+                .expect("applies");
+            append(
+                &mut txn,
+                &fragment_two,
+                &crate::markdown::from_markdown("Also @[Dee](user:d1)").blocks,
+                &mut SequentialIds::new("two"),
+            )
+            .expect("appended");
+            txn.encode_update_v1()
+        };
+        first
+            .transact_mut()
+            .apply_update(yrs::Update::decode_v1(&added).expect("an update"))
+            .expect("applies");
+
+        let txn = first.transact();
+        let items = mention_items(&txn, &fragment_one).expect("read");
+        let seen: Vec<(Option<&str>, &str, Option<u64>)> = items
+            .iter()
+            .map(|item| {
+                (
+                    item.block_id.as_deref(),
+                    item.mention.props.target.as_str(),
+                    item.id.map(|id| id.client.get()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (Some("one-1"), "b1", Some(1)),
+                (Some("one-2"), "c1", Some(1)),
+                (Some("one-3"), "p1", Some(1)),
+                (Some("two-1"), "d1", Some(2)),
+            ]
+        );
+        // The same mentions, in the same order, as the typed document lists them.
+        let document = read(&txn, &fragment_one).expect("blocks");
+        let typed: Vec<(Option<&str>, &Mention)> = document.mentions();
+        let walked: Vec<(Option<&str>, &Mention)> = items
+            .iter()
+            .map(|item| (item.block_id.as_deref(), &item.mention))
+            .collect();
+        assert_eq!(walked, typed);
     }
 
     #[test]

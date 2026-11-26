@@ -570,7 +570,9 @@ function Card({
             ref={titleButton}
             type="button"
             onClick={() => openRow(row.id)}
-            className="flex min-h-(--tap-sm) min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-left font-medium outline-offset-[-2px] hover:underline"
+            // Its first line sits level with the menu beside it, and as far from the top
+            // as its last is from the values below, however many lines it takes.
+            className="flex min-h-(--tap-sm) min-w-0 flex-1 items-baseline gap-1.5 rounded-sm px-1 py-[calc((var(--tap-sm)_-_1.25rem)_/_2)] text-left font-medium outline-offset-[-2px] hover:underline"
           >
             <RowIcon row={row} />
             <span className={cn("break-words", row.title === "" && "text-muted-foreground")}>
