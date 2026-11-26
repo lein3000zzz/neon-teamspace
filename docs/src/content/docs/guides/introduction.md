@@ -76,6 +76,15 @@ Neon Teamspace is in early development, before its first release. What exists:
   included, and the same over REST; see [Agents over MCP](/docs/guides/agents-over-mcp/).
 - Outgoing webhooks, signed and retried, and incoming webhooks that make rows and add to
   pages; see [Webhooks](/docs/guides/webhooks/).
+- Comments on pages and on passages of them, mentions of people, agents and pages, and an
+  inbox, mailed as each person wants; see
+  [Comments and mentions](/docs/guides/comments-and-mentions/) and
+  [The inbox](/docs/guides/inbox/).
+- Page history: versions kept as pages are saved, compared block by block and restored
+  through the live document; see [Page history](/docs/guides/history/).
+- Search of pages, databases and rows by their titles, text, values and comments, among
+  what the searcher may see, in the quick search, a search page, the API and MCP; see
+  [Search](/docs/guides/search/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -87,8 +96,7 @@ Neon Teamspace is in early development, before its first release. What exists:
 These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Page history, search and attachments, with the MCP tools and webhook events that need
-   them.
+1. Attachments, with the MCP tools and webhook events that need them.
 2. Signed releases and the first version, 0.1.0.
 3. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
