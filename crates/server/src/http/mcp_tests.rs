@@ -1872,6 +1872,112 @@ async fn each_tool_call_is_a_red_operation_of_its_own(pool: PgPool) {
     finish(&state, server).await;
 }
 
+/// Keeps every log line written to it.
+#[derive(Clone, Default)]
+struct Lines(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Lines {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("lines").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Lines {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_session_that_reads_and_edits_logs_no_content_value_or_token(pool: PgPool) {
+    use tracing_subscriber::Layer as _;
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    // Every level, as the server filters it: the MCP SDK, which logs requests whole below
+    // info, is held at info, as the server holds it. The test's own client logs nothing.
+    let lines = Lines::default();
+    let filter = format!("{},reqwest=off", crate::telemetry::quiet_mcp_sdk("trace"));
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(lines.clone())
+            .with_ansi(false)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .with_filter(tracing_subscriber::EnvFilter::new(filter)),
+    );
+    // With one dispatcher alone, tracing asks only the thread that registers a callsite
+    // whether anyone listens, so a callsite another test's thread registers first would stay
+    // off here: a second dispatcher, which listens to nothing, has it ask every dispatcher.
+    let _every_dispatcher = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+    // Tests run on a single-threaded runtime, so the server's tasks log here too.
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let recorder = metrics_util::debugging::DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _recording = metrics::set_default_local_recorder(&recorder);
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    const CONTENT: &str = "Content nobody logs";
+    const EDIT: &str = "An edit nobody logs";
+    let plan = page(&t, "Plan", CONTENT).await;
+    let token = bound_token(&t.ada, &t.workspace, &["read", "write"]).await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+
+    let read = client.ok("read_page", json!({"page_id": plan})).await;
+    assert!(
+        read["markdown"]
+            .as_str()
+            .is_some_and(|md| md.contains(CONTENT))
+    );
+    client
+        .ok(
+            "edit_page",
+            json!({"page_id": plan, "operations": [{"op": "append", "markdown": EDIT}]}),
+        )
+        .await;
+    let read = client.ok("read_page", json!({"page_id": plan})).await;
+    assert!(
+        read["markdown"]
+            .as_str()
+            .is_some_and(|md| md.contains(EDIT))
+    );
+    client
+        .refused("read_page", json!({"page_id": uuid::Uuid::now_v7()}))
+        .await;
+    client.close().await;
+    finish(&state, server).await;
+
+    let counts = mcp_counts(&snapshotter);
+    let count = |operation: &str, status: &str| {
+        counts
+            .get(&(operation.to_owned(), status.to_owned()))
+            .copied()
+            .unwrap_or(0)
+    };
+    assert_eq!(count("read_page", "ok"), 3);
+    assert_eq!(count("edit_page", "ok"), 1);
+    assert!(
+        counts.keys().all(|(_, status)| status == "ok"),
+        "{counts:?}"
+    );
+    let logged = String::from_utf8_lossy(&lines.0.lock().expect("lines")).into_owned();
+    assert!(
+        logged.contains("mcp read_page"),
+        "the capture has the spans"
+    );
+    assert!(logged.contains("page edited"), "the capture has the logs");
+    for secret in [token.as_str(), CONTENT, EDIT] {
+        assert!(!logged.contains(secret), "{secret:?} was logged");
+    }
+}
+
 /// A client that `by` registers and connects over OAuth in `workspace` as `agent`, for
 /// `/mcp` with `scopes`, as an MCP client asks: its access token.
 async fn connected_over_oauth(
