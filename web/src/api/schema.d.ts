@@ -5113,7 +5113,8 @@ export interface components {
         WorkspaceUsage: {
             /**
              * Format: int64
-             * @description Always 0 until agents exist.
+             * @description Its agents and integrations together, deleted ones left out, as its agent limit
+             *     counts them.
              */
             agents: number;
             /** Format: int64 */
