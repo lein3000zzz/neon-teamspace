@@ -590,8 +590,13 @@ async fn open_pages_and_inboxes_hear_their_changes_live(pool: PgPool) {
     .await;
     assert_eq!(heard, r#"{"type":"inbox"}"#);
 
-    // A connection that did not ask hears nothing of comments.
+    // A connection that did not ask hears nothing of comments, once it is set up as the
+    // editor's was, so it would have heard.
     let mut plain = socket(server.addr, &format!("/ws/pages/{page}"), t.dee.cookie()).await;
+    until(&mut plain, |frame| {
+        matches!(frame, Frame::Binary(_)).then_some(())
+    })
+    .await;
     t.dee
         .send(
             Method::PATCH,
