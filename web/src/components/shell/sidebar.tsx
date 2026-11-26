@@ -37,7 +37,9 @@ type SidebarProps = {
  * Brand, the workspace switcher, navigation, who is signed in, and the
  * instance footer. Rendered as a column beside the page on wide screens and
  * inside the drawer on narrow ones. The admin pages are listed for admins
- * only; the server refuses them to anyone else whatever the menu shows.
+ * only; the server refuses them to anyone else whatever the menu shows. The
+ * styleguide, for whoever works on the app, is listed in a development build,
+ * and for instance admins in any.
  */
 export function Sidebar({ onNavigate }: SidebarProps) {
   // The column and the open drawer are mounted together, so ids must be unique per copy.
@@ -113,12 +115,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             </li>
           )}
-          <li>
-            <Link to="/styleguide" onClick={onNavigate} className={navLink}>
-              <Shapes aria-hidden className="size-4" />
-              {strings.nav.styleguide}
-            </Link>
-          </li>
+          {(import.meta.env.DEV || me.role === "admin") && (
+            <li>
+              <Link to="/styleguide" onClick={onNavigate} className={navLink}>
+                <Shapes aria-hidden className="size-4" />
+                {strings.nav.styleguide}
+              </Link>
+            </li>
+          )}
         </ul>
         {current !== undefined && (
           <>
