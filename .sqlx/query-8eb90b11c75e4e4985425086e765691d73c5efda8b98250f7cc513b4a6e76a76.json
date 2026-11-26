@@ -1,73 +1,43 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT c.id, c.thread_id, c.author_id, c.body, c.created_at, c.edited_at,\n                  u.kind AS \"kind?\", u.display_name AS \"display_name?\", u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue\n           FROM comments c\n           JOIN comment_threads t ON t.id = c.thread_id\n           LEFT JOIN users u ON u.id = c.author_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           WHERE t.page_id = $1\n           ORDER BY c.thread_id, c.id",
+  "query": "SELECT c.id AS \"id!\", c.thread_id AS \"thread_id!\", c.author_id, c.body AS \"body!\",\n                  c.created_at AS \"created_at!\", c.edited_at,\n                  u.kind AS \"kind?\", u.display_name AS \"display_name?\", u.email AS \"email?\",\n                  u.hue AS \"hue?\", o.id AS \"owner_id?\", o.display_name AS \"owner_name?\",\n                  o.hue AS \"owner_hue?\"\n           FROM unnest($1::uuid[]) AS t (id)\n           CROSS JOIN LATERAL (\n               (SELECT * FROM comments WHERE thread_id = t.id ORDER BY id LIMIT 1)\n               UNION\n               (SELECT * FROM comments WHERE thread_id = t.id ORDER BY id DESC LIMIT $2)\n           ) c\n           LEFT JOIN users u ON u.id = c.author_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           ORDER BY c.thread_id, c.id",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "id"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 1,
-        "name": "thread_id",
+        "name": "thread_id!",
         "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "thread_id"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
         "name": "author_id",
         "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "author_id"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
-        "name": "body",
+        "name": "body!",
         "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "body"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 4,
-        "name": "created_at",
+        "name": "created_at!",
         "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "created_at"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 5,
         "name": "edited_at",
         "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "comments",
-            "name": "edited_at"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 6,
@@ -93,7 +63,7 @@
       },
       {
         "ordinal": 8,
-        "name": "email",
+        "name": "email?",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +74,7 @@
       },
       {
         "ordinal": 9,
-        "name": "hue",
+        "name": "hue?",
         "type_info": "Int2",
         "origin": {
           "Table": {
@@ -137,7 +107,7 @@
       },
       {
         "ordinal": 12,
-        "name": "owner_hue",
+        "name": "owner_hue?",
         "type_info": "Int2",
         "origin": {
           "Table": {
@@ -149,16 +119,17 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "UuidArray",
+        "Int8"
       ]
     },
     "nullable": [
-      false,
-      false,
-      true,
-      false,
-      false,
-      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       false,
       false,
       true,
@@ -168,5 +139,5 @@
       true
     ]
   },
-  "hash": "c05230c6c05c4744be8a33ddf6e2a105d47ca535c68d800ead749f4d2fe41722"
+  "hash": "8eb90b11c75e4e4985425086e765691d73c5efda8b98250f7cc513b4a6e76a76"
 }

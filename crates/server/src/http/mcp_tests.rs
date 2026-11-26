@@ -2687,8 +2687,38 @@ async fn an_agent_comments_reads_its_inbox_and_hears_it_change(pool: PgPool) {
     let comments = agent.ok("list_comments", json!({"page_id": plan})).await;
     let threads = comments["threads"].as_array().expect("threads");
     assert_eq!(threads.len(), 2);
+    assert_eq!(threads[0]["comment_count"], 2);
     assert_eq!(threads[1]["anchor"]["block_id"], goal.as_str());
     assert_eq!(threads[1]["anchor"]["detached"], false);
+    let first = agent
+        .ok("list_comments", json!({"page_id": plan, "limit": 1}))
+        .await;
+    assert_eq!(first["threads"].as_array().map(Vec::len), Some(1));
+    assert_eq!(first["next"], thread.as_str());
+    // One thread's comments, a part at a time, but only on the page named.
+    let part = agent
+        .ok(
+            "list_comments",
+            json!({"page_id": plan, "thread_id": thread, "limit": 1}),
+        )
+        .await;
+    assert_eq!(part["comments"].as_array().map(Vec::len), Some(1));
+    let rest = agent
+        .ok(
+            "list_comments",
+            json!({"page_id": plan, "thread_id": thread, "after": part["next"]}),
+        )
+        .await;
+    assert_eq!(rest["comments"][0]["markdown"], "Checked: **fine**.");
+    assert_eq!(rest["next"], Value::Null);
+    let other = page(&t, "Other", "Else").await;
+    let (code, _) = agent
+        .refused(
+            "list_comments",
+            json!({"page_id": other, "thread_id": thread}),
+        )
+        .await;
+    assert_eq!(code, "not_found");
     // Ada's inbox has the agent's reply, named for the person it acts for; resolved
     // threads can be left out.
     let ada_inbox = t.ada.get("/api/v1/inbox").await;

@@ -853,7 +853,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a comment
-         * @description By its author, who must still be allowed to comment, with the notifications of it. A thread left without comments goes too.
+         * @description By its author, who must still be allowed to comment, or by those who edit the page, with the notifications of it. A thread left without comments goes too.
          */
         delete: operations["delete_comment"];
         options?: never;
@@ -1429,7 +1429,7 @@ export interface paths {
         };
         /**
          * List a page's comments
-         * @description Its threads, oldest first, each with its comments in order and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.
+         * @description Its threads, oldest first, a part at a time, each with its first comment and its latest replies, how many it holds, and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.
          */
         get: operations["list_comments"];
         put?: never;
@@ -1747,15 +1747,23 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a thread
+         * @description With its first comment and its latest replies, as a page's list has it. For everyone who may see its page.
+         */
+        get: operations["get_thread"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a thread
+         * @description With every comment in it and their notifications, by those who edit its page.
+         */
+        delete: operations["delete_thread"];
         options?: never;
         head?: never;
         /**
          * Resolve or reopen a thread
-         * @description For those who may comment on its page.
+         * @description For those who may comment on its page. Reopening one needs room on the page for one more open thread.
          */
         patch: operations["change_thread"];
         trace?: never;
@@ -1767,7 +1775,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List a thread's comments
+         * @description Every comment of the thread, in order, a part at a time: what the page's list leaves out of a long thread. For everyone who may see its page.
+         */
+        get: operations["list_thread_comments"];
         put?: never;
         /**
          * Reply in a thread
@@ -3085,6 +3097,15 @@ export interface components {
         CodeRequest: {
             /** @example inv_4yVd0q3oJ2... */
             code: string;
+        };
+        /** @description A part of a thread's comments, in order. */
+        CommentList: {
+            comments: components["schemas"]["CommentOut"][];
+            /**
+             * Format: uuid
+             * @description Pass as `after` for the next part; absent at the end.
+             */
+            next?: string | null;
         };
         /** @description A comment, its markdown and its inline content. */
         CommentOut: {
@@ -5097,18 +5118,32 @@ export interface components {
             /** @description Resolves the thread, or reopens it. */
             resolved: boolean;
         };
-        /** @description A page's threads, oldest first, and what the caller may do with them. */
+        /** @description A part of a page's threads, oldest first, and what the caller may do with them. */
         ThreadList: {
             /** @description The caller follows the page's comments. */
             following: boolean;
             /** @description The caller may start threads, reply, resolve and reopen them. */
             may_comment: boolean;
+            /** @description The caller edits the page: they delete others' comments, and whole threads. */
+            may_moderate: boolean;
+            /**
+             * Format: uuid
+             * @description Pass as `after` for the next part; absent at the end.
+             */
+            next?: string | null;
+            /** @description How many threads of the page are open, in every part. */
+            open_threads: number;
             threads: components["schemas"]["ThreadOut"][];
         };
         /** @description A thread of comments: on the page as a whole, or on a range of its text. */
         ThreadOut: {
             anchor?: components["schemas"]["AnchorOut"] | null;
-            /** @description Its comments, in order: the first starts it, the others reply. */
+            /** @description How many comments it holds in all. */
+            comment_count: number;
+            /**
+             * @description Its first comment, which starts it, and its latest replies after it, in order, at
+             *     most 10 in all; `GET /threads/{id}/comments` reads the rest.
+             */
             comments: components["schemas"]["CommentOut"][];
             /** Format: date-time */
             created_at: string;
@@ -8524,6 +8559,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description rate_limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -10699,7 +10743,17 @@ export interface operations {
     };
     list_comments: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description `true` for the resolved threads alone, `false` for the open ones alone; both when
+                 *     absent.
+                 */
+                resolved?: boolean;
+                /** @description The `next` of the part before. */
+                after?: string;
+                /** @description Threads in the part, 1 to 100; 50 when absent. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 /** @description The page's id. */
@@ -10817,8 +10871,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description too_many_threads. */
+            /** @description too_many_threads, or too_many_comments. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many comments at once; Retry-After says when to try again. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12175,6 +12238,122 @@ export interface operations {
             };
         };
     };
+    get_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadOut"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller does not edit the page; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     change_thread: {
         parameters: {
             query?: never;
@@ -12210,6 +12389,79 @@ export interface operations {
                 };
             };
             /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_threads, to reopen one. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_thread_comments: {
+        parameters: {
+            query?: {
+                /** @description The `next` of the part before. */
+                after?: string;
+                /** @description Comments in the part, 1 to 100; 50 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12299,8 +12551,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description too_many_replies. */
+            /** @description too_many_replies, or too_many_comments. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

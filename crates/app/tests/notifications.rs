@@ -8,7 +8,7 @@ mod support;
 
 use std::time::Duration;
 
-use neon_app::comments::{CommentService, Placing};
+use neon_app::comments::{CommentService, Placing, ThreadQuery};
 use neon_app::jobs::{Handler as _, Job};
 use neon_app::mail::Message;
 use neon_app::notifications::{InboxError, InboxQuery, InboxService, NotificationMailJob};
@@ -373,7 +373,11 @@ async fn following_is_by_making_commenting_being_mentioned_or_choice(pool: PgPoo
     // Commenting again does not make Ada follow again: she chose.
     t.post(&t.cy, "Third").await;
     assert_eq!(t.made(&t.ada).await, 0);
-    let listed = t.comments.threads(&t.ada, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.ada, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert!(!listed.following);
 }
 

@@ -116,6 +116,7 @@ With that access:
 | Open its document live, and follow everyone's changes and cursors | yes | yes | yes | hidden |
 | Read its comments, and follow them | yes | yes | yes | hidden |
 | Start threads of comments, reply, resolve and reopen them | yes, with a token only by the `write` scope | yes, likewise | no | hidden |
+| Delete others' comments, and whole threads | yes, with a token only by the `write` scope | no | no | hidden |
 | Change its document | yes, with a token only by the `write` scope | no | no | hidden |
 | Change its title, icon, cover and style, and add or import pages under it | yes | no | no | hidden |
 | Move it, from where it is, within its space | yes | no | no | hidden |
@@ -127,7 +128,8 @@ With that access:
 | Share it, change or remove a share | yes, but guests: no | no | no | hidden |
 
 Comment access comes only from a share, **can comment**: no space gives it. A comment is
-changed and deleted by its author alone, while they may still comment on its page.
+changed by its author alone, while they may still comment on its page, and deleted by them
+then or by anyone who edits the page.
 [Comments and mentions](/docs/guides/comments-and-mentions/#who-may-comment) has the rest.
 
 A page in the trash shows only to those with edit access, who may restore it or delete it for

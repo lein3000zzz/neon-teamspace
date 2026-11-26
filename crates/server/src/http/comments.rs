@@ -3,13 +3,18 @@
 //!
 //! Every route needs a browser session or an API token: `read` for `GET`, `write` for the
 //! rest. Reading a page's comments needs to see it; commenting needs edit access, or a
-//! share to comment. A comment is changed and deleted by its author alone.
+//! share to comment. A comment is changed by its author alone, and deleted by its author
+//! or those who edit the page, who also delete whole threads. Listings come a part at a
+//! time: a page's threads, each with its first comment and its latest, and the rest of a
+//! thread's comments.
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use neon_app::comments::{Candidates, CommentView, PageThreads, Placing, Posted, ThreadView};
+use neon_app::comments::{
+    Candidates, CommentView, PageThreads, Placing, Posted, ThreadComments, ThreadQuery, ThreadView,
+};
 use neon_blocks::Inline;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
@@ -72,18 +77,35 @@ pub struct ThreadOut {
     pub created_by: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
-    /// Its comments, in order: the first starts it, the others reply.
+    /// Its first comment, which starts it, and its latest replies after it, in order, at
+    /// most 10 in all; `GET /threads/{id}/comments` reads the rest.
     pub comments: Vec<CommentOut>,
+    /// How many comments it holds in all.
+    pub comment_count: usize,
 }
 
-/// A page's threads, oldest first, and what the caller may do with them.
+/// A part of a page's threads, oldest first, and what the caller may do with them.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ThreadList {
     pub threads: Vec<ThreadOut>,
+    /// Pass as `after` for the next part; absent at the end.
+    pub next: Option<Uuid>,
+    /// How many threads of the page are open, in every part.
+    pub open_threads: usize,
     /// The caller may start threads, reply, resolve and reopen them.
     pub may_comment: bool,
+    /// The caller edits the page: they delete others' comments, and whole threads.
+    pub may_moderate: bool,
     /// The caller follows the page's comments.
     pub following: bool,
+}
+
+/// A part of a thread's comments, in order.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CommentList {
+    pub comments: Vec<CommentOut>,
+    /// Pass as `after` for the next part; absent at the end.
+    pub next: Option<Uuid>,
 }
 
 /// A comment just made or changed, with its thread, and those it mentions who may not see
@@ -140,6 +162,7 @@ pub(crate) fn thread_out(view: ThreadView, members_hidden: bool) -> ThreadOut {
             .into_iter()
             .map(|comment| comment_out(comment, members_hidden))
             .collect(),
+        comment_count: view.count,
     }
 }
 
@@ -152,8 +175,25 @@ impl From<PageThreads> for ThreadList {
                 .into_iter()
                 .map(|thread| thread_out(thread, hidden))
                 .collect(),
+            next: list.next,
+            open_threads: list.open,
             may_comment: list.may_comment,
+            may_moderate: list.may_moderate,
             following: list.following,
+        }
+    }
+}
+
+impl From<ThreadComments> for CommentList {
+    fn from(part: ThreadComments) -> Self {
+        let hidden = part.members_hidden;
+        Self {
+            comments: part
+                .comments
+                .into_iter()
+                .map(|comment| comment_out(comment, hidden))
+                .collect(),
+            next: part.next,
         }
     }
 }
@@ -173,15 +213,29 @@ impl From<Posted> for PostedComment {
     }
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct ListThreads {
+    /// `true` for the resolved threads alone, `false` for the open ones alone; both when
+    /// absent.
+    pub resolved: Option<bool>,
+    /// The `next` of the part before.
+    pub after: Option<Uuid>,
+    /// Threads in the part, 1 to 100; 50 when absent.
+    pub limit: Option<usize>,
+}
+
 #[utoipa::path(
     get,
     path = "/pages/{id}/comments",
     tag = "comments",
     summary = "List a page's comments",
-    description = "Its threads, oldest first, each with its comments in order and, for an inline \
-                   thread, where its anchor is in the page now: the block its text starts in, or \
-                   detached once that text is gone. For everyone who may see the page.",
-    params(("id" = Uuid, Path, description = "The page's id.")),
+    description = "Its threads, oldest first, a part at a time, each with its first comment and \
+                   its latest replies, how many it holds, and, for an inline thread, where its \
+                   anchor is in the page now: the block its text starts in, or detached once \
+                   that text is gone. For everyone who may see the page.",
+    params(("id" = Uuid, Path, description = "The page's id."), ListThreads),
     responses(
         (status = OK, description = "The threads.", body = ThreadList),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
@@ -195,9 +249,81 @@ pub(super) async fn list_comments(
     State(state): State<AppState>,
     Authenticated(principal): Authenticated,
     Path(id): Path<Uuid>,
+    Query(query): Query<ListThreads>,
 ) -> Result<JsonBody<ThreadList>, ApiError> {
-    let threads = state.comments.threads(&principal, id).await?;
+    let query = ThreadQuery {
+        resolved: query.resolved,
+        after: query.after,
+        limit: query.limit,
+    };
+    let threads = state.comments.threads(&principal, id, query).await?;
     Ok(JsonBody(threads.into()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/threads/{id}",
+    tag = "comments",
+    summary = "Get a thread",
+    description = "With its first comment and its latest replies, as a page's list has it. For \
+                   everyone who may see its page.",
+    params(("id" = Uuid, Path, description = "The thread's id.")),
+    responses(
+        (status = OK, description = "The thread.", body = ThreadOut),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn get_thread(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+) -> Result<JsonBody<ThreadOut>, ApiError> {
+    let (thread, members_hidden) = state.comments.thread(&principal, id).await?;
+    Ok(JsonBody(thread_out(thread, members_hidden)))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct ListComments {
+    /// The `next` of the part before.
+    pub after: Option<Uuid>,
+    /// Comments in the part, 1 to 100; 50 when absent.
+    pub limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/threads/{id}/comments",
+    tag = "comments",
+    summary = "List a thread's comments",
+    description = "Every comment of the thread, in order, a part at a time: what the page's list \
+                   leaves out of a long thread. For everyone who may see its page.",
+    params(("id" = Uuid, Path, description = "The thread's id."), ListComments),
+    responses(
+        (status = OK, description = "The comments.", body = CommentList),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn list_thread_comments(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+    Query(query): Query<ListComments>,
+) -> Result<JsonBody<CommentList>, ApiError> {
+    let part = state
+        .comments
+        .comments(&principal, id, query.after, query.limit)
+        .await?;
+    Ok(JsonBody(part.into()))
 }
 
 /// An inline thread's range, as the editor makes it.
@@ -253,7 +379,8 @@ fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller may only view the page, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "too_many_threads.", body = ErrorBody),
+        (status = CONFLICT, description = "too_many_threads, or too_many_comments.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many comments at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -306,7 +433,8 @@ pub struct NewComment {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
-        (status = CONFLICT, description = "too_many_replies.", body = ErrorBody),
+        (status = CONFLICT, description = "too_many_replies, or too_many_comments.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -333,7 +461,8 @@ pub struct ThreadChange {
     path = "/threads/{id}",
     tag = "comments",
     summary = "Resolve or reopen a thread",
-    description = "For those who may comment on its page.",
+    description = "For those who may comment on its page. Reopening one needs room on the page \
+                   for one more open thread.",
     params(("id" = Uuid, Path, description = "The thread's id.")),
     request_body = ThreadChange,
     responses(
@@ -341,6 +470,7 @@ pub struct ThreadChange {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "too_many_threads, to reopen one.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -359,6 +489,31 @@ pub(super) async fn change_thread(
 }
 
 #[utoipa::path(
+    delete,
+    path = "/threads/{id}",
+    tag = "comments",
+    summary = "Delete a thread",
+    description = "With every comment in it and their notifications, by those who edit its page.",
+    params(("id" = Uuid, Path, description = "The thread's id.")),
+    responses(
+        (status = NO_CONTENT, description = "Deleted."),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller does not edit the page; or insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn delete_thread(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    state.comments.delete_thread(&principal, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     patch,
     path = "/comments/{id}",
     tag = "comments",
@@ -373,6 +528,7 @@ pub(super) async fn change_thread(
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: not its author, or may not comment; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -392,8 +548,9 @@ pub(super) async fn edit_comment(
     path = "/comments/{id}",
     tag = "comments",
     summary = "Delete a comment",
-    description = "By its author, who must still be allowed to comment, with the notifications \
-                   of it. A thread left without comments goes too.",
+    description = "By its author, who must still be allowed to comment, or by those who edit \
+                   the page, with the notifications of it. A thread left without comments goes \
+                   too.",
     params(("id" = Uuid, Path, description = "The comment's id.")),
     responses(
         (status = NO_CONTENT, description = "Deleted."),

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, page_id, anchor_start, anchor_end, quote, resolved_at,\n                resolved_by, created_by, created_at\n         FROM comment_threads WHERE page_id = $1 ORDER BY id",
+  "query": "SELECT id, workspace_id, page_id, anchor_start, anchor_end, quote, resolved_at,\n                resolved_by, created_by, created_at\n         FROM comment_threads\n         WHERE page_id = $1\n           AND ($2::boolean IS NULL OR (resolved_at IS NOT NULL) = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -116,7 +116,10 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -132,5 +135,5 @@
       false
     ]
   },
-  "hash": "8a8ab99b52387b302e1c568221dcbb13e3182c46110f8cc99657ffe8e768f63c"
+  "hash": "624780240c9be5c9e6bf3f63f326b2b0321dbe0c619c017df16cac50eec04946"
 }

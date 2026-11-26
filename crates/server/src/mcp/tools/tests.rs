@@ -46,7 +46,13 @@ const REST: [(&str, &[(&str, &str)]); 21] = [
             ("post", "/databases/{id}/rows/{unique_id}/claim"),
         ],
     ),
-    ("list_comments", &[("get", "/pages/{id}/comments")]),
+    (
+        "list_comments",
+        &[
+            ("get", "/pages/{id}/comments"),
+            ("get", "/threads/{id}/comments"),
+        ],
+    ),
     (
         "add_comment",
         &[

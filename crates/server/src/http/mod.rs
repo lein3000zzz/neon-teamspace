@@ -254,8 +254,12 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::page_breadcrumbs))
         .routes(routes!(content::get_markdown, content::edit_markdown))
         .routes(routes!(comments::list_comments, comments::start_thread))
-        .routes(routes!(comments::reply))
-        .routes(routes!(comments::change_thread))
+        .routes(routes!(comments::list_thread_comments, comments::reply))
+        .routes(routes!(
+            comments::get_thread,
+            comments::change_thread,
+            comments::delete_thread
+        ))
         .routes(routes!(comments::edit_comment, comments::delete_comment))
         .routes(routes!(comments::follow_page))
         .routes(routes!(comments::mention_candidates))

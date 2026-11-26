@@ -346,6 +346,11 @@ impl SyncService {
         }
     }
 
+    /// Where its edits of pages' content are counted, which the comments share.
+    pub(crate) fn limiter(&self) -> &Arc<dyn RateLimiter> {
+        &self.inner.limiter
+    }
+
     pub fn limits(&self) -> &Limits {
         &self.inner.limits
     }

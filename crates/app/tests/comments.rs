@@ -5,11 +5,13 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use neon_app::comments::{CommentError, CommentService, Placing};
+use neon_app::comments::{CommentError, CommentService, Placing, ThreadQuery};
 use neon_app::pages::{Location, NewPage};
+use neon_app::ratelimit::{Bucket, RateLimiter};
 use neon_app::sync::{Connection, Limits, Next, SyncService, access_feed};
 use neon_blocks::{Block, Inline, SequentialIds};
 use neon_domain::auth::Principal;
@@ -82,6 +84,7 @@ async fn team(pool: PgPool) -> Team {
             idle_unload: Duration::from_secs(3600),
             ..Limits::default()
         })
+        .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
         .build();
     let comments = CommentService::new(h.pages.clone(), sync.clone());
     Team {
@@ -117,7 +120,11 @@ async fn threads_take_replies_and_are_resolved_and_reopened(pool: PgPool) {
         .expect("replied");
     assert_eq!(replied.thread.comments.len(), 2);
 
-    let listed = t.comments.threads(&t.bea, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.bea, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert!(listed.may_comment);
     assert_eq!(listed.threads.len(), 1);
     let comments = &listed.threads[0].comments;
@@ -145,8 +152,13 @@ async fn threads_take_replies_and_are_resolved_and_reopened(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn only_its_author_changes_or_deletes_a_comment(pool: PgPool) {
+async fn its_author_changes_a_comment_and_it_or_an_editor_deletes_it(pool: PgPool) {
     let t = team(pool).await;
+    // Gus, a guest, comments on Notes; Bea, a member, edits it.
+    t.h.pages
+        .share_page(&t.ada, t.page, t.gus.user.id, PageAccess::Comment)
+        .await
+        .expect("shared");
     let started = t
         .comments
         .start_thread(&t.ada, t.page, "First", Placing::Page)
@@ -161,16 +173,21 @@ async fn only_its_author_changes_or_deletes_a_comment(pool: PgPool) {
         .expect("replied")
         .comment_id;
 
-    let refused = t.comments.edit(&t.bea, first, "Mine now").await;
-    assert!(
-        matches!(refused, Err(CommentError::Forbidden(_))),
-        "{refused:?}"
-    );
-    let refused = t.comments.delete(&t.bea, first).await;
-    assert!(
-        matches!(refused, Err(CommentError::Forbidden(_))),
-        "{refused:?}"
-    );
+    for who in [&t.bea, &t.gus] {
+        let refused = t.comments.edit(who, first, "Mine now").await;
+        assert!(
+            matches!(refused, Err(CommentError::Forbidden(_))),
+            "{refused:?}"
+        );
+    }
+    let refused = t.comments.delete(&t.gus, first).await;
+    match refused {
+        Err(CommentError::Forbidden(message)) => assert_eq!(
+            message,
+            "only its author, or those who edit the page, delete a comment"
+        ),
+        other => panic!("{other:?}"),
+    }
 
     let edited = t
         .comments
@@ -182,15 +199,63 @@ async fn only_its_author_changes_or_deletes_a_comment(pool: PgPool) {
     assert!(comment.edited_at.is_some(), "it shows as edited");
     assert!(edited.thread.comments[1].comment.edited_at.is_none());
 
-    // Deleting the first leaves the reply; deleting the last comment deletes the thread.
-    assert!(t.comments.delete(&t.ada, first).await.expect("deleted"));
-    let listed = t.comments.threads(&t.ada, t.page).await.expect("listed");
+    // Bea, who edits the page, deletes Ada's first comment, which leaves the reply;
+    // deleting the last comment deletes the thread.
+    assert!(t.comments.delete(&t.bea, first).await.expect("deleted"));
+    let listed = t
+        .comments
+        .threads(&t.ada, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert_eq!(listed.threads[0].comments.len(), 1);
+    assert_eq!(listed.threads[0].count, 1);
     assert!(!t.comments.delete(&t.bea, reply).await.expect("deleted"));
-    let listed = t.comments.threads(&t.ada, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.ada, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert!(listed.threads.is_empty());
     let gone = t.comments.edit(&t.ada, first, "again").await;
     assert!(matches!(gone, Err(CommentError::NotFound(_))), "{gone:?}");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_editor_deletes_a_whole_thread_and_a_commenter_does_not(pool: PgPool) {
+    let t = team(pool).await;
+    t.h.pages
+        .share_page(&t.ada, t.page, t.gus.user.id, PageAccess::Comment)
+        .await
+        .expect("shared");
+    let thread = t
+        .comments
+        .start_thread(&t.gus, t.page, "Mine", Placing::Page)
+        .await
+        .expect("started")
+        .thread
+        .thread
+        .id;
+    t.comments
+        .reply(&t.ada, thread, "A reply")
+        .await
+        .expect("replied");
+    let refused = t.comments.delete_thread(&t.gus, thread).await;
+    assert!(
+        matches!(refused, Err(CommentError::Forbidden(_))),
+        "{refused:?}"
+    );
+    t.comments
+        .delete_thread(&t.bea, thread)
+        .await
+        .expect("deleted");
+    let gone = t.comments.thread(&t.ada, thread).await;
+    assert!(matches!(gone, Err(CommentError::NotFound(_))), "{gone:?}");
+    // Nobody hears that it was there.
+    let hidden = t.comments.delete_thread(&t.bea, thread).await;
+    assert!(
+        matches!(hidden, Err(CommentError::NotFound(_))),
+        "{hidden:?}"
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -213,7 +278,9 @@ async fn who_may_comment_follows_access_and_shares(pool: PgPool) {
         "{hidden:?}"
     );
     assert!(matches!(
-        t.comments.threads(&t.gus, t.page).await,
+        t.comments
+            .threads(&t.gus, t.page, ThreadQuery::default())
+            .await,
         Err(CommentError::NotFound(_))
     ));
 
@@ -222,7 +289,11 @@ async fn who_may_comment_follows_access_and_shares(pool: PgPool) {
         .share_page(&t.ada, t.page, t.gus.user.id, PageAccess::View)
         .await
         .expect("shared");
-    let listed = t.comments.threads(&t.gus, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.gus, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert!(!listed.may_comment);
     assert!(listed.members_hidden);
     let refused = comment(t.gus.clone()).await;
@@ -239,7 +310,7 @@ async fn who_may_comment_follows_access_and_shares(pool: PgPool) {
     comment(t.gus.clone()).await.expect("commented");
     assert!(
         t.comments
-            .threads(&t.gus, t.page)
+            .threads(&t.gus, t.page, ThreadQuery::default())
             .await
             .expect("listed")
             .may_comment
@@ -392,6 +463,43 @@ async fn a_thread_holds_at_most_its_replies(pool: PgPool) {
         matches!(refused, Err(CommentError::TooManyReplies)),
         "{refused:?}"
     );
+}
+
+impl Team {
+    /// Adds `threads` threads to the page, as the database holds them, resolved or not, and
+    /// says their ids.
+    async fn fill_threads(&self, threads: i64, resolved: bool) -> Vec<Uuid> {
+        sqlx::query_scalar(
+            "INSERT INTO comment_threads (id, workspace_id, page_id, resolved_at, created_by,
+                                          created_at)
+             SELECT gen_random_uuid(), $1, $2, CASE WHEN $4 THEN now() END, $3, now()
+             FROM generate_series(1, $5)
+             RETURNING id",
+        )
+        .bind(self.workspace)
+        .bind(self.page)
+        .bind(self.ada.user.id)
+        .bind(resolved)
+        .bind(threads)
+        .fetch_all(&self.h.pool)
+        .await
+        .expect("filled")
+    }
+
+    /// Adds `comments` comments by Ada to a thread, as the database holds them.
+    async fn fill_comments(&self, thread: Uuid, comments: i64) {
+        sqlx::query(
+            "INSERT INTO comments (id, thread_id, author_id, body, created_at)
+             SELECT gen_random_uuid(), $1, $2, 'more ' || n, now()
+             FROM generate_series(1, $3) AS n",
+        )
+        .bind(thread)
+        .bind(self.ada.user.id)
+        .bind(comments)
+        .execute(&self.h.pool)
+        .await
+        .expect("filled");
+    }
 }
 
 /// A client of a page's live document, talking to its connection directly.
@@ -571,7 +679,11 @@ async fn an_inline_thread_keeps_to_its_text_through_two_clients_edits(pool: PgPo
     bea.until_text("Look: ").await;
     assert_eq!(ada.text(), bea.text());
 
-    let listed = t.comments.threads(&t.bea, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.bea, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     let anchored = listed.threads[0].anchored.clone().expect("resolved");
     assert_eq!(anchored.block_id.as_deref(), Some("block-1"));
     assert!(
@@ -594,7 +706,11 @@ async fn an_inline_thread_keeps_to_its_text_through_two_clients_edits(pool: PgPo
     ada.change(|txn, text| text.remove_range(txn, range.0, range.1))
         .await;
     bea.until_text("Look: The quick  ").await;
-    let listed = t.comments.threads(&t.ada, t.page).await.expect("listed");
+    let listed = t
+        .comments
+        .threads(&t.ada, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert_eq!(listed.threads.len(), 1, "the thread stays");
     let anchored = listed.threads[0].anchored.clone().expect("resolved");
     assert!(anchored.detached);
@@ -615,7 +731,10 @@ async fn an_inline_thread_keeps_to_its_text_through_two_clients_edits(pool: PgPo
     let reloaded =
         SyncService::builder(t.h.pool.clone(), t.h.pages.clone(), t.h.auth.clone(), feed).build();
     let comments = CommentService::new(t.h.pages.clone(), reloaded);
-    let listed = comments.threads(&t.ada, t.page).await.expect("listed");
+    let listed = comments
+        .threads(&t.ada, t.page, ThreadQuery::default())
+        .await
+        .expect("listed");
     assert!(
         listed.threads[0]
             .anchored
@@ -734,4 +853,297 @@ async fn mentions_find_members_and_pages_with_who_may_see_the_page(pool: PgPool)
         .expect("found");
     assert!(guest.people.is_empty());
     assert_eq!(guest.pages.len(), 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn threads_and_their_comments_are_read_a_part_at_a_time(pool: PgPool) {
+    let t = team(pool).await;
+    let mut started = Vec::new();
+    for n in 0..3 {
+        let posted = t
+            .comments
+            .start_thread(&t.ada, t.page, &format!("Thread {n}"), Placing::Page)
+            .await
+            .expect("started");
+        started.push(posted.thread.thread.id);
+    }
+    let long = started[0];
+    for n in 0..29 {
+        t.comments
+            .reply(&t.bea, long, &format!("Reply {n}"))
+            .await
+            .expect("replied");
+    }
+    t.comments
+        .set_resolved(&t.ada, started[2], true)
+        .await
+        .expect("resolved");
+
+    // Threads oldest first, two to a part.
+    let first = t
+        .comments
+        .threads(
+            &t.ada,
+            t.page,
+            ThreadQuery {
+                limit: Some(2),
+                ..ThreadQuery::default()
+            },
+        )
+        .await
+        .expect("listed");
+    let ids: Vec<Uuid> = first.threads.iter().map(|view| view.thread.id).collect();
+    assert_eq!(ids, started[..2]);
+    assert_eq!(first.next, Some(started[1]));
+    assert_eq!(first.open, 2);
+    let rest = t
+        .comments
+        .threads(
+            &t.ada,
+            t.page,
+            ThreadQuery {
+                after: first.next,
+                limit: Some(2),
+                ..ThreadQuery::default()
+            },
+        )
+        .await
+        .expect("listed");
+    assert_eq!(rest.threads.len(), 1);
+    assert_eq!(rest.next, None);
+    let open = t
+        .comments
+        .threads(
+            &t.ada,
+            t.page,
+            ThreadQuery {
+                resolved: Some(false),
+                ..ThreadQuery::default()
+            },
+        )
+        .await
+        .expect("listed");
+    assert_eq!(open.threads.len(), 2);
+
+    // A long thread shows its first comment and its latest nine, and counts them all.
+    let view = &first.threads[0];
+    assert_eq!(view.count, 30);
+    let bodies: Vec<&str> = view
+        .comments
+        .iter()
+        .map(|comment| comment.comment.body.as_str())
+        .collect();
+    let mut want = vec!["Thread 0".to_owned()];
+    want.extend((20..29).map(|n| format!("Reply {n}")));
+    assert_eq!(bodies, want);
+    // A reply's answer holds its own thread alone, as bounded.
+    let posted = t
+        .comments
+        .reply(&t.bea, started[1], "Short")
+        .await
+        .expect("replied");
+    assert_eq!(posted.thread.count, 2);
+    assert!(
+        posted
+            .thread
+            .comments
+            .iter()
+            .all(|comment| comment.comment.thread_id == started[1])
+    );
+
+    // Every comment of the long one, a part at a time.
+    let mut read = Vec::new();
+    let mut after = None;
+    loop {
+        let part = t
+            .comments
+            .comments(&t.bea, long, after, Some(12))
+            .await
+            .expect("read");
+        read.extend(part.comments.into_iter().map(|view| view.comment.body));
+        after = part.next;
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(read.len(), 30);
+    assert_eq!(read[1], "Reply 0");
+    // Hidden from whoever may not see the page.
+    let hidden = t.comments.comments(&t.gus, long, None, None).await;
+    assert!(
+        matches!(hidden, Err(CommentError::NotFound(_))),
+        "{hidden:?}"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn only_open_threads_count_toward_a_pages_limit(pool: PgPool) {
+    let t = team(pool).await;
+    t.h.pages
+        .share_page(&t.ada, t.page, t.gus.user.id, PageAccess::Comment)
+        .await
+        .expect("shared");
+    t.fill_threads(5, true).await;
+    t.fill_threads(999, false).await;
+    // Gus takes the last place.
+    let last = t
+        .comments
+        .start_thread(&t.gus, t.page, "The last one", Placing::Page)
+        .await
+        .expect("started")
+        .thread
+        .thread
+        .id;
+    let full = t
+        .comments
+        .start_thread(&t.ada, t.page, "One more", Placing::Page)
+        .await;
+    assert!(
+        matches!(full, Err(CommentError::TooManyThreads)),
+        "{full:?}"
+    );
+    // Resolving one makes room, and reopening it waits for room again.
+    t.comments
+        .set_resolved(&t.ada, last, true)
+        .await
+        .expect("resolved");
+    let made = t
+        .comments
+        .start_thread(&t.ada, t.page, "One more", Placing::Page)
+        .await
+        .expect("started")
+        .thread
+        .thread
+        .id;
+    let reopened = t.comments.set_resolved(&t.ada, last, false).await;
+    assert!(
+        matches!(reopened, Err(CommentError::TooManyThreads)),
+        "{reopened:?}"
+    );
+    // So does deleting one, which those who edit the page may do to anyone's.
+    t.comments
+        .delete_thread(&t.ada, made)
+        .await
+        .expect("deleted");
+    t.comments
+        .set_resolved(&t.ada, last, false)
+        .await
+        .expect("reopened");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn threads_started_at_once_keep_to_the_limit(pool: PgPool) {
+    let t = team(pool).await;
+    // One place left, which several take at once.
+    t.fill_threads(999, false).await;
+    let mut started = tokio::task::JoinSet::new();
+    for n in 0..8 {
+        let (comments, ada, page) = (t.comments.clone(), t.ada.clone(), t.page);
+        started.spawn(async move {
+            comments
+                .start_thread(&ada, page, &format!("At once {n}"), Placing::Page)
+                .await
+        });
+    }
+    let (mut made, mut refused) = (0, 0);
+    while let Some(outcome) = started.join_next().await {
+        match outcome.expect("ran") {
+            Ok(_) => made += 1,
+            Err(CommentError::TooManyThreads) => refused += 1,
+            Err(other) => panic!("{other:?}"),
+        }
+    }
+    assert_eq!((made, refused), (1, 7));
+    let open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM comment_threads WHERE page_id = $1 AND resolved_at IS NULL",
+    )
+    .bind(t.page)
+    .fetch_one(&t.h.pool)
+    .await
+    .expect("counted");
+    assert_eq!(open, 1000);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_holds_at_most_its_comments_until_an_editor_deletes_some(pool: PgPool) {
+    let t = team(pool).await;
+    let thread = t
+        .comments
+        .start_thread(&t.ada, t.page, "First", Placing::Page)
+        .await
+        .expect("started")
+        .thread
+        .thread
+        .id;
+    let other = t.fill_threads(1, true).await[0];
+    t.fill_comments(other, 4999).await;
+    let refused = t.comments.reply(&t.bea, thread, "One too many").await;
+    assert!(
+        matches!(refused, Err(CommentError::TooManyComments)),
+        "{refused:?}"
+    );
+    let refused = t
+        .comments
+        .start_thread(&t.bea, t.page, "Nor here", Placing::Page)
+        .await;
+    assert!(
+        matches!(refused, Err(CommentError::TooManyComments)),
+        "{refused:?}"
+    );
+    t.comments
+        .delete_thread(&t.bea, other)
+        .await
+        .expect("deleted");
+    t.comments
+        .reply(&t.bea, thread, "Room again")
+        .await
+        .expect("replied");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn comments_past_their_rate_are_refused(pool: PgPool) {
+    let t = team(pool).await;
+    let thread = t
+        .comments
+        .start_thread(&t.ada, t.page, "First", Placing::Page)
+        .await
+        .expect("started");
+    let comment = thread.comment_id;
+    let thread = thread.thread.thread.id;
+    t.h.limiter.refuse(Bucket::Comment);
+    for refused in [
+        t.comments
+            .start_thread(&t.bea, t.page, "Again", Placing::Page)
+            .await,
+        t.comments.reply(&t.bea, thread, "Again").await,
+        t.comments.edit(&t.ada, comment, "Again").await,
+    ] {
+        assert!(
+            matches!(refused, Err(CommentError::RateLimited { .. })),
+            "{refused:?}"
+        );
+    }
+    let counted: Vec<String> =
+        t.h.limiter
+            .seen()
+            .into_iter()
+            .filter(|(bucket, _)| *bucket == Bucket::Comment)
+            .map(|(_, key)| key)
+            .collect();
+    assert_eq!(
+        counted,
+        [
+            t.ada.user.id.to_string(),
+            t.bea.user.id.to_string(),
+            t.bea.user.id.to_string(),
+            t.ada.user.id.to_string()
+        ],
+        "each write is counted against its writer"
+    );
+    // Reading, resolving and deleting are not writing comments.
+    t.comments
+        .set_resolved(&t.bea, thread, true)
+        .await
+        .expect("resolved");
+    t.comments.delete(&t.ada, comment).await.expect("deleted");
 }

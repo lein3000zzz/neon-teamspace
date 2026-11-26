@@ -297,13 +297,20 @@ impl From<CommentError> for ApiError {
             CommentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             CommentError::Forbidden(_) => StatusCode::FORBIDDEN,
             CommentError::NotFound(_) => StatusCode::NOT_FOUND,
-            CommentError::TooManyThreads | CommentError::TooManyReplies => StatusCode::CONFLICT,
+            CommentError::TooManyThreads
+            | CommentError::TooManyReplies
+            | CommentError::TooManyComments => StatusCode::CONFLICT,
+            CommentError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             CommentError::Database(_) | CommentError::Internal(_) => {
                 tracing::error!(error = %error, "a comment use case failed");
                 return Self::internal();
             }
         };
-        Self::new(status, error.code(), error.to_string())
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let CommentError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
     }
 }
 

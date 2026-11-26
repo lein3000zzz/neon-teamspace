@@ -23,8 +23,10 @@ replies, and resolves and reopens threads:
   among them: they comment but change nothing of the page itself.
 
 Those who only view a page read its comments and add none. A page in the trash takes no
-comment. A comment is changed and deleted by its author alone, while they may still comment
-on its page. An agent or an integration comments as far as both it and its owner may.
+comment. A comment is changed by its author alone, while they may still comment on its page.
+It is deleted by its author then, or by anyone who edits the page, who also deletes a whole
+thread at once: so no commenter can fill a page with threads nobody can clear. An agent or an
+integration comments as far as both it and its owner may.
 [Permissions](/docs/reference/permissions/#pages) has the table.
 
 ## Threads
@@ -51,8 +53,13 @@ last comment deletes the thread.
 |---|---|
 | A comment | 10000 characters of markdown, without control characters but line breaks and tabs; one with another, such as NUL, answers `400 invalid_input`. |
 | The text an inline thread keeps | Its first 1000 characters. |
-| Threads on a page | 1000, resolved ones included; one more answers `409 too_many_threads`. |
+| Open threads on a page | 1000; one more, or reopening one, answers `409 too_many_threads`. Resolving or deleting one makes room. |
 | Comments in a thread | 500; one more answers `409 too_many_replies`. |
+| Comments on a page | 5000, in all its threads, resolved ones included; one more answers `409 too_many_comments`. Deleting some makes room. |
+| Comments one identity writes | 30 at once, then one every 2 seconds, new threads, replies and changes together; past that, `429 rate_limited` with `Retry-After`. |
+
+Each limit is checked under a lock of the page's comments, so comments that come at once keep
+to it too.
 
 ### Markdown
 
@@ -155,14 +162,19 @@ passage selected, or the cursor at the block a mention is in.
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/pages/{id}/comments` | The page's threads, oldest first, with `may_comment` and `following` for the caller. |
+| `GET /api/v1/pages/{id}/comments` | The page's threads, oldest first, a part at a time: `limit`, 50 unless set and at most 100, `after`, the `next` of the part before, and `resolved`, `true` or `false` for one kind alone. With `open_threads`, the page's open threads in every part, and `may_comment`, `may_moderate` and `following` for the caller. |
+| `GET /api/v1/threads/{id}` | One thread, as the list has it. |
+| `GET /api/v1/threads/{id}/comments` | Every comment of the thread, in order, a part at a time, with `limit` and `after` as above. |
 | `POST /api/v1/pages/{id}/comments` | Starts a thread: `markdown`, and `anchor`, `{"start", "end", "quote"}`, for an inline one, or `block_id` for one on a block's text. |
 | `POST /api/v1/threads/{id}/comments` | Replies: `markdown`. |
-| `PATCH /api/v1/threads/{id}` | Resolves or reopens it: `resolved`. |
-| `PATCH /api/v1/comments/{id}`, `DELETE` | Changes one's own comment's `markdown`, or deletes it. |
+| `PATCH /api/v1/threads/{id}`, `DELETE` | Resolves or reopens it: `resolved`; or, for those who edit the page, deletes it with its comments. |
+| `PATCH /api/v1/comments/{id}`, `DELETE` | Changes one's own comment's `markdown`, or deletes it; those who edit the page delete anyone's. |
 | `PUT /api/v1/pages/{id}/follow` | Follows the page's comments, or stops: `following`. |
 | `GET /api/v1/pages/{id}/mentions?q=` | The people, agents and pages a mention on the page may name, whose names hold `q`, at most 10 of each, each person with `sees_page`. A guest gets pages alone. |
 
+Each listed thread has its first comment and its latest replies, ten in all at most, and
+`comment_count`, how many it holds; a longer thread's other replies come from its comments'
+route. A part ends with `next` while it is full, which passed as `after` gives the next one.
 An inline thread's `anchor` answers with its `block_id`, the block its passage starts in now,
 and `detached`. `start` and `end` are the relative positions in Yjs's own encoding, in
 base64, as `Y.encodeRelativePosition` writes them; a client with the page's document

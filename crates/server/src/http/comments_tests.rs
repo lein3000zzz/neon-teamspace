@@ -81,7 +81,11 @@ async fn comments_are_started_replied_to_changed_resolved_and_deleted(pool: PgPo
     let listed = t.dee.get(&format!("/api/v1/pages/{page}/comments")).await;
     assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
     assert_eq!(listed.body["may_comment"], true);
+    assert_eq!(listed.body["may_moderate"], true);
     assert_eq!(listed.body["following"], false);
+    assert_eq!(listed.body["open_threads"], 1);
+    assert_eq!(listed.body["next"], Value::Null);
+    assert_eq!(listed.body["threads"][0]["comment_count"], 2);
     assert_eq!(
         listed.body["threads"][0]["comments"]
             .as_array()
@@ -281,6 +285,152 @@ async fn the_inbox_is_read_counted_and_marked(pool: PgPool) {
         .await;
     assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
     assert_eq!(changed.body["mail"], "digest");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn long_threads_come_a_part_at_a_time_and_editors_delete_them(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let page = create(&t.ada, ws, json!({"teamspace_id": general}), "Notes").await;
+    let started = t
+        .ada
+        .post(
+            &format!("/api/v1/pages/{page}/comments"),
+            json!({"markdown": "First"}),
+        )
+        .await;
+    let thread = started.body["thread"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    for n in 0..12 {
+        let replied =
+            t.cy.post(
+                &format!("/api/v1/threads/{thread}/comments"),
+                json!({"markdown": format!("Reply {n}")}),
+            )
+            .await;
+        assert_eq!(replied.status, StatusCode::CREATED, "{}", replied.body);
+    }
+    t.ada
+        .post(
+            &format!("/api/v1/pages/{page}/comments"),
+            json!({"markdown": "Second thread"}),
+        )
+        .await;
+
+    let first = t
+        .dee
+        .get(&format!("/api/v1/pages/{page}/comments?limit=1"))
+        .await;
+    assert_eq!(first.status, StatusCode::OK, "{}", first.body);
+    let listed = &first.body["threads"][0];
+    assert_eq!(listed["comment_count"], 13);
+    let markdown: Vec<&str> = listed["comments"]
+        .as_array()
+        .expect("comments")
+        .iter()
+        .map(|comment| comment["markdown"].as_str().expect("markdown"))
+        .collect();
+    assert_eq!(markdown.len(), 10);
+    assert_eq!((markdown[0], markdown[9]), ("First", "Reply 11"));
+    assert_eq!(first.body["next"], thread.as_str());
+    let rest = t
+        .dee
+        .get(&format!(
+            "/api/v1/pages/{page}/comments?limit=1&after={thread}"
+        ))
+        .await;
+    assert_eq!(
+        rest.body["threads"][0]["comments"][0]["markdown"],
+        "Second thread"
+    );
+    let resolved = t
+        .dee
+        .get(&format!("/api/v1/pages/{page}/comments?resolved=true"))
+        .await;
+    assert_eq!(resolved.body["threads"], json!([]));
+
+    let one = t.dee.get(&format!("/api/v1/threads/{thread}")).await;
+    assert_eq!(one.status, StatusCode::OK, "{}", one.body);
+    assert_eq!(one.body["comment_count"], 13);
+    let part = t
+        .dee
+        .get(&format!("/api/v1/threads/{thread}/comments?limit=5"))
+        .await;
+    assert_eq!(part.status, StatusCode::OK, "{}", part.body);
+    assert_eq!(part.body["comments"].as_array().map(Vec::len), Some(5));
+    let next = part.body["next"].as_str().expect("a next").to_owned();
+    let after = t
+        .dee
+        .get(&format!(
+            "/api/v1/threads/{thread}/comments?limit=100&after={next}"
+        ))
+        .await;
+    assert_eq!(after.body["comments"].as_array().map(Vec::len), Some(8));
+    assert_eq!(after.body["comments"][0]["markdown"], "Reply 4");
+    assert_eq!(after.body["next"], Value::Null);
+
+    // Dee edits the page: she deletes the whole thread, Ada's and Cy's comments with it.
+    let deleted = t
+        .dee
+        .send(Method::DELETE, &format!("/api/v1/threads/{thread}"), None)
+        .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.body);
+    let gone = t.ada.get(&format!("/api/v1/threads/{thread}")).await;
+    assert_eq!(gone.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        t.ada
+            .get(&format!("/api/v1/threads/{thread}/comments"))
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn comments_past_their_rate_answer_429_with_when_to_try_again(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let page = create(&t.ada, ws, json!({"teamspace_id": general}), "Notes").await;
+    let mut limited = None;
+    for n in 0..60 {
+        let posted = t
+            .ada
+            .post(
+                &format!("/api/v1/pages/{page}/comments"),
+                json!({"markdown": format!("Thread {n}")}),
+            )
+            .await;
+        if posted.status == StatusCode::TOO_MANY_REQUESTS {
+            limited = Some((n, posted));
+            break;
+        }
+        assert_eq!(posted.status, StatusCode::CREATED, "{}", posted.body);
+    }
+    // Thirty at once, and a few more should the posts take longer than the quota's wait.
+    let (n, posted) = limited.expect("limited");
+    assert!(n >= 30, "{n}");
+    assert_eq!(posted.code(), "rate_limited");
+    assert!(
+        posted.headers.contains_key("retry-after"),
+        "{:?}",
+        posted.headers
+    );
+    // Another person's comments are their own to count.
+    let other =
+        t.cy.post(
+            &format!("/api/v1/pages/{page}/comments"),
+            json!({"markdown": "Mine"}),
+        )
+        .await;
+    assert_eq!(other.status, StatusCode::CREATED, "{}", other.body);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

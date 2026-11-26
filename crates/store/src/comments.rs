@@ -1,5 +1,10 @@
 //! Threads of comments on pages, their comments, who follows a page's comments, and whom a
 //! page's text mentions.
+//!
+//! Every read is bounded: a page's threads a part at a time, a listed thread with its first
+//! comment and its latest, and the rest of a thread's comments a part at a time. Changes
+//! that add to a page's threads and comments take [`lock_page`] first, so its limits hold
+//! however many come at once.
 
 use neon_domain::comments::Anchor;
 use neon_domain::workspaces::Person;
@@ -8,6 +13,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::users::PersonColumns;
+
+/// The class of the advisory locks on pages' comments, one per page: "cmts" in ASCII.
+const COMMENTS_LOCK: i32 = 0x636d_7473;
 
 /// A thread of comments on a page: on the whole page, or anchored to a range of its text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,14 +119,42 @@ pub async fn insert_comment(executor: impl PgExecutor<'_>, comment: &Comment) ->
     Ok(())
 }
 
-/// A page's threads, oldest first.
-pub async fn threads(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<Vec<Thread>> {
+/// Locks a page's threads and comments, as far as their number goes, until the transaction
+/// ends.
+pub async fn lock_page(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<()> {
+    sqlx::query_scalar!(
+        r#"SELECT true AS "locked!" FROM pg_advisory_xact_lock($1, hashtext($2::text))"#,
+        COMMENTS_LOCK,
+        page_id.to_string(),
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(())
+}
+
+/// A part of a page's threads, oldest first: those after `after`, resolved ones alone, open
+/// ones alone or both, at most `limit`.
+pub async fn threads(
+    executor: impl PgExecutor<'_>,
+    page_id: Uuid,
+    resolved: Option<bool>,
+    after: Option<Uuid>,
+    limit: i64,
+) -> sqlx::Result<Vec<Thread>> {
     Ok(sqlx::query_as!(
         ThreadRow,
         "SELECT id, workspace_id, page_id, anchor_start, anchor_end, quote, resolved_at,
                 resolved_by, created_by, created_at
-         FROM comment_threads WHERE page_id = $1 ORDER BY id",
+         FROM comment_threads
+         WHERE page_id = $1
+           AND ($2::boolean IS NULL OR (resolved_at IS NOT NULL) = $2)
+           AND ($3::uuid IS NULL OR id > $3)
+         ORDER BY id
+         LIMIT $4",
         page_id,
+        resolved,
+        after,
+        limit,
     )
     .fetch_all(executor)
     .await?
@@ -127,10 +163,26 @@ pub async fn threads(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Resu
     .collect())
 }
 
-/// How many threads a page has.
-pub async fn count_threads(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<i64> {
+/// How many of a page's threads are open.
+pub async fn count_open_threads(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!" FROM comment_threads WHERE page_id = $1"#,
+        r#"SELECT count(*) AS "count!" FROM comment_threads
+           WHERE page_id = $1 AND resolved_at IS NULL"#,
+        page_id,
+    )
+    .fetch_one(executor)
+    .await
+}
+
+/// How many comments a page's threads hold together.
+pub async fn count_page_comments(
+    executor: impl PgExecutor<'_>,
+    page_id: Uuid,
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM comments c
+           JOIN comment_threads t ON t.id = c.thread_id
+           WHERE t.page_id = $1"#,
         page_id,
     )
     .fetch_one(executor)
@@ -182,6 +234,14 @@ pub async fn set_resolved(
     Ok(())
 }
 
+/// Deletes a thread with its comments. Says whether it was there.
+pub async fn delete_thread(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
+    let result = sqlx::query!("DELETE FROM comment_threads WHERE id = $1", id)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// Deletes a thread that has no comments left. Says whether it did.
 pub async fn delete_thread_if_empty(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
     let result = sqlx::query!(
@@ -194,27 +254,26 @@ pub async fn delete_thread_if_empty(executor: impl PgExecutor<'_>, id: Uuid) -> 
     Ok(result.rows_affected() == 1)
 }
 
-/// The comments of a page's threads, with their authors, by thread and in order.
-pub async fn comments_of_page(
-    executor: impl PgExecutor<'_>,
-    page_id: Uuid,
-) -> sqlx::Result<Vec<Written>> {
-    sqlx::query!(
-        r#"SELECT c.id, c.thread_id, c.author_id, c.body, c.created_at, c.edited_at,
-                  u.kind AS "kind?", u.display_name AS "display_name?", u.email, u.hue,
-                  o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue
-           FROM comments c
-           JOIN comment_threads t ON t.id = c.thread_id
-           LEFT JOIN users u ON u.id = c.author_id
-           LEFT JOIN users o ON o.id = u.owner_id
-           WHERE t.page_id = $1
-           ORDER BY c.thread_id, c.id"#,
-        page_id,
-    )
-    .fetch_all(executor)
-    .await?
-    .into_iter()
-    .map(|row| {
+struct WrittenRow {
+    id: Uuid,
+    thread_id: Uuid,
+    author_id: Option<Uuid>,
+    body: String,
+    created_at: OffsetDateTime,
+    edited_at: Option<OffsetDateTime>,
+    kind: Option<String>,
+    display_name: Option<String>,
+    email: Option<String>,
+    hue: Option<i16>,
+    owner_id: Option<Uuid>,
+    owner_name: Option<String>,
+    owner_hue: Option<i16>,
+}
+
+impl TryFrom<WrittenRow> for Written {
+    type Error = sqlx::Error;
+
+    fn try_from(row: WrittenRow) -> sqlx::Result<Self> {
         let author = match (row.author_id, row.kind, row.display_name) {
             (Some(id), Some(kind), Some(display_name)) => Some(Person::try_from(PersonColumns {
                 id,
@@ -228,7 +287,7 @@ pub async fn comments_of_page(
             })?),
             _ => None,
         };
-        Ok(Written {
+        Ok(Self {
             comment: Comment {
                 id: row.id,
                 thread_id: row.thread_id,
@@ -239,11 +298,91 @@ pub async fn comments_of_page(
             },
             author,
         })
-    })
+    }
+}
+
+/// The comments a listing shows of each of `threads`: its first, and its `latest` last
+/// after it, with their authors, by thread and in order.
+pub async fn listed_comments(
+    executor: impl PgExecutor<'_>,
+    threads: &[Uuid],
+    latest: i64,
+) -> sqlx::Result<Vec<Written>> {
+    sqlx::query_as!(
+        WrittenRow,
+        r#"SELECT c.id AS "id!", c.thread_id AS "thread_id!", c.author_id, c.body AS "body!",
+                  c.created_at AS "created_at!", c.edited_at,
+                  u.kind AS "kind?", u.display_name AS "display_name?", u.email AS "email?",
+                  u.hue AS "hue?", o.id AS "owner_id?", o.display_name AS "owner_name?",
+                  o.hue AS "owner_hue?"
+           FROM unnest($1::uuid[]) AS t (id)
+           CROSS JOIN LATERAL (
+               (SELECT * FROM comments WHERE thread_id = t.id ORDER BY id LIMIT 1)
+               UNION
+               (SELECT * FROM comments WHERE thread_id = t.id ORDER BY id DESC LIMIT $2)
+           ) c
+           LEFT JOIN users u ON u.id = c.author_id
+           LEFT JOIN users o ON o.id = u.owner_id
+           ORDER BY c.thread_id, c.id"#,
+        threads,
+        latest,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(Written::try_from)
     .collect()
 }
 
-/// The comments of one thread, in order.
+/// How many comments each of `threads` holds; one holding none is left out.
+pub async fn comment_counts(
+    executor: impl PgExecutor<'_>,
+    threads: &[Uuid],
+) -> sqlx::Result<Vec<(Uuid, i64)>> {
+    Ok(sqlx::query!(
+        r#"SELECT thread_id, count(*) AS "count!" FROM comments
+           WHERE thread_id = ANY($1) GROUP BY thread_id"#,
+        threads,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|row| (row.thread_id, row.count))
+    .collect())
+}
+
+/// A part of a thread's comments, in order, with their authors: those after `after`, at
+/// most `limit`.
+pub async fn comments_after(
+    executor: impl PgExecutor<'_>,
+    thread_id: Uuid,
+    after: Option<Uuid>,
+    limit: i64,
+) -> sqlx::Result<Vec<Written>> {
+    sqlx::query_as!(
+        WrittenRow,
+        r#"SELECT c.id, c.thread_id, c.author_id, c.body, c.created_at, c.edited_at,
+                  u.kind AS "kind?", u.display_name AS "display_name?", u.email,
+                  u.hue, o.id AS "owner_id?", o.display_name AS "owner_name?",
+                  o.hue AS owner_hue
+           FROM comments c
+           LEFT JOIN users u ON u.id = c.author_id
+           LEFT JOIN users o ON o.id = u.owner_id
+           WHERE c.thread_id = $1 AND ($2::uuid IS NULL OR c.id > $2)
+           ORDER BY c.id
+           LIMIT $3"#,
+        thread_id,
+        after,
+        limit,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(Written::try_from)
+    .collect()
+}
+
+/// The comments of one thread, in order: what a reply needs to know of those before it.
 pub async fn comments_of_thread(
     executor: impl PgExecutor<'_>,
     thread_id: Uuid,

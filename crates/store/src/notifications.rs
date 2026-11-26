@@ -399,6 +399,22 @@ pub async fn told_of_comment(
     .await
 }
 
+/// Whose notifications are of a thread or a comment in it: the inboxes its deletion
+/// changes.
+pub async fn told_of_thread(
+    executor: impl PgExecutor<'_>,
+    thread_id: Uuid,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT DISTINCT n.user_id FROM notifications n
+         WHERE n.thread_id = $1
+            OR n.comment_id IN (SELECT c.id FROM comments c WHERE c.thread_id = $1)",
+        thread_id,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Marks notifications told of by mail.
 pub async fn mark_mailed(
     executor: impl PgExecutor<'_>,

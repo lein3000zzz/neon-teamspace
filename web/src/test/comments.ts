@@ -86,6 +86,7 @@ export function pageThread(
     comments: [
       comment({ id: COMMENT_IDS.first, thread: id, markdown, ...(author ? { author } : {}) }),
     ],
+    comment_count: 1,
   };
 }
 
@@ -148,13 +149,18 @@ export function fakeComments(options: Options = {}) {
   };
 
   server.use(
-    http.get("/api/v1/pages/:id/comments", ({ params }) =>
-      HttpResponse.json({
-        threads: state.threads.filter((thread) => thread.page_id === params["id"]),
+    http.get("/api/v1/pages/:id/comments", ({ params }) => {
+      const threads = state.threads
+        .filter((thread) => thread.page_id === params["id"])
+        .map((thread) => ({ ...thread, comment_count: thread.comments.length }));
+      return HttpResponse.json({
+        threads,
+        open_threads: threads.filter((thread) => (thread.resolved_at ?? null) === null).length,
         may_comment: state.mayComment,
+        may_moderate: state.mayComment,
         following: state.following,
-      }),
-    ),
+      });
+    }),
     http.get("/api/v1/pages/:id/mentions", ({ request }) => {
       const q = new URL(request.url).searchParams.get("q") ?? "";
       searches.push(q);
@@ -180,6 +186,7 @@ export function fakeComments(options: Options = {}) {
           created_at: LATER,
           created_by: ada.id,
           comments: [first],
+          comment_count: 1,
           ...(anchor === undefined ? {} : { anchor: { ...anchor, detached: false } }),
         };
         state.threads = [...state.threads, thread];

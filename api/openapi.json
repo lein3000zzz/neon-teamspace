@@ -3624,7 +3624,7 @@
           "comments"
         ],
         "summary": "Delete a comment",
-        "description": "By its author, who must still be allowed to comment, with the notifications of it. A thread left without comments goes too.",
+        "description": "By its author, who must still be allowed to comment, or by those who edit the page, with the notifications of it. A thread left without comments goes too.",
         "operationId": "delete_comment",
         "parameters": [
           {
@@ -3764,6 +3764,16 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6821,7 +6831,7 @@
           "comments"
         ],
         "summary": "List a page's comments",
-        "description": "Its threads, oldest first, each with its comments in order and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.",
+        "description": "Its threads, oldest first, a part at a time, each with its first comment and its latest replies, how many it holds, and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.",
         "operationId": "list_comments",
         "parameters": [
           {
@@ -6832,6 +6842,35 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "resolved",
+            "in": "query",
+            "description": "`true` for the resolved threads alone, `false` for the open ones alone; both when\nabsent.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Threads in the part, 1 to 100; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
             }
           }
         ],
@@ -6977,7 +7016,17 @@
             }
           },
           "409": {
-            "description": "too_many_threads.",
+            "description": "too_many_threads, or too_many_comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many comments at once; Retry-After says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8848,12 +8897,165 @@
       }
     },
     "/api/v1/threads/{id}": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Get a thread",
+        "description": "With its first comment and its latest replies, as a page's list has it. For everyone who may see its page.",
+        "operationId": "get_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Delete a thread",
+        "description": "With every comment in it and their notifications, by those who edit its page.",
+        "operationId": "delete_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller does not edit the page; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
       "patch": {
         "tags": [
           "comments"
         ],
         "summary": "Resolve or reopen a thread",
-        "description": "For those who may comment on its page.",
+        "description": "For those who may comment on its page. Reopening one needs room on the page for one more open thread.",
         "operationId": "change_thread",
         "parameters": [
           {
@@ -8918,6 +9120,16 @@
               }
             }
           },
+          "409": {
+            "description": "too_many_threads, to reopen one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "An error.",
             "content": {
@@ -8940,6 +9152,106 @@
       }
     },
     "/api/v1/threads/{id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List a thread's comments",
+        "description": "Every comment of the thread, in order, a part at a time: what the page's list leaves out of a long thread. For everyone who may see its page.",
+        "operationId": "list_thread_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Comments in the part, 1 to 100; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "comments"
@@ -9021,7 +9333,17 @@
             }
           },
           "409": {
-            "description": "too_many_replies.",
+            "description": "too_many_replies, or too_many_comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16492,6 +16814,29 @@
         },
         "additionalProperties": false
       },
+      "CommentList": {
+        "type": "object",
+        "description": "A part of a thread's comments, in order.",
+        "required": [
+          "comments"
+        ],
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass as `after` for the next part; absent at the end."
+          }
+        }
+      },
       "CommentOut": {
         "type": "object",
         "description": "A comment, its markdown and its inline content.",
@@ -21409,10 +21754,12 @@
       },
       "ThreadList": {
         "type": "object",
-        "description": "A page's threads, oldest first, and what the caller may do with them.",
+        "description": "A part of a page's threads, oldest first, and what the caller may do with them.",
         "required": [
           "threads",
+          "open_threads",
           "may_comment",
+          "may_moderate",
           "following"
         ],
         "properties": {
@@ -21423,6 +21770,23 @@
           "may_comment": {
             "type": "boolean",
             "description": "The caller may start threads, reply, resolve and reopen them."
+          },
+          "may_moderate": {
+            "type": "boolean",
+            "description": "The caller edits the page: they delete others' comments, and whole threads."
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass as `after` for the next part; absent at the end."
+          },
+          "open_threads": {
+            "type": "integer",
+            "description": "How many threads of the page are open, in every part.",
+            "minimum": 0
           },
           "threads": {
             "type": "array",
@@ -21439,7 +21803,8 @@
           "id",
           "page_id",
           "created_at",
-          "comments"
+          "comments",
+          "comment_count"
         ],
         "properties": {
           "anchor": {
@@ -21453,12 +21818,17 @@
               }
             ]
           },
+          "comment_count": {
+            "type": "integer",
+            "description": "How many comments it holds in all.",
+            "minimum": 0
+          },
           "comments": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CommentOut"
             },
-            "description": "Its comments, in order: the first starts it, the others reply."
+            "description": "Its first comment, which starts it, and its latest replies after it, in order, at\nmost 10 in all; `GET /threads/{id}/comments` reads the rest."
           },
           "created_at": {
             "type": "string",

@@ -251,10 +251,17 @@ impl From<CommentError> for IncomingError {
         let code = error.code();
         let refusal = match &error {
             CommentError::Database(_) | CommentError::Internal(_) => None,
+            CommentError::RateLimited { retry_after } => {
+                return Self::RateLimited {
+                    retry_after: *retry_after,
+                };
+            }
             CommentError::NotFound(_) => Some(Refusal::NotFound),
             CommentError::Forbidden(_) => Some(Refusal::Forbidden),
             CommentError::InvalidInput(_) => Some(Refusal::BadRequest),
-            CommentError::TooManyThreads | CommentError::TooManyReplies => Some(Refusal::Conflict),
+            CommentError::TooManyThreads
+            | CommentError::TooManyReplies
+            | CommentError::TooManyComments => Some(Refusal::Conflict),
         };
         match (refusal, error) {
             (Some(refusal), error) => Self::Refused {

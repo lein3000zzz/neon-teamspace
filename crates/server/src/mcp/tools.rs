@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use neon_app::comments::Placing;
+use neon_app::comments::{Placing, ThreadQuery};
 use neon_app::databases::{NewDatabase, NewRow, QueryInput};
 use neon_app::notifications::InboxQuery;
 use neon_app::pages::NewPage;
@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use super::Services;
 use crate::http::ApiError;
-use crate::http::comments::{PostedComment, ThreadList};
+use crate::http::comments::{CommentList, PostedComment, ThreadList};
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
 use crate::http::databases::{
@@ -367,11 +367,14 @@ pub(crate) const TOOLS: [Spec; 21] = [
     Spec {
         name: "list_comments",
         title: "List comments",
-        description: "A page's threads of comments, oldest first, each with its comments in \
-                      order, their markdown and authors. An inline thread names the block its \
-                      text is in (anchor.block_id) and the text it was made on (anchor.quote), \
-                      or is detached once that text is gone. Resolved threads show unless \
-                      include_resolved is false.",
+        description: "A page's threads of comments, oldest first, a part at a time, each with \
+                      its first comment and its latest replies, their markdown and authors, and \
+                      comment_count. An inline thread names the block its text is in \
+                      (anchor.block_id) and the text it was made on (anchor.quote), or is \
+                      detached once that text is gone. Resolved threads show unless \
+                      include_resolved is false. Pass next back as after for the next part. \
+                      With thread_id, lists that thread's comments instead, every one in \
+                      order, a part at a time, after then naming a comment.",
         writes: false,
         destructive: false,
         idempotent: true,
@@ -646,22 +649,7 @@ pub(crate) async fn call(
                 .map_err(refused)?;
             answer(Row::from(row))
         }
-        "list_comments" => {
-            let ListCommentsArguments {
-                page_id,
-                include_resolved,
-            } = arguments(given)?;
-            let mut list = ThreadList::from(
-                s.comments
-                    .threads(principal, page_id)
-                    .await
-                    .map_err(refused)?,
-            );
-            if !include_resolved {
-                list.threads.retain(|thread| thread.resolved_at.is_none());
-            }
-            answer(list)
-        }
+        "list_comments" => list_comments(s, principal, arguments(given)?).await,
         "add_comment" => add_comment(s, principal, arguments(given)?).await,
         "get_inbox" => {
             let InboxArguments {
@@ -982,6 +970,73 @@ struct ListCommentsArguments {
     /// False to leave resolved threads out; true when absent.
     #[serde(default = "yes")]
     include_resolved: bool,
+    /// To list one thread's comments, every one in order: its id, as list_comments gives
+    /// it.
+    #[serde(default)]
+    thread_id: Option<Uuid>,
+    /// The next of the part before: a thread's id, or with thread_id a comment's.
+    #[serde(default)]
+    after: Option<Uuid>,
+    /// Threads in the part, or with thread_id comments, 1 to 100; 50 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
+    limit: Option<u8>,
+}
+
+async fn list_comments(
+    s: &Services,
+    principal: &Principal,
+    given: ListCommentsArguments,
+) -> Result<Json, ToolError> {
+    let ListCommentsArguments {
+        page_id,
+        include_resolved,
+        thread_id,
+        after,
+        limit,
+    } = given;
+    let limit = limit.map(usize::from);
+    let Some(thread_id) = thread_id else {
+        let query = ThreadQuery {
+            resolved: (!include_resolved).then_some(false),
+            after,
+            limit,
+        };
+        let list = s
+            .comments
+            .threads(principal, page_id, query)
+            .await
+            .map_err(refused)?;
+        return answer(ThreadList::from(list));
+    };
+    on_page(s, principal, page_id, thread_id).await?;
+    let part = s
+        .comments
+        .comments(principal, thread_id, after, limit)
+        .await
+        .map_err(refused)?;
+    answer(CommentList::from(part))
+}
+
+/// Refuses a thread that is not on the page named, as not found.
+async fn on_page(
+    s: &Services,
+    principal: &Principal,
+    page_id: Uuid,
+    thread_id: Uuid,
+) -> Result<(), ToolError> {
+    let (thread, _) = s
+        .comments
+        .thread(principal, thread_id)
+        .await
+        .map_err(refused)?;
+    if thread.thread.page_id != page_id {
+        return Err(ToolError::invalid(
+            "not_found",
+            "the page has no such thread",
+        ));
+    }
+    Ok(())
 }
 
 fn yes() -> bool {
@@ -1051,17 +1106,7 @@ async fn add_comment(
             ));
         }
         (Some(thread_id), None) => {
-            let (thread, _) = s
-                .comments
-                .thread(principal, thread_id)
-                .await
-                .map_err(refused)?;
-            if thread.thread.page_id != page_id {
-                return Err(ToolError::invalid(
-                    "not_found",
-                    "the page has no such thread",
-                ));
-            }
+            on_page(s, principal, page_id, thread_id).await?;
             s.comments
                 .reply(principal, thread_id, &markdown)
                 .await

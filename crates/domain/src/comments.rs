@@ -19,11 +19,24 @@ pub const MAX_QUOTE: usize = 1000;
 /// bound leaves room and keeps what a client sends small.
 pub const MAX_POSITION: usize = 256;
 
-/// The most threads a page holds, resolved ones included.
+/// The most open threads a page holds: resolving or deleting one makes room.
 pub const MAX_THREADS: usize = 1000;
 
 /// The most comments one thread holds.
 pub const MAX_REPLIES: usize = 500;
+
+/// The most comments a page holds in all its threads, resolved ones included: deleting
+/// some makes room.
+pub const MAX_PAGE_COMMENTS: usize = 5000;
+
+/// How many of a thread's comments a listing of its page's threads holds: its first, and
+/// its latest after it. The rest are read a part at a time.
+pub const LISTED_COMMENTS: usize = 10;
+
+/// How many threads, or comments of one thread, a part of a listing holds unless asked
+/// otherwise, and at most.
+pub const DEFAULT_PART: usize = 50;
+pub const MAX_PART: usize = 100;
 
 /// Where an inline thread is: the range of text between two Yjs relative positions, and
 /// the text it held when the thread began.
