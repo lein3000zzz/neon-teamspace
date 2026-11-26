@@ -81,9 +81,10 @@ enum SettingsCommand {
 
 #[derive(Debug, Subcommand)]
 enum SearchCommand {
-    /// Read pages' documents again and store their text for search: those whose text was
-    /// never stored, such as one whose server stopped before saving it, or with --all every
-    /// page. Applies pending migrations first, as serve does. Safe while servers run.
+    /// Read pages' documents again and store their text for search: those with changes a
+    /// server killed before saving them left out of it, or whose text was never stored, or
+    /// with --all every page. Applies pending migrations first, as serve does. Safe while
+    /// servers run.
     Reindex {
         /// Every page with a document, not only those whose text is missing.
         #[arg(long)]
@@ -131,7 +132,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Settings(SettingsCommand::Docs) => print(&registry().reference_markdown()),
         Command::Search(SearchCommand::Reindex { all }) => {
             let stored = runtime::reindex(config::load(&registry())?, all).await?;
-            print(&format!("stored the search text of {stored} pages\n"))
+            print(&format!("changed the search text of {stored} pages\n"))
         }
         Command::Config(ConfigCommand::Check) => {
             let registry = registry();

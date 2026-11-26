@@ -319,7 +319,7 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 | `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
 | `neon admin create --email ADDRESS [--display-name NAME]` | Creates an instance admin, whatever the registration mode. It asks for the password at a terminal, or reads it from the first line of standard input. |
-| `neon search reindex [--all]` | Reads the documents of the pages whose text [search](/docs/guides/search/#rebuilding-the-text) lacks, or of every page with `--all`, and stores their text. Safe while servers run. |
+| `neon search reindex [--all]` | Reads the documents of the pages whose text [search](/docs/guides/search/#rebuilding-the-text) lacks or whose latest changes it lacks, or of every page with `--all`, and stores their text where it differs. Safe while servers run. |
 | `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |

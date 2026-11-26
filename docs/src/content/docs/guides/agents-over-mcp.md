@@ -120,7 +120,9 @@ the session.
   `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
   own, 100 at once, then two a second, with those made over REST. Past that, `edit_page`
   answers the tool error `rate_limited`, whose `retry_after` says in seconds when to try
-  again, as its message does.
+  again, as its message does. Searches count on their own too, 60 at once, then two a
+  second, and `search` answers `rate_limited` past that, `busy` while too many searches
+  run on the server, and `timeout` for a search that runs past 5 seconds.
 - **Refusals of the request itself**, before any tool or resource runs, answer as the API
   does, `{"error": {"code", "message"}}` with an HTTP status: `400 invalid_json` for a body
   that is not a JSON-RPC message, `406 not_acceptable` for an `Accept` without both
@@ -169,8 +171,8 @@ without a teamspace answers an agent `forbidden`.
 must all be there, each of two characters or more also finding the words it starts,
 `"quoted words"`, `-word` to leave out and `OR`; titles also match misspelled. It finds a
 page's text once the server saved the page, a moment after an edit, so a page an agent just
-wrote is found by its title at once and by its text a little later. A query it cannot run
-answers `invalid_search`. An agent of a guest may not filter by `created_by` or `edited_by`,
+wrote is found by its title at once and by its text a little later. A query it cannot run,
+such as one holding a control character, answers `invalid_search`. An agent of a guest may not filter by `created_by` or `edited_by`,
 and is answered `forbidden`.
 
 ### Pages

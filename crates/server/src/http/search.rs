@@ -157,14 +157,18 @@ impl From<AppResults> for SearchResults {
                    matches. Read are titles, rows' text and URL values, and the text of pages \
                    and rows, as the server last saved it, which is a moment after an edit. \
                    Filters narrow it to a teamspace, a kind, who made or last changed it, and \
-                   how recently it changed.",
+                   how recently it changed. A snippet is drawn from the 5000 characters around \
+                   the first place the query's words are. Each user's searches are rate \
+                   limited, a few run at once, and each gives up after 5 seconds.",
     params(("id" = Uuid, Path, description = "The workspace's id."), SearchParams),
     responses(
         (status = OK, description = "The results, or a part of them.", body = SearchResults),
-        (status = BAD_REQUEST, description = "invalid_search: a query too long, with more than 16 terms, or with only words to leave out; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_search: a query too long, with more than 16 terms, with only words to leave out, or with a control character; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: a guest filtering by member; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace, or one the caller is not in.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many searches; Retry-After says when to try again.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: too many searches are running, Retry-After says when to try again; timeout: the search took longer than 5 seconds, so narrow it.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

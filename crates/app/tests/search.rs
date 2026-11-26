@@ -6,12 +6,17 @@
 mod support;
 
 use std::collections::BTreeSet;
+use std::io;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertyChange, PropertySpec};
 use neon_app::pages::{ImportedContent, Location, NewPage, PageUpdate};
-use neon_app::search::{SearchInput, SearchResults, SearchService};
+use neon_app::ratelimit::{Bucket, RateLimiter};
+use neon_app::search::{QUEUE_WAIT, SearchError, SearchInput, SearchResults, SearchService};
+use neon_app::sync::{Limits, SyncService, access_feed};
 use neon_app::workspaces::NewTeamspace;
+use neon_blocks::edit::Edit;
 use neon_blocks::markdown::from_markdown;
 use neon_blocks::{Block, SequentialIds};
 use neon_domain::auth::Principal;
@@ -22,6 +27,7 @@ use neon_store::documents::{self, NewSnapshot, NewUpdate};
 use serde_json::{Map, Value as Json, json};
 use sqlx::PgPool;
 use support::Harness;
+use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 use yrs::updates::encoder::Encode as _;
 use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
@@ -101,6 +107,7 @@ async fn team(pool: PgPool) -> Team {
     let (_, ace) = h.agent_token(&ada, &ace, &["read"]).await;
     let search = SearchService::builder(h.pool.clone())
         .clock(h.time.clock())
+        .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)
         .build();
     Team {
         h,
@@ -277,8 +284,78 @@ fn titles(results: &SearchResults) -> Vec<String> {
         .collect()
 }
 
-fn refused(result: Result<SearchResults, neon_app::search::SearchError>) -> &'static str {
+fn refused(result: Result<SearchResults, SearchError>) -> &'static str {
     result.expect_err("refused").code()
+}
+
+impl Team {
+    /// Live documents that log at once and stay loaded until they stop.
+    fn sync(&self) -> SyncService {
+        let (_, feed) = access_feed();
+        SyncService::builder(
+            self.h.pool.clone(),
+            self.h.pages.clone(),
+            self.h.auth.clone(),
+            feed,
+        )
+        .limits(Limits {
+            persist_delay: Duration::from_millis(5),
+            idle_unload: Duration::from_secs(3600),
+            ..Limits::default()
+        })
+        .clock(self.h.time.clock())
+        .build()
+    }
+
+    async fn execute(&self, statement: &'static str) {
+        sqlx::query(statement)
+            .execute(&self.h.pool)
+            .await
+            .unwrap_or_else(|error| panic!("{statement}: {error}"));
+    }
+
+    async fn versions(&self, page: Uuid) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM page_versions WHERE page_id = $1")
+            .bind(page)
+            .fetch_one(&self.h.pool)
+            .await
+            .expect("counted")
+    }
+}
+
+fn append(markdown: &str) -> Vec<Edit> {
+    vec![Edit::Append {
+        blocks: from_markdown(markdown).blocks,
+    }]
+}
+
+/// What is logged while it is the default subscriber, warnings and worse.
+#[derive(Clone, Default)]
+struct Warnings(Arc<Mutex<Vec<u8>>>);
+
+impl Warnings {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().expect("lock")).into_owned()
+    }
+}
+
+impl io::Write for Warnings {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().expect("lock").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for Warnings {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -359,59 +436,70 @@ async fn titles_text_and_rows_values_are_found_as_they_are_written(pool: PgPool)
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_document_s_text_is_indexed_in_the_transaction_that_stores_its_snapshot(pool: PgPool) {
     let t = team(pool).await;
-    let page = t.general_page("Plan", "").await;
-    let doc = Doc::new();
-    let fragment = neon_blocks::fragment(&doc);
-    neon_blocks::replace(
-        &mut doc.transact_mut(),
-        &fragment,
-        &from_markdown("The lighthouse keeper\n"),
-        &mut SequentialIds::new("b"),
-    );
-    let (state, vector) = {
-        let txn = doc.transact();
-        (
-            txn.encode_state_as_update_v1(&StateVector::default()),
-            txn.state_vector().encode_v1(),
-        )
-    };
-    let snapshot = NewSnapshot {
-        state: &state,
-        state_vector: &vector,
-        last_seq: 0,
-        at: t.h.time.clock().now(),
-    };
+    let page = t.general_page("Seabirds", "Herring gulls\n").await;
+    assert_eq!(t.versions(page).await, 1);
+    t.execute(
+        "CREATE FUNCTION refuse() RETURNS trigger LANGUAGE plpgsql AS
+         $$ BEGIN RAISE EXCEPTION 'refused by the test'; END $$",
+    )
+    .await;
 
-    // Inside the transaction that saves the snapshot, the page is found by its text; once
-    // it rolls back, it is not.
-    let mut tx = t.h.pool.begin().await.expect("a transaction");
-    documents::save_snapshot(&mut *tx, page, snapshot)
+    // A snapshot whose version cannot be kept stores no text either: its edit stays in the
+    // log, unsaved, and search does not find it.
+    t.execute(
+        "CREATE TRIGGER refuse_versions BEFORE INSERT ON page_versions
+         FOR EACH ROW EXECUTE FUNCTION refuse()",
+    )
+    .await;
+    let sync = t.sync();
+    sync.edit(&t.ada, page, append("Albatross sighted"), None)
         .await
-        .expect("saved");
-    documents::set_content(&mut *tx, page, Some("The lighthouse keeper"), None)
+        .expect("edited");
+    // Stopping saves the document as a snapshot, which fails here.
+    sync.shutdown().await;
+    assert!(t.titles(&t.dee, "albatross").await.is_empty());
+    assert_eq!(t.versions(page).await, 1);
+    let logged: i64 = t.h.scalar("SELECT count(*) FROM page_updates").await;
+    assert!(logged > 0, "the edit stays in the log");
+    t.execute("DROP TRIGGER refuse_versions ON page_versions")
+        .await;
+
+    // A snapshot whose text cannot be stored keeps no version either.
+    t.execute(
+        "CREATE TRIGGER refuse_text BEFORE UPDATE OF search_text ON pages
+         FOR EACH ROW WHEN (NEW.search_text IS DISTINCT FROM OLD.search_text)
+         EXECUTE FUNCTION refuse()",
+    )
+    .await;
+    let sync = t.sync();
+    sync.edit(&t.ada, page, append("Puffin colony"), None)
         .await
-        .expect("stored");
-    let inside: bool = sqlx::query_scalar(
-        "SELECT search_vector @@ to_tsquery('simple', 'lighthouse') FROM pages WHERE id = $1",
+        .expect("edited");
+    sync.shutdown().await;
+    assert_eq!(t.versions(page).await, 1);
+    assert!(t.titles(&t.dee, "puffin").await.is_empty());
+    t.execute("DROP TRIGGER refuse_text ON pages").await;
+
+    // Saved, the text and the version come together, with everything the log kept, and
+    // nothing waits in the job queue for them.
+    let sync = t.sync();
+    sync.edit(&t.ada, page, append("Arctic tern"), None)
+        .await
+        .expect("edited");
+    sync.shutdown().await;
+    for word in ["albatross", "puffin", "tern"] {
+        assert_eq!(t.titles(&t.dee, word).await, ["Seabirds"], "{word}");
+    }
+    assert_eq!(t.versions(page).await, 2);
+    let kept: String = sqlx::query_scalar(
+        "SELECT content::text FROM page_versions WHERE page_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 1",
     )
     .bind(page)
-    .fetch_one(&mut *tx)
+    .fetch_one(&t.h.pool)
     .await
     .expect("read");
-    assert!(inside);
-    tx.rollback().await.expect("rolled back");
-    assert!(t.titles(&t.dee, "lighthouse").await.is_empty());
-
-    // Committed, it is found at once, and nothing waits in the job queue for it.
-    let mut tx = t.h.pool.begin().await.expect("a transaction");
-    documents::save_snapshot(&mut *tx, page, snapshot)
-        .await
-        .expect("saved");
-    documents::set_content(&mut *tx, page, Some("The lighthouse keeper"), None)
-        .await
-        .expect("stored");
-    tx.commit().await.expect("committed");
-    assert_eq!(t.titles(&t.dee, "lighthouse").await, ["Plan"]);
+    assert!(kept.contains("Albatross") && kept.contains("Arctic tern"));
     let jobs: i64 = t.h.scalar("SELECT count(*) FROM jobs").await;
     assert_eq!(jobs, 0);
 }
@@ -575,6 +663,16 @@ async fn each_caller_finds_exactly_the_pages_the_rules_let_them_see(pool: PgPool
             .await
             .expect("shared");
     }
+    // The database keeps to what the rules allow: no page it finds is one they then refuse,
+    // which would only warn, as the rules win.
+    let warnings = Warnings::default();
+    let _logs = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(warnings.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish(),
+    );
     assert!(
         t.everything(&t.gus)
             .await
@@ -630,6 +728,11 @@ async fn each_caller_finds_exactly_the_pages_the_rules_let_them_see(pool: PgPool
     // Whoever is not in the workspace finds nothing of it.
     let outside = t.search.search(&t.eve, t.ws, SearchInput::default()).await;
     assert_eq!(refused(outside), "not_found");
+    let logged = warnings.text();
+    assert!(
+        !logged.contains("not one the caller may see"),
+        "the database found pages the rules refuse: {logged}"
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -726,6 +829,23 @@ async fn titles_rank_first_and_matches_are_marked(pool: PgPool) {
     // Prefixes are marked whole.
     let found = t.find(&t.dee, "harb").await;
     assert_eq!(found.hits.len(), 4);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_title_that_is_a_short_query_ranks_first(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page("Go", "").await;
+    // Changed later, so it would come first between two that rank the same.
+    t.h.time.advance(Duration::from_secs(60));
+    t.general_page("Go plan", "").await;
+    t.general_page("UX", "").await;
+    t.h.time.advance(Duration::from_secs(60));
+    t.general_page("UX review", "").await;
+
+    assert_eq!(t.titles(&t.dee, "go").await, ["Go", "Go plan"]);
+    assert_eq!(t.titles(&t.dee, "ux").await, ["UX", "UX review"]);
+    let found = t.find(&t.dee, "go").await;
+    assert!(found.hits[0].rank > found.hits[1].rank + 0.5);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -837,6 +957,14 @@ async fn results_come_a_part_at_a_time_and_refusals_say_why(pool: PgPool) {
             },
             "invalid_search",
         ),
+        // No text holds U+0000, which the database refuses to read.
+        (
+            SearchInput {
+                query: "a\u{0}b".to_owned(),
+                ..SearchInput::default()
+            },
+            "invalid_search",
+        ),
         (
             SearchInput {
                 limit: Some(51),
@@ -897,8 +1025,199 @@ async fn rebuilding_stores_the_text_of_documents_never_saved_as_snapshots(pool: 
 
     assert_eq!(t.search.reindex(false).await.expect("rebuilt"), 1);
     assert_eq!(t.titles(&t.dee, "starboard").await, ["Logbook"]);
-    // Nothing is missing now; every page is rebuilt when asked.
+    // Its updates wait for a snapshot still, and are read again; its text stays as it is.
     assert_eq!(t.search.reindex(false).await.expect("rebuilt"), 0);
-    t.general_page("Second", "With text\n").await;
-    assert_eq!(t.search.reindex(true).await.expect("rebuilt"), 2);
+
+    // A page whose text was stored is read again only when asked for every page, as after
+    // an upgrade that reads documents' text otherwise.
+    let second = t.general_page("Second", "With text\n").await;
+    sqlx::query("UPDATE pages SET search_text = 'stale' WHERE id = $1")
+        .bind(second)
+        .execute(&t.h.pool)
+        .await
+        .expect("made stale");
+    assert_eq!(t.search.reindex(false).await.expect("rebuilt"), 0);
+    assert_eq!(t.search.reindex(true).await.expect("rebuilt"), 1);
+    assert_eq!(t.titles(&t.dee, "with").await, ["Second"]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn rebuilding_stores_what_a_server_stopped_before_saving_left(pool: PgPool) {
+    let t = team(pool).await;
+    let page = t.general_page("Gulls", "Herring gulls\n").await;
+    // An edit the live document logged, which a server killed before its snapshot leaves.
+    let doc = Doc::new();
+    let fragment = neon_blocks::fragment(&doc);
+    let (state, update) = {
+        let mut txn = doc.transact_mut();
+        neon_blocks::replace(
+            &mut txn,
+            &fragment,
+            &from_markdown("Herring gulls\n"),
+            &mut SequentialIds::new("b"),
+        );
+        let state = txn.encode_state_as_update_v1(&StateVector::default());
+        let before = txn.state_vector();
+        neon_blocks::append(
+            &mut txn,
+            &fragment,
+            &[Block::paragraph("Albatross sighting logged")],
+            &mut SequentialIds::new("c"),
+        )
+        .expect("a document");
+        (state, txn.encode_state_as_update_v1(&before))
+    };
+    let vector = doc.transact().state_vector().encode_v1();
+    documents::save_snapshot(
+        &t.h.pool,
+        page,
+        NewSnapshot {
+            state: &state,
+            state_vector: &vector,
+            last_seq: 0,
+            at: t.h.time.clock().now(),
+        },
+    )
+    .await
+    .expect("saved");
+    documents::append(
+        &t.h.pool,
+        page,
+        &[NewUpdate {
+            update: &update,
+            author_id: t.ada.user.id,
+            created_at: t.h.time.clock().now(),
+        }],
+    )
+    .await
+    .expect("logged");
+    assert!(t.titles(&t.dee, "albatross").await.is_empty());
+
+    assert_eq!(t.search.reindex(false).await.expect("rebuilt"), 1);
+    assert_eq!(t.titles(&t.dee, "albatross").await, ["Gulls"]);
+    assert_eq!(t.titles(&t.dee, "herring").await, ["Gulls"]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn large_pages_are_searched_within_the_time_a_search_has(pool: PgPool) {
+    let t = team(pool).await;
+    // Fifty-one pages of far more than the 100,000 characters search reads, matching
+    // everywhere: marking each whole would take seconds.
+    for n in 0..51 {
+        t.general_page(&format!("Big {n}"), "").await;
+    }
+    t.execute(
+        "UPDATE pages SET search_text = repeat('ab' || left(md5(id::text), 6) || ' ab ', 12000)
+         WHERE title LIKE 'Big %'",
+    )
+    .await;
+    let found = t
+        .find_with(
+            &t.dee,
+            SearchInput {
+                query: "ab".to_owned(),
+                limit: Some(50),
+                ..SearchInput::default()
+            },
+        )
+        .await;
+    assert_eq!(found.hits.len(), 50);
+    assert!(found.next.is_some());
+    for hit in &found.hits {
+        let text: usize = hit.snippet.iter().map(|run| run.text.chars().count()).sum();
+        assert!(hit.snippet.iter().any(|run| run.highlight));
+        assert!(text < 1000, "a snippet of {text} characters");
+    }
+
+    // A match far into the text is marked where it is.
+    let deep = t.general_page("Deep", "").await;
+    sqlx::query(
+        "UPDATE pages SET search_text = repeat('filler ', 9000) || 'the Albatross sighted' \
+         WHERE id = $1",
+    )
+    .bind(deep)
+    .execute(&t.h.pool)
+    .await
+    .expect("written");
+    let found = t.find(&t.dee, "albatross").await;
+    let marked: Vec<&str> = found.hits[0]
+        .snippet
+        .iter()
+        .filter(|run| run.highlight)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(marked, ["Albatross"]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn searches_are_rate_limited_by_user(pool: PgPool) {
+    let t = team(pool).await;
+    t.find(&t.dee, "plan").await;
+    assert!(
+        t.h.limiter
+            .seen()
+            .contains(&(Bucket::Search, t.dee.user.id.to_string()))
+    );
+    t.h.limiter.refuse(Bucket::Search);
+    let error = t
+        .search
+        .search(&t.dee, t.ws, SearchInput::default())
+        .await
+        .expect_err("limited");
+    assert!(matches!(error, SearchError::RateLimited { .. }), "{error}");
+    assert!(error.is_expected());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_search_waits_its_turn_and_gives_up_when_none_comes(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page("Plan", "").await;
+    let search = SearchService::builder(t.h.pool.clone()).parallel(1).build();
+    // The only turn goes to a search held up by a lock on the pages.
+    let mut blocker = t.h.pool.begin().await.expect("a transaction");
+    sqlx::query("LOCK TABLE pages IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .expect("locked");
+    let first = tokio::spawn({
+        let (search, dee, ws) = (search.clone(), t.dee.clone(), t.ws);
+        async move {
+            search
+                .search(
+                    &dee,
+                    ws,
+                    SearchInput {
+                        query: "plan".to_owned(),
+                        ..SearchInput::default()
+                    },
+                )
+                .await
+        }
+    });
+    loop {
+        let waiting: bool =
+            t.h.scalar(
+                "SELECT EXISTS (
+                     SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+                     WHERE c.relname = 'pages' AND NOT l.granted
+                       AND l.database = (SELECT oid FROM pg_database
+                                         WHERE datname = current_database()))",
+            )
+            .await;
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let started = std::time::Instant::now();
+    let error = search
+        .search(&t.dee, t.ws, SearchInput::default())
+        .await
+        .expect_err("no turn");
+    assert!(matches!(error, SearchError::Busy), "{error}");
+    assert!(started.elapsed() >= QUEUE_WAIT);
+    blocker.rollback().await.expect("unlocked");
+    let first = first.await.expect("ran").expect("searched");
+    assert_eq!(titles(&first), ["Plan"]);
 }

@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM pages WHERE id = $1 FOR UPDATE",
+  "query": "SELECT search_text FROM pages WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Uuid",
+        "name": "search_text",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "pages",
-            "name": "id"
+            "name": "search_text"
           }
         }
       }
@@ -21,8 +21,8 @@
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "2e381fd35f48138d9fd2c67f8078d2f8dfc62988ac419737af8104fee309e0fc"
+  "hash": "daf4bcd32b60e3d69b89e49b507c015f431f4c85622887570102d589028ab1c7"
 }

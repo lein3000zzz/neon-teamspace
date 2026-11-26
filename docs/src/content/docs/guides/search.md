@@ -50,18 +50,22 @@ Titles also match loosely, by their trigrams, so `quaterly` finds **Quarterly ro
 more. A word left out with `-` leaves out loose matches too.
 
 A query has at most 200 characters and 16 terms. One with only words to leave out, such as
-`-draft`, is refused, as it would match nearly everything. An empty query lists what the
-filters let through, the most recently changed first.
+`-draft`, is refused, as it would match nearly everything, and so is one holding a control
+character other than spaces, tabs and line breaks, which no page holds. An empty query
+lists what the filters let through, the most recently changed first.
 
 ## The results
 
 Results come best first. A match in a title counts most, then one in a row's text or URL
-values, then one in a page's text, and a title that is the query itself ranks above all.
+values, then one in a page's text, and a title that is the query itself, however short,
+such as `Go`, ranks above all.
 More of the query's words, and more matches, rank higher. Between results that rank the
 same, the one changed last comes first.
 
 Each result has its title and a snippet of up to two passages of about thirty words around
-the matches, both in runs that mark what matched. A loose title match has nothing marked.
+the matches, both in runs that mark what matched. The snippet comes from the 5,000
+characters around the first place one of the query's words is, so on a long page it shows
+the first matches, not the best ones further on. A loose title match has nothing marked.
 Search reaches the best 1000 results of a query.
 
 ## Filters
@@ -146,18 +150,27 @@ and means nothing across searches. A query the server cannot run answers
 `400 invalid_search`, a parameter that does not read `400 invalid_query`, and a workspace
 the caller is not in `404 not_found`.
 
+Searching holds a database connection while it runs, so the server bounds it. Each user
+gets 60 searches, then 2 a second, after which a search answers `429 rate_limited` with
+`Retry-After`. Half the server's database connections at most run searches at once; one that
+waits 2 seconds for its turn answers `503 busy`, to try again a second later. A search that
+runs longer than 5 seconds is given up and answers `503 timeout`: more words or a filter
+narrow it.
+
 [Agents over MCP](/docs/guides/agents-over-mcp/#orientation) search with the `search` tool,
 which takes the same parameters and answers the same.
 
 ## Rebuilding the text
 
-Each page's text is stored with its snapshot, so a page whose server stopped before it saved
-one, as in a crash, has no text until it is saved again. `neon search reindex` reads every
-such page's document, its snapshot and the updates logged after it, and stores its text.
-`neon search reindex --all` does it for every page, for instance after an upgrade that reads
-documents' text differently. Both are safe while servers run: each page is read and written
-while its row is locked, so a snapshot saved at the same moment writes its own text after.
-They apply pending migrations first, as `neon serve` does.
+Each page's text is stored with its snapshot. A server killed before it saved one, as in a
+crash, leaves the page's latest changes logged but not in its text, and a page that never
+had a snapshot without any text, until the page is opened and saved again.
+`neon search reindex` reads the document of every such page, its snapshot and the updates
+logged after it, and stores its text when it differs; it says how many pages' text it
+changed. `neon search reindex --all` reads every page, for instance after an upgrade that
+reads documents' text differently. Both are safe while servers run: each page is read and
+written while its row is locked, so a snapshot saved at the same moment writes its own text
+after. They apply pending migrations first, as `neon serve` does.
 
 The migration that brought search indexed every title, every row's values and the text each
 page had stored already, so a new install and an upgraded one need no rebuild.

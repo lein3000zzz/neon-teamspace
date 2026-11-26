@@ -153,8 +153,9 @@ pub async fn migrate(loaded: Loaded) -> anyhow::Result<()> {
     .await
 }
 
-/// Stores pages' text for search again, those whose text is missing or `all`, for `neon
-/// search reindex`, and says how many. Applies pending migrations first, as `serve` does.
+/// Stores pages' text for search again, those whose text lacks their latest changes or
+/// `all`, for `neon search reindex`, and says how many pages' text changed. Applies pending
+/// migrations first, as `serve` does.
 pub async fn reindex(loaded: Loaded, all: bool) -> anyhow::Result<u64> {
     let mut stored = 0;
     with_telemetry(loaded, |loaded, _| async {
@@ -315,7 +316,11 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         live.clone(),
     )
     .build();
-    let search = SearchService::builder(pool.clone()).build();
+    // Searches take half the pool at most, so the other requests always find connections.
+    let search = SearchService::builder(pool.clone())
+        .limiter(Arc::clone(&limiter))
+        .parallel(usize::try_from(pool_size / 2).unwrap_or(1))
+        .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())

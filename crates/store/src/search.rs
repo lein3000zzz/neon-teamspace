@@ -14,6 +14,14 @@
 //! document's text, and a trigram match of titles typed loosely, with
 //! `pg_trgm.word_similarity_threshold` at [`FUZZY_THRESHOLD`]. Pages in the trash are left
 //! out.
+//!
+//! What a search costs stays bounded however large the pages are: only the pages answered
+//! get their matches marked, the one read past them to tell whether more follow does not;
+//! a snippet is marked in [`SNIPPET_CHARS`] characters of the text, from a little before
+//! the first place one of the query's words is; and [`prepare`] gives the statements a
+//! time limit.
+
+use std::time::Duration;
 
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -27,6 +35,16 @@ pub const FUZZY_THRESHOLD: &str = "0.5";
 /// ever in what search reads: they are taken out of it first.
 pub const MATCH_START: char = '\u{1}';
 pub const MATCH_END: char = '\u{2}';
+
+/// How many characters of a page's text its snippet is marked in: from
+/// [`SNIPPET_LEAD`] characters before the first of the query's words, or from the start.
+/// Marking costs more than in proportion to the text it reads.
+pub const SNIPPET_CHARS: i32 = 5000;
+pub const SNIPPET_LEAD: i32 = 1000;
+
+/// What a statement that ran out of the time [`prepare`] gave it fails with:
+/// `query_canceled`.
+const CANCELED: &str = "57014";
 
 /// Who sees what, as the rules said: for the searcher, and for an agent's owner.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -59,6 +77,9 @@ pub struct Search<'a> {
     /// What a loose match must hold too, for `to_tsquery('simple', …)`: none of the words
     /// left out.
     pub excluded: Option<&'a str>,
+    /// The query's words: a title that is them, but for case, ranks first, and a snippet is
+    /// marked around the first place one of them is.
+    pub words: &'a [String],
     pub teamspace_id: Option<Uuid>,
     /// `page`, `database` or `row`.
     pub kind: Option<&'a str>,
@@ -66,8 +87,16 @@ pub struct Search<'a> {
     pub last_edited_by: Option<Uuid>,
     /// Changed, its title, place, style or content, at or after this.
     pub edited_after: Option<OffsetDateTime>,
+    /// How many pages to answer, at most, from `offset` on.
     pub limit: i64,
     pub offset: i64,
+}
+
+/// The pages found, the best first, and whether more follow them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Found {
+    pub hits: Vec<Hit>,
+    pub more: bool,
 }
 
 /// A page found.
@@ -154,56 +183,91 @@ macro_rules! search_sql {
                                 ELSE ts_rank(p.search_vector, to_tsquery('simple', $2)) END
                            + CASE WHEN $3::text IS NULL THEN 0
                                   ELSE word_similarity($3, p.title) END
-                           + CASE WHEN lower(p.title) = lower($3) THEN 1 ELSE 0 END
+                           + CASE WHEN $2::text IS NOT NULL
+                                       AND lower(p.title) = lower(array_to_string($19::text[], ' '))
+                                  THEN 1 ELSE 0 END
                           )::float8 AS rank,
                           GREATEST(p.updated_at, p.content_updated_at) AS edited_at
                    FROM found f JOIN pages p ON p.id = f.id
                    ORDER BY rank DESC, edited_at DESC, p.id
-                   LIMIT $16 OFFSET $17
+                   LIMIT $16::bigint + 1 OFFSET $17
+               ),
+               numbered AS (
+                   SELECT r.*, row_number() OVER (ORDER BY r.rank DESC, r.edited_at DESC, r.id)
+                               AS n
+                   FROM ranked r
                )
-               SELECT r.id AS "id!", r.rank AS "rank!",
-                      CASE WHEN $2::text IS NOT NULL THEN
+               -- The page past the part tells that more follow, and is not marked. A
+               -- snippet is marked in $20 characters of the text and values, from $21 before
+               -- the first place one of the query's words is, or from the start.
+               SELECT r.id AS "id!", r.rank AS "rank!", r.n AS "n!",
+                      CASE WHEN $2::text IS NOT NULL AND r.n <= $16 THEN
                           ts_headline('simple', translate(r.title, E'\x01\x02', ''),
                                       to_tsquery('simple', $2),
                                       E'StartSel=\x01, StopSel=\x02, HighlightAll=true')
                       END AS title,
-                      CASE WHEN $2::text IS NOT NULL
-                                AND COALESCE(r.property_text, r.search_text) IS NOT NULL THEN
+                      CASE WHEN t.body IS NOT NULL THEN
                           ts_headline('simple',
-                                      translate(left(concat_ws(E'\n', r.property_text,
-                                                               r.search_text), 100000),
+                                      translate(substr(t.body,
+                                                       greatest(1, COALESCE(m.at, 1) - $21),
+                                                       $20),
                                                 E'\x01\x02', ''),
                                       to_tsquery('simple', $2),
                                       E'StartSel=\x01, StopSel=\x02, MaxWords=30, MinWords=12, ShortWord=2, MaxFragments=2, FragmentDelimiter=" … "')
                       END AS snippet
-               FROM ranked r
-               ORDER BY r.rank DESC, r.edited_at DESC, r.id"#
+               FROM numbered r
+               LEFT JOIN LATERAL (
+                   SELECT b.body, lower(b.body) AS low
+                   FROM (SELECT left(concat_ws(E'\n', r.property_text, r.search_text), 100000)
+                                AS body) b
+                   WHERE $2::text IS NOT NULL AND r.n <= $16
+                     AND (r.property_text IS NOT NULL OR r.search_text IS NOT NULL)
+                   OFFSET 0
+               ) t ON true
+               LEFT JOIN LATERAL (
+                   SELECT min(a.at) AS at
+                   FROM (SELECT strpos(t.low, lower(word)) AS at
+                         FROM unnest($19::text[]) AS word) a
+                   WHERE a.at > 0
+               ) m ON true
+               ORDER BY r.n"#
         )
     };
 }
 
 /// Readies the connection's transaction for [`search`]: each search is planned for the
 /// values it is given, rather than with a plan made for any, which cannot tell a guest
-/// with three shares from an owner of every teamspace; and the loose match of titles takes
-/// [`FUZZY_THRESHOLD`].
-pub async fn prepare(conn: &mut PgConnection) -> sqlx::Result<()> {
+/// with three shares from an owner of every teamspace; the loose match of titles takes
+/// [`FUZZY_THRESHOLD`]; and each statement after, until the transaction ends, fails once it
+/// runs longer than `limit`, as [`timed_out`] tells.
+pub async fn prepare(conn: &mut PgConnection, limit: Duration) -> sqlx::Result<()> {
     sqlx::query!(
         r#"SELECT set_config('plan_cache_mode', 'force_custom_plan', true) AS "plans!",
-                  set_config('pg_trgm.word_similarity_threshold', $1, true) AS "threshold!""#,
+                  set_config('pg_trgm.word_similarity_threshold', $1, true) AS "threshold!",
+                  set_config('statement_timeout', $2, true) AS "timeout!""#,
         FUZZY_THRESHOLD,
+        format!("{}ms", limit.as_millis().max(1)),
     )
     .fetch_one(&mut *conn)
     .await?;
     Ok(())
 }
 
-/// The pages found, the best first: see the module docs. Run it in a transaction that
-/// [`prepare`] readied.
+/// Whether a statement failed for running longer than [`prepare`] let it.
+pub fn timed_out(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|error| error.code())
+        .is_some_and(|code| code == CANCELED)
+}
+
+/// The pages found, the best first, and whether more follow: see the module docs. Run it in
+/// a transaction that [`prepare`] readied.
 pub async fn search(
     conn: &mut PgConnection,
     scope: &Scope,
     search: &Search<'_>,
-) -> sqlx::Result<Vec<Hit>> {
+) -> sqlx::Result<Found> {
     let owner = scope.owner.clone().unwrap_or_default();
     macro_rules! run {
         ($sql:literal) => {
@@ -227,25 +291,34 @@ pub async fn search(
                 search.limit,
                 search.offset,
                 search.excluded,
+                search.words,
+                SNIPPET_CHARS,
+                SNIPPET_LEAD,
             )
         };
     }
-    Ok(search_sql!(run)
-        .fetch_all(&mut *conn)
-        .await?
-        .into_iter()
-        .map(|row| Hit {
-            id: row.id,
-            rank: row.rank,
-            title: row.title,
-            snippet: row.snippet,
-        })
-        .collect())
+    let rows = search_sql!(run).fetch_all(&mut *conn).await?;
+    let limit = usize::try_from(search.limit).unwrap_or_default();
+    let more = rows.len() > limit;
+    Ok(Found {
+        hits: rows
+            .into_iter()
+            .filter(|row| row.n <= search.limit)
+            .map(|row| Hit {
+                id: row.id,
+                rank: row.rank,
+                title: row.title,
+                snippet: row.snippet,
+            })
+            .collect(),
+        more,
+    })
 }
 
 /// The ids of the pages after `after`, in the order of their ids, whose documents may
-/// hold text search lacks: their text was never stored, or `all`, every page with a
-/// document; at most `limit`.
+/// hold text search lacks: those with updates no snapshot took in yet, as a server stopped
+/// before it saved them leaves, and those with a snapshot whose text was never stored, or
+/// with `all`, every page with a document; at most `limit`.
 pub async fn unindexed(
     conn: &mut PgConnection,
     all: bool,
@@ -254,10 +327,11 @@ pub async fn unindexed(
 ) -> sqlx::Result<Vec<Uuid>> {
     sqlx::query_scalar!(
         "SELECT p.id FROM pages p
-         WHERE p.kind <> 'database' AND ($1 OR p.search_text IS NULL)
+         WHERE p.kind <> 'database'
            AND ($2::uuid IS NULL OR p.id > $2)
-           AND (EXISTS (SELECT 1 FROM page_snapshots s WHERE s.page_id = p.id)
-                OR EXISTS (SELECT 1 FROM page_updates u WHERE u.page_id = p.id))
+           AND (EXISTS (SELECT 1 FROM page_updates u WHERE u.page_id = p.id)
+                OR (($1 OR p.search_text IS NULL)
+                    AND EXISTS (SELECT 1 FROM page_snapshots s WHERE s.page_id = p.id)))
          ORDER BY p.id
          LIMIT $3",
         all,
@@ -269,15 +343,18 @@ pub async fn unindexed(
 }
 
 /// Locks a page's row until the transaction ends, so a snapshot saved meanwhile waits for
-/// the text read from the document as it was, and writes its own after. `false` when the
-/// page is gone.
-pub async fn lock_page(conn: &mut PgConnection, page_id: Uuid) -> sqlx::Result<bool> {
-    Ok(
-        sqlx::query_scalar!("SELECT id FROM pages WHERE id = $1 FOR UPDATE", page_id)
-            .fetch_optional(&mut *conn)
-            .await?
-            .is_some(),
+/// the text read from the document as it was, and writes its own after, and reads the text
+/// it has: `None` when the page is gone.
+pub async fn lock_text(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+) -> sqlx::Result<Option<Option<String>>> {
+    sqlx::query_scalar!(
+        "SELECT search_text FROM pages WHERE id = $1 FOR UPDATE",
+        page_id
     )
+    .fetch_optional(&mut *conn)
+    .await
 }
 
 /// Stores a page's text, as its snapshot would.

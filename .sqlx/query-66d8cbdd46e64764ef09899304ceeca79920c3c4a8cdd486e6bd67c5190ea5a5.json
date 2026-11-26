@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id FROM pages p\n         WHERE p.kind <> 'database'\n           AND ($2::uuid IS NULL OR p.id > $2)\n           AND (EXISTS (SELECT 1 FROM page_updates u WHERE u.page_id = p.id)\n                OR (($1 OR p.search_text IS NULL)\n                    AND EXISTS (SELECT 1 FROM page_snapshots s WHERE s.page_id = p.id)))\n         ORDER BY p.id\n         LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "66d8cbdd46e64764ef09899304ceeca79920c3c4a8cdd486e6bd67c5190ea5a5"
+}

@@ -286,13 +286,25 @@ dozen rows of `pages`, and never scans the table.
 
 Every page found is asked of the rules again before it is answered, as any page read is;
 should the query and the rules ever differ, the rules win and the server logs the page's id.
+A test searches as every kind of caller and fails on any such log line, so a difference
+shows there rather than as short pages of results.
 Ranking is `ts_rank` of the vector, plus the title's word similarity to the query, plus one
-for a title that is the query; snippets are `ts_headline` of the values and the text, for
-the part of the results answered only.
+for a title that is the query's words, however short. Snippets are `ts_headline`, which
+costs more than in proportion to the text it reads, so it reads 5,000 characters of the
+values and the text, from 1,000 before the first place one of the query's words is, and
+only for the results answered, not the one read past them to tell whether more follow.
 
-A page whose server stopped before saving a snapshot has updates and no text: `neon search
-reindex` reads its document and stores the text, with the page's row locked, so a snapshot
-saved at the same moment waits and writes its own after.
+A search holds a connection of the pool while it runs, so what it may take is bounded: each
+statement of its transaction runs 5 seconds at most, through `statement_timeout`, after
+which it answers `503 timeout`; half the pool's connections at most run searches at once,
+and a search waits 2 seconds for its turn before it answers `503 busy`; and each user's
+searches are rate limited, 60 and then 2 a second.
+
+A server killed before it saved a snapshot leaves updates in `page_updates` that the stored
+text lacks, and a page that never had a snapshot has no text at all. `neon search reindex`
+reads the document of every such page, its snapshot and the updates after it, and stores
+its text when it differs, with the page's row locked, so a snapshot saved at the same
+moment waits and writes its own after.
 
 ## Backups
 

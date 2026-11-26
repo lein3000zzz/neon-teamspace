@@ -158,3 +158,50 @@ async fn search_keeps_to_who_may_see_what(pool: PgPool) {
     assert_eq!(outside.status, StatusCode::NOT_FOUND, "{}", outside.body);
     state.sync.shutdown().await;
 }
+
+/// A limiter that refuses every search.
+struct RefusingSearches;
+
+#[async_trait::async_trait]
+impl neon_app::ratelimit::RateLimiter for RefusingSearches {
+    async fn check(
+        &self,
+        bucket: neon_app::ratelimit::Bucket,
+        _key: &str,
+    ) -> Result<(), neon_app::ratelimit::Limited> {
+        match bucket {
+            neon_app::ratelimit::Bucket::Search => Err(neon_app::ratelimit::Limited {
+                retry_after: std::time::Duration::from_secs(7),
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn searches_past_their_rate_answer_429_and_queries_with_control_characters_400(pool: PgPool) {
+    let state = super::tests::state_with_mcp(
+        pool,
+        WebConfig::new(None, Vec::new()),
+        neon_app::sync::Limits::default(),
+        std::sync::Arc::new(RefusingSearches),
+    )
+    .await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let search = format!("/api/v1/workspaces/{}/search", t.workspace);
+
+    let refused = t.dee.get(&format!("{search}?query=a%00b")).await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.body);
+    assert_eq!(refused.code(), "invalid_search");
+
+    let limited = t.dee.get(&format!("{search}?query=plan")).await;
+    assert_eq!(
+        limited.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        limited.body
+    );
+    assert_eq!(limited.code(), "rate_limited");
+    assert_eq!(limited.headers["retry-after"], "7");
+}

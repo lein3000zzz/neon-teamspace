@@ -12,7 +12,8 @@
 //! Punctuation splits a word where Postgres's parser splits it, so `e-mail` finds `e-mail`
 //! and `3.14` finds `3.14`; a term without a letter or a digit is left out. The words, but
 //! for those left out, also match titles loosely, by trigrams, so a misspelled title still
-//! finds its page.
+//! finds its page. A query holding a control character other than whitespace, such as
+//! U+0000, which no text holds, is refused.
 //!
 //! The query given to Postgres is built here, every term quoted, so nothing a person types
 //! is read as the query language's own syntax.
@@ -39,6 +40,9 @@ pub struct Query {
     /// For `to_tsquery('simple', …)` too: what holds none of the words left out, which a
     /// loose match must hold as well; `None` when none are.
     pub excluded: Option<String>,
+    /// The words not left out, as typed, in order, those of quoted words each on its own:
+    /// a title that is them ranks first, and a snippet is read around where they are.
+    pub words: Vec<String>,
 }
 
 impl Query {
@@ -57,6 +61,8 @@ pub enum QueryError {
     TooManyTerms,
     #[error("a search needs a word to find, not only words to leave out")]
     OnlyExcluded,
+    #[error("a search holds no control characters but spaces, tabs and line breaks")]
+    ControlCharacter,
 }
 
 /// A word or quoted words.
@@ -161,6 +167,9 @@ pub fn parse(text: &str) -> Result<Query, QueryError> {
     if text.chars().count() > MAX_QUERY_CHARS {
         return Err(QueryError::TooLong);
     }
+    if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
+        return Err(QueryError::ControlCharacter);
+    }
     let tokens = tokens(text);
     let terms = tokens
         .iter()
@@ -219,13 +228,19 @@ pub fn parse(text: &str) -> Result<Query, QueryError> {
         .map(|term| format!("!{}", term.render()))
         .collect();
     clauses.extend(excluded.iter().cloned());
-    let words: Vec<&str> = wanted.iter().flatten().map(Term::text).collect();
+    let words: Vec<String> = wanted
+        .iter()
+        .flatten()
+        .flat_map(|term| term.text().split_whitespace())
+        .map(str::to_owned)
+        .collect();
     let fuzzy = words.join(" ");
     let letters = fuzzy.chars().filter(|c| c.is_alphanumeric()).count();
     Ok(Query {
         text_search: Some(clauses.join(" & ")),
         fuzzy: (letters >= MIN_FUZZY_CHARS).then_some(fuzzy),
         excluded: (!excluded.is_empty()).then(|| excluded.join(" & ")),
+        words,
     })
 }
 
@@ -313,8 +328,28 @@ mod tests {
     }
 
     #[test]
+    fn the_words_are_those_not_left_out_each_on_its_own() {
+        assert_eq!(
+            parse("Go \"ship  it\" -draft OR plan !!!")
+                .expect("a query")
+                .words,
+            ["Go", "ship", "it", "plan"]
+        );
+        assert!(parse("").expect("a query").words.is_empty());
+    }
+
+    #[test]
+    fn control_characters_are_refused_and_whitespace_is_not() {
+        for bad in ["a\u{0}b", "\u{0}", "plan\u{1}", "x\u{7f}", "x\u{9b}"] {
+            assert_eq!(parse(bad), Err(QueryError::ControlCharacter), "{bad:?}");
+        }
+        assert_eq!(search("plan\tit\r\nnow"), "'plan':* & 'it':* & 'now':*");
+    }
+
+    #[test]
     fn short_words_do_not_match_titles_loosely() {
         assert_eq!(parse("ab").expect("a query").fuzzy, None);
+        assert_eq!(parse("ab").expect("a query").words, ["ab"]);
         assert_eq!(
             parse("abc -draft").expect("a query").fuzzy.as_deref(),
             Some("abc")

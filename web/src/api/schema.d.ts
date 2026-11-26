@@ -2293,7 +2293,7 @@ export interface paths {
         };
         /**
          * Search a workspace
-         * @description The pages, databases and rows of the workspace that the query finds, among those the caller may see, out of the trash, the best first: a match in a title ranks above one in a row's property values, which ranks above one in the text. Each comes with its title and a snippet, in runs that mark the matches. Read are titles, rows' text and URL values, and the text of pages and rows, as the server last saved it, which is a moment after an edit. Filters narrow it to a teamspace, a kind, who made or last changed it, and how recently it changed.
+         * @description The pages, databases and rows of the workspace that the query finds, among those the caller may see, out of the trash, the best first: a match in a title ranks above one in a row's property values, which ranks above one in the text. Each comes with its title and a snippet, in runs that mark the matches. Read are titles, rows' text and URL values, and the text of pages and rows, as the server last saved it, which is a moment after an edit. Filters narrow it to a teamspace, a kind, who made or last changed it, and how recently it changed. A snippet is drawn from the 5000 characters around the first place the query's words are. Each user's searches are rate limited, a few run at once, and each gives up after 5 seconds.
          */
         get: operations["search_workspace"];
         put?: never;
@@ -14591,7 +14591,7 @@ export interface operations {
                     "application/json": components["schemas"]["SearchResults"];
                 };
             };
-            /** @description invalid_search: a query too long, with more than 16 terms, or with only words to leave out; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read. */
+            /** @description invalid_search: a query too long, with more than 16 terms, with only words to leave out, or with a control character; invalid_input: a limit out of bounds, a cursor from no search, or edited_within no duration or out of bounds; invalid_query: a parameter that does not read. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14620,6 +14620,24 @@ export interface operations {
             };
             /** @description not_found: no such workspace, or one the caller is not in. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many searches; Retry-After says when to try again. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: too many searches are running, Retry-After says when to try again; timeout: the search took longer than 5 seconds, so narrow it. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

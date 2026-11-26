@@ -16,8 +16,13 @@
 //!   the page above one they may not see. Pages in the trash are left out. Guests, and
 //!   agents of guests, know no other member, and may not filter by who made or changed a
 //!   page.
+//! - **What it costs.** Each user's searches count against [`Bucket::Search`]; at most
+//!   [`SearchServiceBuilder::parallel`] run at once, so searches never hold every connection
+//!   of the pool, and one waits [`QUEUE_WAIT`] for its turn at most; and each statement of a
+//!   search runs [`TIMEOUT`] at most. See [`neon_store::search`] for what one search reads.
 //! - **Rebuilding.** [`SearchService::reindex`] reads pages' documents again and stores
-//!   their text, for those whose text was never stored, or every page.
+//!   their text, for those with changes no snapshot took in yet or whose text was never
+//!   stored, or every page.
 //!
 //! Every use case runs in a span named `search <operation>` and is measured as RED metrics
 //! of [`SUBSYSTEM`]; a refusal is `ok`. Nothing logs a query, but for its length, nor what
@@ -38,12 +43,14 @@ use neon_observability::red::Red;
 use neon_store::search::{self as repo, MATCH_END, MATCH_START, Scope, Search, Side};
 use neon_store::{documents, teamspaces};
 use sqlx::{PgConnection, PgPool};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{Instrument as _, Span, field, info, info_span, warn};
 use uuid::Uuid;
 use yrs::Transact as _;
 
 use crate::clock::Clock;
 use crate::pages::{Facts, PageView, hide_parents, in_workspace};
+use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::sync::assemble;
 
 pub use error::SearchError;
@@ -60,6 +67,15 @@ pub const MAX_RESULTS: usize = 1000;
 
 /// The longest ago `edited_within` reaches.
 pub const MAX_EDITED_WITHIN: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
+
+/// The longest each statement of a search runs before it is given up.
+pub const TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The longest a search waits for its turn while as many as may run at once are running.
+pub const QUEUE_WAIT: Duration = Duration::from_secs(2);
+
+/// How many searches run at once unless told otherwise.
+pub const DEFAULT_PARALLEL: usize = 4;
 
 /// How many pages a round of rebuilding reads.
 const REINDEX_ROUND: i64 = 200;
@@ -122,18 +138,36 @@ pub struct SearchService {
 struct Inner {
     pool: PgPool,
     clock: Clock,
+    limiter: Arc<dyn RateLimiter>,
+    /// The turns of the searches that may run at once.
+    turns: Arc<Semaphore>,
     red: Red,
 }
 
-/// Puts a [`SearchService`] together, reading the system clock unless told otherwise.
+/// Puts a [`SearchService`] together. Without being told otherwise it reads the system
+/// clock, limits rates in memory, and runs [`DEFAULT_PARALLEL`] searches at once.
 pub struct SearchServiceBuilder {
     pool: PgPool,
     clock: Clock,
+    limiter: Option<Arc<dyn RateLimiter>>,
+    parallel: usize,
 }
 
 impl SearchServiceBuilder {
     pub fn clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
+        self
+    }
+
+    pub fn limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
+        self.limiter = Some(limiter);
+        self
+    }
+
+    /// How many searches run at once, at least one: fewer than the pool's connections, so
+    /// searching never leaves the other requests none.
+    pub fn parallel(mut self, parallel: usize) -> Self {
+        self.parallel = parallel.max(1);
         self
     }
 
@@ -143,6 +177,10 @@ impl SearchServiceBuilder {
             inner: Arc::new(Inner {
                 pool: self.pool,
                 clock: self.clock,
+                limiter: self
+                    .limiter
+                    .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
+                turns: Arc::new(Semaphore::new(self.parallel)),
                 red: Red::new(SUBSYSTEM),
             }),
         }
@@ -154,6 +192,8 @@ impl SearchService {
         SearchServiceBuilder {
             pool,
             clock: Clock::system(),
+            limiter: None,
+            parallel: DEFAULT_PARALLEL,
         }
     }
 
@@ -198,7 +238,16 @@ impl SearchService {
                 Some(within) => Some(self.inner.clock.now() - within),
                 None => None,
             };
+            let user = principal.user.id.to_string();
+            if let Err(limited) = self.inner.limiter.check(Bucket::Search, &user).await {
+                warn!(user_id = %principal.user.id, "searches rate limited");
+                return Err(SearchError::RateLimited {
+                    retry_after: limited.retry_after,
+                });
+            }
+            let _turn = self.turn().await?;
             let mut tx = self.inner.pool.begin().await?;
+            repo::prepare(&mut tx, TIMEOUT).await?;
             let standing = in_workspace(&mut tx, principal, workspace_id).await?;
             if standing.members_hidden()
                 && (input.created_by.is_some() || input.edited_by.is_some())
@@ -212,7 +261,6 @@ impl SearchService {
                 Some((owner, role)) => Some(side(&mut tx, workspace_id, owner, role).await?),
                 None => None,
             };
-            repo::prepare(&mut tx).await?;
             let found = repo::search(
                 &mut tx,
                 &Scope { mine, owner },
@@ -221,25 +269,27 @@ impl SearchService {
                     text_search: query.text_search.as_deref(),
                     fuzzy: query.fuzzy.as_deref(),
                     excluded: query.excluded.as_deref(),
+                    words: &query.words,
                     teamspace_id: input.teamspace_id,
                     kind: input.kind.map(PageKind::as_str),
                     created_by: input.created_by,
                     last_edited_by: input.edited_by,
                     edited_after,
-                    limit: i64::try_from(limit + 1).unwrap_or(i64::MAX),
+                    limit: i64::try_from(limit).unwrap_or(i64::MAX),
                     offset: i64::try_from(offset).unwrap_or(i64::MAX),
                 },
             )
-            .await?;
-            let more = found.len() > limit && offset + limit < MAX_RESULTS;
-            let hits = self
-                .seen(
-                    &mut tx,
-                    principal,
-                    found.into_iter().take(limit).collect(),
-                    &query,
-                )
-                .await?;
+            .await
+            .map_err(|error| {
+                if repo::timed_out(&error) {
+                    warn!(timeout = ?TIMEOUT, "a search took too long");
+                    SearchError::TimedOut(TIMEOUT)
+                } else {
+                    error.into()
+                }
+            })?;
+            let more = found.more && offset + limit < MAX_RESULTS;
+            let hits = self.seen(&mut tx, principal, found.hits, &query).await?;
             tx.commit().await?;
             Span::current().record("search.results", hits.len());
             Ok(SearchResults {
@@ -248,6 +298,20 @@ impl SearchService {
             })
         })
         .await
+    }
+
+    /// A turn to search, held while the search runs, once fewer than may run at once are
+    /// running; [`SearchError::Busy`] when none comes within [`QUEUE_WAIT`].
+    async fn turn(&self) -> Result<OwnedSemaphorePermit, SearchError> {
+        match tokio::time::timeout(QUEUE_WAIT, Arc::clone(&self.inner.turns).acquire_owned()).await
+        {
+            Ok(Ok(turn)) => Ok(turn),
+            // The semaphore is never closed; a search waiting too long is told to come back.
+            Ok(Err(_)) | Err(_) => {
+                warn!("too many searches running at once");
+                Err(SearchError::Busy)
+            }
+        }
     }
 
     /// Each page found that the rules let the principal see, as they see it, in order.
@@ -291,10 +355,12 @@ impl SearchService {
             .collect())
     }
 
-    /// Reads pages' documents again and stores their text for search: those whose text was
-    /// never stored, or with `all`, every page with a document. Says how many it stored.
-    /// Each page is read and written while its row is locked, so a snapshot saved meanwhile
-    /// writes its own text after. A page whose document does not load is logged and left.
+    /// Reads pages' documents again and stores their text for search: those with changes no
+    /// snapshot took in yet, as a server stopped before it saved them leaves, and those whose
+    /// text was never stored, or with `all`, every page with a document. Says how many
+    /// pages' text it changed. Each page is read and written while its row is locked, so a
+    /// snapshot saved meanwhile writes its own text after. A page whose document does not
+    /// load is logged and left.
     pub async fn reindex(&self, all: bool) -> Result<u64, SearchError> {
         let span = info_span!(
             "search",
@@ -325,13 +391,13 @@ impl SearchService {
         .await
     }
 
-    /// Stores one page's text from its document as saved; `false` when the page is gone or
-    /// its document does not load.
+    /// Stores one page's text from its document as logged; `false` when it had that text
+    /// already, the page is gone or its document does not load.
     async fn reindex_page(&self, page_id: Uuid) -> Result<bool, SearchError> {
         let mut tx = self.inner.pool.begin().await?;
-        if !repo::lock_page(&mut tx, page_id).await? {
+        let Some(stored) = repo::lock_text(&mut tx, page_id).await? else {
             return Ok(false);
-        }
+        };
         let snapshot = documents::snapshot(&mut *tx, page_id).await?;
         let after = snapshot.as_ref().map_or(0, |snapshot| snapshot.last_seq);
         let updates = documents::updates_after(&mut *tx, page_id, after).await?;
@@ -348,6 +414,9 @@ impl SearchService {
                 .document
                 .plain_text()
         };
+        if stored.as_deref() == Some(text.as_str()) {
+            return Ok(false);
+        }
         repo::set_text(&mut tx, page_id, &text).await?;
         tx.commit().await?;
         Ok(true)

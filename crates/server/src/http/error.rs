@@ -380,18 +380,31 @@ impl From<SearchError> for ApiError {
     /// Expected errors answer with their message, which never quotes the query. Others are
     /// logged with their cause, and answer as internal errors.
     fn from(error: SearchError) -> Self {
-        match error {
-            SearchError::Page(error) => error.into(),
-            SearchError::Database(_) => {
+        let (status, retry_after) = match &error {
+            SearchError::Page(_) | SearchError::Database(_) => (None, None),
+            SearchError::Forbidden(_) => (Some(StatusCode::FORBIDDEN), None),
+            SearchError::RateLimited { retry_after } => {
+                (Some(StatusCode::TOO_MANY_REQUESTS), Some(*retry_after))
+            }
+            SearchError::Busy => (
+                Some(StatusCode::SERVICE_UNAVAILABLE),
+                Some(SearchError::BUSY_RETRY),
+            ),
+            SearchError::TimedOut(_) => (Some(StatusCode::SERVICE_UNAVAILABLE), None),
+            SearchError::Query(_) | SearchError::InvalidInput(_) => {
+                (Some(StatusCode::BAD_REQUEST), None)
+            }
+        };
+        match (error, status) {
+            (SearchError::Page(error), _) => error.into(),
+            (expected, Some(status)) => {
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                api.retry_after = retry_after;
+                api
+            }
+            (error, None) => {
                 tracing::error!(error = %error, "a search failed");
                 Self::internal()
-            }
-            expected => {
-                let status = match &expected {
-                    SearchError::Forbidden(_) => StatusCode::FORBIDDEN,
-                    _ => StatusCode::BAD_REQUEST,
-                };
-                Self::new(status, expected.code(), expected.to_string())
             }
         }
     }

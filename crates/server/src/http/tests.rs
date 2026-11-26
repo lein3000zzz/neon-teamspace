@@ -213,6 +213,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     .build();
     let search = SearchService::builder(pool.clone())
         .clock(clock.clone())
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)

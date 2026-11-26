@@ -148,11 +148,21 @@ async fn seed(pool: &PgPool) {
     }
 }
 
+/// The words of the searches below.
+static QUARTERLY: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| vec!["quarterly".to_owned()]);
+static REPORT_17: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| vec!["Report".to_owned(), "17".to_owned()]);
+
+/// Long enough for any search here; reaching it means the search reads far too much.
+const LIMIT: Duration = Duration::from_secs(5);
+
 fn quarterly() -> Search<'static> {
     Search {
         workspace_id: id(WORKSPACE),
         text_search: Some("'quarterly':*"),
         fuzzy: Some("quarterly"),
+        words: &QUARTERLY,
         limit: 50,
         ..Search::default()
     }
@@ -186,7 +196,7 @@ fn scout() -> Scope {
 /// The plan of the search, run, as Postgres explains it.
 async fn plan(pool: &PgPool, scope: &Scope, search: &Search<'_>) -> Json {
     let mut tx = pool.begin().await.expect("a transaction");
-    prepare(&mut tx).await.expect("prepared");
+    prepare(&mut tx, LIMIT).await.expect("prepared");
     let owner = scope.owner.clone().unwrap_or_default();
     let explain = format!("EXPLAIN (ANALYZE, FORMAT JSON) {SEARCH_SQL}");
     let explained: Json = sqlx::query_scalar(sqlx::AssertSqlSafe(explain))
@@ -208,6 +218,9 @@ async fn plan(pool: &PgPool, scope: &Scope, search: &Search<'_>) -> Json {
         .bind(search.limit)
         .bind(search.offset)
         .bind(search.excluded)
+        .bind(search.words)
+        .bind(SNIPPET_CHARS)
+        .bind(SNIPPET_LEAD)
         .fetch_one(&mut *tx)
         .await
         .expect("explained");
@@ -243,12 +256,12 @@ fn pages_read(node: &Json, read: &mut Vec<(String, f64)>) {
 
 async fn found(pool: &PgPool, scope: &Scope, search: &Search<'_>) -> Vec<Uuid> {
     let mut tx = pool.begin().await.expect("a transaction");
-    prepare(&mut tx).await.expect("prepared");
-    let hits = super::search(&mut tx, scope, search)
+    prepare(&mut tx, LIMIT).await.expect("prepared");
+    let found = super::search(&mut tx, scope, search)
         .await
         .expect("searched");
     tx.rollback().await.expect("rolled back");
-    let mut ids: Vec<Uuid> = hits.into_iter().map(|hit| hit.id).collect();
+    let mut ids: Vec<Uuid> = found.hits.into_iter().map(|hit| hit.id).collect();
     ids.sort_unstable();
     ids
 }
@@ -301,14 +314,18 @@ async fn who_sees_everything_finds_the_best_first_a_part_at_a_time(pool: PgPool)
     };
     let search = Search {
         text_search: Some("'report':* & '17':*"),
-        fuzzy: Some("report 17"),
+        fuzzy: Some("Report 17"),
+        words: &REPORT_17,
         ..quarterly()
     };
     let mut tx = pool.begin().await.expect("a transaction");
-    prepare(&mut tx).await.expect("prepared");
-    let hits = super::search(&mut tx, &ada, &search)
+    prepare(&mut tx, LIMIT).await.expect("prepared");
+    let found = super::search(&mut tx, &ada, &search)
         .await
         .expect("searched");
+    assert!(found.more, "more than fifty match");
+    let hits = found.hits;
+    assert_eq!(hits.len(), 50);
     // Report 17 itself first: its title is the query.
     assert_eq!(hits[0].id, id(1017));
     assert_eq!(
@@ -325,10 +342,67 @@ async fn who_sees_everything_finds_the_best_first_a_part_at_a_time(pool: PgPool)
         },
     )
     .await
-    .expect("searched");
+    .expect("searched")
+    .hits;
     assert!(
         next.iter()
             .all(|hit| hits.iter().all(|seen| seen.id != hit.id))
     );
     tx.rollback().await.expect("rolled back");
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn the_last_part_says_no_more_follow(pool: PgPool) {
+    seed(&pool).await;
+    let mut tx = pool.begin().await.expect("a transaction");
+    prepare(&mut tx, LIMIT).await.expect("prepared");
+    for (limit, offset, hits, more) in [(9, 0, 9, false), (8, 0, 8, true), (5, 5, 4, false)] {
+        let found = super::search(
+            &mut tx,
+            &guest(),
+            &Search {
+                limit,
+                offset,
+                ..quarterly()
+            },
+        )
+        .await
+        .expect("searched");
+        assert_eq!(
+            (found.hits.len(), found.more),
+            (hits, more),
+            "{limit} from {offset}"
+        );
+        assert!(
+            found.hits.iter().all(|hit| hit.title.is_some()),
+            "all marked"
+        );
+    }
+    tx.rollback().await.expect("rolled back");
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn a_statement_running_past_the_limit_fails_as_timed_out(pool: PgPool) {
+    let mut tx = pool.begin().await.expect("a transaction");
+    prepare(&mut tx, Duration::from_millis(20))
+        .await
+        .expect("prepared");
+    let error = sqlx::query("SELECT pg_sleep(2)")
+        .execute(&mut *tx)
+        .await
+        .expect_err("cut off");
+    assert!(timed_out(&error), "{error}");
+    drop(tx);
+
+    let mut tx = pool.begin().await.expect("a transaction");
+    prepare(&mut tx, LIMIT).await.expect("prepared");
+    sqlx::query("SELECT pg_sleep(0.05)")
+        .execute(&mut *tx)
+        .await
+        .expect("within the limit");
+    let other = sqlx::query("SELECT 1 / 0")
+        .execute(&mut *tx)
+        .await
+        .expect_err("fails");
+    assert!(!timed_out(&other), "{other}");
 }
