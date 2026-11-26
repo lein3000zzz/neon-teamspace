@@ -134,7 +134,7 @@ carries the same attribution, permissions and limits as an agent's;
 
 **Agents in their tools.** A Claude Code plugin, with a skill that works through an agent's
 tasks over MCP, claiming a card, writing results into it and moving it on, is installed from
-this repository's marketplace. **Planned.**
+this repository's marketplace; [Claude Code plugin](/docs/guides/claude-code-plugin/) has it.
 
 ## One process, no Redis
 
