@@ -101,8 +101,7 @@ pub fn verify<S: AsRef<[u8]>>(
         .trim()
         .parse()
         .map_err(|_| SignatureError::BadTimestamp)?;
-    let window = i64::try_from(REPLAY_WINDOW.as_secs()).unwrap_or(i64::MAX);
-    if (now.unix_timestamp() - timestamp).abs() > window {
+    if now.unix_timestamp().abs_diff(timestamp) > REPLAY_WINDOW.as_secs() {
         return Err(SignatureError::Stale);
     }
     let tags: Vec<Vec<u8>> = signature
@@ -197,6 +196,16 @@ mod tests {
         assert_eq!(check(AT - 300), Ok(()));
         assert_eq!(check(AT + 301), Err(SignatureError::Stale));
         assert_eq!(check(AT - 301), Err(SignatureError::Stale));
+
+        // Timestamps as far as they go either way are stale, not an overflow.
+        for far in [i64::MIN, i64::MIN + 1, i64::MAX] {
+            let far = far.to_string();
+            assert_eq!(
+                verify(&[SECRET], Some(&header), Some(&far), BODY, at(AT)),
+                Err(SignatureError::Stale),
+                "{far}"
+            );
+        }
     }
 
     #[test]
