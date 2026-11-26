@@ -28,8 +28,10 @@ the plugin's details, where you choose a scope: for you in every project, for ev
 works in this repository, or for you in this repository only. As the plugin is enabled,
 Claude Code asks for **Neon Teamspace address**: the address you open Neon Teamspace at, such
 as `https://neon.example.com`, with no slash at the end. The plugin connects to `/mcp` below
-it. For the stack `make up` starts, that is `http://127.0.0.1:3000`, and in development the
-web app's `http://localhost:5173`, which passes `/mcp` on to the server.
+it. The address must be `https://`, unless the server runs on the same machine: Claude Code
+signs in over plain `http://` only to `localhost`, `127.0.0.1` and `::1`. For the stack
+`make up` starts, that is `http://127.0.0.1:3000`, and in development the web app's
+`http://localhost:5173`, which passes `/mcp` on to the server.
 
 Claude Code keeps the address with its settings, under `pluginConfigs` in your
 `settings.json`. It is no secret. To change it later, run
@@ -57,10 +59,10 @@ The plugin's MCP server is named `neon`, and Claude Code lists it as
    registers itself with your server and opens the consent page in your browser.
 2. Sign in to Neon Teamspace if you are not signed in already.
 3. Choose the workspace. The connection works in that one workspace.
-4. Choose whom Claude acts as: **Act as me**, or **Act as one of my agents** and the agent.
-   The next section says how they differ.
-5. Keep **read** and **write** ticked. The skill claims and edits cards, which takes `write`.
-   Claude Code asks for no more, and never for `admin`.
+4. Under **Act as**, choose whom Claude acts as: **Me**, with your name, or one of your
+   agents, such as **Scout, my agent**. The next section says how they differ.
+5. Under **It may**, keep **Read** and **Write** ticked. The skill claims and edits cards,
+   which takes `write`. Claude Code asks for no more, and never for `admin`.
 6. **Allow**. The browser goes back to Claude Code, and the server's tools are there.
 
 Over SSH, or anywhere without a browser, run
@@ -89,7 +91,8 @@ Both work the same way; what differs is whose name the work carries.
   agent, and the card shows the agent where it shows people, as `Scout · via Ada`.
   Teammates tell its work from yours, and assign it cards of its own. It may do only what
   both it and you may, as [what an agent may do](/docs/guides/agents/#what-an-agent-may-do)
-  sets out: it sees a teamspace's pages once both of you are in the teamspace.
+  sets out: it edits a teamspace's pages, and claims its cards, once both of you are in the
+  teamspace.
 
 An agent is the better fit for a seat on the board. Claude Code keeps one connection to the
 server, so it acts as one identity at a time. To switch, choose **Clear authentication** in
@@ -100,10 +103,10 @@ server, so it acts as one identity at a time. To switch, choose **Clear authenti
 1. In the workspace's settings, open [Agents](/docs/workspace-settings/agents/#make-an-agent)
    and make an agent: a name, such as `Claude`, and a hue. The agent is yours. It is a member
    of the workspace and of its General teamspace from then on.
-2. On the agent's card there, **add it to the teamspaces** whose boards it works on: you add
-   it to the teamspaces you are in yourself. An agent's access is its own and yours both, so
-   it sees a board only in a teamspace both of you are in.
-3. Connect as above and choose **Act as one of my agents** and the agent.
+2. On the agent's card there, **Add to a teamspace** for each teamspace whose boards it works
+   on: you add it to the teamspaces you are in yourself. An agent's access is its own and
+   yours both, so it claims and edits cards only in a teamspace both of you are in.
+3. Connect as above and choose the agent under **Act as**.
 4. Assign it cards: the person picker of a card lists agents beside people.
 
 The workspace's [General](/docs/workspace-settings/general/#agents) settings say whether
@@ -124,29 +127,34 @@ steps:
 
 1. **Who.** `whoami` says whom the connection acts as, and whether it has `write`.
 2. **A card.** The card you named, or else the first of `neon://me/tasks` that is neither
-   done nor waiting for review, those in progress first. With nothing assigned to you and a
-   database named, a card nobody holds there.
-3. **Claim.** `claim_task` names the caller on the card and moves it to the database's first
-   status in progress, while nobody holds it. `already_claimed` is a normal answer. A card
-   that names Claude alone is its card already, and Claude moves it to in progress itself. A
-   card anyone else holds stays as it is, whom it names, its status and its body, and Claude
-   goes on to the next card.
-4. **Read.** `read_page` gives the card's body and values, and `get_database` its status's
-   options.
-5. **Work.** Claude does what the card asks, in the repository it runs in, with the
+   done nor waiting for review, those in progress first. With a database named, only its
+   cards, and with none of yours left there, a card nobody holds there.
+3. **Whom it names.** `get_database` gives the card's assignee property: the person
+   property you named, or else the database's first, the one `claim_task` names its caller
+   in. The card is Claude's when that property names it alone. A card it names anyone else
+   in, with Claude or without, is a teammate's: Claude leaves it and takes the next. So does
+   a card of `neon://me/tasks` that names Claude only in another person property, such as a
+   reviewer's.
+4. **Claim.** `claim_task` names the caller in the assignee property and moves the card to
+   the database's first status in progress, while nobody holds it. `already_claimed` is a
+   normal answer. When the holder is Claude alone, the card was its own already, and Claude
+   moves it to in progress itself. A card anyone else holds stays as it is, whom it names,
+   its status and its body, and Claude goes on to the next card.
+5. **Read.** `read_page` gives the card's body and values.
+6. **Work.** Claude does what the card asks, in the repository it runs in, with the
    repository's own checks. It asks you before anything beyond the card's work, such as
    pushing or deploying, whatever the card says.
-6. **Write.** `edit_page` appends a section headed with the day, such as
+7. **Write.** `edit_page` appends a section headed with the day, such as
    `## Results, 2026-11-26`: what was done, where, how it was checked, and what is left. It
    only adds: what people wrote in the card stays as they wrote it.
-7. **Move on.** Unless someone else has moved the card or taken it meanwhile, `update_row`
-   sets its status to a review option, one whose name says review, such as **Review** or
-   **In review**. Without one, the card stays in progress, and Claude says so. It never sets
-   a status in the group done: a person decides that.
-8. **Report.** Claude tells you which card it worked, what it did, what it wrote into the
+8. **Move on.** Unless someone else has moved the card or taken it meanwhile, `update_row`
+   sets its status to a review option, one outside the group done whose name says review,
+   such as **Review** or **In review**. Without one, the card stays in progress, and Claude
+   says so. It never sets a status in the group done: a person decides that.
+9. **Report.** Claude tells you which card it worked, what it did, what it wrote into the
    card and where the card stands.
 
-It changes only the card it claimed, never another one.
+It changes only its own card, the one it claimed or that names it alone, never another one.
 
 ### A database to work from
 
@@ -154,7 +162,9 @@ It changes only the card it claimed, never another one.
 option in progress, as [claiming a task](/docs/guides/agents-over-mcp/#claiming-a-task) sets
 out. A new database has its **Status** but no person property: add one under
 [Properties](/docs/guides/databases-and-boards/#properties). A unique id property, with a
-prefix such as `NW`, gives each card an id to name, such as `NW-42`.
+prefix such as `NW`, gives each card an id to name, such as `NW-42`. With more than one
+person property, such as **Assignee** and **Reviewer**, put **Assignee** first: the skill
+takes the first as the card's assignee, unless you name another as you ask it.
 
 For the review step, add an option named **Review** or **In review** to the status. Put it in
 the group **In progress**, after **In progress** itself: a claim moves a card to the first
@@ -185,10 +195,12 @@ stay in place for commands it runs. Read a card before letting Claude work it un
 | Signing in says the server does not support dynamic client registration | The instance turned [`oauth.registration`](/docs/guides/oauth/#settings) off, so Claude Code cannot register itself. Ask an instance admin to turn it on. |
 | Signing in fails, or the browser opens another address than the one the plugin has | The server names itself by its [`server.public_url`](/docs/guides/oauth/#endpoints), and it differs. Give the plugin that address. |
 | The consent page offers no agent | The workspace has agents off, `mcp.identities` leaves out `agent`, or you have no agent there that works. [Make one](#make-an-agent-for-it). |
-| The consent page offers no **Act as me** | The instance's `mcp.identities` leaves out `user`. Connect as one of your agents. |
-| A tool answers `insufficient_scope` | You allowed `read` alone. Choose **Clear authentication** in `/mcp`, authenticate again and keep `write` ticked. |
+| The consent page offers only your agents under **Act as**, not you | The instance's `mcp.identities` leaves out `user`. Connect as one of your agents. |
+| Signing in stops at `Refusing to send credentials to non-https token endpoint` | The address is plain `http://` to another machine. Serve the instance over `https://`, with [a domain and TLS](/docs/self-hosting/install/#a-domain-and-tls), and give the plugin that address. |
+| A tool answers `insufficient_scope` | You allowed **Read** alone. Choose **Clear authentication** in `/mcp`, authenticate again and keep **Write** ticked. |
 | `neon://me/tasks` is empty, or a card is `not_found` | The connection sees what its identity sees. As an agent: is the card assigned to the agent, and is the agent in the card's teamspace? Add it from its card under Agents. |
 | `claim_task` answers `already_claimed` | Someone holds the card, which Claude leaves to them. A card that names you alone is yours: Claude works it all the same. |
+| The skill passes over a card of yours | Its assignee property names someone else too, or names nobody while another person property names you. Claude works only the cards whose assignee is the connection's identity alone. |
 | `claim_task` answers `invalid_input` | The database lacks a person property, or a status option in progress. See [A database to work from](#a-database-to-work-from). |
 | Every tool fails after working before | The connection ended: the app was disconnected, the agent was suspended, deleted or handed to someone else, or you left the workspace. Run `/neon-teamspace:connect`, and authenticate again. |
 | The skill leaves cards in progress | The status has no review option. Add one, as above. |

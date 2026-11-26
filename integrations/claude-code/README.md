@@ -22,4 +22,4 @@ troubleshooting.
 |---|---|
 | `.claude-plugin/plugin.json` | The manifest, and the address Claude Code asks for. |
 | `.mcp.json` | The MCP server, at the address with `/mcp` after it, signed in over OAuth. |
-| `skills/` | The skills. `make plugin-check` checks that they name only the server's tools. |
+| `skills/` | The skills. `make plugin-check` checks that they name only the server's tools, and pre-approve only those that read. |
