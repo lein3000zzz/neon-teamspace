@@ -213,3 +213,34 @@ test("a board's cards lay out from the top, whatever their titles' lengths", asy
   expect(long?.lines).toBeGreaterThan(1);
   expect(short?.from, "the one-line title starts where the longer one does").toBe(long?.from);
 });
+
+test("an agent cut short in a table's column keeps its name, and tells the rest on hover", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { api, path, workspace } = await sprintOf(browser, "namer", { page });
+  const scout = await callApi<{ id: string }>(
+    page,
+    "POST",
+    `/api/v1/workspaces/${workspace.id}/agents`,
+    { name: "Scout" },
+    201,
+  );
+  await callApi(page, "POST", `${api}/properties`, { name: "Assignee", type: "person" }, 201);
+  await callApi(
+    page,
+    "POST",
+    `${api}/rows`,
+    { values: { Name: "Benchmark search", Assignee: [scout.id] } },
+    201,
+  );
+
+  await page.goto(path);
+  const cell = page.getByRole("button", { name: /^Assignee of Benchmark search/ });
+  await expect(cell).toHaveAttribute("title", /^Scout · via Namer /);
+  // The column is too narrow for all of it: whom the agent acts for gives way, not its name.
+  const cut = (element: HTMLElement | SVGElement) => element.scrollWidth > element.clientWidth;
+  expect(await cell.getByText(/^· via Namer /).evaluate(cut)).toBe(true);
+  expect(await cell.getByText("Scout", { exact: true }).evaluate(cut)).toBe(false);
+});
