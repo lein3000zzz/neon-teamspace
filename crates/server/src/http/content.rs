@@ -4,14 +4,16 @@
 //!
 //! Reading needs a session or a token with `read`, editing one with `write`. The markdown
 //! is the one the docs' block id section describes: a line `<!-- block <id> -->` before each
-//! block, which markdown sent back may keep or leave out. Markdown a caller sends, here, to
+//! block, which markdown sent back may keep or leave out. Each read has a revision, which an
+//! edit that replaces a range or the body names as its `base`, and is refused with
+//! `409 edit_conflict` once the page is at another: see [`neon_app::sync::revision`]. Markdown a caller sends, here, to
 //! a new page or over MCP, nests at most [`MAX_DEPTH`] levels of blocks: deeper is refused,
 //! as an incoming webhook refuses it, rather than read at the last level as an import is.
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::databases::{DatabaseService, RowDetails};
-use neon_app::sync::{Edited, SyncService};
+use neon_app::sync::{Edited, SyncService, revision};
 use neon_blocks::Document;
 use neon_blocks::edit::{Applied, Edit};
 use neon_blocks::markdown::{MAX_DEPTH, TooDeep, to_markdown_with_ids, try_from_markdown};
@@ -36,6 +38,10 @@ pub struct PageMarkdown {
     /// Its blocks as markdown, each after a line `<!-- block <id> -->` that names it.
     #[schema(example = "<!-- block 0193a5b2-0000-7000-8000-0000000000b1 -->\n# Plan\n")]
     pub markdown: String,
+    /// The revision of what `markdown` shows, which changes whenever it does: an edit that
+    /// replaces a range or the body sends it as its `base`.
+    #[schema(example = "AAAAAAAAAAAAAAAAAAAAAA")]
+    pub revision: String,
     /// For a row: each property of its database, in order, with the row's value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<RowProperty>>,
@@ -62,6 +68,7 @@ impl PageMarkdown {
         Self {
             page,
             markdown: to_markdown_with_ids(document),
+            revision: revision(document),
             properties: row.map(|details| {
                 details
                     .properties
@@ -159,6 +166,11 @@ impl TryFrom<EditOperation> for Edit {
 pub struct EditPage {
     /// Made in order, all or none: 1 to 50.
     pub operations: Vec<EditOperation>,
+    /// The revision of the page the operations were made from, as reading it or the last
+    /// edit answered. Needed by `replace_range` and `replace_body`, which are refused with
+    /// `edit_conflict` once the page is at another revision.
+    #[serde(default)]
+    pub base: Option<String>,
 }
 
 /// What an edit did.
@@ -167,6 +179,10 @@ pub struct EditedPage {
     pub page: Page,
     /// What each operation did, in order.
     pub results: Vec<EditResult>,
+    /// The page's revision after the edit, when it was made on its `base`: the next edit
+    /// may name it without reading again. Null otherwise, as the page may hold changes the
+    /// caller has not read.
+    pub revision: Option<String>,
 }
 
 /// What one operation did.
@@ -176,6 +192,8 @@ pub struct EditResult {
     pub added: Vec<String>,
     /// How many blocks it removed, those under them left out.
     pub removed: usize,
+    /// The ids of the blocks it removed, in order, those under them left out.
+    pub removed_ids: Vec<String>,
     /// How many times it replaced the text it was to find.
     pub replaced: usize,
 }
@@ -185,6 +203,7 @@ impl From<Applied> for EditResult {
         Self {
             added: applied.added,
             removed: applied.removed,
+            removed_ids: applied.removed_ids,
             replaced: applied.replaced,
         }
     }
@@ -195,6 +214,7 @@ impl From<Edited> for EditedPage {
         Self {
             page: edited.page.into(),
             results: edited.applied.into_iter().map(Into::into).collect(),
+            revision: edited.revision,
         }
     }
 }
@@ -221,7 +241,8 @@ pub(crate) async fn page_markdown(
     summary = "A page's content as markdown",
     description = "Its blocks as markdown, each block's id on a line of its own before it, \
                    `<!-- block <id> -->`, which the edits name, and for a row its properties \
-                   with their values. A database has no body of its own: read its rows.",
+                   with their values; and the revision they are at, which an edit replacing \
+                   blocks names as its base. A database has no body of its own: read its rows.",
     params(("id" = Uuid, Path, description = "The page's id.")),
     responses(
         (status = OK, description = "The page and its markdown.", body = PageMarkdown),
@@ -251,17 +272,21 @@ pub(super) async fn get_markdown(
     description = "Makes the operations in order, all or none, through the page's live \
                    document: whoever has the page open sees the change at once, and what they \
                    type meanwhile merges with it. Operations name blocks by the ids reading the \
-                   markdown shows. Editing needs edit access to the page, out of the trash. A \
-                   page holds at most 16 MiB. Each user has 100 edits at once, through this \
-                   route and MCP together, then two a second.",
+                   markdown shows. replace_range and replace_body need base, the revision the \
+                   markdown they were made from was read at: once the page is at another, they \
+                   are refused, as they would remove what was added or changed since. Editing \
+                   needs edit access to the page, out of the trash. A page holds at most 16 \
+                   MiB. Each user has 100 edits at once, through this route and MCP together, \
+                   then two a second.",
     params(("id" = Uuid, Path, description = "The page's id.")),
     request_body = EditPage,
     responses(
         (status = OK, description = "What each operation did.", body = EditedPage),
-        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "edit_conflict: the page is no longer at base, and the edit replaces blocks; nothing changed.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the page would grow past what it holds.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited: too many edits of pages' content; Retry-After says when to try again.", body = ErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "unavailable: the server is stopping.", body = ErrorBody),
@@ -280,6 +305,6 @@ pub(super) async fn edit_markdown(
         .into_iter()
         .map(Edit::try_from)
         .collect::<Result<_, _>>()?;
-    let edited = state.sync.edit(&principal, id, edits).await?;
+    let edited = state.sync.edit(&principal, id, edits, body.base).await?;
     Ok(Body(edited.into()))
 }

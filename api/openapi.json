@@ -6265,7 +6265,7 @@
           "pages"
         ],
         "summary": "A page's content as markdown",
-        "description": "Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.",
+        "description": "Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values; and the revision they are at, which an edit replacing blocks names as its base. A database has no body of its own: read its rows.",
         "operationId": "get_markdown",
         "parameters": [
           {
@@ -6355,7 +6355,7 @@
           "pages"
         ],
         "summary": "Edit a page's content",
-        "description": "Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.",
+        "description": "Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. replace_range and replace_body need base, the revision the markdown they were made from was read at: once the page is at another, they are refused, as they would remove what was added or changed since. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.",
         "operationId": "edit_markdown",
         "parameters": [
           {
@@ -6391,7 +6391,7 @@
             }
           },
           "400": {
-            "description": "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
+            "description": "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6422,6 +6422,16 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "edit_conflict: the page is no longer at base, and the edit replaces blocks; nothing changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16391,6 +16401,13 @@
           "operations"
         ],
         "properties": {
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The revision of the page the operations were made from, as reading it or the last\nedit answered. Needed by `replace_range` and `replace_body`, which are refused with\n`edit_conflict` once the page is at another revision."
+          },
           "operations": {
             "type": "array",
             "items": {
@@ -16407,6 +16424,7 @@
         "required": [
           "added",
           "removed",
+          "removed_ids",
           "replaced"
         ],
         "properties": {
@@ -16421,6 +16439,13 @@
             "type": "integer",
             "description": "How many blocks it removed, those under them left out.",
             "minimum": 0
+          },
+          "removed_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ids of the blocks it removed, in order, those under them left out."
           },
           "replaced": {
             "type": "integer",
@@ -16446,6 +16471,13 @@
               "$ref": "#/components/schemas/EditResult"
             },
             "description": "What each operation did, in order."
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page's revision after the edit, when it was made on its `base`: the next edit\nmay name it without reading again. Null otherwise, as the page may hold changes the\ncaller has not read."
           }
         }
       },
@@ -17948,7 +17980,8 @@
         "description": "A page's content as markdown.",
         "required": [
           "page",
-          "markdown"
+          "markdown",
+          "revision"
         ],
         "properties": {
           "markdown": {
@@ -17968,6 +18001,11 @@
               "$ref": "#/components/schemas/RowProperty"
             },
             "description": "For a row: each property of its database, in order, with the row's value."
+          },
+          "revision": {
+            "type": "string",
+            "description": "The revision of what `markdown` shows, which changes whenever it does: an edit that\nreplaces a range or the body sends it as its `base`.",
+            "example": "AAAAAAAAAAAAAAAAAAAAAA"
           }
         }
       },

@@ -1330,7 +1330,7 @@ export interface paths {
         };
         /**
          * A page's content as markdown
-         * @description Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.
+         * @description Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values; and the revision they are at, which an edit replacing blocks names as its base. A database has no body of its own: read its rows.
          */
         get: operations["get_markdown"];
         put?: never;
@@ -1340,7 +1340,7 @@ export interface paths {
         head?: never;
         /**
          * Edit a page's content
-         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
+         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. replace_range and replace_body need base, the revision the markdown they were made from was read at: once the page is at another, they are refused, as they would remove what was added or changed since. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
          */
         patch: operations["edit_markdown"];
         trace?: never;
@@ -3358,6 +3358,12 @@ export interface components {
             op: "replace_body";
         };
         EditPage: {
+            /**
+             * @description The revision of the page the operations were made from, as reading it or the last
+             *     edit answered. Needed by `replace_range` and `replace_body`, which are refused with
+             *     `edit_conflict` once the page is at another revision.
+             */
+            base?: string | null;
             /** @description Made in order, all or none: 1 to 50. */
             operations: components["schemas"]["EditOperation"][];
         };
@@ -3367,6 +3373,8 @@ export interface components {
             added: string[];
             /** @description How many blocks it removed, those under them left out. */
             removed: number;
+            /** @description The ids of the blocks it removed, in order, those under them left out. */
+            removed_ids: string[];
             /** @description How many times it replaced the text it was to find. */
             replaced: number;
         };
@@ -3375,6 +3383,12 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description What each operation did, in order. */
             results: components["schemas"]["EditResult"][];
+            /**
+             * @description The page's revision after the edit, when it was made on its `base`: the next edit
+             *     may name it without reading again. Null otherwise, as the page may hold changes the
+             *     caller has not read.
+             */
+            revision?: string | null;
         };
         /** @description The limits that hold for a workspace; absent is no limit. */
         EffectiveLimits: {
@@ -3997,6 +4011,12 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description For a row: each property of its database, in order, with the row's value. */
             properties?: components["schemas"]["RowProperty"][] | null;
+            /**
+             * @description The revision of what `markdown` shows, which changes whenever it does: an edit that
+             *     replaces a range or the body sends it as its `base`.
+             * @example AAAAAAAAAAAAAAAAAAAAAA
+             */
+            revision: string;
         };
         /** @description How a page is set. */
         PageStyle: {
@@ -9892,7 +9912,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9921,6 +9941,15 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description edit_conflict: the page is no longer at base, and the edit replaces blocks; nothing changed. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

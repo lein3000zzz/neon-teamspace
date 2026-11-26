@@ -413,7 +413,7 @@ async fn every_tool_acts_as_its_caller_sees(pool: PgPool) {
     let (code, message) = scout_client
         .refused(
             "edit_page",
-            json!({"page_id": plan, "operations": [
+            json!({"page_id": plan, "base": read["revision"], "operations": [
                 {"op": "replace_range", "from": "nope", "markdown": ""},
             ]}),
         )

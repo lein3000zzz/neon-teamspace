@@ -188,9 +188,10 @@ pub(crate) const TOOLS: [Spec; 16] = [
         name: "read_page",
         title: "Read a page",
         description: "A page's blocks as markdown, each block's id on a line of its own before \
-                      it, `<!-- block <id> -->`, which edit_page names; and for a row of a \
-                      database, its properties with their values. A database itself has no \
-                      body: use get_database and query_database.",
+                      it, `<!-- block <id> -->`, which edit_page names; the revision they are \
+                      at, which edit_page takes as base; and for a row of a database, its \
+                      properties with their values. A database itself has no body: use \
+                      get_database and query_database.",
         writes: false,
         destructive: false,
         idempotent: true,
@@ -218,7 +219,11 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       append, insert_after a block, replace_range of sibling blocks (empty \
                       markdown removes them), find_replace of text within one line (once, unless \
                       all), replace_body (blocks that stay the same are kept). Blocks are named \
-                      by the ids read_page shows; markdown nests at most 32 levels deep. A \
+                      by the ids read_page shows; markdown nests at most 32 levels deep. \
+                      replace_range and replace_body need base, the revision read_page gave: \
+                      people may edit the page meanwhile, and once it changed they are refused \
+                      with edit_conflict, rather than remove what others added; read it again \
+                      then. The answer's revision, when set, is the base of the next edit. A \
                       request holds at most 2 MiB: send large content in several appends.",
         writes: true,
         destructive: true,
@@ -420,6 +425,7 @@ pub(crate) async fn call(
             let EditArguments {
                 page_id,
                 operations,
+                base,
             } = arguments(given)?;
             let edits = operations
                 .into_iter()
@@ -427,7 +433,7 @@ pub(crate) async fn call(
                 .collect::<Result<_, _>>()?;
             let edited = s
                 .sync
-                .edit(principal, page_id, edits)
+                .edit(principal, page_id, edits, base)
                 .await
                 .map_err(refused)?;
             answer(EditedPage::from(edited))
@@ -616,6 +622,11 @@ struct EditArguments {
     page_id: Uuid,
     /// Made in order, all or none: 1 to 50.
     operations: Vec<EditOperation>,
+    /// The revision read_page, or the last edit_page, gave for the page the operations were
+    /// made from. Needed by replace_range and replace_body, which are refused with
+    /// edit_conflict once the page is at another revision.
+    #[serde(default)]
+    base: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

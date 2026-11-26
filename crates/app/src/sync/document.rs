@@ -76,11 +76,14 @@ pub(crate) enum Command {
         blocks: Vec<neon_blocks::Block>,
         done: oneshot::Sender<Result<(), AppendError>>,
     },
-    /// Edits of the document's blocks, made by `author` from the server, all or none.
+    /// Edits of the document's blocks, made by `author` from the server, all or none, on
+    /// the document as it was at the revision `base`, when one is given; see
+    /// [`revision`](super::revision).
     Edit {
         author: Uuid,
         edits: Vec<Edit>,
-        done: oneshot::Sender<Result<Vec<Applied>, Unedited>>,
+        base: Option<String>,
+        done: oneshot::Sender<Result<Made, Unedited>>,
     },
 }
 
@@ -95,9 +98,22 @@ pub enum AppendError {
     NotADocument,
 }
 
+/// What a live document made of an edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Made {
+    /// What each part did, in order.
+    pub(crate) applied: Vec<Applied>,
+    /// The document's revision once they were made, when they were made on the revision
+    /// the edit was based on: then it is that one and these parts alone.
+    pub(crate) revision: Option<String>,
+}
+
 /// Why a live document made none of an edit's parts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Unedited {
+    /// The document changed since the revision the edit was based on, and the edit may
+    /// remove blocks: it would remove what was added or changed since.
+    Conflict,
     /// The part at this index, counted from 0, cannot be made.
     Refused(usize, EditError),
     /// The document would grow larger than the server keeps.
@@ -432,9 +448,10 @@ impl Document {
             Command::Edit {
                 author,
                 edits,
+                base,
                 done,
             } => {
-                let edited = self.edit(author, &edits).await;
+                let edited = self.edit(author, &edits, base.as_deref()).await;
                 let _ = done.send(edited);
             }
         }
@@ -499,8 +516,16 @@ impl Document {
 
     /// Makes edits of the server's, as one change everyone connected gets at once and the
     /// log keeps as `author`'s. They are tried on a copy first, so that either every part
-    /// is made or none, and the document's growth is known before it grows.
-    async fn edit(&mut self, author: Uuid, edits: &[Edit]) -> Result<Vec<Applied>, Unedited> {
+    /// is made or none, and the document's growth is known before it grows. With `base`,
+    /// the revision the edit's author read, an edit that may remove blocks is refused once
+    /// the document is at another revision, and one made on that revision tells the one it
+    /// leaves.
+    async fn edit(
+        &mut self,
+        author: Uuid,
+        edits: &[Edit],
+        base: Option<&str>,
+    ) -> Result<Made, Unedited> {
         if self.gone {
             return Err(Unedited::Gone);
         }
@@ -522,6 +547,10 @@ impl Document {
             return Err(Unedited::TooLarge);
         }
         tried?;
+        let on_base = base.is_some_and(|base| base == self.revision());
+        if base.is_some() && !on_base && edits.iter().any(Edit::removes) {
+            return Err(Unedited::Conflict);
+        }
         let room = self.room();
         let (made, changed) = {
             let mut txn = self.awareness.doc().transact_mut();
@@ -547,7 +576,17 @@ impl Document {
             // Opened for the edit alone: it stays a while for the next.
             self.idle_since = Some(Instant::now());
         }
-        made
+        let applied = made?;
+        Ok(Made {
+            revision: on_base.then(|| self.revision()),
+            applied,
+        })
+    }
+
+    /// The document's revision now, as reading it gives it.
+    fn revision(&self) -> String {
+        let txn = self.awareness.doc().transact();
+        super::revision(&neon_blocks::read_lenient(&txn, &self.fragment).document)
     }
 
     /// How many bytes the document may grow by before it is larger than the server keeps.

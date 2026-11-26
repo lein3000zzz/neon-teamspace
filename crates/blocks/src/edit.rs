@@ -89,6 +89,12 @@ pub enum Edit {
 }
 
 impl Edit {
+    /// Whether it may remove blocks that are there: replacing a range or the body. Made from
+    /// a stale read of the page, it would remove what was added or changed since.
+    pub fn removes(&self) -> bool {
+        matches!(self, Self::ReplaceRange { .. } | Self::ReplaceBody { .. })
+    }
+
     /// A short name, for logs and metric labels.
     pub fn name(&self) -> &'static str {
         match self {
@@ -117,6 +123,9 @@ pub struct Applied {
     pub added: Vec<String>,
     /// How many blocks it removed, those under them left out.
     pub removed: usize,
+    /// The ids of the blocks it removed, in document order, those under them left out, and
+    /// those without an id too.
+    pub removed_ids: Vec<String>,
     /// How many times it replaced the text it was to find.
     pub replaced: usize,
 }
@@ -376,6 +385,11 @@ fn replace_range(
             to: to.to_owned(),
         });
     }
+    let removed_ids: Vec<String> = containers(txn, &start.group)
+        .into_iter()
+        .filter(|(index, _)| (start.index..=end).contains(index))
+        .filter_map(|(_, container)| id_of(txn, &container))
+        .collect();
     // The new blocks go in first, so the group is never left empty between the two.
     let added = write_blocks_at(txn, &start.group, end + 1, blocks, ids);
     let removed = end - start.index + 1;
@@ -384,6 +398,7 @@ fn replace_range(
     Ok(Applied {
         added,
         removed: removed as usize,
+        removed_ids,
         replaced: 0,
     })
 }
@@ -705,11 +720,13 @@ fn replace_body(
     }
     // The rows that go, but those that go with the row they are under.
     let mut removed = 0;
+    let mut removed_ids = Vec::new();
     for (i, row) in old.iter().enumerate() {
         let under_one_gone = row.parent.is_some_and(|parent| kept[parent].is_none());
         if kept[i].is_none() && !under_one_gone {
             changes.push((row.group.clone(), Change::Remove(row.container.clone())));
             removed += 1;
+            removed_ids.extend(id_of(txn, &row.container));
         }
     }
 
@@ -773,6 +790,7 @@ fn replace_body(
     Ok(Applied {
         added,
         removed,
+        removed_ids,
         replaced: 0,
     })
 }

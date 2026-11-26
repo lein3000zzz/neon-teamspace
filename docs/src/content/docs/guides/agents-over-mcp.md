@@ -162,9 +162,9 @@ without a teamspace answers an agent `forbidden`.
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `read_page` | `page_id` | The page and its blocks as markdown with their ids; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. |
+| `read_page` | `page_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. |
 | `create_page` | one of `parent_id`, `teamspace_id`, `private: true`; `title`, `icon`, `markdown`, `placement` | Makes the page, its content the blocks of `markdown`, and answers as `read_page` does. |
-| `edit_page` | `page_id`, `operations` | Makes the operations, in order, all or none; see [Editing](#editing-a-page). |
+| `edit_page` | `page_id`, `operations`, `base` | Makes the operations, in order, all or none; see [Editing](#editing-a-page). |
 | `move_page` | `page_id`; one of `parent_id`, `teamspace_id`, `private: true`; `placement` | Moves it with the pages under it. |
 | `trash_page` | `page_id` | Moves it to the trash with the pages under it. |
 | `restore_page` | `page_id` | Brings it back, with the pages trashed with it. |
@@ -262,7 +262,34 @@ styles and link of the first character it replaces. Unless `all` is set, the tex
 the page once, and a text found twice answers `edit_refused` saying how many times. With
 `all`, it replaces the text at most 10000 times, and a text found more often answers
 `edit_refused` too. Each operation answers what it did, with the ids of the blocks it
-`added`, how many it `removed` and how many times it `replaced` the text.
+`added`, how many it `removed` and their ids, `removed_ids`, and how many times it
+`replaced` the text.
+
+### Stale reads
+
+People edit a page while an agent thinks about it, and an agent takes seconds or minutes
+between reading a page and writing to it. `replace_range` and `replace_body` remove the
+blocks they do not keep, so made from a stale read they would remove what someone added or
+changed since, and the page keeps no history yet to bring it back from. So:
+
+- `read_page`, the page resource and `GET /api/v1/pages/{id}/markdown` answer the
+  `revision` of what they show, which changes whenever it does.
+- `edit_page` takes it as `base`. `replace_range` and `replace_body` need it, answering
+  `base_required` without it, and once the page is at another revision they answer
+  `edit_conflict` and change nothing: read the page again, and make the edit on what it
+  holds now.
+- `append`, `insert_after` and `find_replace` remove nothing others wrote, and go in
+  whatever the revision.
+- An edit made on its `base` answers the `revision` it leaves the page at, which is the
+  `base` of the next edit, so a series of edits needs one read. One made off its `base`, or
+  without one, answers a null `revision`, as the page may hold what the caller has not read.
+
+The page in an edit's answer, as in `read_page`, names who changed its content last and when,
+`last_edited_by` and `content_updated_at`, as of the page's last stored snapshot. Those move
+as snapshots are stored, a little while after the edits they hold, as
+[real-time editing](/docs/architecture/realtime/) describes, so right after an edit they may
+still name the change before it, someone else's. The pages `resources/list` gives as changed
+last are ordered by the same time.
 
 `replace_body` compares blocks as `read_page` shows them, so send its markdown back with the
 lines naming blocks. Those lines keep the empty paragraphs, such as the one the editor keeps

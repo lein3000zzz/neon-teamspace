@@ -5,24 +5,34 @@
 //!
 //! Reading needs to see the page; editing needs to edit it, out of the trash, with the write
 //! scope when through a token, as editing in the browser does, and is rate limited per user.
-//! A database has no body of its own: its rows do. Reads and edits are RED metrics of
+//! A database has no body of its own: its rows do.
+//!
+//! Every read has a [`revision`], which changes whenever what reading shows changes. An edit
+//! that may remove blocks, replacing a range or the body, names the revision it was made
+//! from, and is refused once the page is at another: made from a stale read, it would remove
+//! what someone added or changed since. An edit made on the revision it names tells the one
+//! it leaves, so the next can be based on it without reading again. Reads and edits are RED metrics of
 //! [`SUBSYSTEM`](super::SUBSYSTEM), in spans `sync read` and `sync edit`; neither logs a
 //! page's content.
 
 use std::future::Future;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use neon_blocks::Document;
 use neon_blocks::edit::{Applied, Edit, EditError};
+use neon_blocks::markdown::to_markdown_with_ids;
 use neon_domain::auth::Principal;
 use neon_domain::pages::{PageAccess, PageKind};
 use neon_observability::errors::{mark_expected, record_unexpected};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::oneshot;
 use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 use yrs::sync::{Message, SyncMessage};
 
-use super::document::{Command, Unedited};
+use super::document::{Command, Made, Unedited};
 use super::{CloseReason, JOIN_ATTEMPTS, LoadError, SyncService, protocol};
 use crate::pages::{ImportedContent, PageError, PageView};
 use crate::ratelimit::Bucket;
@@ -44,6 +54,19 @@ pub enum ContentError {
     /// A part of an edit, counted from 0, cannot be made; none of the edit was.
     #[error("edit {index}: {error}; nothing was changed")]
     Refused { index: usize, error: EditError },
+    /// An edit that may remove blocks names no revision to be based on.
+    #[error(
+        "replacing a range or the body needs `base`, the revision reading the page gave: read \
+         it, then edit what it holds; nothing was changed"
+    )]
+    NoBase,
+    /// The page changed since the revision an edit that may remove blocks was based on.
+    #[error(
+        "the page changed since that revision was read, and replacing blocks now could remove \
+         what was added or changed since: read it again and edit what it holds now; nothing \
+         was changed"
+    )]
+    Conflict,
     #[error("a database has no body of its own: read and change its rows instead")]
     Database,
     #[error("the page would grow larger than {} bytes, the most a page holds", .0)]
@@ -64,6 +87,8 @@ impl ContentError {
             Self::Page(error) => error.code(),
             Self::InvalidInput(_) | Self::Database => "invalid_input",
             Self::Refused { .. } => "edit_refused",
+            Self::NoBase => "base_required",
+            Self::Conflict => "edit_conflict",
             Self::TooLarge(_) => "document_too_large",
             Self::RateLimited { .. } => "rate_limited",
             Self::Unavailable(_) => "unavailable",
@@ -86,6 +111,18 @@ impl ContentError {
 pub struct Edited {
     pub page: PageView,
     pub applied: Vec<Applied>,
+    /// The page's revision once the edit was made, when it was made on the revision it was
+    /// based on: then the page holds that revision's blocks and this edit's, and nobody
+    /// else's since.
+    pub revision: Option<String>,
+}
+
+/// The revision of a page's blocks as reading shows them: 22 characters of base64url, the
+/// first 128 bits of the SHA-256 of their markdown with ids, which changes whenever what
+/// reading shows does.
+pub fn revision(document: &Document) -> String {
+    let digest = Sha256::digest(to_markdown_with_ids(document).as_bytes());
+    URL_SAFE_NO_PAD.encode(&digest[..16])
 }
 
 /// Whether a message a page's room carries changes its document, rather than telling who is
@@ -118,19 +155,24 @@ impl SyncService {
     }
 
     /// Makes `edits` to a page's blocks, in order, all or none, through its live document,
-    /// which opens for them if nobody has the page open. They count as the principal's
+    /// which opens for them if nobody has the page open, on the [`revision`] `base` when
+    /// one is given; edits that may remove blocks need it. They count as the principal's
     /// change of the page, and against their rate of edits.
     pub async fn edit(
         &self,
         principal: &Principal,
         page_id: Uuid,
         edits: Vec<Edit>,
+        base: Option<String>,
     ) -> Result<Edited, ContentError> {
         self.observe("edit", async {
             if edits.is_empty() || edits.len() > MAX_EDITS {
                 return Err(ContentError::InvalidInput(format!(
                     "an edit has 1 to {MAX_EDITS} parts"
                 )));
+            }
+            if base.is_none() && edits.iter().any(Edit::removes) {
+                return Err(ContentError::NoBase);
             }
             let view = self.inner.pages.document_access(principal, page_id).await?;
             if view.page.kind == PageKind::Database {
@@ -151,8 +193,14 @@ impl SyncService {
                 });
             }
             let parts: Vec<&'static str> = edits.iter().map(Edit::name).collect();
-            let applied = self
-                .apply(page_id, view.page.workspace_id, principal.user.id, edits)
+            let made = self
+                .apply(
+                    page_id,
+                    view.page.workspace_id,
+                    principal.user.id,
+                    edits,
+                    base,
+                )
                 .await?;
             info!(
                 user_id = %principal.user.id,
@@ -162,7 +210,8 @@ impl SyncService {
             );
             Ok(Edited {
                 page: view,
-                applied,
+                applied: made.applied,
+                revision: made.revision,
             })
         })
         .await
@@ -176,7 +225,8 @@ impl SyncService {
         workspace_id: Uuid,
         author: Uuid,
         edits: Vec<Edit>,
-    ) -> Result<Vec<Applied>, ContentError> {
+        base: Option<String>,
+    ) -> Result<Made, ContentError> {
         for _ in 0..JOIN_ATTEMPTS {
             let commands = self
                 .document(page_id, workspace_id)
@@ -185,6 +235,7 @@ impl SyncService {
             let command = Command::Edit {
                 author,
                 edits: edits.clone(),
+                base: base.clone(),
                 done,
             };
             if commands.send(command).await.is_err() {
@@ -195,6 +246,7 @@ impl SyncService {
                 continue;
             };
             return made.map_err(|unedited| match unedited {
+                Unedited::Conflict => ContentError::Conflict,
                 Unedited::Refused(index, error) => ContentError::Refused { index, error },
                 Unedited::TooLarge => ContentError::TooLarge(self.inner.limits.max_document),
                 Unedited::Gone => PageError::NotFound("no such page").into(),
