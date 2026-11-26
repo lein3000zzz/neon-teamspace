@@ -25,6 +25,24 @@ pub fn hash_secret(secret: &str) -> Vec<u8> {
     Sha256::digest(secret.as_bytes()).to_vec()
 }
 
+/// The PKCE challenge of a code verifier by the S256 method (RFC 7636, section 4.2): its
+/// SHA-256, in base64url without padding.
+pub fn pkce_challenge(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
+/// Whether a code verifier answers an S256 challenge, compared in constant time so that
+/// how long it takes says nothing of how much matched.
+pub fn pkce_matches(verifier: &str, challenge: &str) -> bool {
+    let expected = pkce_challenge(verifier);
+    expected.len() == challenge.len()
+        && expected
+            .bytes()
+            .zip(challenge.bytes())
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +68,18 @@ mod tests {
         assert_ne!(hash_secret("abc"), hash_secret("abd"));
         // The SHA-256 of "abc", from FIPS 180-2.
         assert_eq!(hash_secret("abc")[..4], [0xba, 0x78, 0x16, 0xbf]);
+    }
+
+    #[test]
+    fn pkce_answers_the_rfc_7636_example() {
+        // RFC 7636, appendix B.
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+
+        assert_eq!(pkce_challenge(verifier), challenge);
+        assert!(pkce_matches(verifier, challenge));
+        assert!(!pkce_matches(verifier, &challenge[..42]));
+        assert!(!pkce_matches(&verifier[1..], challenge));
+        assert!(!pkce_matches(verifier, ""));
     }
 }

@@ -116,28 +116,29 @@ closes the connection with `4403`.
 
 ## When access changes
 
-The page, workspace, agent and auth services tell the sync service whose access may have
-changed, once each change commits: a page moved to another place, trashed, restored,
+The page, workspace, agent, auth and OAuth services tell the sync service whose access may
+have changed, once each change commits: a page moved to another place, trashed, restored,
 deleted or purged from the trash, a share added, changed or removed, someone joining or
 leaving a teamspace or getting another role there, a teamspace's new access or its
 deletion, a member's new role, leaving or removal, a workspace's deletion or its agents
 turned off or on, the setting `mcp.identities` changing, an agent handed to someone else or
 deleted, a person signing out, having a session or API token revoked, changing or resetting
-their password, or having their account disabled or given another role, and an agent's
-token revoked. A page placed elsewhere among the same siblings changes nobody's access, and
-tells nothing.
+their password, or having their account disabled or given another role, an agent's token
+revoked, and an OAuth grant revoked or allowed again with other scopes. A page placed
+elsewhere among the same siblings changes nobody's access, and tells nothing.
 
 The sync service then looks again, at once, at every open connection the change may
 concern: the person's and their agents' and integrations', whose access theirs bounds, or
-everyone's, in the change's workspace; every agent's and integration's for the setting; and
+everyone's, in the change's workspace; for the setting, every agent's and integration's,
+and every one opened with a token bound to a workspace, as OAuth's acting as people are; and
 for a change to a page, those on that page, a page under it, or a page that is gone. It
-looks at 8 at a time. For each, it reads the session or API token the connection opened
-with again, then asks the rules what its person may do now, an agent's with its owner's
+looks at 8 at a time. For each, it reads the session, API token or OAuth access token the
+connection opened with again, then asks the rules what its person may do now, an agent's with its owner's
 access:
 
 | The person may now | The connection |
 |---|---|
-| Not use the session or token any more: it ended or expired, the account was disabled, or the token is an agent's that is suspended, deleted or turned off | Closes with `4401`. |
+| Not use the session or token any more: it ended or expired, the account was disabled, the token is an agent's that is suspended, deleted or turned off, or an OAuth grant it came from is revoked or no longer works | Closes with `4401`. |
 | Not see the page | Closes with `4404`. |
 | Only view it, having edited it | Stays open, read-only. The server sends an auth message, permission denied with the reason `read-only`. |
 | Edit it, having only viewed it | Stays open and may edit. The server sends an auth message, permission granted. |

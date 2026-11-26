@@ -17,6 +17,7 @@ export function AccountLayout() {
           { to: "/account/invitations", label: copy.tabs.invitations },
           { to: "/account/sessions", label: copy.tabs.sessions },
           { to: "/account/tokens", label: copy.tabs.tokens },
+          { to: "/account/apps", label: copy.tabs.apps },
           { to: "/account/appearance", label: copy.tabs.appearance },
         ]}
       />

@@ -99,6 +99,7 @@ export default defineConfig({
             'guides/workspaces',
             'guides/workspace-rules',
             'guides/agents',
+            'guides/oauth',
             'guides/editing-pages',
             'guides/pages',
             'guides/databases-and-boards',

@@ -14,6 +14,7 @@ mod error;
 mod extract;
 mod favorites;
 mod meta;
+mod oauth;
 mod openapi;
 mod page_shares;
 mod pages;
@@ -37,12 +38,17 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
+use neon_domain::oauth::{
+    API_RESOURCE_METADATA_PATH, MCP_RESOURCE_METADATA_PATH, RESOURCE_METADATA_PATH,
+    SERVER_METADATA_PATH,
+};
 use neon_observability::http::HttpLayer;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -66,6 +72,7 @@ pub struct AppState {
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
     pub agents: AgentService,
+    pub oauth: OAuthService,
     pub pages: PageService,
     pub sync: SyncService,
     pub databases: DatabaseService,
@@ -158,6 +165,14 @@ fn api() -> OpenApiRouter<AppState> {
             agents::create_agent_token
         ))
         .routes(routes!(agents::revoke_agent_token))
+        .routes(routes!(oauth::authorize))
+        .routes(routes!(oauth::read_consent))
+        .routes(routes!(oauth::approve_consent))
+        .routes(routes!(oauth::deny_consent))
+        .routes(routes!(oauth::list_connected_apps))
+        .routes(routes!(oauth::disconnect_app))
+        .routes(routes!(oauth::list_workspace_apps))
+        .routes(routes!(oauth::disconnect_workspace_app))
         .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
@@ -226,11 +241,32 @@ fn api() -> OpenApiRouter<AppState> {
             OpenApiRouter::new()
                 .routes(routes!(transfer::import_pages))
                 .layer(transfer::import_body_limit()),
+        )
+        // OAuth's endpoints for clients take anyone's requests, so they read no more than
+        // a request of theirs needs.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::register_client))
+                .layer(oauth::registration_body_limit()),
+        )
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::issue_tokens))
+                .routes(routes!(oauth::revoke_oauth_token))
+                .layer(oauth::form_body_limit()),
         );
+    // Where clients find the OAuth server, at the root (RFC 8414, RFC 9728). The protected
+    // resources' are below it too, after the well-known path, as RFC 9728 places them.
+    let discovery = OpenApiRouter::new()
+        .route(SERVER_METADATA_PATH, get(oauth::server_metadata))
+        .route(RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
+        .route(MCP_RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
+        .route(API_RESOURCE_METADATA_PATH, get(oauth::api_metadata));
     // Real-time sync speaks WebSocket, which the API's description has no words for; the
     // docs describe it.
     OpenApiRouter::with_openapi(openapi::base())
         .nest("/api/v1", routes)
+        .merge(discovery)
         .route("/ws/pages/{page_id}", get(sync::open_page))
         .route(
             "/ws/databases/{database_id}",
@@ -268,7 +304,8 @@ impl Default for Limits {
 /// The routes plus the description route, the fallbacks and the middleware.
 ///
 /// Requests that change something from another origin are refused before any handler
-/// runs; see [`web`].
+/// runs; see [`web`]. OAuth's endpoints for clients allow CORS from any origin; see
+/// [`oauth`].
 ///
 /// `Router::layer` wraps each route, after routing, so `telemetry` sees the route template.
 /// It sits outside the layers that answer for the handler, the panic catcher and the time
@@ -305,6 +342,9 @@ fn app(
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
                     time_limit(limits.timeout, request, next)
                 }))
+                // Around the routes' methods and the fallback that refuses the others, so
+                // that it answers the preflights of OAuth's endpoints for clients.
+                .layer(middleware::from_fn(oauth::cors))
                 .layer(middleware::from_fn_with_state(web, web::same_origin_only))
                 .layer(DefaultBodyLimit::max(limits.body)),
         )
@@ -349,6 +389,8 @@ mod agents_tests;
 mod auth_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod oauth_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]

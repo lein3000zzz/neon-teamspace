@@ -166,9 +166,9 @@ impl WorkspaceService {
         .await
     }
 
-    /// Tells those holding pages and databases open for agents to look again, once whether
-    /// agents work on the instance, the setting `mcp.identities`, may have changed: their
-    /// connections close while agents are off.
+    /// Tells those holding pages and databases open for agents, and for tokens bound to a
+    /// workspace, to look again, once the setting `mcp.identities` may have changed: agents'
+    /// connections close while agents are off, and OAuth tokens' while their mode is.
     pub fn agents_switched(&self) {
         self.changed(AccessChange::Agents);
     }
