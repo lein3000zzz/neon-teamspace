@@ -13,6 +13,7 @@ use neon_app::jobs::{Handler as _, Job};
 use neon_app::mail::Message;
 use neon_app::notifications::{InboxError, InboxQuery, InboxService, NotificationMailJob};
 use neon_app::pages::{Location, NewPage};
+use neon_app::ratelimit::RateLimiter;
 use neon_app::sync::{Broadcaster as _, Limits, Next, Outbox, Room, SyncService, access_feed};
 use neon_app::webhooks::transport::{Answer, Outgoing, SendError, WebhookTransport};
 use neon_app::webhooks::{NewWebhook, Services, WebhookService};
@@ -129,14 +130,18 @@ async fn team_with(pool: PgPool, settings: Vec<(&'static str, Value)>) -> Team {
             mention_settle: Duration::from_millis(50),
             ..Limits::default()
         })
+        .limiter(std::sync::Arc::clone(&h.limiter) as std::sync::Arc<dyn RateLimiter>)
         .build();
     let comments = CommentService::new(h.pages.clone(), sync.clone());
     let inbox = InboxService::new(h.pages.clone(), h.mail.clone(), envelope());
-    // The jobs bringing everyone in queued, the mail of their invitations among them.
-    sqlx::query("DELETE FROM jobs")
-        .execute(&h.pool)
-        .await
-        .expect("emptied");
+    // The jobs bringing everyone in queued, the mail of their invitations among them, and
+    // the mail of their notifications that waits.
+    for emptied in ["DELETE FROM jobs", "DELETE FROM notification_mail"] {
+        sqlx::query(emptied)
+            .execute(&h.pool)
+            .await
+            .expect("emptied");
+    }
     Team {
         h,
         ada,
@@ -784,6 +789,10 @@ async fn a_mail_for_each_goes_once_it_waited_unread_and_says_only_what_may_be_se
         .await;
     let jobs = t.jobs(neon_app::notifications::MAIL_KIND).await;
     assert_eq!(jobs.len(), 1);
+    // Before its delay, it waits.
+    job.run(&jobs[0]).await.expect("ran");
+    assert!(t.h.mails().await.is_empty());
+    t.h.time.advance(Duration::from_secs(5 * 60));
     job.run(&jobs[0]).await.expect("ran");
     let mails = t.h.mails().await;
     assert_eq!(mails.len(), 1);
@@ -838,10 +847,87 @@ async fn a_mail_for_each_goes_once_it_waited_unread_and_says_only_what_may_be_se
     t.post(&t.ada, &format!("{} again", mention(&t.cy))).await;
     let jobs = t.jobs(neon_app::notifications::MAIL_KIND).await;
     t.inbox.mark_all_read(&t.cy, None).await.expect("read");
+    t.h.time.advance(Duration::from_secs(5 * 60));
     for queued in &jobs {
         job.run(queued).await.expect("ran");
     }
     assert!(t.h.mails().await.is_empty());
+}
+
+/// When the mail of `kind` queued waits until, as of the harness's start.
+async fn due_after_start(t: &Team) -> time::Duration {
+    let due: time::OffsetDateTime =
+        sqlx::query_scalar("SELECT run_at FROM jobs WHERE kind = 'notifications.mail'")
+            .fetch_one(&t.h.pool)
+            .await
+            .expect("queued");
+    due - support::start()
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_flood_of_notifications_makes_one_mail_and_the_next_waits_its_gap(pool: PgPool) {
+    let t = team_with(pool, vec![("notifications.mail", json!(true))]).await;
+    let job = NotificationMailJob::new(t.inbox.clone());
+    // Bea starts forty threads on Ada's page, which Ada follows as its maker.
+    for n in 0..40 {
+        t.post(&t.bea, &format!("Thread {n}")).await;
+    }
+    assert_eq!(t.made(&t.ada).await, 40);
+    let jobs = t.jobs(neon_app::notifications::MAIL_KIND).await;
+    assert_eq!(jobs.len(), 1, "one mail asked for, not one each");
+    assert_eq!(jobs[0].payload, json!({"user_id": t.ada.user.id}));
+    t.h.time.advance(Duration::from_secs(5 * 60));
+    job.run(&jobs[0]).await.expect("ran");
+    let mails = t.h.mails().await;
+    assert_eq!(mails.len(), 1);
+    let Message::Digest { notices, more, .. } = &mails[0].message else {
+        panic!("a mail that lists them: {:?}", mails[0].message)
+    };
+    assert_eq!((notices.len(), *more), (20, 20));
+    assert!(
+        t.jobs(neon_app::notifications::MAIL_KIND).await.is_empty(),
+        "nothing more waits"
+    );
+
+    // One more: its mail waits for the gap after the last, longer than its delay.
+    t.post(&t.bea, "One more").await;
+    assert_eq!(due_after_start(&t).await, time::Duration::minutes(20));
+    let jobs = t.jobs(neon_app::notifications::MAIL_KIND).await;
+    job.run(&jobs[0]).await.expect("ran");
+    assert!(t.h.mails().await.is_empty(), "not before its time");
+    t.h.time.advance(Duration::from_secs(15 * 60));
+    job.run(&jobs[0]).await.expect("ran");
+    let mails = t.h.mails().await;
+    assert_eq!(mails.len(), 1);
+    assert!(
+        matches!(mails[0].message, Message::Notification { .. }),
+        "{:?}",
+        mails[0].message
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn what_comes_while_a_mail_waits_goes_once_it_too_has_waited(pool: PgPool) {
+    let t = team_with(pool, vec![("notifications.mail", json!(true))]).await;
+    let job = NotificationMailJob::new(t.inbox.clone());
+    t.post(&t.bea, "First").await;
+    let jobs = t.jobs(neon_app::notifications::MAIL_KIND).await;
+    t.h.time.advance(Duration::from_secs(4 * 60));
+    t.post(&t.bea, "Second").await;
+    assert!(
+        t.jobs(neon_app::notifications::MAIL_KIND).await.is_empty(),
+        "the mail that waits takes it in"
+    );
+    t.h.time.advance(Duration::from_secs(60));
+    job.run(&jobs[0]).await.expect("ran");
+    let mails = t.h.mails().await;
+    assert_eq!(mails.len(), 1);
+    let Message::Notification { notice, .. } = &mails[0].message else {
+        panic!("the first alone: {:?}", mails[0].message)
+    };
+    assert_eq!(notice.excerpt.as_deref(), Some("First"));
+    // The second, a minute old then, goes in the next, a gap after this one.
+    assert_eq!(due_after_start(&t).await, time::Duration::minutes(20));
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -1409,4 +1495,20 @@ async fn an_inbox_hears_when_a_deletion_or_an_answer_takes_from_it(pool: PgPool)
         .await
         .expect("accepted");
     hears_the_inbox(&mut heard, "accepted").await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mail_whose_job_was_lost_is_asked_for_again(pool: PgPool) {
+    let t = team_with(pool, vec![("notifications.mail", json!(true))]).await;
+    t.post(&t.bea, "First").await;
+    // Its job is gone, as a dead one goes with the queue's retention.
+    t.jobs(neon_app::notifications::MAIL_KIND).await;
+    t.post(&t.bea, "Second").await;
+    assert!(t.jobs(neon_app::notifications::MAIL_KIND).await.is_empty());
+    t.h.time.advance(Duration::from_secs(2 * 3600));
+    t.post(&t.bea, "Third").await;
+    assert_eq!(
+        due_after_start(&t).await,
+        time::Duration::hours(2) + time::Duration::minutes(5)
+    );
 }

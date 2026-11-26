@@ -17,7 +17,10 @@
 //!   and MCP subscriptions follow.
 //! - **Mail.** While `notifications.mail` is on and mail can go, a person who wants a mail
 //!   for each notification gets one once it has waited `notifications.mail_delay` unread,
-//!   through the job of [`MAIL_KIND`]; one who wants a digest gets one every
+//!   through the job of [`MAIL_KIND`]. One such mail waits at a time for each person: what
+//!   comes while it waits goes in it, once it too has waited, or in the next, and the next
+//!   goes [`MAIL_GAP`] after the last at the soonest, so a flood of notifications makes a
+//!   few mails that list them, not one each. One who wants a digest gets one every
 //!   `notifications.digest_interval` at most, of what came since and is still unread, from
 //!   [`InboxService::send_digests`]. Both go through the mail queue, say only what their
 //!   person may see when they are written, and carry a link that stops them without
@@ -63,8 +66,17 @@ pub use mail::NotificationMailJob;
 /// RED subsystem of the inbox's use cases.
 pub const SUBSYSTEM: &str = "notifications";
 
-/// The job kind of the mail of one notification.
+/// The job kind of the mail of a person's notifications, for those who want a mail for
+/// each.
 pub const MAIL_KIND: &str = "notifications.mail";
+
+/// How long after one mail of a person's notifications the next goes at the soonest: what
+/// comes meanwhile waits for it, so nobody gets more than four of them an hour.
+pub const MAIL_GAP: time::Duration = time::Duration::minutes(15);
+
+/// How long after it was due a mail that has not gone is taken as lost, its job gone with
+/// the queue's retention say: the next notification asks for another.
+const MAIL_LOST: time::Duration = time::Duration::hours(1);
 
 /// What an unsubscribe link's signature is for.
 const UNSUBSCRIBE: &str = "unsubscribe";

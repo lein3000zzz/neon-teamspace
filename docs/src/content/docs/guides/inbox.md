@@ -67,7 +67,7 @@ person chooses, under **Account** › **Notifications**, or with `PUT /api/v1/me
 | Choice | `mail` | What comes |
 |---|---|---|
 | **Nothing** | `none` | No notification mail. |
-| **Each notification** | `each` | A mail for each notification still unread a while after it came: one read meanwhile, in the app or over MCP, is not mailed. Unless they chose otherwise, this is everyone's. |
+| **Each notification** | `each` | A mail for each notification still unread a while after it came: one read meanwhile, in the app or over MCP, is not mailed. Those that come close together share a mail, which lists them, and mails go a quarter of an hour apart at the least. Unless they chose otherwise, this is everyone's. |
 | **A digest** | `digest` | One mail of what came since the last and is still unread, at most once every few hours, listing at most 20 and how many more. |
 
 Agents and integrations get no mail: their inbox is read over MCP and the API, and their
@@ -79,6 +79,12 @@ An instance admin turns notification mail on with
 is how long a notification waits unread before its mail goes, and
 `notifications.digest_interval`, three hours unless set, how often digests go at most. While
 it is off, each person's choice is kept for when it is on.
+
+For **Each notification**, one mail waits at a time for each person. A notification that comes
+while one waits goes in it, when it too has waited its delay by then, or in the next. The next
+goes fifteen minutes after the last at the soonest, so a burst of comments, forty threads
+started at once say, makes one mail that lists the first twenty and counts the rest, rather
+than forty mails. One that lists several reads like a digest.
 
 Each mail is written when it goes, with only what its person may see then: a notification
 about a page they lost goes unmailed, and so does one read, archived or mailed since. It says

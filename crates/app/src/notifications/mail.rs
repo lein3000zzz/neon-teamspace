@@ -1,22 +1,23 @@
-//! The mail of the inbox: a mail for each notification still unread a while after it came,
-//! for those who want it, and digests, each written when it goes, of what its person may
-//! see then.
+//! The mail of the inbox: for those who want a mail for each notification, one of what is
+//! still unread a while after it came, one mail at a time, and digests, each written when it
+//! goes, of what its person may see then.
 
 use async_trait::async_trait;
 use neon_domain::auth::{Principal, User};
 use neon_domain::notifications::{DEFAULT_MAIL, MAX_DIGEST, MailPreference, NotificationKind};
 use neon_domain::settings::Secret;
 use neon_domain::workspaces::Action;
-use neon_store::jobs::Job;
+use neon_store::jobs::{self, Job, NewJob};
 use neon_store::notifications::{self as repo, Notification};
 use neon_store::{comments, users, workspace_invites, workspaces};
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::PgConnection;
 use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::notify::reader;
-use super::{InboxError, InboxService, MAIL_KIND, comment_excerpt};
+use super::{InboxError, InboxService, MAIL_GAP, MAIL_KIND, comment_excerpt};
 use crate::jobs::{Handler, JobError};
 use crate::mail::{Mail, Message, Notice, Recipient};
 use crate::pages::PageError;
@@ -28,7 +29,7 @@ const INBOX_PAGE: &str = "/inbox";
 /// How many people's digests one run writes at most; the next run takes the rest.
 const DIGESTS_PER_RUN: i64 = 100;
 
-/// Runs the jobs that mail one notification each.
+/// Runs the jobs that mail a person what came to their inbox.
 pub struct NotificationMailJob {
     inbox: InboxService,
 }
@@ -41,7 +42,7 @@ impl NotificationMailJob {
 
 #[derive(Deserialize)]
 struct Payload {
-    notification_id: Uuid,
+    user_id: Uuid,
 }
 
 #[async_trait]
@@ -52,61 +53,105 @@ impl Handler for NotificationMailJob {
 
     async fn run(&self, job: &Job) -> Result<(), JobError> {
         let payload: Payload = serde_json::from_value(job.payload.clone())
-            .map_err(|_| JobError::permanent("the payload names no notification"))?;
+            .map_err(|_| JobError::permanent("the payload names nobody"))?;
         self.inbox
-            .mail_one(payload.notification_id)
+            .mail_due(payload.user_id)
             .await
             .map_err(JobError::retry)
     }
 }
 
 impl InboxService {
-    /// Mails one notification, as its job runs: when the instance sends notification mail,
-    /// it is still unread, unarchived and unmailed, its person wants a mail for each and
-    /// may still see what it is about. Otherwise nothing is sent, and the job is done.
-    pub async fn mail_one(&self, notification_id: Uuid) -> Result<(), InboxError> {
+    /// Mails a person what came to their inbox, as the job of their mail runs: when the
+    /// instance sends notification mail, they want a mail for each and their mail is due,
+    /// every notification of theirs still unread, unarchived and unmailed that has waited
+    /// `notifications.mail_delay`, and that they may still see. One goes on its own; more
+    /// go together, as a digest lists them. What came since waits for the next, which is
+    /// asked for once it too has waited, and [`MAIL_GAP`] after this one at the soonest.
+    pub async fn mail_due(&self, user_id: Uuid) -> Result<(), InboxError> {
         self.observe("mail", async {
-            if !*self.inner.pages.settings().current().get(keys::MAIL) {
-                return Ok(());
-            }
+            let settings = self.inner.pages.settings().current();
+            let now = self.now();
             let mut tx = self.pool().begin().await?;
-            let Some(notification) = repo::by_id(&mut *tx, notification_id).await? else {
+            let Some((Some(due), sent)) = repo::lock_mail(&mut *tx, user_id).await? else {
                 return Ok(());
             };
-            if notification.read_at.is_some()
-                || notification.archived_at.is_some()
-                || notification.mailed_at.is_some()
-            {
+            if due > now {
+                // Asked for again since: that job sends it.
                 return Ok(());
             }
-            let user_id = notification.user_id;
             let preference = repo::preference(&mut *tx, user_id)
                 .await?
                 .map_or(DEFAULT_MAIL, |(mail, _)| mail);
-            let Some(recipient) = self.recipient(&mut tx, user_id).await? else {
+            let recipient = self.recipient(&mut tx, user_id).await?;
+            let sends = *settings.get(keys::MAIL) && self.inner.mail.configured();
+            let (Some(recipient), true, MailPreference::Each) = (recipient, sends, preference)
+            else {
+                // Nothing waits any more: what comes later asks afresh.
+                repo::set_mail(&mut *tx, user_id, None, sent).await?;
+                tx.commit().await?;
                 return Ok(());
             };
-            if preference != MailPreference::Each {
-                return Ok(());
+            let delay = *settings.get(keys::MAIL_DELAY);
+            let waited = now - delay;
+            let waiting = repo::unmailed(
+                &mut *tx,
+                user_id,
+                waited,
+                i64::try_from(MAX_DIGEST * 5).unwrap_or(i64::MAX),
+            )
+            .await?;
+            let mut told = Vec::new();
+            let mut notices = Vec::new();
+            for notification in &waiting {
+                if let Some(notice) = self.notice(&mut tx, &recipient, notification).await? {
+                    told.push(notification.id);
+                    notices.push(notice);
+                }
             }
-            let Some(notice) = self.notice(&mut tx, &recipient, &notification).await? else {
-                debug!(%notification_id, "a notification's mail skipped: out of reach");
-                return Ok(());
+            let mut last = sent;
+            if !notices.is_empty()
+                && let Some(unsubscribe) = self.unsubscribe_token(user_id)
+            {
+                let message = if notices.len() == 1 {
+                    Message::Notification {
+                        notice: notices.remove(0),
+                        unsubscribe: Secret::new(unsubscribe),
+                    }
+                } else {
+                    // Newest first, as a digest lists them.
+                    notices.reverse();
+                    let more = notices.len().saturating_sub(MAX_DIGEST);
+                    notices.truncate(MAX_DIGEST);
+                    Message::Digest {
+                        notices,
+                        more,
+                        path: INBOX_PAGE.to_owned(),
+                        unsubscribe: Secret::new(unsubscribe),
+                    }
+                };
+                let mail = Mail {
+                    to: recipient_of(&recipient),
+                    message,
+                };
+                self.inner.mail.queue(&mut tx, &mail).await?;
+                repo::mark_mailed(&mut *tx, &told, now).await?;
+                last = Some(now);
+                info!(user_id = %user_id, notifications = told.len(), "notifications mailed");
+            }
+            // What came since it waited asks for the next.
+            let next = match repo::next_unmailed(&mut *tx, user_id, waited).await? {
+                Some(came) => {
+                    let due = last.map_or(came + delay, |last| (came + delay).max(last + MAIL_GAP));
+                    let job = NewJob::new(MAIL_KIND, json!({ "user_id": user_id })).run_at(due);
+                    jobs::enqueue(&mut *tx, &job).await?;
+                    Some(due)
+                }
+                None => None,
             };
-            let Some(unsubscribe) = self.unsubscribe_token(user_id) else {
-                return Ok(());
-            };
-            let mail = Mail {
-                to: recipient_of(&recipient),
-                message: Message::Notification {
-                    notice,
-                    unsubscribe: Secret::new(unsubscribe),
-                },
-            };
-            self.inner.mail.queue(&mut tx, &mail).await?;
-            repo::mark_mailed(&mut *tx, &[notification.id], self.now()).await?;
+            repo::set_mail(&mut *tx, user_id, next, last).await?;
             tx.commit().await?;
-            info!(%notification_id, user_id = %user_id, "a notification mailed");
+            debug!(user_id = %user_id, next = ?next, "notification mail done");
             Ok(())
         })
         .await

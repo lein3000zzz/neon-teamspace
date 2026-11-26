@@ -17,7 +17,7 @@ use sqlx::PgConnection;
 use tracing::debug;
 use uuid::Uuid;
 
-use super::MAIL_KIND;
+use super::{MAIL_GAP, MAIL_KIND, MAIL_LOST};
 use crate::pages::{PageError, PageService};
 use crate::settings::{SettingsService, mcp, notifications as keys};
 use crate::sync::{Broadcaster, Room};
@@ -50,8 +50,9 @@ impl Notifier {
     }
 
     /// Saves a notification on the caller's transaction, unless its person has one of the
-    /// same comment, and queues the mail of it for those who want a mail for each, while
-    /// the instance sends them. Says whether it was made.
+    /// same comment, and, for those who want a mail for each while the instance sends them,
+    /// asks for the mail of it: a job of its own unless one waits already, which takes it
+    /// in. Says whether it was made.
     pub(crate) async fn record(
         &mut self,
         conn: &mut PgConnection,
@@ -65,9 +66,14 @@ impl Notifier {
             && repo::wants_each_mail(&mut *conn, notification.user_id, DEFAULT_MAIL).await?
         {
             let due = notification.created_at + *settings.get(keys::MAIL_DELAY);
-            let job =
-                NewJob::new(MAIL_KIND, json!({ "notification_id": notification.id })).run_at(due);
-            jobs::enqueue(&mut *conn, &job).await?;
+            let lost = notification.created_at - MAIL_LOST;
+            if let Some(due) =
+                repo::schedule_mail(&mut *conn, notification.user_id, due, MAIL_GAP, lost).await?
+            {
+                let job =
+                    NewJob::new(MAIL_KIND, json!({ "user_id": notification.user_id })).run_at(due);
+                jobs::enqueue(&mut *conn, &job).await?;
+            }
         }
         debug!(
             notification_id = %notification.id,

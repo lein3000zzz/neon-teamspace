@@ -588,9 +588,9 @@ pub fn registry() -> Registry {
             notifications::MAIL,
             false,
             "Mails people of their inbox: of each notification still unread a while after it \
-             came, or a digest every few hours, as each person's preference says, and never \
-             what they may no longer see. Every mail has a link that stops it without signing \
-             in. Needs mail set up.",
+             came, those that come close together in one mail, or a digest every few hours, as \
+             each person's preference says, and never what they may no longer see. Every mail \
+             has a link that stops it without signing in. Needs mail set up.",
         ))
         .define(
             Definition::duration(
@@ -598,7 +598,8 @@ pub fn registry() -> Registry {
                 Duration::from_secs(5 * 60),
                 "How long a notification waits unread before the mail of it goes, to those \
                  who want a mail for each: one read meanwhile, in the app or over MCP, is not \
-                 mailed.",
+                 mailed. Those that come while a mail waits go in it once they too have \
+                 waited, or in the next, which goes 15 minutes after the last at the soonest.",
             )
             .check(between(Duration::ZERO, Duration::from_secs(24 * 3600))),
         )

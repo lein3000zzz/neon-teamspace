@@ -3,6 +3,7 @@
 use neon_domain::notifications::{MailPreference, NotificationKind};
 use neon_domain::workspaces::Person;
 use sqlx::PgExecutor;
+use sqlx::postgres::types::PgInterval;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -199,21 +200,6 @@ pub async fn get(
          FROM notifications WHERE id = $1 AND user_id = $2",
         id,
         user_id,
-    )
-    .fetch_optional(executor)
-    .await?
-    .map(Notification::try_from)
-    .transpose()
-}
-
-/// A notification by its id, whoever's.
-pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Notification>> {
-    sqlx::query_as!(
-        Row,
-        "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,
-                block_id, property_id, invitation_id, created_at, read_at, archived_at, mailed_at
-         FROM notifications WHERE id = $1",
-        id,
     )
     .fetch_optional(executor)
     .await?
@@ -457,6 +443,86 @@ pub async fn unmailed(
     .into_iter()
     .map(Notification::try_from)
     .collect()
+}
+
+/// Asks for a mail of someone's notifications at `due`, or `gap` after their last one went
+/// should that be later, unless one waits already, which takes in what comes meanwhile; one
+/// due before `lost` that has not gone is taken as lost, and asked for again. Returns when
+/// the mail asked for is due, for its job; `None` when one waits.
+pub async fn schedule_mail(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    due: OffsetDateTime,
+    gap: time::Duration,
+    lost: OffsetDateTime,
+) -> sqlx::Result<Option<OffsetDateTime>> {
+    let gap = PgInterval::try_from(gap).map_err(sqlx::Error::Encode)?;
+    Ok(sqlx::query_scalar!(
+        "INSERT INTO notification_mail (user_id, due_at) VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE
+             SET due_at = GREATEST($2, notification_mail.sent_at + $3)
+             WHERE notification_mail.due_at IS NULL OR notification_mail.due_at < $4
+         RETURNING due_at",
+        user_id,
+        due,
+        gap,
+        lost,
+    )
+    .fetch_optional(executor)
+    .await?
+    .flatten())
+}
+
+/// When someone's mail that waits is due, and when their last one went, locked for the
+/// transaction.
+pub async fn lock_mail(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+) -> sqlx::Result<Option<(Option<OffsetDateTime>, Option<OffsetDateTime>)>> {
+    Ok(sqlx::query!(
+        "SELECT due_at, sent_at FROM notification_mail WHERE user_id = $1 FOR UPDATE",
+        user_id,
+    )
+    .fetch_optional(executor)
+    .await?
+    .map(|row| (row.due_at, row.sent_at)))
+}
+
+/// Records someone's mail as it is now: when the next is due, if one waits, and when the
+/// last went.
+pub async fn set_mail(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    due_at: Option<OffsetDateTime>,
+    sent_at: Option<OffsetDateTime>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE notification_mail SET due_at = $2, sent_at = $3 WHERE user_id = $1",
+        user_id,
+        due_at,
+        sent_at,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// When the oldest of someone's notifications no mail told of yet, unread and not
+/// archived, made after `after`, came.
+pub async fn next_unmailed(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    after: OffsetDateTime,
+) -> sqlx::Result<Option<OffsetDateTime>> {
+    sqlx::query_scalar!(
+        "SELECT min(created_at) FROM notifications
+         WHERE user_id = $1 AND mailed_at IS NULL AND read_at IS NULL AND archived_at IS NULL
+           AND created_at > $2",
+        user_id,
+        after,
+    )
+    .fetch_one(executor)
+    .await
 }
 
 /// Whether someone wants a mail for each notification: a person with an address, not

@@ -30,7 +30,8 @@ text_enum! {
     MailPreference {
         /// No mail.
         None => "none",
-        /// A mail for each notification still unread a little while after it came.
+        /// A mail for each notification still unread a little while after it came; those
+        /// that come close together share one.
         Each => "each",
         /// One mail every few hours, of what came and is still unread.
         Digest => "digest",
