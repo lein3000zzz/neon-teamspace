@@ -4,7 +4,7 @@ import { useChangeRow, type Property, type Row } from "@/api/databases";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
-import { isComputed, namesPeople, valueOf } from "@/lib/database-rules";
+import { isComputed, namesPeople, valueOf, valueText } from "@/lib/database-rules";
 import { edits } from "@/lib/page-rules";
 import { titleOf } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
@@ -19,6 +19,7 @@ import {
 } from "./cell-editors";
 import { CellValue } from "./cell-value";
 import { useDatabaseScope } from "./database-scope";
+import { useDateFormat } from "./date-format";
 
 const copy = strings.databases.cells;
 
@@ -33,12 +34,15 @@ type CellProps = {
  * A row's value of a property, and, for whoever may change the row, the way
  * to: a checkbox toggles in place, any other value opens its editor in a
  * popover over the cell. Computed values, and people for guests, only show.
+ * In a table, a value wider than its column is cut at the column's edge, and
+ * tells itself in full on hover.
  */
 export function Cell({ property, row, variant }: CellProps) {
   const workspace = useWorkspace();
   const { database, people, seesPeople, report } = useDatabaseScope();
   const change = useChangeRow(workspace.id, database, row.id);
   const value = valueOf(row, property);
+  const dateFormat = useDateFormat(property.id);
   const label = copy.edit(property.name, titleOf(row));
   const trashed = (database.page.trashed_at ?? null) !== null;
   const editable =
@@ -49,6 +53,7 @@ export function Cell({ property, row, variant }: CellProps) {
   const save = (next: unknown) => change.mutate({ [property.id]: next }, { onError: report });
   const inline = variant === "table";
   const shown = <CellValue property={property} value={value} people={people} inline={inline} />;
+  const full = inline ? valueText(property, value, people, dateFormat) : undefined;
 
   if (property.type === "checkbox") {
     return (
@@ -67,9 +72,10 @@ export function Cell({ property, row, variant }: CellProps) {
   if (!editable) {
     return (
       <span
+        title={full}
         className={cn(
           "flex min-h-(--tap-sm) min-w-0 items-center text-sm",
-          inline ? "px-2" : "py-1",
+          inline ? "overflow-hidden px-2" : "py-1",
           isComputed(property.type) && "text-muted-foreground",
         )}
       >
@@ -78,7 +84,14 @@ export function Cell({ property, row, variant }: CellProps) {
     );
   }
   return (
-    <EditableCell property={property} value={value} label={label} inline={inline} onSave={save}>
+    <EditableCell
+      property={property}
+      value={value}
+      label={label}
+      full={full}
+      inline={inline}
+      onSave={save}
+    >
       {shown}
     </EditableCell>
   );
@@ -88,12 +101,22 @@ type EditableCellProps = {
   property: Property;
   value: unknown;
   label: string;
+  /** The value in full, for a table's cell, which may cut it short. */
+  full: string | undefined;
   inline: boolean;
   onSave: (value: unknown) => void;
   children: ReactNode;
 };
 
-function EditableCell({ property, value, label, inline, onSave, children }: EditableCellProps) {
+function EditableCell({
+  property,
+  value,
+  label,
+  full,
+  inline,
+  onSave,
+  children,
+}: EditableCellProps) {
   const [open, setOpen] = useState(false);
   const commit = useRef<(() => void) | null>(null);
   const editor: EditorProps = {
@@ -117,9 +140,10 @@ function EditableCell({ property, value, label, inline, onSave, children }: Edit
       <PopoverTrigger asChild>
         <button
           type="button"
+          title={full}
           className={cn(
             "flex min-h-(--tap-sm) w-full min-w-0 items-center rounded-sm text-left text-sm outline-offset-[-2px] hover:bg-accent aria-expanded:bg-accent",
-            inline ? "px-2" : "px-1.5 py-1",
+            inline ? "overflow-hidden px-2" : "px-1.5 py-1",
           )}
         >
           <span className="sr-only">{`${label}: `}</span>
