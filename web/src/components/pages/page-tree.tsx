@@ -293,16 +293,19 @@ export function Disclosure({ expandable, open, title, onToggle }: DisclosureProp
 
 type PageGlyphProps = { icon?: string | null | undefined; kind?: PageKind | undefined };
 
-/** A page's icon in a list, or without one, a page's glyph, or a database's. */
+/**
+ * A page's icon in a list, or without one, a page's glyph, or a database's,
+ * centred in a box wide enough for an emoji; longer text is cut at its end.
+ */
 export function PageGlyph({ icon, kind }: PageGlyphProps) {
   const text = icon?.trim() ?? "";
-  if (text === "") {
-    const Glyph = kind === "database" ? Table2 : FileText;
-    return <Glyph aria-hidden className="size-4 shrink-0" />;
-  }
+  const Glyph = kind === "database" ? Table2 : FileText;
   return (
-    <span aria-hidden className="grid w-4 shrink-0 place-items-center overflow-hidden leading-none">
-      {text}
+    <span
+      aria-hidden
+      className="flex w-5 shrink-0 justify-center-safe overflow-hidden leading-none whitespace-nowrap"
+    >
+      {text === "" ? <Glyph className="size-4 shrink-0" /> : text}
     </span>
   );
 }

@@ -245,7 +245,7 @@ test("an agent cut short in a table's column keeps its name, and tells the rest 
   expect(await cell.getByText("Scout", { exact: true }).evaluate(cut)).toBe(false);
 });
 
-test("the sidebar keeps to its column with a long page title, and a teamspace stays folded", async ({
+test("the sidebar keeps to its column with a long page title and its emoji, and a teamspace stays folded", async ({
   browser,
 }) => {
   test.setTimeout(60_000);
@@ -260,7 +260,7 @@ test("the sidebar keeps to its column with a long page title, and a teamspace st
       page,
       "POST",
       `/api/v1/workspaces/${workspace.id}/pages`,
-      { teamspace_id: general?.id, title: "Sensor wiring notes" },
+      { teamspace_id: general?.id, title: "Sensor wiring notes", icon: "🔌" },
       201,
     );
 
@@ -275,6 +275,21 @@ test("the sidebar keeps to its column with a long page title, and a teamspace st
       expect(scroll, "nothing in the sidebar is wider than it").toBe(client);
     };
     await fits();
+    // Its emoji shows whole, inside the box its icon takes.
+    const icon = await row.evaluate((link) => {
+      const box = link.querySelector("span[aria-hidden]");
+      if (box === null) {
+        return "no icon";
+      }
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      const drawn = range.getBoundingClientRect();
+      const frame = box.getBoundingClientRect();
+      return drawn.left >= frame.left - 0.5 && drawn.right <= frame.right + 0.5
+        ? "whole"
+        : `${drawn.left}..${drawn.right} in ${frame.left}..${frame.right}`;
+    });
+    expect(icon).toBe("whole");
     // The row's actions show on hover, inside the column.
     await row.hover();
     const more = sidebar.getByRole("button", { name: "More for Sensor wiring notes" });
