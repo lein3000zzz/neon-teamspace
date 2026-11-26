@@ -314,18 +314,18 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 |---|---|
 | `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
+| `neon admin create --email ADDRESS [--display-name NAME]` | Creates an instance admin, whatever the registration mode. It asks for the password at a terminal, or reads it from the first line of standard input. |
 | `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 | `neon health [--live]` | Asks the admin listener's `/readyz`, or `/livez` with `--live`, within three seconds. It prints nothing and exits with status 0 when the answer is `200`; otherwise it prints why to standard error and exits with status 1. Container health checks run it, as the server image has no shell or `curl`. |
 
 With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`. Like
-`neon serve`, `neon migrate`, `neon config check` and `neon health` read the configuration,
-so run them with `.env` exported (`set -a; . ./.env; set +a`) or next to a `neon.yaml`. In
+`neon serve`, `neon migrate`, `neon admin create`, `neon config check` and `neon health`
+read the configuration, so run them with `.env` exported (`set -a; . ./.env; set +a`) or
+next to a `neon.yaml`. In
 the stack, `docker compose -f deployments/docker-compose.yml exec server neon health` runs
 one in the server's container, with its configuration.
-
-**Planned.** `neon admin create`, to create an instance admin from the command line.
 
 ### The web app
 

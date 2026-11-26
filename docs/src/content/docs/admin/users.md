@@ -41,8 +41,10 @@ Each account has these, each asked again before it is done:
 
 - **Make admin**: the account can manage every account, invite and setting.
 - **Make member**: it loses the admin pages, and its API tokens lose the `admin` scope.
-- **Disable**: it is signed out everywhere, its API tokens stop working, and it cannot sign
-  in until enabled again.
+- **Disable**: it is signed out everywhere, its API tokens and connected apps stop working,
+  and it cannot sign in until enabled again. The [agents](/docs/guides/agents/#suspension) it
+  owns, and its incoming webhooks' integrations, are suspended meanwhile, and work again
+  once it is enabled.
 - **Enable**: it can sign in again.
 
 The last admin who can sign in can be neither made a member nor disabled. The page then says

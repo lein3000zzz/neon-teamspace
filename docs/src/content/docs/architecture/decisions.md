@@ -29,15 +29,21 @@ database because it does not depend on sqlx. [More](/docs/architecture/overview/
 transaction passed in. A trait over every repository would double each signature, and a fake
 of a repository tests nothing about its SQL; tests run the real repositories against a real
 Postgres instead, a fresh database for each test. Traits, the ports, are kept for what leaves
-the process and what tests must replace: mail, attachments' storage, the real-time
-broadcaster, the rate limiter and webhooks. They are held as `Arc<dyn Trait>`: dynamic
+the process and what tests must replace: mail, the real-time broadcaster, the listeners of
+access changes, the rate limiter and webhooks' transport, and attachments' storage once
+attachments exist, **planned**. They are held as `Arc<dyn Trait>`: dynamic
 dispatch for a few calls per request costs nothing that can be measured, and keeps generic
 parameters out of every type that holds one.
 
-**The API is code first.** Each route and its OpenAPI entry are declared in one call, with
-`utoipa` and `utoipa-axum`, so a route cannot exist without its description or the other way
-round. The description is committed as `api/openapi.json`, and the app's client types and
-the [API reference](/docs/reference/api/) are generated from it. The server's tests fail
+**The API is code first.** Each route under `/api/v1` and its OpenAPI entry are declared in
+one call, with `utoipa` and `utoipa-axum`, so such a route cannot exist without its
+description or the other way round. The paths beside it speak protocols of their own and are
+described in their guides instead: `/ws` [real-time sync](/docs/architecture/realtime/),
+`/mcp` [MCP](/docs/guides/agents-over-mcp/), `/hooks/in`
+[incoming webhooks](/docs/guides/webhooks/#incoming-webhooks) and `/.well-known` the
+[OAuth metadata](/docs/guides/oauth/). The description is committed as `api/openapi.json`,
+and the app's client types and the [API reference](/docs/reference/api/) are generated from
+it. The server's tests fail
 when the committed description no longer matches the routes, and the app's checks fail when
 its types no longer match the description.
 
@@ -79,14 +85,14 @@ through the live document too, as [edits from the server](/docs/architecture/rea
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
 same time, the last write wins and everyone viewing sees it at once. Merging two statuses
-has no meaning a CRDT could add. **Planned.**
+has no meaning a CRDT could add.
 
 **Markdown in and out, blocks stored.** A page's blocks, in its Yjs document, are what is
 stored; markdown is how content comes in and goes out. Shortcuts work while typing, pasted
 markdown becomes blocks, `.md` files and zips import, and pages and teamspaces export as
 markdown. Agents read and write markdown over MCP, as language models read and write it well.
-Callouts, toggles, mentions and embedded views, which markdown has no syntax for, use a small
-extension of it. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
+Toggles and embedded databases, which markdown has no syntax for, use a small extension of
+it, as callouts and mentions will, **planned**. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
 schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
 edit is applied to the live document, where it merges with the people typing there. Import
 and export exist, as [Import and export](/docs/guides/import-export/) describes, and agents
@@ -95,7 +101,6 @@ read and edit pages as markdown with block ids, as
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
-**Planned.**
 
 ## Agents
 
@@ -122,9 +127,14 @@ tokens checked without a lookup, so revoking one stops it at once;
 tokens, for scripts and bots that do not speak MCP, and a test holds the table of them.
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
-assigned or mentioned, without polling. Incoming webhooks are members of kind integration,
-so what they write carries the same attribution, permissions and limits as an agent's;
+a row assigned to it or a status changed on one, without polling, and of mentions once they
+exist, **planned**. Incoming webhooks are members of kind integration, so what they write
+carries the same attribution, permissions and limits as an agent's;
 [Webhooks](/docs/guides/webhooks/) has both.
+
+**Agents in their tools.** A Claude Code plugin, with a skill that works through an agent's
+tasks over MCP, claiming a card, writing results into it and moving it on, is installed from
+this repository's marketplace. **Planned.**
 
 ## One process, no Redis
 
@@ -169,11 +179,12 @@ who gets one; a person can be in several workspaces. One deployment then serves 
 several teams, or the people its owner lets in.
 
 **Invite only, to start with.** Registration is by invite unless the admins open it to
-anyone or close it. **Planned.**
+anyone or close it.
 
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
-A workspace at a limit takes no more uploads or invitations, and its members go on editing.
-The member limit holds now; storage and agents follow with the features they count.
+A workspace at a limit takes no more uploads, invitations or agents, and its members go on
+editing. The member and agent limits hold now, agents and integrations counting against the
+agent limit together; storage follows with attachments, **planned**.
 
 **Instance admins do not enter workspaces.** Being an instance admin counts only for the
 instance's own work: accounts, settings, and the list of workspaces with their limits. Inside

@@ -20,7 +20,7 @@ flowchart LR
   end
   caddy -- "/api, /ws, /mcp, /hooks, /.well-known" --> server[neon]
   server --> pg[(Postgres 18)]
-  server --> files[(Attachments: local disk or S3)]
+  server -. "planned" .-> files[(Attachments: local disk or S3)]
   server --> mail[Mail server]
   ops((Operator)) -- "127.0.0.1:9090" --> server
 ```
@@ -81,10 +81,12 @@ A use case calls the store's repositories directly, with the transaction passed 
 `&mut Transaction`, so the use case decides what commits together. There is no trait over
 the repositories: tests run them against a real Postgres, a fresh database for each test.
 
-Traits are kept for side effects outside the database, the **ports**: `Mailer`, `BlobStore`,
-`Broadcaster`, `RateLimiter` and `WebhookSender`. `neon-app` declares them, `neon-server`
-provides the adapters, such as SMTP and object storage, and tests use fakes. They are held as
-`Arc<dyn Trait>`. Each port arrives with the feature that needs it, from accounts on.
+Traits are kept for side effects outside the database, the **ports**: `Mailer`,
+`Broadcaster`, `AccessChanges`, which tells the live documents, the database feeds and the
+MCP sessions whose access changed, `RateLimiter` and `WebhookTransport`, and `BlobStore` for
+attachments, **planned**. `neon-app` declares them, `neon-server` provides the adapters, such
+as SMTP and HTTP for webhooks, and tests use fakes. They are held as `Arc<dyn Trait>`. Each
+port arrives with the feature that needs it, from accounts on.
 
 ## A request's way
 

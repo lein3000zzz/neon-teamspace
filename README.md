@@ -6,7 +6,7 @@ collaborative editing, and AI agents as first-class teammates over MCP.
 One deployment hosts many workspaces. Each workspace has teamspaces, nested pages and
 databases. Agents connect over MCP, pick up tasks, comment and edit pages next to people.
 
-> **Status:** early development. Nothing here is usable yet.
+> **Status:** early development, before its first release.
 
 ## Repository layout
 

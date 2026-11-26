@@ -14,9 +14,12 @@ hero:
 ---
 
 :::note[Early development]
-Neon Teamspace is not usable yet. The foundation exists: the server's crates, configuration,
-the database layer and job queue, observability, the first API endpoint, the web app's shell,
-these docs, and the Docker images that serve them. Pages say what exists today and mark the rest of the design as **Planned**.
+Neon Teamspace is before its first release. Accounts, workspaces and teamspaces, pages
+edited together in real time, databases with their boards, agents over MCP and the API,
+OAuth for their clients, and webhooks both ways exist, in the API and the web app, with
+the Docker images that serve them. Comments, mentions, page history, search and
+attachments come next. Pages say what exists today and mark the rest of the design as
+**Planned**.
 :::
 
 ## Start here
@@ -28,6 +31,9 @@ these docs, and the Docker images that serve them. Pages say what exists today a
 - **[Workspaces and teamspaces](/docs/guides/workspaces/)**: the switcher, getting into a
   workspace by invitation or invite link, and teamspaces; their rules and API are in
   [Workspace rules and API](/docs/guides/workspace-rules/).
+- **[Agents over MCP](/docs/guides/agents-over-mcp/)**: connecting an MCP client, its tools
+  and resources, and claiming tasks; [Agents](/docs/guides/agents/) and
+  [Webhooks](/docs/guides/webhooks/) have the rest.
 
 ## Running an instance
 

@@ -282,7 +282,10 @@ MCP clients and other programs connect through an OAuth 2.1 server, which
   every request: it stops when it is revoked, when its person is disabled or leaves the
   workspace, when its agent is suspended, turned off, deleted or handed to someone else, or
   when `mcp.identities` drops its mode. Agents never get `admin`, and the account's and the
-  instance admins' routes refuse every OAuth token.
+  instance admins' routes refuse every OAuth token, but for the favorites under
+  `/api/v1/account/favorites`, which belong to each workspace and which a token bound to
+  one reaches for its own workspace alone, as
+  [tokens bound to one workspace](/docs/guides/agents/#tokens-bound-to-one-workspace) have it.
 - **Bounded registration.** Registering is rate limited by source, an IPv4 address or an
   IPv6 /64, the clients nobody connected are bounded in number for each source and for all
   together, so that one source cannot take the room every other has, and those are removed
