@@ -1,0 +1,15 @@
+{
+  "name": "neon-teamspace",
+  "owner": {
+    "name": "lein3000zzz",
+    "url": "https://github.com/lein3000zzz"
+  },
+  "description": "Neon Teamspace for Claude Code: the MCP server of your own instance, and skills that work your tasks.",
+  "plugins": [
+    {
+      "name": "neon-teamspace",
+      "source": "./integrations/claude-code",
+      "description": "Connect Claude Code to your Neon Teamspace instance and work the cards assigned to you: claim one, do the work in your repository, write the results into the card and move it on to review."
+    }
+  ]
+}

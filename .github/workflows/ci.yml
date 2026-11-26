@@ -73,6 +73,12 @@ jobs:
               - web/**
               - api/openapi.json
               - scripts/**
+              # The Claude Code plugin, which a scripts/ test checks against the MCP server's
+              # tools, read from its code.
+              - .claude-plugin/**
+              - integrations/**
+              - Cargo.toml # the server's version, which the plugin's must be
+              - crates/server/src/mcp/**
               - deny.toml
               - about.toml # a scripts/ test compares it with deny.toml
               - .editorconfig # Prettier reads it
