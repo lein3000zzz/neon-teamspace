@@ -8,7 +8,8 @@
  * `row_id` or `already_claimed`, must be a tool, or a name the server's API description or MCP
  * code uses: a field, an argument, a value or a code. A tool the server lacks, such as one
  * planned but not built, is none of these, and fails. A full tool name, as `allowed-tools`
- * lists them, must name the plugin's own server and one of its tools.
+ * lists them, must name the plugin's own server and one of its tools, and `allowed-tools`
+ * pre-approves only tools that read: the person approves each change to the workspace.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -17,6 +18,8 @@ import { dirname, join, relative } from "node:path";
 /** What the skills are checked against, read from the server's code. */
 export interface Server {
   tools: Set<string>;
+  /** The tools that change the workspace, which need the write scope. */
+  writes: Set<string>;
   /** The resource templates, such as neon://page/{id}. */
   resources: string[];
   /** The names the API description and the MCP code use, beside the tools. */
@@ -43,19 +46,33 @@ function group(match: RegExpMatchArray, index: number): string {
   return match[index] ?? "";
 }
 
+/** A tool of the MCP server: its name, and whether it changes the workspace. */
+export interface Tool {
+  name: string;
+  writes: boolean;
+}
+
 /** The MCP server's tools, in the order of its TOOLS table. */
-export function toolNames(toolsSource: string): string[] {
+export function readTools(toolsSource: string): Tool[] {
   const table = /const TOOLS: \[Spec; (\d+)\] = \[([\s\S]*?)\n\];/.exec(toolsSource);
   if (!table) {
     throw new Error("tools.rs has no `const TOOLS: [Spec; N] = [...];` table");
   }
-  const names = [...group(table, 2).matchAll(/^\s+name: "([a-z_]+)",$/gm)].map((match) =>
-    group(match, 1),
-  );
-  if (names.length !== Number(table[1])) {
-    throw new Error(`TOOLS holds ${table[1]} tools, but ${names.length} names were read`);
+  const tools = group(table, 2)
+    .split(/^\s+Spec \{$/m)
+    .slice(1)
+    .map((spec): Tool => {
+      const name = /^\s+name: "([a-z_]+)",$/m.exec(spec);
+      const writes = /^\s+writes: (true|false),$/m.exec(spec);
+      if (!name || !writes) {
+        throw new Error(`a Spec of TOOLS lacks its name or its writes: ${spec.trim()}`);
+      }
+      return { name: group(name, 1), writes: group(writes, 1) === "true" };
+    });
+  if (tools.length !== Number(table[1])) {
+    throw new Error(`TOOLS holds ${table[1]} tools, but ${tools.length} were read`);
   }
-  return names;
+  return tools;
 }
 
 /** The URI templates of the MCP server's resources. */
@@ -143,8 +160,10 @@ export function readServer(root: string): Server {
       names.add(name);
     }
   }
+  const tools = readTools(readFileSync(join(mcp, "tools.rs"), "utf8"));
   return {
-    tools: new Set(toolNames(readFileSync(join(mcp, "tools.rs"), "utf8"))),
+    tools: new Set(tools.map((tool) => tool.name)),
+    writes: new Set(tools.filter((tool) => tool.writes).map((tool) => tool.name)),
     resources: resourceTemplates(readFileSync(join(mcp, "resources.rs"), "utf8")),
     names,
   };
@@ -315,6 +334,10 @@ export function checkSkill(
     const problem = callableProblem(tool, plugin, server);
     if (problem) {
       problems.push(`allowed-tools: ${problem}`);
+    } else if (server.writes.has(tool.slice(tool.lastIndexOf("__") + 2))) {
+      problems.push(
+        `allowed-tools: pre-approves ${tool}, which changes the workspace: the person approves each change`,
+      );
     }
   }
   for (const match of body.matchAll(USER_CONFIG)) {

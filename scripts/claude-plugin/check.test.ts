@@ -14,7 +14,7 @@ import {
   resourceTemplates,
   type Server,
   serverVersion,
-  toolNames,
+  readTools,
 } from "./check.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
@@ -25,20 +25,27 @@ describe("the Claude Code plugin", () => {
   });
 });
 
-describe("toolNames", () => {
-  it("reads every tool of the MCP server's table", () => {
-    const tools = toolNames(readFileSync(join(repoRoot, "crates/server/src/mcp/tools.rs"), "utf8"));
+describe("readTools", () => {
+  it("reads every tool of the MCP server's table, and whether it writes", () => {
+    const tools = readTools(readFileSync(join(repoRoot, "crates/server/src/mcp/tools.rs"), "utf8"));
 
-    expect(tools).toContain("whoami");
-    expect(tools).toContain("claim_task");
-    expect(new Set(tools).size).toBe(tools.length);
+    expect(tools).toContainEqual({ name: "whoami", writes: false });
+    expect(tools).toContainEqual({ name: "claim_task", writes: true });
+    expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length);
   });
 
-  it("fails when it reads fewer names than the table holds", () => {
+  it("fails when it reads fewer tools than the table holds", () => {
     const source =
-      'pub(crate) const TOOLS: [Spec; 2] = [\n    Spec {\n        name: "whoami",\n    },\n];';
+      'pub(crate) const TOOLS: [Spec; 2] = [\n    Spec {\n        name: "whoami",\n        writes: false,\n    },\n];';
 
-    expect(() => toolNames(source)).toThrow("TOOLS holds 2 tools, but 1 names were read");
+    expect(() => readTools(source)).toThrow("TOOLS holds 2 tools, but 1 were read");
+  });
+
+  it("fails a tool whose writes it cannot read", () => {
+    const source =
+      'pub(crate) const TOOLS: [Spec; 1] = [\n    Spec {\n        name: "whoami",\n    },\n];';
+
+    expect(() => readTools(source)).toThrow("a Spec of TOOLS lacks its name or its writes");
   });
 });
 
@@ -82,6 +89,7 @@ const plugin: Plugin = {
 
 const server: Server = {
   tools: new Set(["whoami", "claim_task"]),
+  writes: new Set(["claim_task"]),
   resources: ["neon://page/{id}", "neon://me/tasks"],
   names: new Set(["row_id", "already_claimed", "identity", "id"]),
 };
@@ -125,6 +133,15 @@ describe("checkSkill", () => {
     ).toEqual([
       "allowed-tools: mcp__plugin_neon-teamspace_neon__search is no tool of the plugin's MCP server, mcp__plugin_neon-teamspace_neon__<tool>",
       "mcp__plugin_other_neon__whoami is no tool of the plugin's MCP server, mcp__plugin_neon-teamspace_neon__<tool>",
+    ]);
+  });
+
+  it("fails a tool that writes among those allowed without asking", () => {
+    const frontmatter =
+      "name: work\ndescription: Works.\nallowed-tools: mcp__plugin_neon-teamspace_neon__whoami mcp__plugin_neon-teamspace_neon__claim_task";
+
+    expect(checkSkill("work", skill("Call `whoami`.", frontmatter), plugin, server)).toEqual([
+      "allowed-tools: pre-approves mcp__plugin_neon-teamspace_neon__claim_task, which changes the workspace: the person approves each change",
     ]);
   });
 
