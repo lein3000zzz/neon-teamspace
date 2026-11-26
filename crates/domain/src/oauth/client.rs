@@ -147,7 +147,7 @@ mod tests {
 
     fn metadata(redirects: &[&str]) -> ClientMetadata {
         ClientMetadata {
-            client_name: Some("Claude Code".into()),
+            client_name: Some("Example CLI".into()),
             redirect_uris: Some(redirects.iter().map(|uri| (*uri).to_owned()).collect()),
             ..ClientMetadata::default()
         }
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(
             registered,
             Ok(Registered {
-                name: "Claude Code".into(),
+                name: "Example CLI".into(),
                 redirect_uris: vec!["http://localhost:51004/callback".into()],
             })
         );
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn names_are_made_fit_to_show() {
-        assert_eq!(client_name(Some("  Claude Code ")), "Claude Code");
+        assert_eq!(client_name(Some("  Example CLI ")), "Example CLI");
         assert_eq!(client_name(None), UNNAMED_CLIENT);
         assert_eq!(client_name(Some(" \u{200b} ")), UNNAMED_CLIENT);
         assert_eq!(client_name(Some("Line\nbreak")), "Linebreak");
@@ -274,7 +274,7 @@ mod tests {
             client_name(Some("evil\u{202e}txt.exe\u{2066}")),
             "eviltxt.exe"
         );
-        assert_eq!(client_name(Some("\u{feff}Cursor")), "Cursor");
+        assert_eq!(client_name(Some("\u{feff}Editor")), "Editor");
         let long = "n".repeat(MAX_CLIENT_NAME + 20);
         assert_eq!(client_name(Some(&long)).chars().count(), MAX_CLIENT_NAME);
         assert_eq!(

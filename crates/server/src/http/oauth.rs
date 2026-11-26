@@ -345,7 +345,7 @@ pub struct ClientRegistration {
     /// port, or a scheme of a native app's own.
     pub redirect_uris: Option<Vec<String>>,
     /// Shown on the consent page as the client's own word; at most 100 characters kept.
-    #[schema(example = "Claude Code")]
+    #[schema(example = "Example CLI")]
     pub client_name: Option<String>,
     /// `authorization_code`, and `refresh_token`, when given.
     pub grant_types: Option<Vec<String>>,
@@ -778,7 +778,7 @@ pub(super) async fn authorize(
 pub struct ConsentClient {
     pub id: Uuid,
     /// What it calls itself: its own word, not checked.
-    #[schema(example = "Claude Code")]
+    #[schema(example = "Example CLI")]
     pub name: String,
 }
 

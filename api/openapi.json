@@ -12549,7 +12549,7 @@
               "null"
             ],
             "description": "Shown on the consent page as the client's own word; at most 100 characters kept.",
-            "example": "Claude Code"
+            "example": "Example CLI"
           },
           "grant_types": {
             "type": [
@@ -12744,7 +12744,7 @@
           "name": {
             "type": "string",
             "description": "What it calls itself: its own word, not checked.",
-            "example": "Claude Code"
+            "example": "Example CLI"
           }
         }
       },

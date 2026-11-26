@@ -2432,7 +2432,7 @@ export interface components {
         ClientRegistration: {
             /**
              * @description Shown on the consent page as the client's own word; at most 100 characters kept.
-             * @example Claude Code
+             * @example Example CLI
              */
             client_name?: string | null;
             /** @description `authorization_code`, and `refresh_token`, when given. */
@@ -2512,7 +2512,7 @@ export interface components {
             id: string;
             /**
              * @description What it calls itself: its own word, not checked.
-             * @example Claude Code
+             * @example Example CLI
              */
             name: string;
         };

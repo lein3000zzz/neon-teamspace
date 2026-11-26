@@ -6,10 +6,10 @@ import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { asPerson, design, people, scout } from "@/test/workspaces";
 
-/** Claude Code, connected by Ada as herself in Design. */
+/** Example CLI, connected by Ada as herself in Design. */
 const asAda: ConnectedApp = {
   id: "0193a5b2-0000-7000-8000-00000000e001",
-  client: { id: "0193a5b2-0000-7000-8000-00000000d001", name: "Claude Code" },
+  client: { id: "0193a5b2-0000-7000-8000-00000000d001", name: "Example CLI" },
   workspace: { id: design().id, name: "Design", slug: "design" },
   identity: people.ada,
   connected_by: { id: people.ada.id, display_name: "Ada" },
@@ -20,11 +20,11 @@ const asAda: ConnectedApp = {
   last_used_at: "2026-11-21T09:00:00Z",
 };
 
-/** Cursor, connected by Ada as her agent Scout, never used since. */
+/** Example Editor, connected by Ada as her agent Scout, never used since. */
 const asScout: ConnectedApp = {
   ...asAda,
   id: "0193a5b2-0000-7000-8000-00000000e002",
-  client: { id: "0193a5b2-0000-7000-8000-00000000d002", name: "Cursor" },
+  client: { id: "0193a5b2-0000-7000-8000-00000000d002", name: "Example Editor" },
   identity: asPerson(scout),
   scopes: ["read"],
   last_used_at: null,
@@ -56,15 +56,15 @@ describe("connected apps", () => {
     apps([asAda, asScout]);
     renderApp("/account/apps");
 
-    const [claude, cursor, ...rest] = await cards();
+    const [cli, editor, ...rest] = await cards();
     expect(rest).toEqual([]);
-    const first = within(claude as HTMLElement);
-    expect(first.getByText("Claude Code")).toBeInTheDocument();
+    const first = within(cli as HTMLElement);
+    expect(first.getByText("Example CLI")).toBeInTheDocument();
     expect(first.getByText("Design")).toBeInTheDocument();
     expect(first.getByText("You")).toBeInTheDocument();
     expect(first.getByText("Read")).toBeInTheDocument();
     expect(first.getByText("Write")).toBeInTheDocument();
-    const second = within(cursor as HTMLElement);
+    const second = within(editor as HTMLElement);
     expect(second.getByText("Scout")).toBeInTheDocument();
     expect(second.getByText("· via Ada")).toBeInTheDocument();
     expect(second.getByText("Never")).toBeInTheDocument();
@@ -75,14 +75,16 @@ describe("connected apps", () => {
     const removed = apps([asAda, asScout]);
     const { user } = renderApp("/account/apps");
 
-    await user.click(await screen.findByRole("button", { name: "Disconnect Cursor from Design" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Disconnect Example Editor from Design" }),
+    );
     const dialog = within(await screen.findByRole("alertdialog"));
-    expect(dialog.getByText("Disconnect Cursor?")).toBeInTheDocument();
+    expect(dialog.getByText("Disconnect Example Editor?")).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Disconnect" }));
 
     await waitFor(async () => expect(await cards()).toHaveLength(1));
     expect(removed).toEqual([asScout.id]);
-    expect(await screen.findByText("Cursor is disconnected.")).toBeInTheDocument();
+    expect(await screen.findByText("Example Editor is disconnected.")).toBeInTheDocument();
   });
 
   it("says when none is connected", async () => {

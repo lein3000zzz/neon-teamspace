@@ -259,7 +259,7 @@ mod tests {
     fn client() -> Client {
         Client {
             id: Uuid::from_u128(7),
-            name: "Claude".into(),
+            name: "Example CLI".into(),
             redirect_uris: vec![
                 "https://app.example.com/callback".into(),
                 "http://127.0.0.1/callback".into(),
@@ -493,7 +493,7 @@ mod tests {
     fn the_client_id_is_a_uuid() {
         assert_eq!(parse_client_id(None), Err(RequestProblem::MissingClientId));
         assert_eq!(
-            parse_client_id(Some("claude")),
+            parse_client_id(Some("unknown")),
             Err(RequestProblem::UnknownClient)
         );
         assert_eq!(

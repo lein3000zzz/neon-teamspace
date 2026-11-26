@@ -119,7 +119,7 @@ pub(super) async fn register(app: &Router, redirects: &[&str]) -> String {
         Method::POST,
         "/api/v1/oauth/register",
         &[],
-        Some(json!({"client_name": "Claude Code", "redirect_uris": redirects})),
+        Some(json!({"client_name": "Example CLI", "redirect_uris": redirects})),
     )
     .await;
     assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
@@ -493,7 +493,7 @@ async fn clients_register_with_strict_redirect_uris(pool: PgPool) {
     };
 
     let made = registration(json!({
-        "client_name": "  Claude\u{202e} Code ",
+        "client_name": "  Example\u{202e} CLI ",
         "redirect_uris": [REDIRECT, "https://app.example.com/cb"],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
@@ -502,7 +502,7 @@ async fn clients_register_with_strict_redirect_uris(pool: PgPool) {
     }))
     .await;
     assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
-    assert_eq!(made.body["client_name"], "Claude Code");
+    assert_eq!(made.body["client_name"], "Example CLI");
     assert_eq!(
         made.body["redirect_uris"],
         json!([REDIRECT, "https://app.example.com/cb"])
@@ -665,7 +665,7 @@ async fn the_authorization_endpoint_sends_the_browser_to_consent(pool: PgPool) {
         problems.push((query(&changed), problem));
     };
     with("client_id", None, "missing_client_id");
-    with("client_id", Some("claude"), "unknown_client");
+    with("client_id", Some("unknown"), "unknown_client");
     with(
         "client_id",
         Some("00000000-0000-7000-8000-000000000001"),
@@ -764,7 +764,7 @@ async fn consent_offers_identities_as_the_settings_allow_and_scopes_as_the_role_
 
     let cy = team.cy.post("/api/v1/oauth/consent", asked.clone()).await;
     assert_eq!(cy.status, StatusCode::OK, "{}", cy.body);
-    assert_eq!(cy.body["client"]["name"], "Claude Code");
+    assert_eq!(cy.body["client"]["name"], "Example CLI");
     assert_eq!(cy.body["redirect_host"], "http://127.0.0.1:43110");
     assert_eq!(cy.body["requested_scopes"], json!(["read", "write"]));
     assert_eq!(cy.body["resource"], "mcp");
@@ -1740,7 +1740,7 @@ async fn people_list_and_disconnect_their_apps_and_admins_those_of_agents(pool: 
             .clone()
     };
     let mine = find(&as_cy.client);
-    assert_eq!(mine["client"]["name"], "Claude Code");
+    assert_eq!(mine["client"]["name"], "Example CLI");
     assert_eq!(mine["workspace"]["id"], ws.as_str());
     assert_eq!(mine["workspace"]["name"], "Design");
     assert_eq!(mine["identity"]["id"], cy.as_str());

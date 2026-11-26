@@ -177,7 +177,7 @@ mod tests {
         for uri in [
             "https://app.example.com/callback",
             "https://app.example.com:8443/oauth/callback?client=cli",
-            "https://claude.ai/api/mcp/auth_callback",
+            "https://mcp.example.org/api/mcp/auth_callback",
             "https://127.0.0.1/callback",
         ] {
             assert_eq!(check_redirect_uri(uri), Ok(()), "{uri}");

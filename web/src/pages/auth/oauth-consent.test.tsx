@@ -45,7 +45,7 @@ function option(patch: Partial<ConsentOption> = {}): ConsentOption {
 
 function consentOf(workspaces: ConsentOption[], patch: Partial<ConsentInfo> = {}): ConsentInfo {
   return {
-    client: { id: CLIENT, name: "Claude Code" },
+    client: { id: CLIENT, name: "Example CLI" },
     redirect_uri: REDIRECT,
     redirect_host: "http://127.0.0.1:43110",
     requested_scopes: ["read", "write"],
@@ -76,7 +76,7 @@ function fakeConsent(consent: ConsentInfo) {
 }
 
 /** The card of the consent page. */
-async function card(name = "Connect Claude Code?") {
+async function card(name = "Connect Example CLI?") {
   return within(await screen.findByRole("region", { name }));
 }
 

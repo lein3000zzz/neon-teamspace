@@ -43,7 +43,7 @@ async fn client(oauth: &OAuthService) -> (Uuid, AuthorizationRequest) {
     let client = oauth
         .register(
             &ClientMetadata {
-                client_name: Some("Claude Code".into()),
+                client_name: Some("Example CLI".into()),
                 redirect_uris: Some(vec![REDIRECT.into()]),
                 ..ClientMetadata::default()
             },
@@ -142,7 +142,7 @@ async fn an_access_token_stands_for_the_agent_in_its_workspace_until_its_grant_e
     let Credential::Token { name, scopes, .. } = &principal.credential else {
         panic!("a token credential: {principal:?}");
     };
-    assert_eq!(name, "Claude Code");
+    assert_eq!(name, "Example CLI");
     assert_eq!(scopes, &[Scope::Read, Scope::Write]);
     // Read again, as a live connection does.
     assert_eq!(h.auth.refresh(&principal).await.expect("holds"), principal);

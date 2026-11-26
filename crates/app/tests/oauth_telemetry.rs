@@ -49,7 +49,7 @@ async fn client(oauth: &OAuthService) -> (Uuid, AuthorizationRequest) {
     let client = oauth
         .register(
             &ClientMetadata {
-                client_name: Some("Claude Code".into()),
+                client_name: Some("Example CLI".into()),
                 redirect_uris: Some(vec![REDIRECT.into()]),
                 ..ClientMetadata::default()
             },
