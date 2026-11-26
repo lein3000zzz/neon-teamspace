@@ -5244,6 +5244,113 @@
         ]
       }
     },
+    "/api/v1/files/{id}": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "A file",
+        "description": "The file's bytes, for those who see the page it was uploaded to: a page in the trash shows to those who could edit it. Images, video and audio that run no script come inline; anything else, SVG and HTML among them, as a download. A `Range` of bytes answers `206` with that part, as media players ask; `If-None-Match` with the file's ETag answers `304`. The answer may be kept by the caller's browser alone, which asks again each time.",
+        "operationId": "read_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The file's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "206": {
+            "description": "The part of it the Range asked for.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "304": {
+            "description": "The file is the one the ETag names."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: no such file, or none the caller may see; file_missing: its bytes are gone from the file store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The Range starts past the file's end.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "storage_unavailable: the file store did not answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/meta": {
       "get": {
         "tags": [
@@ -6009,7 +6116,7 @@
             }
           },
           "400": {
-            "description": "invalid_input.",
+            "description": "invalid_input: a title or icon out of bounds, both covers at once, or a cover_image that is not an image uploaded to the page.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6240,6 +6347,178 @@
           },
           "503": {
             "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/files": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload a file to a page",
+        "description": "Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second; an upload may take 15 minutes.",
+        "operationId": "upload_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "The kind of block the file is for, whose types it must be of.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/FileKind"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "description": "The form of an upload.",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "The file, its name as the part's filename. At most `attachments.max_file_bytes`.",
+                    "contentMediaType": "application/octet-stream"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: a form whose first part is not `file`; or invalid_body, a form that cannot be read or stopped short.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "storage_limit: the workspace has no room for the file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "file_too_large: past attachments.max_file_bytes, said as it arrives or as declared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "unsupported_type: the file's bytes are of a type the kind does not take.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "storage_unavailable: the file store did not answer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16617,6 +16896,91 @@
           }
         }
       },
+      "File": {
+        "type": "object",
+        "description": "A file uploaded to a page.",
+        "required": [
+          "id",
+          "page_id",
+          "url",
+          "kind",
+          "name",
+          "content_type",
+          "size",
+          "sha256",
+          "created_at"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "description": "Its type, as its bytes say.",
+            "example": "image/png"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FileKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name it was uploaded with, which a download is saved as.",
+            "example": "diagram.png"
+          },
+          "page_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The page it was uploaded to, whose access it follows."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The SHA-256 of its bytes, in hex."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Its size in bytes.",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string",
+            "description": "Where it is read, which documents refer to it by: the URL of an image, video, audio\nor file block, or of markdown's link.",
+            "example": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "An image's width in pixels, when its header says.",
+            "minimum": 0
+          }
+        }
+      },
+      "FileKind": {
+        "type": "string",
+        "description": "What a file is uploaded for.",
+        "enum": [
+          "image",
+          "video",
+          "audio",
+          "file"
+        ]
+      },
       "Filter": {
         "oneOf": [
           {
@@ -17909,6 +18273,14 @@
                 "type": "null"
               }
             ]
+          },
+          "cover_image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "An image uploaded to the page, shown as its cover in place of `cover`, whose bytes\nare at `/api/v1/files/{cover_image}`."
           },
           "created_at": {
             "type": "string",
@@ -19237,6 +19609,8 @@
         "description": "Why a file of a zip was left out.",
         "enum": [
           "attachment",
+          "unsupported_type",
+          "too_large",
           "hidden",
           "link",
           "encrypted",
@@ -19933,12 +20307,20 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Cover",
-                "description": "Null removes it."
+                "description": "Null removes it. Setting it takes `cover_image` off."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "cover_image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "An image uploaded to the page, with `kind=image`, to show as its cover; null removes\nit. Setting it takes `cover` off."
           },
           "icon": {
             "type": [
@@ -20571,6 +20953,14 @@
                 "type": "boolean",
                 "description": "Members, besides owners and admins, may create teamspaces."
               },
+              "storage_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "The bytes its attachments take together, as `limits.storage_bytes` counts them.\nAbsent for a guest."
+              },
               "updated_at": {
                 "type": "string",
                 "format": "date-time"
@@ -20742,7 +21132,7 @@
           "storage_bytes": {
             "type": "integer",
             "format": "int64",
-            "description": "Always 0 until attachments exist."
+            "description": "The bytes its attachments take together, as its storage limit counts them."
           }
         }
       }
@@ -20797,6 +21187,10 @@
     {
       "name": "pages",
       "description": "Pages and their trees, sharing, and the trash."
+    },
+    {
+      "name": "files",
+      "description": "Attachments: files uploaded to a page for its image, video, audio and file blocks and its cover, and read back at the path documents refer to them by, `/api/v1/files/{id}`."
     },
     {
       "name": "databases",

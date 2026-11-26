@@ -56,6 +56,8 @@ pub struct WorkspaceDetails {
     pub members: Option<i64>,
     /// How many agents and integrations it has, deleted ones left out; unset for a guest.
     pub agents: Option<i64>,
+    /// The bytes its attachments take together; unset for a guest.
+    pub storage_bytes: Option<i64>,
     /// Whether the instance has agents at all, as the setting `mcp.identities` says.
     pub agents_on: bool,
     pub limits: Limits,
@@ -159,6 +161,7 @@ impl WorkspaceService {
                 role: WorkspaceRole::Owner,
                 members: Some(1),
                 agents: Some(0),
+                storage_bytes: Some(0),
                 agents_on: self.agents_on(),
                 limits: self.limits(LimitOverrides::default()),
             })
@@ -328,13 +331,14 @@ impl WorkspaceService {
     ) -> Result<WorkspaceDetails, WorkspaceError> {
         let role = membership.role()?;
         let id = membership.workspace.id;
-        let (members, agents) = if membership.check(Action::ListMembers).is_ok() {
+        let (members, agents, storage_bytes) = if membership.check(Action::ListMembers).is_ok() {
             (
                 Some(repo::count_members(&mut *conn, id).await?),
                 Some(agents::count_live(&mut *conn, id).await?),
+                Some(neon_store::files::usage(&mut *conn, id).await?),
             )
         } else {
-            (None, None)
+            (None, None, None)
         };
         let limits = self.limits_of(&mut *conn, id).await?;
         Ok(WorkspaceDetails {
@@ -342,6 +346,7 @@ impl WorkspaceService {
             role,
             members,
             agents,
+            storage_bytes,
             agents_on: self.agents_on(),
             limits,
         })

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE files SET unreferenced_since = $2\n         WHERE id = ANY($1) AND unreferenced_since IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2f11c53e6048a8881cbab5ae729eb055557407ce3df6a70cb15c19c08bacda9"
+}

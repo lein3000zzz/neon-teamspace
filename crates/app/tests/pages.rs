@@ -1062,6 +1062,7 @@ async fn a_page_s_title_icon_cover_and_style_change(pool: PgPool) {
                     title: Some(String::new()),
                     icon: Some(None),
                     cover: Some(Some(Cover::Teal)),
+                    cover_image: None,
                     font: Some(Font::Mono),
                     small_text: None,
                     full_width: Some(true),

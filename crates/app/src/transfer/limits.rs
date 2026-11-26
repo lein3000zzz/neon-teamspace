@@ -30,6 +30,12 @@ pub struct Limits {
     pub export_rows_at_once: usize,
     /// The most bytes of markdown one export holds, before it is zipped.
     pub max_export_bytes: usize,
+    /// The most bytes of files one export holds, those its pages show, which are read whole
+    /// to be zipped.
+    pub max_export_files: usize,
+    /// The most the files of a zip its pages show unpack to, together. Each is at most what
+    /// an upload takes, too.
+    pub max_files_unpacked: usize,
     /// The longest an import or export may take, once its file is uploaded.
     pub time_limit: Duration,
     /// How many imports and exports run at once on the server, once their file is
@@ -53,6 +59,8 @@ impl Default for Limits {
             max_export_rows: neon_domain::databases::MAX_ROWS,
             export_rows_at_once: 250,
             max_export_bytes: 128 * MIB,
+            max_export_files: 128 * MIB,
+            max_files_unpacked: 256 * MIB,
             time_limit: Duration::from_secs(20),
             parallel: 4,
             per_user: 2,

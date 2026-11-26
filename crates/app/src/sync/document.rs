@@ -1009,22 +1009,29 @@ impl Document {
     /// Returns whether it was saved. A failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text) = {
+        let (state, state_vector, read) = {
             let txn = self.awareness.doc().transact();
-            let text = match neon_blocks::read(&txn, &self.fragment) {
-                Ok(document) => Some(document.plain_text()),
+            let read = match neon_blocks::read(&txn, &self.fragment) {
+                Ok(document) => Some((
+                    document.plain_text(),
+                    crate::attachments::shown_files(&document),
+                )),
                 Err(error) => {
                     // Its structure, never its content.
-                    warn!(%error, "the document does not read as blocks; its search text stays");
+                    warn!(
+                        %error,
+                        "the document does not read as blocks; its search text and files stay"
+                    );
                     None
                 }
             };
             (
                 txn.encode_state_as_update_v1(&StateVector::default()),
                 txn.state_vector().encode_v1(),
-                text,
+                read,
             )
         };
+        let (text, files) = read.unzip();
         let page_id = self.page_id;
         let last_seq = self.storage.last_seq;
         let edited = self.storage.edited;
@@ -1045,6 +1052,9 @@ impl Document {
             .await?;
             let deleted = documents::delete_updates_through(&mut *tx, page_id, last_seq).await?;
             documents::set_content(&mut *tx, page_id, text.as_deref(), edited).await?;
+            if let Some(files) = &files {
+                neon_store::files::set_page_refs(&mut *tx, page_id, files).await?;
+            }
             tx.commit().await?;
             Ok::<_, sqlx::Error>(deleted)
         }

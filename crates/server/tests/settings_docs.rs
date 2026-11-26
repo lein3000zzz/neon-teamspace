@@ -43,7 +43,11 @@ fn example_settings(example: &str) -> Vec<(String, String)> {
         let Some((key, value)) = text.split_once(':') else {
             continue;
         };
-        if key.is_empty() || !key.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+        if key.is_empty()
+            || !key
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
             continue;
         }
         if !(value.is_empty() || value.starts_with(' ')) {

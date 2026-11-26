@@ -99,6 +99,7 @@ fn page(workspace_id: Uuid, space: Space, parent_id: Option<Uuid>, position: &st
         title: String::new(),
         icon: None,
         cover: None,
+        cover_image: None,
         style: PageStyle::default(),
         created_by: None,
         last_edited_by: None,

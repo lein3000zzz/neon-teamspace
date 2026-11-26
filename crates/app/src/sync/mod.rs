@@ -535,6 +535,12 @@ impl SyncService {
         ))
     }
 
+    /// The pages whose documents are live now, whose content may hold what is not saved
+    /// yet.
+    pub fn open_pages(&self) -> Vec<Uuid> {
+        self.inner.registry().docs.keys().copied().collect()
+    }
+
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {

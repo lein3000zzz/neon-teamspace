@@ -98,7 +98,7 @@ describe("importing markdown", () => {
 
     expect(await dialog.findByText("1 file of the zip was left out:")).toBeInTheDocument();
     expect(dialog.getByText("Roadmap/logo.png")).toBeInTheDocument();
-    expect(dialog.getByText(/not markdown; attachments come later/)).toBeInTheDocument();
+    expect(dialog.getByText(/not markdown, and no page shows it/)).toBeInTheDocument();
     expect(api.imports.map((entry) => entry.query)).toEqual([
       { teamspace_id: TEAMSPACE_IDS.general },
     ]);

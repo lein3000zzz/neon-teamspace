@@ -3,6 +3,7 @@
 //! Use cases call the repositories directly and own their transactions. Traits exist only
 //! for side effects that tests replace: mail, blob storage, realtime broadcast, rate limits.
 
+pub mod attachments;
 pub mod auth;
 pub mod clock;
 pub mod crypto;

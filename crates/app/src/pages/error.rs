@@ -27,6 +27,8 @@ pub enum PageError {
         neon_domain::databases::MAX_ROWS
     )]
     TooManyRows,
+    #[error("this workspace has reached its storage limit of {limit} bytes")]
+    StorageLimit { limit: u64 },
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("{0}")]
@@ -45,6 +47,7 @@ impl PageError {
             Self::AlreadyShared => "already_shared",
             Self::AlreadyFavorite => "already_favorite",
             Self::TooManyRows => "too_many_rows",
+            Self::StorageLimit { .. } => "storage_limit",
             Self::Database(_) | Self::Internal(_) => "internal",
         }
     }

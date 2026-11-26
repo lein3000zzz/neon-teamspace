@@ -180,12 +180,7 @@ impl WorkspaceService {
 
     /// The instance's limits, for workspaces that set none of their own.
     fn default_limits(&self) -> LimitValues {
-        let settings = self.settings();
-        LimitValues {
-            members: *settings.get(keys::LIMIT_MEMBERS),
-            storage_bytes: *settings.get(keys::LIMIT_STORAGE_BYTES),
-            agents: *settings.get(keys::LIMIT_AGENTS),
-        }
+        limit_defaults(&self.settings())
     }
 
     /// The limits that hold for a workspace now.
@@ -259,6 +254,16 @@ impl WorkspaceService {
             }
         }
         result
+    }
+}
+
+/// The instance's limits as the settings set them, for workspaces that set none of their
+/// own.
+pub(crate) fn limit_defaults(settings: &Snapshot) -> LimitValues {
+    LimitValues {
+        members: *settings.get(keys::LIMIT_MEMBERS),
+        storage_bytes: *settings.get(keys::LIMIT_STORAGE_BYTES),
+        agents: *settings.get(keys::LIMIT_AGENTS),
     }
 }
 

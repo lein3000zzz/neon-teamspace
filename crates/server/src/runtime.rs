@@ -25,6 +25,7 @@ use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
+use neon_app::attachments::AttachmentService;
 use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
 use neon_app::clock::Clock;
 use neon_app::crypto::Envelope;
@@ -57,6 +58,7 @@ use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
 use crate::mail::SmtpMailer;
 use crate::mcp::{self, Mcp};
+use crate::storage::S3Connector;
 use crate::telemetry;
 use crate::webhooks::HttpTransport;
 
@@ -282,9 +284,25 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
-    let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
-        .limiter(Arc::clone(&limiter))
-        .build();
+    let attachments = AttachmentService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        live.clone(),
+        config.server.data_dir.clone(),
+        Arc::new(S3Connector),
+    )
+    .limiter(Arc::clone(&limiter))
+    .build();
+    report_storage(&attachments);
+    let transfer = TransferService::builder(
+        pages.clone(),
+        live.clone(),
+        databases.clone(),
+        attachments.clone(),
+    )
+    .limiter(Arc::clone(&limiter))
+    .build();
     let webhooks = WebhookService::builder(
         pool.clone(),
         Arc::clone(&settings),
@@ -315,7 +333,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     );
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
-    start_workspace_upkeep(shutdown, &workspaces, &pages);
+    start_workspace_upkeep(shutdown, &workspaces, &pages, &attachments);
     start_oauth_upkeep(shutdown, &oauth);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
@@ -349,6 +367,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             databases,
             live: feeds,
             transfer,
+            attachments,
             webhooks,
             web: Arc::new(web),
             mcp: mcp.clone(),
@@ -371,6 +390,15 @@ fn envelope(config: &Config) -> anyhow::Result<Envelope> {
         );
     }
     Ok(Envelope::new(keys))
+}
+
+/// Says where attachments are kept, and warns when that store cannot be opened, so the
+/// first upload is not the first to know.
+fn report_storage(attachments: &AttachmentService) {
+    match attachments.blobs() {
+        Ok(_) => info!("attachments are kept where attachments.storage says"),
+        Err(error) => warn!(%error, "the blob store attachments.storage names cannot be opened"),
+    }
 }
 
 /// Says whether mail can go, and warns when the settings set it up but something else it
@@ -430,8 +458,18 @@ fn start_auth_upkeep(shutdown: &Shutdown, auth: &AuthService) {
 
 /// Starts the hourly cleanup of ended invitations and invite links and of the pages' trash,
 /// which stops before the pool closes.
-fn start_workspace_upkeep(shutdown: &Shutdown, workspaces: &WorkspaceService, pages: &PageService) {
-    let cleanup = WorkspaceCleanup::spawn(workspaces.clone(), pages.clone(), CLEANUP_INTERVAL);
+fn start_workspace_upkeep(
+    shutdown: &Shutdown,
+    workspaces: &WorkspaceService,
+    pages: &PageService,
+    attachments: &AttachmentService,
+) {
+    let cleanup = WorkspaceCleanup::spawn(
+        workspaces.clone(),
+        pages.clone(),
+        attachments.clone(),
+        CLEANUP_INTERVAL,
+    );
     on_stop(
         shutdown,
         "workspace cleanup",

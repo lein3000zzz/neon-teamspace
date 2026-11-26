@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pages\n         SET title = $2, icon = $3, cover = $4, cover_file_id = $10, font = $5,\n             small_text = $6, full_width = $7, last_edited_by = $8, updated_at = $9\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4bc6bf90f8a64c495d8e3e0b9a0608efcd774f51d3bb89599806db9224cc98b0"
+}

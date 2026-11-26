@@ -7,6 +7,7 @@ use axum::routing::{get, post};
 use http_body_util::BodyExt as _;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::attachments::{AttachmentService, BlobStore, ObjectBlobs};
 use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
@@ -122,6 +123,28 @@ pub(crate) async fn state_with_mcp(
     build_state(pool, Envelope::default(), web, setup).await
 }
 
+/// The state, its files kept in `blobs` and its attachments' time read from `clock`.
+pub(super) async fn state_with_blobs(
+    pool: PgPool,
+    blobs: Arc<dyn BlobStore>,
+    limiter: Arc<dyn RateLimiter>,
+    clock: Clock,
+) -> AppState {
+    let setup = Setup {
+        blobs,
+        limiter,
+        clock,
+        ..Setup::default()
+    };
+    build_state(
+        pool,
+        Envelope::default(),
+        WebConfig::new(None, Vec::new()),
+        setup,
+    )
+    .await
+}
+
 /// What a test's state is built with, beside its database, key and web configuration.
 struct Setup {
     sync: SyncLimits,
@@ -129,8 +152,10 @@ struct Setup {
     transport: Arc<dyn WebhookTransport>,
     /// Where every use case's attempts are counted.
     limiter: Arc<dyn RateLimiter>,
-    /// The time sessions, tokens, OAuth and webhooks read.
+    /// The time sessions, tokens, OAuth, webhooks and attachments read.
     clock: Clock,
+    /// Where files are kept: in memory unless a test says.
+    blobs: Arc<dyn BlobStore>,
 }
 
 impl Default for Setup {
@@ -141,6 +166,9 @@ impl Default for Setup {
             transport: Arc::new(crate::webhooks::HttpTransport::default()),
             limiter: Arc::new(MemoryLimiter::new()),
             clock: Clock::system(),
+            blobs: Arc::new(ObjectBlobs::new(Arc::new(
+                object_store::memory::InMemory::new(),
+            ))),
         }
     }
 }
@@ -152,6 +180,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         transport,
         limiter,
         clock,
+        blobs,
     } = setup;
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -206,7 +235,23 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
         .build();
-    let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
+    let attachments = AttachmentService::builder_with_store(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        sync.clone(),
+        blobs,
+    )
+    .limiter(Arc::clone(&limiter))
+    .clock(clock.clone())
+    .build();
+    let transfer = TransferService::builder(
+        pages.clone(),
+        sync.clone(),
+        databases.clone(),
+        attachments.clone(),
+    )
+    .build();
     let webhooks = WebhookService::builder(
         pool.clone(),
         Arc::clone(&settings),
@@ -247,6 +292,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         databases,
         live,
         transfer,
+        attachments,
         webhooks,
         web: Arc::new(web),
         mcp,

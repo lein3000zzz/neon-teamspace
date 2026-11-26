@@ -53,6 +53,17 @@ impl Limits {
     pub fn admits_agent(&self, agents: i64) -> bool {
         admits(self.agents, agents)
     }
+
+    /// Whether `adding` bytes of attachments fit beside the `used` ones: up to the limit,
+    /// which a workspace may reach but never pass.
+    pub fn admits_bytes(&self, used: i64, adding: u64) -> bool {
+        self.storage_bytes.is_none_or(|limit| {
+            u64::try_from(used)
+                .ok()
+                .and_then(|used| used.checked_add(adding))
+                .is_some_and(|total| total <= limit)
+        })
+    }
 }
 
 fn admits(limit: Option<u64>, count: i64) -> bool {
@@ -147,6 +158,30 @@ mod tests {
             "people count against their own limit"
         );
         assert!(Limits::default().admits_agent(i64::MAX));
+    }
+
+    #[test]
+    fn bytes_fit_up_to_the_storage_limit() {
+        let kib = Limits {
+            storage_bytes: Some(1024),
+            ..Limits::default()
+        };
+
+        assert!(kib.admits_bytes(0, 1024));
+        assert!(kib.admits_bytes(1000, 24));
+        assert!(!kib.admits_bytes(1000, 25));
+        assert!(!kib.admits_bytes(1024, 1));
+        assert!(
+            kib.admits_bytes(1024, 0),
+            "an empty file fits a full workspace"
+        );
+        assert!(
+            !kib.admits_bytes(2048, 0),
+            "past the limit, nothing more fits"
+        );
+        assert!(!kib.admits_bytes(1, u64::MAX));
+        assert!(!kib.admits_bytes(-1, 0), "a count below 0 is no count");
+        assert!(Limits::default().admits_bytes(i64::MAX, u64::MAX));
     }
 
     #[test]

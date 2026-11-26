@@ -428,8 +428,8 @@ pub async fn rows(
 ) -> sqlx::Result<Vec<ListedRow>> {
     sqlx::query!(
         r#"SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
-                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,
-                  p.created_by, p.last_edited_by, p.created_at, p.updated_at,
+                  p.position, p.title, p.icon, p.cover, p.cover_file_id, p.font, p.small_text,
+                  p.full_width, p.created_by, p.last_edited_by, p.created_at, p.updated_at,
                   p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,
                   r.number,
                   CASE WHEN $4::text[] IS NULL THEN r.cells
@@ -465,6 +465,7 @@ pub async fn rows(
             title: row.title,
             icon: row.icon,
             cover: row.cover,
+            cover_file_id: row.cover_file_id,
             font: row.font,
             small_text: row.small_text,
             full_width: row.full_width,

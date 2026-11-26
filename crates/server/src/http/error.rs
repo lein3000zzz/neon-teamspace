@@ -10,6 +10,7 @@ use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use neon_app::attachments::{AttachmentError, BlobError};
 use neon_app::auth::AuthError;
 use neon_app::databases::DatabaseError;
 use neon_app::oauth::OAuthError;
@@ -277,7 +278,8 @@ impl From<PageError> for ApiError {
             | PageError::TooDeep
             | PageError::AlreadyShared
             | PageError::AlreadyFavorite
-            | PageError::TooManyRows => StatusCode::CONFLICT,
+            | PageError::TooManyRows
+            | PageError::StorageLimit { .. } => StatusCode::CONFLICT,
             PageError::Database(_) | PageError::Internal(_) => {
                 tracing::error!(error = %error, "a page use case failed");
                 return Self::internal();
@@ -361,6 +363,7 @@ impl From<TransferError> for ApiError {
         let (status, retry_after) = match error {
             TransferError::Page(error) => return error.into(),
             TransferError::Database(error) => return error.into(),
+            TransferError::Attachment(error) => return error.into(),
             TransferError::Content { .. } | TransferError::Internal(_) => {
                 tracing::error!(error = %message, "an import or export failed");
                 return Self::internal();
@@ -378,6 +381,47 @@ impl From<TransferError> for ApiError {
         };
         let mut api = Self::new(status, code, message);
         api.retry_after = retry_after;
+        api
+    }
+}
+
+impl From<AttachmentError> for ApiError {
+    /// Expected errors answer with their message, which never names a file. Others are
+    /// logged with their cause and answer as internal errors, or as unavailable while the
+    /// blob store does not answer.
+    fn from(error: AttachmentError) -> Self {
+        let error = match error {
+            AttachmentError::Page(error) => return error.into(),
+            other => other,
+        };
+        let status = match &error {
+            AttachmentError::Page(_) | AttachmentError::Database(_) => {
+                tracing::error!(error = %error, "an attachment use case failed");
+                return Self::internal();
+            }
+            AttachmentError::NotFound => StatusCode::NOT_FOUND,
+            AttachmentError::UnsupportedType { .. } => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            AttachmentError::TooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
+            AttachmentError::StorageLimit { .. } => StatusCode::CONFLICT,
+            AttachmentError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AttachmentError::Body(_) | AttachmentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            AttachmentError::Store(BlobError::NotFound) => {
+                tracing::error!(error = %error, "a file's bytes are missing from the blob store");
+                StatusCode::NOT_FOUND
+            }
+            AttachmentError::Store(_) => {
+                tracing::error!(error = %error, "the blob store failed");
+                return Self::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    error.code(),
+                    "the file store did not answer: try again in a moment",
+                );
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let AttachmentError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
         api
     }
 }

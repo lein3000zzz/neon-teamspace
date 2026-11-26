@@ -46,6 +46,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "webhooks", description = "Outgoing webhooks, which tell a URL, signed, of what happens to the rows an identity is assigned to, with their delivery logs; and incoming webhooks, which act as an integration on a database or page with what is posted to their URL, `POST /hooks/in/{token}`, which the docs describe."),
         (name = "teamspaces", description = "A workspace's teamspaces and their members."),
         (name = "pages", description = "Pages and their trees, sharing, and the trash."),
+        (name = "files", description = "Attachments: files uploaded to a page for its image, video, audio and file blocks and its cover, and read back at the path documents refer to them by, `/api/v1/files/{id}`."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),
         (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
     )

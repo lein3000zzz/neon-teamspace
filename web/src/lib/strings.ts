@@ -1286,7 +1286,9 @@ export const strings = {
           ? "1 file of the zip was left out:"
           : `${count} files of the zip were left out:`,
       reasons: {
-        attachment: "not markdown; attachments come later",
+        attachment: "not markdown, and no page shows it",
+        unsupported_type: "a file of a type its block does not take",
+        too_large: "larger than an upload may be",
         hidden: "hidden",
         link: "a symbolic link",
         encrypted: "encrypted",

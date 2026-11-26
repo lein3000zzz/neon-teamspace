@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,\n                  p.created_by, p.last_edited_by, p.created_at, p.updated_at,\n                  p.content_updated_at, p.trashed_at, p.trashed_by, p.trashed_with,\n                  r.number,\n                  CASE WHEN $4::text[] IS NULL THEN r.cells\n                       ELSE COALESCE((SELECT jsonb_object_agg(k.key, r.cells -> k.key)\n                                      FROM unnest($4::text[]) AS k (key)\n                                      WHERE r.cells ? k.key), '{}'::jsonb)\n                  END AS \"cells!\",\n                  s.access AS \"shared?\"\n           FROM database_rows r\n           JOIN pages p ON p.id = r.page_id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3\n           WHERE r.database_id = $1 AND p.trashed_with IS NOT DISTINCT FROM $2\n             AND ($5::uuid[] IS NULL OR r.page_id = ANY($5::uuid[]))\n           ORDER BY p.position, p.id",
+  "query": "WITH RECURSIVE chain (id, parent_id, depth) AS (\n               SELECT id, parent_id, 0 FROM pages WHERE id = $1\n             UNION ALL\n               SELECT p.id, p.parent_id, c.depth + 1\n               FROM chain c JOIN pages p ON p.id = c.parent_id\n               WHERE c.depth < $3\n           )\n           SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,\n                  p.position, p.title, p.icon, p.cover, p.cover_file_id, p.font, p.small_text,\n                  p.full_width, p.created_by, p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,\n                  p.trashed_at, p.trashed_by, p.trashed_with, s.access AS \"shared?\"\n           FROM chain c\n           JOIN pages p ON p.id = c.id\n           LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $2\n           ORDER BY c.depth",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,17 @@
       },
       {
         "ordinal": 10,
+        "name": "cover_file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pages",
+            "name": "cover_file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
         "name": "font",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "small_text",
         "type_info": "Bool",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "full_width",
         "type_info": "Bool",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_by",
         "type_info": "Uuid",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "last_edited_by",
         "type_info": "Uuid",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "content_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "trashed_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "trashed_by",
         "type_info": "Uuid",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "trashed_with",
         "type_info": "Uuid",
         "origin": {
@@ -235,24 +246,7 @@
         }
       },
       {
-        "ordinal": 21,
-        "name": "number",
-        "type_info": "Int8",
-        "origin": {
-          "Table": {
-            "table": "database_rows",
-            "name": "number"
-          }
-        }
-      },
-      {
         "ordinal": 22,
-        "name": "cells!",
-        "type_info": "Jsonb",
-        "origin": "Expression"
-      },
-      {
-        "ordinal": 23,
         "name": "shared?",
         "type_info": "Text",
         "origin": {
@@ -267,9 +261,7 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid",
-        "TextArray",
-        "UuidArray"
+        "Int4"
       ]
     },
     "nullable": [
@@ -283,21 +275,20 @@
       false,
       true,
       true,
-      false,
-      false,
-      false,
-      true,
       true,
       false,
       false,
       false,
       true,
       true,
-      true,
       false,
-      null,
+      false,
+      false,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "2b8e9b9653dfe36a6b43b42eaedc381abb87563b54ae11a950230052986c0e4c"
+  "hash": "d3a03946d54e596b191bb1525ff4ba25c1326cea22fb39b48263acfadea4a4c0"
 }
