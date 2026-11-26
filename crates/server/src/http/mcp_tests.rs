@@ -1,9 +1,10 @@
 //! The MCP server over its Streamable HTTP transport, with the SDK's own client on a real
 //! socket: initializing, the tools listed and each called, resources listed, read and
 //! subscribed to with a notification after another client's change, the gate's refusals,
-//! the bounds on sessions, a session ending when its agent is suspended or its token
-//! revoked or expired, a person's token beside an agent's and one across the instance, concurrent
-//! claims, and an edit merging with a page-sync client typing.
+//! the rates and bounds on sessions, by identity and by person, a session ending when its
+//! agent is suspended, its token revoked or expired, or people are kept out, a person's
+//! token beside an agent's and one across the instance, concurrent claims, and an edit
+//! merging with a page-sync client typing.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +32,7 @@ use tokio::time::{Instant, sleep, timeout};
 use tower::ServiceExt as _;
 
 use super::agents_tests::{Bearer, agent, agent_token};
+use super::auth_tests::admin;
 use super::pages_tests::general;
 use super::sync_tests::{Peer, Server};
 use super::tests::{state, state_with_mcp};
@@ -1286,6 +1288,38 @@ async fn a_session_ends_at_once_when_what_it_acts_as_stops_working(pool: PgPool)
         state.mcp.session_count() == 0
     })
     .await;
+
+    // People kept out of MCP by an admin: a person's session ends at once, unasked, and an
+    // agent's stays.
+    let person = Client::connect(&server, &bound_token(&t.ada, &ws, &["read"]).await)
+        .await
+        .expect("connects");
+    let (keeper, _) = agent_of(&t.ada, &ws, "Keeper").await;
+    let keeper = Client::connect(&server, &keeper).await.expect("connects");
+    assert_eq!(state.mcp.session_count(), 2);
+    admin(&state).await;
+    let root = Browser::sign_in(&app, "admin@example.com").await;
+    let changed = root
+        .send(
+            Method::PATCH,
+            "/api/v1/admin/settings",
+            Some(json!({"changes": {"mcp.identities": ["agent"]}})),
+        )
+        .await;
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+    eventually("the person's session to end", || async {
+        state.mcp.session_count() == 1
+    })
+    .await;
+    let me = keeper.ok("whoami", json!({})).await;
+    assert_eq!(me["identity"]["display_name"], "Keeper");
+    let after = person
+        .service
+        .call_tool(CallToolRequestParams::new("whoami"))
+        .await;
+    assert!(after.is_err(), "{after:?}");
+    person.close().await;
+    keeper.close().await;
     finish(&state, server).await;
 }
 
