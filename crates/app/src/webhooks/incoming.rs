@@ -42,11 +42,12 @@ use super::outgoing::Creator;
 use super::payload::{self, Order, TargetKind};
 use super::signature::{self, SECRET_PREFIX};
 use super::{NO_WORKSPACE, ROTATION_OVERLAP, WebhookService};
-use crate::crypto::{hash_secret, new_secret};
+use crate::crypto::{Envelope, hash_secret, new_secret};
 use crate::databases::NewRow;
 use crate::pages::Facts;
 use crate::ratelimit::Bucket;
 use crate::standing::Standing;
+use crate::workspaces::WorkspaceError;
 
 /// Starts every incoming webhook's URL token.
 pub const TOKEN_PREFIX: &str = "nwh_";
@@ -836,6 +837,49 @@ impl WebhookService {
             updated_at: stored.updated_at,
         })
     }
+}
+
+/// Gives the incoming webhook an integration delivers a new URL token and, while it checks
+/// signatures, a new signing secret, neither shown to anyone, and forgets the secret rotated
+/// out before: after the integration was handed to another person, on the transaction that
+/// did it. Its URL and secret were shown to whoever made them, and would otherwise go on
+/// writing for the new owner; its managers make a new URL, and a new secret, to use it
+/// again. Without a key to seal with, the secret it has is kept: it does not open either.
+/// Says whether the integration had a webhook.
+pub(crate) async fn hand_over(
+    conn: &mut PgConnection,
+    envelope: &Envelope,
+    integration_id: Uuid,
+    at: OffsetDateTime,
+) -> Result<bool, WorkspaceError> {
+    let Some(hook) = repo::lock_of_integration(&mut *conn, integration_id).await? else {
+        return Ok(false);
+    };
+    repo::set_token(
+        &mut *conn,
+        hook.id,
+        &hash_secret(&new_secret(TOKEN_PREFIX)),
+        at,
+    )
+    .await?;
+    if let Some(sealed) = &hook.signing_secret {
+        let replaced = if envelope.has_key() {
+            envelope
+                .seal(new_secret(SECRET_PREFIX).as_bytes(), &incoming_aad(hook.id))
+                .map_err(|error| {
+                    WorkspaceError::Internal(format!("sealing a webhook's secret: {error}"))
+                })?
+        } else {
+            sealed.clone()
+        };
+        repo::set_signing(&mut *conn, hook.id, Some(&replaced), None, at).await?;
+    }
+    info!(
+        hook_id = %hook.id,
+        integration_id = %integration_id,
+        "incoming webhook's URL and secret replaced: its integration was handed over"
+    );
+    Ok(true)
 }
 
 /// What an incoming webhook's secrets are sealed with: its id, so a sealed secret copied to

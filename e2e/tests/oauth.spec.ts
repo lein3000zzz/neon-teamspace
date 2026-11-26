@@ -171,7 +171,7 @@ test("a client registers, is allowed as an agent at the consent page, and calls 
         await ownerPage.reload();
         const listed = ownerPage.getByRole("listitem", { name: app });
         await listed
-          .getByRole("button", { name: `Disconnect ${app} from Connected ${run}` })
+          .getByRole("button", { name: `Disconnect ${app} from Connected ${run} as ${agent}` })
           .click();
         await ownerPage
           .getByRole("alertdialog")

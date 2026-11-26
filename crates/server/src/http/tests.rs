@@ -435,8 +435,15 @@ async fn bad_bodies_answer_in_the_error_shape(pool: PgPool) {
         json_request("/api/v1/test/item", json, r#"{"name": 1}"#),
     )
     .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(error_code(&body), "invalid_json");
+    // JSON that is not what the route takes is input it refuses, naming the field.
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error_code(&body), "invalid_input");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("the body does not fit the route: name")),
+        "{body}"
+    );
 
     let (status, body) = send(app.clone(), json_request("/api/v1/test/echo", None, "{}")).await;
     assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);

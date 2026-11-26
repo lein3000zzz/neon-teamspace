@@ -349,6 +349,7 @@ describe("the agents of a workspace", () => {
       created_at: "2026-11-20T09:00:00Z",
       updated_at: "2026-11-20T09:00:00Z",
       last_used_at: null,
+      connected_by_in_workspace: true,
     };
     const api = fakeWorkspaces({ agents: [scout, ranger], apps: [app] });
     const { user } = renderApp("/w/design/settings/agents");

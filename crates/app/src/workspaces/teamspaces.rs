@@ -335,6 +335,8 @@ impl WorkspaceService {
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
             context.check(Action::JoinTeamspace)?;
+            check_teamspace_role(principal.user.kind, TeamspaceRole::Member)
+                .map_err(WorkspaceError::invalid)?;
             repo::add_member(
                 &mut *tx,
                 &context.teamspace,
@@ -413,8 +415,8 @@ impl WorkspaceService {
     /// Adds a member of the workspace, not a guest, to a teamspace other than the default
     /// one, which everyone is in. The account's role in the workspace is read only once the
     /// caller may see the teamspace, so a caller who may not learns nothing of either. An
-    /// agent or integration joins as a member, never an owner; its own owner adds it only to
-    /// teamspaces they are in.
+    /// agent joins as a member, never an owner; its own owner adds it only to teamspaces
+    /// they are in. An integration joins none: its access is its incoming webhook's target.
     pub async fn add_teamspace_member(
         &self,
         principal: &Principal,

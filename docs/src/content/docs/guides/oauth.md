@@ -190,7 +190,11 @@ A grant is read again with every request, so its tokens stop at once when:
 
 The page and database connections opened with them close as an API token's do when it
 ends. A refresh refused for one of those reasons leaves the refresh token as it was, so a
-client whose agent was suspended for a while carries on once it resumes.
+client whose agent was suspended for a while carries on once it resumes. Meanwhile, an
+access token that has not expired, whose grant stopped for its agent's status alone,
+answers `403` with `agent_suspended`, `agents_off` or `agent_deleted`, as an
+[agent's token](/docs/guides/agents/#tokens) does, rather than `401`, so the client waits
+rather than connecting again.
 
 An access token acts as a token bound to the grant's workspace: another workspace answers
 `404 not_found`, and the account's and the instance admins' routes answer
@@ -205,7 +209,9 @@ client's, changes nothing, and the answer is the same.
 
 People see the apps they connected under **Account**, **Connected apps**: each one's
 client, workspace, whom it acts as, scopes, and when it was connected and last used, and
-**Disconnect** for each, at a browser. The workspace's owners and admins see the apps that act
+**Disconnect** for each, at a browser. An app of a workspace they are no longer in shows as
+**Stopped**, `connected_by_in_workspace` false in the API: its tokens are refused, and work
+again should they come back, unless they disconnect it. The workspace's owners and admins see the apps that act
 as any of its agents under the workspace's [Agents](/docs/workspace-settings/agents/)
 settings, and the other members those of their own agents, with **Disconnect** too.
 

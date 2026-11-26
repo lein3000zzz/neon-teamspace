@@ -231,7 +231,10 @@ impl AuthService {
     /// The principal of an API token, with the scopes its owner's role allows now: a
     /// person, or an agent, acting as itself for its owner. An agent's token works only
     /// while the agent does: not deleted, its owner a member of its workspace who can sign
-    /// in, and agents on, on the instance and in the workspace.
+    /// in, and agents on, on the instance and in the workspace. One that is unknown, revoked
+    /// or expired is unauthenticated; an agent's that is none of those, while the agent does
+    /// not work, says why: [`AgentSuspended`](AuthError::AgentSuspended),
+    /// [`AgentsOff`](AuthError::AgentsOff) or [`AgentDeleted`](AuthError::AgentDeleted).
     ///
     /// An OAuth access token gives the same principal as an API token bound to its grant's
     /// workspace, acting as the person who consented or the agent they chose, while the
@@ -243,8 +246,7 @@ impl AuthService {
             }
             if token.starts_with(ACCESS_TOKEN_PREFIX) {
                 return access::authenticate(self.pool(), &self.settings(), token, self.now())
-                    .await?
-                    .ok_or(AuthError::Unauthenticated);
+                    .await;
             }
             if !token.starts_with(API_TOKEN_PREFIX) {
                 return Err(AuthError::Unauthenticated);
@@ -254,8 +256,8 @@ impl AuthService {
                 return Err(AuthError::Unauthenticated);
             };
             let now = self.now();
-            if !self.token_works(&found, now) {
-                return Err(AuthError::Unauthenticated);
+            if let Some(refusal) = self.token_refusal(&found, now) {
+                return Err(refusal);
             }
             let token = &found.token;
             let due = token
@@ -272,16 +274,26 @@ impl AuthService {
     /// Whether a token works now: unexpired, its person not disabled, and its agent
     /// working, bound to the agent's own workspace.
     fn token_works(&self, found: &Found, now: time::OffsetDateTime) -> bool {
+        self.token_refusal(found, now).is_none()
+    }
+
+    /// Why a token does not work now, or `None` while it does; see
+    /// [`token_works`](Self::token_works). An unexpired agent's token, bound as it should
+    /// be, whose agent is suspended, switched off or deleted, names that status rather than
+    /// being unauthenticated, so its holder learns how the agent resumes.
+    fn token_refusal(&self, found: &Found, now: time::OffsetDateTime) -> Option<AuthError> {
         if found.token.is_expired(now) || found.user.is_disabled() {
-            return false;
+            return Some(AuthError::Unauthenticated);
         }
         if found.user.kind.is_human() {
-            return true;
+            return None;
+        }
+        if found.token.workspace_id.is_none() || found.token.workspace_id != found.user.workspace_id
+        {
+            return Some(AuthError::Unauthenticated);
         }
         let agents_on = IdentityMode::Agent.among(self.settings().get(mcp::IDENTITIES));
-        found.token.workspace_id.is_some()
-            && found.token.workspace_id == found.user.workspace_id
-            && found.standing.status(found.user.kind, agents_on).works()
+        AuthError::agent_stopped(found.standing.status(found.user.kind, agents_on))
     }
 
     /// The principal's sessions that have not expired, newest first.

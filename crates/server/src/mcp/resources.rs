@@ -209,7 +209,11 @@ pub(crate) async fn read(
     Ok(match *resource {
         Resource::Page(id) => {
             let read = page_markdown(&s.sync, &s.databases, principal, id).await?;
-            let about = json!({"page": read.page, "properties": read.properties});
+            let about = json!({
+                "page": read.page,
+                "revision": read.revision,
+                "properties": read.properties,
+            });
             vec![
                 ResourceContents::text(read.markdown, uri.clone()).with_mime_type(MARKDOWN),
                 json(about),

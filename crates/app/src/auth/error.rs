@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use neon_domain::agents::AgentStatus;
 use neon_domain::auth::{InvalidEmail, WeakPassword};
 use neon_domain::duration;
 
@@ -32,6 +33,23 @@ pub enum AuthError {
     Unauthenticated,
     #[error("this account is disabled")]
     UserDisabled,
+    /// A token that is known, unexpired and not revoked, of an agent whose owner is out of
+    /// its workspace, a guest there or disabled.
+    #[error(
+        "this agent is suspended while its owner is out of the workspace, a guest there or \
+         disabled: its tokens work again once its owner is a member again, or once the \
+         workspace's owners or admins hand it to someone else"
+    )]
+    AgentSuspended,
+    /// As [`AgentSuspended`](Self::AgentSuspended), while agents are off.
+    #[error(
+        "agents are turned off in this workspace or on this instance: the agent's tokens work \
+         again once agents are back on"
+    )]
+    AgentsOff,
+    /// As [`AgentSuspended`](Self::AgentSuspended), for an agent deleted.
+    #[error("this agent is deleted: its tokens never work again")]
+    AgentDeleted,
     #[error("verify your email first: open the link mailed to you")]
     EmailNotVerified,
     #[error("registration is closed: ask an admin for an account")]
@@ -75,6 +93,9 @@ impl AuthError {
             Self::InvalidCredentials => "invalid_credentials",
             Self::Unauthenticated => "unauthenticated",
             Self::UserDisabled => "user_disabled",
+            Self::AgentSuspended => "agent_suspended",
+            Self::AgentsOff => "agents_off",
+            Self::AgentDeleted => "agent_deleted",
             Self::EmailNotVerified => "email_not_verified",
             Self::RegistrationClosed => "registration_closed",
             Self::Forbidden(_) => "forbidden",
@@ -97,6 +118,16 @@ impl AuthError {
 
     pub(crate) fn invalid(error: impl std::fmt::Display) -> Self {
         Self::InvalidInput(error.to_string())
+    }
+
+    /// The refusal of a token whose agent has `status`, or `None` while the agent works.
+    pub(crate) fn agent_stopped(status: AgentStatus) -> Option<Self> {
+        match status {
+            AgentStatus::Active => None,
+            AgentStatus::Suspended => Some(Self::AgentSuspended),
+            AgentStatus::Disabled => Some(Self::AgentsOff),
+            AgentStatus::Deleted => Some(Self::AgentDeleted),
+        }
     }
 }
 

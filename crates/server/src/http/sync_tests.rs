@@ -1024,20 +1024,23 @@ async fn an_agent_s_connections_follow_its_owner_s_access(pool: PgPool) {
         })
         .await;
 
-    // Dee leaves the workspace: the agent is suspended, and its connections close.
+    // Dee leaves the workspace: the agent is suspended, and its connections close. A look
+    // that left Ops began may still be running and find the page out of reach before the
+    // token's refusal does, so either code closes them.
     let left = room
         .team
         .dee
         .post(&format!("/api/v1/workspaces/{ws}/leave"), json!({}))
         .await;
     assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
-    assert_eq!(scout_here.closed().await, Some(4401));
-    assert_eq!(scout_ops.closed().await, Some(4401));
+    for closed in [scout_here.closed().await, scout_ops.closed().await] {
+        assert!(matches!(closed, Some(4401 | 4404)), "{closed:?}");
+    }
     assert_eq!(
         open(addr, &room.page, &[("authorization", worker.header())])
             .await
             .err(),
-        Some(StatusCode::UNAUTHORIZED)
+        Some(StatusCode::FORBIDDEN)
     );
     finish(&state, [room.server], vec![ada, scout_here, scout_ops]).await;
 }

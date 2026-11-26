@@ -18,6 +18,7 @@ const asAda: ConnectedApp = {
   created_at: "2026-11-20T09:00:00Z",
   updated_at: "2026-11-20T09:00:00Z",
   last_used_at: "2026-11-21T09:00:00Z",
+  connected_by_in_workspace: true,
 };
 
 /** Example Editor, connected by Ada as her agent Scout, never used since. */
@@ -76,7 +77,7 @@ describe("connected apps", () => {
     const { user } = renderApp("/account/apps");
 
     await user.click(
-      await screen.findByRole("button", { name: "Disconnect Example Editor from Design" }),
+      await screen.findByRole("button", { name: "Disconnect Example Editor from Design as Scout" }),
     );
     const dialog = within(await screen.findByRole("alertdialog"));
     expect(dialog.getByText("Disconnect Example Editor?")).toBeInTheDocument();
@@ -85,6 +86,19 @@ describe("connected apps", () => {
     await waitFor(async () => expect(await cards()).toHaveLength(1));
     expect(removed).toEqual([asScout.id]);
     expect(await screen.findByText("Example Editor is disconnected.")).toBeInTheDocument();
+  });
+
+  it("says an app of a workspace the person left is stopped, and still disconnects it", async () => {
+    apps([{ ...asAda, connected_by_in_workspace: false }]);
+    renderApp("/account/apps");
+
+    const [cli] = await cards();
+    const card = within(cli as HTMLElement);
+    expect(card.getByText("Stopped")).toBeInTheDocument();
+    expect(card.getByText(/You are no longer in this workspace/)).toBeInTheDocument();
+    expect(
+      card.getByRole("button", { name: "Disconnect Example CLI from Design as You" }),
+    ).toBeEnabled();
   });
 
   it("says when none is connected", async () => {

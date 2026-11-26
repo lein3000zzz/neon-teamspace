@@ -7,9 +7,10 @@
 //! It is a member of the workspace from then on, in its default teamspace like everyone but
 //! guests, and joins others as people do. Handing it to another person revokes its tokens
 //! and the OAuth grants that act as it: they were made by, and acted for, its former owner;
-//! and turns off its webhooks whose URL its former owner set, unless they may still register
-//! them. Deleting it ends its membership and revokes its tokens and grants; its identity
-//! stays, for what it made. Once a change that ends tokens or access commits, the
+//! turns off its webhooks whose URL its former owner set, unless they may still register
+//! them; and gives an integration's incoming webhook a URL and secret nobody was shown.
+//! Deleting it ends its membership and revokes its tokens and grants, and an integration's
+//! incoming webhook goes with it; its identity stays, for what it made. Once a change that ends tokens or access commits, the
 //! [`AccessChanges`](crate::pages::AccessChanges) port hears of it, and its open connections
 //! close.
 //!
@@ -34,7 +35,7 @@ use neon_domain::workspaces::{Action, Resource, TeamspaceRole};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::agents::{self as repo, New, Stored};
-use neon_store::{api_tokens, oauth, teamspaces, users};
+use neon_store::{api_tokens, incoming_webhooks, oauth, teamspaces, users};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use tracing::{Instrument as _, info, info_span};
@@ -269,7 +270,8 @@ impl AgentService {
     /// nor disabled, for the workspace's owners and admins. It acts for them from then on,
     /// which resumes it when it was suspended; its tokens, made by its former owner, are
     /// revoked, and its webhooks whose URL they set turned off unless they may still
-    /// register them.
+    /// register them. An integration's incoming webhook gets a new URL and signing secret
+    /// that nobody is shown, as the old ones were shown to whoever made them.
     pub async fn transfer_agent(
         &self,
         principal: &Principal,
@@ -316,6 +318,10 @@ impl AgentService {
             let revoked = api_tokens::delete_for_user(&mut *tx, id).await?
                 + oauth::delete_grants_of_user(&mut *tx, id).await?;
             webhooks::lapse(&mut tx, workspace_id, id, self.now()).await?;
+            if stored.kind == UserKind::Integration {
+                webhooks::hand_over_incoming(&mut tx, self.workspaces().envelope(), id, self.now())
+                    .await?;
+            }
             let stored = repo::get(&mut *tx, workspace_id, id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_AGENT))?;
@@ -335,8 +341,8 @@ impl AgentService {
     }
 
     /// Deletes an agent or integration, for its owner and the workspace's owners and
-    /// admins: it leaves the workspace and its tokens are revoked, and what it made still
-    /// names it. One deleted already stays so.
+    /// admins: it leaves the workspace and its tokens are revoked, an integration's incoming
+    /// webhook is deleted, and what it made still names it. One deleted already stays so.
     pub async fn delete_agent(
         &self,
         principal: &Principal,
@@ -361,12 +367,16 @@ impl AgentService {
             repo::mark_deleted(&mut tx, workspace_id, id, self.now()).await?;
             let revoked = api_tokens::delete_for_user(&mut *tx, id).await?
                 + oauth::delete_grants_of_user(&mut *tx, id).await?;
+            // An integration is its incoming webhook's: the webhook goes with it.
+            let hook_deleted = stored.kind == UserKind::Integration
+                && incoming_webhooks::delete_of_integration(&mut *tx, id).await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
                 workspace_id = %workspace_id,
                 agent_id = %id,
                 tokens_revoked = revoked,
+                hook_deleted,
                 "agent deleted"
             );
             self.ended(id);

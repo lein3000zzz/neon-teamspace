@@ -1,7 +1,7 @@
 {
   "uid": "neon-server",
   "title": "Neon Teamspace server",
-  "description": "Rate, errors and duration of the API and the job queue, the database pool and the queue depth, from the server's /metrics.",
+  "description": "Rate, errors and duration of the API, the job queue, MCP's tools and resources and webhooks, MCP's sessions and subscriptions, the database pool and the queue depth, from the server's /metrics.",
   "tags": [
     "neon"
   ],
@@ -591,6 +591,515 @@
     },
     {
       "type": "row",
+      "title": "MCP",
+      "id": 14,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate",
+      "description": "Tool calls and resource requests finished per second, by tool or request: neon_mcp_operations_total.",
+      "id": 15,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(neon_mcp_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors",
+      "description": "The share of each tool's calls that failed on the server's side, from neon_mcp_operations_total. A refusal, such as not_found or a rate limit, counts as ok.",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum by (operation) (rate(neon_mcp_operations_total{status=\"error\",instance=~\"$instance\"}[$__rate_interval])) or 0 * sum by (operation) (rate(neon_mcp_operations_total{instance=~\"$instance\"}[$__rate_interval]))) / sum by (operation) (rate(neon_mcp_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duration (p95)",
+      "description": "The 95th percentile of how long each tool's calls took, from neon_mcp_operation_duration_seconds.",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(neon_mcp_operation_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sessions and subscriptions",
+      "description": "The MCP sessions open and the resource subscriptions they hold: neon_mcp_sessions and neon_mcp_subscriptions.",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(neon_mcp_sessions{instance=~\"$instance\"})",
+          "legendFormat": "sessions",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        },
+        {
+          "expr": "sum(neon_mcp_subscriptions{instance=~\"$instance\"})",
+          "legendFormat": "subscriptions",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Webhooks",
+      "id": 19,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate",
+      "description": "Webhook operations finished per second, by operation, deliveries and incoming requests among them: neon_webhooks_operations_total.",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 46
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(neon_webhooks_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors",
+      "description": "The share of each operation that failed on the server's side, from neon_webhooks_operations_total. A receiver that answers an error, or a request refused, counts as ok.",
+      "id": 21,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 46
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum by (operation) (rate(neon_webhooks_operations_total{status=\"error\",instance=~\"$instance\"}[$__rate_interval])) or 0 * sum by (operation) (rate(neon_webhooks_operations_total{instance=~\"$instance\"}[$__rate_interval]))) / sum by (operation) (rate(neon_webhooks_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duration (p95)",
+      "description": "The 95th percentile of how long each operation took, from neon_webhooks_operation_duration_seconds.",
+      "id": 22,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 46
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(neon_webhooks_operation_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "In flight",
+      "description": "Webhook operations under way at each moment, by operation: neon_webhooks_operations_in_flight.",
+      "id": 23,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (neon_webhooks_operations_in_flight{instance=~\"$instance\"})",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
       "title": "Database and queue",
       "id": 11,
       "collapsed": false,
@@ -598,7 +1107,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 60
       },
       "panels": []
     },
@@ -615,7 +1124,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 31
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -683,7 +1192,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 31
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {

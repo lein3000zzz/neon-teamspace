@@ -9,8 +9,9 @@ viewing a database. Several people edit a page at the same time and see each oth
 
 Agents are members of a workspace too. An agent is a program driven by a language model,
 owned by one person. It connects over [MCP](https://modelcontextprotocol.io), reads the pages
-and boards it may see, takes a task, writes its results into the page and comments, as a
-person would. Its edits merge with the typing of the people on the same page.
+and boards it may see, takes a task and writes its results into the page, as a person would,
+and will comment once comments exist. Its edits merge with the typing of the people on the
+same page.
 
 ## Who it is for
 
@@ -21,16 +22,15 @@ It is shaped in particular by hackathon teams that work with agents. Neon Teamsp
 after one, where a team and its agents ran out of room on a hosted workspace's free plan.
 On a board in Neon Teamspace, an agent claims a card, which assigns it to the agent
 and moves it to **In progress** unless someone has it already. It works on the card, writes
-what it found into the card's page, comments, and moves it on to **Review** for a person to
-check.
+what it found into the card's page, and moves it on for a person to check: to **Done**, or
+to a **Review** status the team adds to the board.
 
 One instance hosts many workspaces, so one deployment can serve a team, several teams, or
 the friends its owner lets in.
 
 ## What exists
 
-Neon Teamspace is in early development and not usable yet. What exists is the foundation
-the features build on:
+Neon Teamspace is in early development, before its first release. What exists:
 
 - The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
@@ -44,8 +44,7 @@ the features build on:
   see [Data and storage](/docs/architecture/data/).
 - An ordered shutdown, and the observability crate: logs, metrics, traces and profiles, and
   an internal admin listener; see [Observability](/docs/architecture/observability/).
-- The HTTP API's skeleton with its first endpoint, `GET /api/v1/meta`, and its OpenAPI
-  description; see the [API reference](/docs/reference/api/).
+- The HTTP API, with its OpenAPI description; see the [API reference](/docs/reference/api/).
 - Accounts: registration modes, invites, requests to join, sessions, API tokens and the
   admin's work on accounts, through the API and the web app's pages; see
   [Signing in and accounts](/docs/guides/signing-in/), [Accounts and
@@ -65,6 +64,18 @@ the features build on:
 - Import of markdown files and zips of them as pages, and export of pages and teamspaces as
   markdown, in the web app and through the API; see
   [Import and export](/docs/guides/import-export/).
+- Databases with table, board and list views, their properties, filters, sorts and
+  grouping, row pages and inline databases, changes reaching everyone at once; see
+  [Databases and boards](/docs/guides/databases-and-boards/) and
+  [Databases](/docs/guides/databases/).
+- Agents and integrations as members of a workspace, acting for their owners within what
+  both may, with tokens bound to one workspace; see [Agents](/docs/guides/agents/).
+- An OAuth 2.1 server for MCP clients and other programs, with consent as oneself or as
+  one of one's agents; see [Connecting apps over OAuth](/docs/guides/oauth/).
+- The MCP server at `/mcp`, with tools, resources and subscriptions, claiming tasks
+  included, and the same over REST; see [Agents over MCP](/docs/guides/agents-over-mcp/).
+- Outgoing webhooks, signed and retried, and incoming webhooks that make rows and add to
+  pages; see [Webhooks](/docs/guides/webhooks/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -73,14 +84,13 @@ the features build on:
 
 ## What is planned
 
-These pages describe the design beyond the foundation too, and mark it **Planned**. Roughly
+These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Databases with table, board and list views.
-2. Comments, mentions and an inbox, page history, search and attachments.
-3. Agents over MCP, and webhooks in and out.
-4. Signed releases and the first version, 0.1.0.
-5. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Comments, mentions and an inbox, page history, search and attachments, with the MCP
+   tools and webhook events that need them.
+2. Signed releases and the first version, 0.1.0.
+3. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

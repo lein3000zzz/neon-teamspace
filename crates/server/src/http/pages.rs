@@ -583,7 +583,8 @@ pub(super) async fn trash_page(
     responses(
         (status = OK, description = "The page.", body = Page),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: it is not in the trash.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = CONFLICT, description = "too_many_rows: a row whose database holds as many rows as it may.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -609,7 +610,8 @@ pub(super) async fn restore_page(
     responses(
         (status = NO_CONTENT, description = "Deleted."),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: it is not in the trash; or insufficient_scope.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: it is not in the trash.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller could not edit it; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),

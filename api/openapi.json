@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A request with several wrong fields, such as settings, also lists each in `problems`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A body that is not JSON answers `400 invalid_json`; JSON with a field missing, unknown or of the wrong type answers `400 invalid_input`, its message naming the field. A request with several wrong fields, such as settings, also lists each in `problems`, and a refused claim lists who holds the row in `holders`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
@@ -4663,7 +4663,7 @@
             }
           },
           "409": {
-            "description": "already_claimed, naming who holds it.",
+            "description": "already_claimed, naming who holds it in its message and holders.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5908,6 +5908,16 @@
           "204": {
             "description": "Deleted."
           },
+          "400": {
+            "description": "invalid_input: it is not in the trash.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "unauthenticated.",
             "content": {
@@ -5919,7 +5929,7 @@
             }
           },
           "403": {
-            "description": "forbidden: it is not in the trash; or insufficient_scope.",
+            "description": "forbidden: the caller could not edit it; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6265,7 +6275,7 @@
           "pages"
         ],
         "summary": "A page's content as markdown",
-        "description": "Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.",
+        "description": "Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values; and the revision they are at, which an edit replacing blocks names as its base. A database has no body of its own: read its rows.",
         "operationId": "get_markdown",
         "parameters": [
           {
@@ -6355,7 +6365,7 @@
           "pages"
         ],
         "summary": "Edit a page's content",
-        "description": "Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.",
+        "description": "Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. replace_range and replace_body need base, the revision the markdown they were made from was read at: once the page is at another, they are refused, as they would remove what was added or changed since. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.",
         "operationId": "edit_markdown",
         "parameters": [
           {
@@ -6391,7 +6401,7 @@
             }
           },
           "400": {
-            "description": "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
+            "description": "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6422,6 +6432,16 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "edit_conflict: the page is no longer at base, and the edit replaces blocks; nothing changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6624,6 +6644,16 @@
               }
             }
           },
+          "400": {
+            "description": "invalid_input: it is not in the trash.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "unauthenticated.",
             "content": {
@@ -6635,7 +6665,7 @@
             }
           },
           "403": {
-            "description": "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.",
+            "description": "forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7417,7 +7447,7 @@
             }
           },
           "409": {
-            "description": "already_claimed: the person property names someone already, whom the message names with their ids.",
+            "description": "already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9510,7 +9540,7 @@
           "databases"
         ],
         "summary": "Create a database",
-        "description": "A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.",
+        "description": "A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under, which shows it where a block of it stands: `embed` adds that block at the end of the page, or an edit of the page's markdown adds `:::database <id>` where it should go. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.",
         "operationId": "create_database",
         "parameters": [
           {
@@ -9546,7 +9576,7 @@
             }
           },
           "400": {
-            "description": "invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds.",
+            "description": "invalid_input: no place or several, an inline database without a parent, embed without inline, a parent that is a database or a row, or a title or icon out of bounds.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15153,7 +15183,8 @@
           "scopes",
           "resource",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "connected_by_in_workspace"
         ],
         "properties": {
           "client": {
@@ -15161,6 +15192,10 @@
           },
           "connected_by": {
             "$ref": "#/components/schemas/ConnectedBy"
+          },
+          "connected_by_in_workspace": {
+            "type": "boolean",
+            "description": "False while whoever connected it is out of its workspace: its tokens are refused\nmeanwhile, and work again once they are back."
           },
           "created_at": {
             "type": "string",
@@ -15499,6 +15534,10 @@
       "CreateDatabase": {
         "type": "object",
         "properties": {
+          "embed": {
+            "type": "boolean",
+            "description": "With `inline`, also adds the block that shows it at the end of the page it goes\nunder, as an edit's `append` would. The web app's editor adds its own where the\ncursor is, and so leaves this out."
+          },
           "icon": {
             "type": [
               "string",
@@ -15507,7 +15546,7 @@
           },
           "inline": {
             "type": "boolean",
-            "description": "Embedded in the page it goes under, which `parent_id` names."
+            "description": "Embedded in the page it goes under, which `parent_id` names: the page's body shows\nit where a block of it stands."
           },
           "parent_id": {
             "type": [
@@ -16015,7 +16054,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Where senders post: `/hooks/in/` and its token, after the server's public URL when\nit has one. The token is in this answer only.",
+            "description": "Where senders post: `/hooks/in/` and its token, after the server's public URL, or\nwithout one, the origin the request was sent to. The token is in this answer only.",
             "example": "https://neon.example.com/hooks/in/nwh_..."
           }
         }
@@ -16391,6 +16430,13 @@
           "operations"
         ],
         "properties": {
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The revision of the page the operations were made from, as reading it or the last\nedit answered. Needed by `replace_range` and `replace_body`, which are refused with\n`edit_conflict` once the page is at another revision."
+          },
           "operations": {
             "type": "array",
             "items": {
@@ -16407,6 +16453,7 @@
         "required": [
           "added",
           "removed",
+          "removed_ids",
           "replaced"
         ],
         "properties": {
@@ -16421,6 +16468,13 @@
             "type": "integer",
             "description": "How many blocks it removed, those under them left out.",
             "minimum": 0
+          },
+          "removed_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ids of the blocks it removed, in order, those under them left out."
           },
           "replaced": {
             "type": "integer",
@@ -16446,6 +16500,13 @@
               "$ref": "#/components/schemas/EditResult"
             },
             "description": "What each operation did, in order."
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page's revision after the edit, when it was made on its `base`: the next edit\nmay name it without reading again. Null otherwise, as the page may hold changes the\ncaller has not read."
           }
         }
       },
@@ -16520,6 +16581,13 @@
             "description": "Stable and meant for programs, such as `not_found` or `invalid_json`.",
             "example": "not_found"
           },
+          "holders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HolderDetail"
+            },
+            "description": "For `already_claimed`: whom the row's person property names."
+          },
           "message": {
             "type": "string",
             "description": "What went wrong, for people.",
@@ -16583,7 +16651,7 @@
             "$ref": "#/components/schemas/Condition"
           }
         ],
-        "description": "A filter: a group of filters that must all pass, `{\"and\": [...]}`, or of which one must,\n`{\"or\": [...]}`, or a condition. Groups nest at most three deep, with at most 50\nconditions in all."
+        "description": "A filter: a group of filters that must all pass, `{\"and\": [...]}`, or of which one must,\n`{\"or\": [...]}`, or a condition. Groups nest at most three deep, with at most 50\nconditions in all. A filter that does not read says where and why, naming the fields a\ncondition has and the operators: see [`Filter::read`]."
       },
       "Font": {
         "type": "string",
@@ -16627,6 +16695,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "HolderDetail": {
+        "type": "object",
+        "description": "Someone who holds a row: a person or an agent the row's person property names.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "As the workspace names them: an agent with its owner's name.",
+            "example": "Scout · via Ada Lovelace"
+          }
+        }
       },
       "ImportResult": {
         "type": "object",
@@ -17745,6 +17832,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "0 to 359; none draws it in grey.",
             "maximum": 359,
             "minimum": 0
           },
@@ -17948,7 +18036,8 @@
         "description": "A page's content as markdown.",
         "required": [
           "page",
-          "markdown"
+          "markdown",
+          "revision"
         ],
         "properties": {
           "markdown": {
@@ -17968,6 +18057,11 @@
               "$ref": "#/components/schemas/RowProperty"
             },
             "description": "For a row: each property of its database, in order, with the row's value."
+          },
+          "revision": {
+            "type": "string",
+            "description": "The revision of what `markdown` shows, which changes whenever it does: an edit that\nreplaces a range or the body sends it as its `base`.",
+            "example": "AAAAAAAAAAAAAAAAAAAAAA"
           }
         }
       },
@@ -20639,7 +20733,7 @@
           "agents": {
             "type": "integer",
             "format": "int64",
-            "description": "Always 0 until agents exist."
+            "description": "Its agents and integrations together, deleted ones left out, as its agent limit\ncounts them."
           },
           "members": {
             "type": "integer",

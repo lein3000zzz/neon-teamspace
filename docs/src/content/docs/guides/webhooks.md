@@ -303,7 +303,8 @@ the webhook: what it writes shows as `CI · via Ada Lovelace`, like an
 workspace at its limit refuses with `409 agent_limit`.
 
 Its access is the least its target needs. Its integration joins no teamspace, not even the
-default one; the webhook shares its target with it to edit, a share its maker must be allowed
+default one, and adding it to one answers `400 invalid_input`; the webhook shares its target
+with it to edit, a share its maker must be allowed
 to make, so its maker must edit the target. It may then change the target, and for a database
 its rows, and nothing else: elsewhere it sees what any member sees from outside a teamspace,
 and edits nothing. And as for every agent, it does no more than its owner may: once its owner
@@ -312,7 +313,14 @@ requests are refused. A share removed from its target, by anyone who manages the
 shares, takes its access away too.
 
 Deleting the webhook deletes its integration, which leaves the workspace, its share with it;
-what it made still names it, as deleted.
+what it made still names it, as deleted. Deleting the integration under
+[Agents](/docs/workspace-settings/agents/) deletes the webhook the same way.
+
+The workspace's owners and admins may hand the integration to another person, as they hand
+agents over. Its URL and signing secret were shown to whoever made them, and would go on
+writing for the new owner, so handing it over replaces both with ones nobody is shown: the
+old URL answers `404 not_found` at once, and a **New URL**, with a new secret when it checks
+signatures, makes it work again.
 
 ### Its URL
 
@@ -322,9 +330,13 @@ The webhook gets a URL, shown once:
 https://neon.example.com/hooks/in/nwh_<43 characters>
 ```
 
+It is below [`server.public_url`](/docs/self-hosting/configuration/); without one, below the
+origin the request that made it was sent to, as the OAuth metadata is.
+
 The token in it is 256 random bits; the server keeps only its SHA-256. Anyone who has the URL
 may post to it, so keep it like a password. **New URL** makes another and the old one stops
-working at once.
+working at once. Handing the webhook's integration to another person replaces the URL too,
+with one nobody is shown, until a **New URL** is made.
 
 The path takes no cookie and no `Authorization` header: the token alone says which webhook,
 and as whom. So the browser's same-origin check, which guards what a visitor's cookie could
@@ -409,7 +421,7 @@ curl -X POST "$HOOK_URL" \
 |---|---|---|
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
 | `400` | `invalid_body` | The body could not be read to its end. |
-| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. |
+| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. An unknown field is named with the fields its action takes. |
 | `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
 | `403` | `hook_disabled` | The webhook is turned off. |

@@ -120,6 +120,26 @@ pub async fn lock(
     .is_some())
 }
 
+/// The incoming webhook an integration delivers, locked until the transaction ends.
+pub async fn lock_of_integration(
+    executor: impl PgExecutor<'_>,
+    integration_id: Uuid,
+) -> sqlx::Result<Option<IncomingWebhook>> {
+    sqlx::query_as!(
+        IncomingWebhook,
+        "SELECT h.id, h.workspace_id, h.integration_id, u.display_name AS name, h.target_id,
+                h.target_kind, h.signing_secret, h.previous_signing_secret,
+                h.previous_expires_at, h.disabled_at, h.created_by, h.created_at, h.updated_at
+         FROM incoming_webhooks h
+         JOIN users u ON u.id = h.integration_id
+         WHERE h.integration_id = $1
+         FOR UPDATE OF h",
+        integration_id,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
 /// The incoming webhook whose URL's token has this hash.
 pub async fn by_token_hash(
     executor: impl PgExecutor<'_>,
@@ -223,6 +243,21 @@ pub async fn delete(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<boo
         .execute(executor)
         .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Deletes the incoming webhook an integration delivers, with its log, saying whether there
+/// was one.
+pub async fn delete_of_integration(
+    executor: impl PgExecutor<'_>,
+    integration_id: Uuid,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "DELETE FROM incoming_webhooks WHERE integration_id = $1",
+        integration_id
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 /// A request an incoming webhook took, as its log keeps it.

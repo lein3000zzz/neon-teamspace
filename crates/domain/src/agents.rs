@@ -201,21 +201,29 @@ pub fn check_agent_name(raw: &str) -> Result<String, InvalidAgentName> {
     }
 }
 
-/// A teamspace role an agent or integration cannot have.
+/// Why an agent or integration may not have a teamspace role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("an agent or integration is a teamspace's member, never its owner")]
-pub struct DelegateOwnsNothing;
+pub enum TeamspaceRoleRefused {
+    #[error("an agent is a teamspace's member, never its owner")]
+    AgentOwnsNothing,
+    #[error(
+        "an integration joins no teamspace: it works on its incoming webhook's target alone, \
+         which the webhook shares with it"
+    )]
+    Integration,
+}
 
-/// Whether an identity of `kind` may have `role` in a teamspace: people any, agents and
-/// integrations member only.
+/// Whether an identity of `kind` may have `role` in a teamspace: people any, agents member
+/// only, and integrations none, as their access is their incoming webhook's target alone.
 pub fn check_teamspace_role(
     kind: UserKind,
     role: TeamspaceRole,
-) -> Result<(), DelegateOwnsNothing> {
-    if kind.is_human() || role == TeamspaceRole::Member {
-        Ok(())
-    } else {
-        Err(DelegateOwnsNothing)
+) -> Result<(), TeamspaceRoleRefused> {
+    match kind {
+        UserKind::Human => Ok(()),
+        UserKind::Agent if role == TeamspaceRole::Member => Ok(()),
+        UserKind::Agent => Err(TeamspaceRoleRefused::AgentOwnsNothing),
+        UserKind::Integration => Err(TeamspaceRoleRefused::Integration),
     }
 }
 
@@ -327,10 +335,11 @@ mod tests {
     }
 
     #[test]
-    fn agents_and_integrations_are_teamspace_members_only() {
+    fn agents_are_teamspace_members_only_and_integrations_join_none() {
         for kind in UserKind::ALL {
             for role in TeamspaceRole::ALL {
-                let allowed = kind.is_human() || *role == TeamspaceRole::Member;
+                let allowed =
+                    kind.is_human() || (*kind == UserKind::Agent && *role == TeamspaceRole::Member);
                 assert_eq!(
                     check_teamspace_role(*kind, *role).is_ok(),
                     allowed,

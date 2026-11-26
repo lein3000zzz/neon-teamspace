@@ -1,5 +1,6 @@
 //! The one error shape of the API: `{"error": {"code": string, "message": string}}`, with
-//! the problems of each field when there were several.
+//! the problems of each field when there were several, and who holds a row a claim was
+//! refused for.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -40,6 +41,18 @@ pub struct ErrorDetail {
     /// Each field that is wrong and why, when a request had several, such as settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<ProblemDetail>,
+    /// For `already_claimed`: whom the row's person property names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holders: Vec<HolderDetail>,
+}
+
+/// Someone who holds a row: a person or an agent the row's person property names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct HolderDetail {
+    pub id: uuid::Uuid,
+    /// As the workspace names them: an agent with its owner's name.
+    #[schema(example = "Scout · via Ada Lovelace")]
+    pub name: String,
 }
 
 /// One field that is wrong.
@@ -59,6 +72,7 @@ pub struct ApiError {
     code: &'static str,
     message: Cow<'static, str>,
     problems: Vec<Problem>,
+    holders: Vec<HolderDetail>,
     /// Sent as `Retry-After`, in whole seconds rounded up.
     retry_after: Option<Duration>,
 }
@@ -74,6 +88,7 @@ impl ApiError {
             code,
             message: message.into(),
             problems: Vec::new(),
+            holders: Vec::new(),
             retry_after: None,
         }
     }
@@ -126,6 +141,16 @@ impl ApiError {
         &self.message
     }
 
+    /// For `already_claimed`: who holds the row.
+    pub fn holders(&self) -> &[HolderDetail] {
+        &self.holders
+    }
+
+    /// How long the client should wait before it tries again, as `Retry-After` says.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
     /// An extractor's rejection. Server-side ones are bugs in a route, not the client's
     /// doing, so they are logged and answered as internal errors.
     fn rejected(status: StatusCode, code: &'static str, message: String) -> Self {
@@ -152,6 +177,7 @@ impl IntoResponse for ApiError {
                         message: problem.message,
                     })
                     .collect(),
+                holders: self.holders,
             },
         };
         let mut response = (self.status, axum::Json(body)).into_response();
@@ -178,6 +204,9 @@ impl From<AuthError> for ApiError {
             | AuthError::InvalidLink => StatusCode::BAD_REQUEST,
             AuthError::InvalidCredentials | AuthError::Unauthenticated => StatusCode::UNAUTHORIZED,
             AuthError::UserDisabled
+            | AuthError::AgentSuspended
+            | AuthError::AgentsOff
+            | AuthError::AgentDeleted
             | AuthError::EmailNotVerified
             | AuthError::RegistrationClosed
             | AuthError::Forbidden(_)
@@ -278,7 +307,17 @@ impl From<DatabaseError> for ApiError {
                     | DatabaseError::AlreadyClaimed(_) => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
-                Self::new(status, expected.code(), expected.to_string())
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                if let DatabaseError::AlreadyClaimed(holders) = expected {
+                    api.holders = holders
+                        .into_iter()
+                        .map(|holder| HolderDetail {
+                            id: holder.id,
+                            name: holder.name,
+                        })
+                        .collect();
+                }
+                api
             }
         }
     }
@@ -304,6 +343,7 @@ impl From<ContentError> for ApiError {
             other => {
                 let status = match &other {
                     ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::Conflict => StatusCode::CONFLICT,
                     ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
                     _ => StatusCode::BAD_REQUEST,
                 };
@@ -438,10 +478,23 @@ impl From<UpdateError> for ApiError {
 }
 
 impl From<JsonRejection> for ApiError {
+    /// A body that is not JSON is `invalid_json`; JSON that is not what the route takes, a
+    /// field missing, unknown or of the wrong type, is `400 invalid_input`, as any other
+    /// input the route refuses, its message naming the field.
     fn from(rejection: JsonRejection) -> Self {
         let status = rejection.status();
+        if let JsonRejection::JsonDataError(error) = &rejection {
+            const PREFIX: &str = "Failed to deserialize the JSON body into the target type: ";
+            let text = error.body_text();
+            let why = text.strip_prefix(PREFIX).unwrap_or(&text);
+            return Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_input",
+                format!("the body does not fit the route: {why}"),
+            );
+        }
         let code = match &rejection {
-            JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_) => "invalid_json",
+            JsonRejection::JsonSyntaxError(_) => "invalid_json",
             JsonRejection::MissingJsonContentType(_) => "unsupported_media_type",
             _ if status == StatusCode::PAYLOAD_TOO_LARGE => "payload_too_large",
             _ => "invalid_body",

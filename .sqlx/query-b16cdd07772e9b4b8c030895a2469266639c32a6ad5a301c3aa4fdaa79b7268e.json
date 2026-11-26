@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT g.id, g.client_id, g.person_id, g.user_id, g.workspace_id, g.scopes,\n                  g.audience, g.created_at, g.updated_at, g.last_used_at,\n                  c.name AS client_name, w.name AS workspace_name, w.slug AS workspace_slug,\n                  u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  p.display_name AS person_name\n           FROM oauth_grants g\n           JOIN oauth_clients c ON c.id = g.client_id\n           JOIN workspaces w ON w.id = g.workspace_id\n           JOIN users u ON u.id = g.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           JOIN users p ON p.id = g.person_id\n           WHERE g.workspace_id = $1 AND g.user_id <> g.person_id\n           ORDER BY COALESCE(g.last_used_at, g.updated_at) DESC, g.id",
+  "query": "SELECT g.id, g.client_id, g.person_id, g.user_id, g.workspace_id, g.scopes,\n                  g.audience, g.created_at, g.updated_at, g.last_used_at,\n                  c.name AS client_name, w.name AS workspace_name, w.slug AS workspace_slug,\n                  u.kind, u.display_name, u.email, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  p.display_name AS person_name,\n                  EXISTS (SELECT 1 FROM workspace_members m\n                          WHERE m.workspace_id = g.workspace_id AND m.user_id = g.person_id)\n                      AS \"person_in_workspace!\"\n           FROM oauth_grants g\n           JOIN oauth_clients c ON c.id = g.client_id\n           JOIN workspaces w ON w.id = g.workspace_id\n           JOIN users u ON u.id = g.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           JOIN users p ON p.id = g.person_id\n           WHERE g.workspace_id = $1 AND g.user_id <> g.person_id\n           ORDER BY COALESCE(g.last_used_at, g.updated_at) DESC, g.id",
   "describe": {
     "columns": [
       {
@@ -233,6 +233,12 @@
             "name": "display_name"
           }
         }
+      },
+      {
+        "ordinal": 21,
+        "name": "person_in_workspace!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -261,8 +267,9 @@
       false,
       false,
       true,
-      false
+      false,
+      null
     ]
   },
-  "hash": "5367fd34475ae86275e02d60f1b301af4f395cc31a6391391fd1159dc95997f2"
+  "hash": "b16cdd07772e9b4b8c030895a2469266639c32a6ad5a301c3aa4fdaa79b7268e"
 }

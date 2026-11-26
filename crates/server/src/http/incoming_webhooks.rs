@@ -24,6 +24,7 @@ use super::dto::Owner;
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
 use super::principal::Authenticated;
+use super::web::RequestOrigin;
 use super::webhooks::WebhookCreator;
 
 /// What an incoming webhook works on.
@@ -129,8 +130,8 @@ pub struct IncomingWebhookList {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CreatedIncomingWebhook {
     pub hook: IncomingWebhook,
-    /// Where senders post: `/hooks/in/` and its token, after the server's public URL when
-    /// it has one. The token is in this answer only.
+    /// Where senders post: `/hooks/in/` and its token, after the server's public URL, or
+    /// without one, the origin the request was sent to. The token is in this answer only.
     #[schema(example = "https://neon.example.com/hooks/in/nwh_...")]
     pub url: String,
     /// `whsec_` and 43 characters; absent unless it checks signatures.
@@ -192,13 +193,9 @@ pub struct IncomingRequestLog {
     pub requests: Vec<IncomingRequest>,
 }
 
-/// The URL senders post to, with `token`.
-fn url(state: &AppState, token: &Secret) -> String {
-    format!(
-        "{}/hooks/in/{}",
-        state.web.configured_origin().unwrap_or_default(),
-        token.expose()
-    )
+/// The URL senders post to, with `token`, below the server's origin as `origin` has it.
+fn url(RequestOrigin(origin): &RequestOrigin, token: &Secret) -> String {
+    format!("{origin}/hooks/in/{}", token.expose())
 }
 
 #[utoipa::path(
@@ -268,6 +265,7 @@ pub struct CreateIncomingWebhook {
 pub(super) async fn create_incoming_webhook(
     State(state): State<AppState>,
     Authenticated(principal): Authenticated,
+    origin: RequestOrigin,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateIncomingWebhook>,
 ) -> Result<(StatusCode, Json<CreatedIncomingWebhook>), ApiError> {
@@ -286,7 +284,7 @@ pub(super) async fn create_incoming_webhook(
     Ok((
         StatusCode::CREATED,
         Json(CreatedIncomingWebhook {
-            url: url(&state, &created.token),
+            url: url(&origin, &created.token),
             signing_secret: created
                 .signing_secret
                 .map(|secret| secret.expose().to_owned()),
@@ -432,6 +430,7 @@ pub(super) async fn delete_incoming_webhook(
 pub(super) async fn rotate_incoming_token(
     State(state): State<AppState>,
     Authenticated(principal): Authenticated,
+    origin: RequestOrigin,
     Path((id, hook_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<IncomingWebhookUrl>, ApiError> {
     let (token, hook) = state
@@ -439,7 +438,7 @@ pub(super) async fn rotate_incoming_token(
         .rotate_incoming_token(&principal, id, hook_id)
         .await?;
     Ok(Json(IncomingWebhookUrl {
-        url: url(&state, &token),
+        url: url(&origin, &token),
         hook: hook.into(),
     }))
 }

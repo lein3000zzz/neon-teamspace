@@ -7,7 +7,6 @@ import { hasCode } from "@/api/errors";
 import { teamspacePagesQuery, type TreePage } from "@/api/pages";
 import { teamspacesQuery } from "@/api/teamspaces";
 import {
-  absoluteUrl,
   deliveriesQuery,
   incomingRequestsQuery,
   incomingWebhooksQuery,
@@ -716,7 +715,7 @@ function MakeIncoming() {
           setSigned(false);
           setMade({
             name: created.hook.name,
-            url: absoluteUrl(created.url),
+            url: created.url,
             ...(created.signing_secret ? { secret: created.signing_secret } : {}),
           });
         },
@@ -956,7 +955,7 @@ function IncomingCard({
               setShown({
                 title: copy.newUrlMade(hook.name),
                 label: copy.urlLabel,
-                value: absoluteUrl(made.url),
+                value: made.url,
               }),
           });
         }}

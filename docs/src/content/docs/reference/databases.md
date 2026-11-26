@@ -22,12 +22,12 @@ A row without a value of a property has no entry for it, and `null` in a change 
 | `multi_select` | `options` | A list of option ids, each once, in the order given. One deleted is left out of the rows that had it. | Their names, joined by commas |
 | `status` | `options`, each in a `group`: `to_do`, `in_progress` or `done` | An option's id. A new status starts with Not started, In progress and Done. | Its name |
 | `date` | | `{"start": ..., "end": ...}`, or the start alone: a day, `2026-11-22`, or an RFC 3339 moment, kept in UTC. The end is optional, of the same sort, and not before the start. | `2026-11-22`, `2026-11-22 12:00 UTC`, a range with `→` |
-| `person` | | A list of up to 50 member ids. Those a change adds must be members; those a row names already stay. Guests neither see, set nor clear them. | Their display names |
+| `person` | | A list of up to 50 member ids. Those a change adds must be members; those a row names already stay. Guests neither see, set nor clear them. | Their display names; an agent's as `Scout · via Ada`, with `(deleted)` once it is |
 | `checkbox` | | `true`; unchecked is no value, and `false` clears it. | `Yes` |
 | `url` | | A string of up to 2048 bytes, without spaces, starting with `http:`, `https:`, `mailto:` or `tel:`. | The URL |
 | `unique_id` | `prefix`: 1 to 10 letters and digits, starting with a letter, kept in upper case | Computed: the row's number after the prefix, `"NW-42"`, or alone. At most one per database. | `NW-42` |
 | `created_time` | | Computed: when the row was made, an RFC 3339 moment. | `2026-11-22 12:00 UTC` |
-| `created_by` | | Computed: the id of the member who made the row. Hidden from guests. | Their display name |
+| `created_by` | | Computed: the id of the member who made the row. Hidden from guests. | Their display name, an agent's or integration's with whom it acts for, as for `person` |
 | `last_edited_time` | | Computed: when the row's title, values, place or body last changed. | As `created_time` |
 | `last_edited_by` | | Computed: who changed it last. Hidden from guests. | As `created_by` |
 

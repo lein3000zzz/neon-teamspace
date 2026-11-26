@@ -15,11 +15,14 @@ WebSocket, as [Real-time sync](/docs/architecture/realtime/) has it, and markdow
 pages and pages export as markdown, as [Import and export](/docs/guides/import-export/) has
 it. Databases work in the API and the web app: their rows, properties and views, the table,
 the board and the list, as [Databases](/docs/guides/databases/) and
-[Databases and boards](/docs/guides/databases-and-boards/) have it. Agents work in the API
-and the web app, with tokens their owners make, as [Agents](/docs/guides/agents/) has it, and
-over MCP, as [Agents over MCP](/docs/guides/agents-over-mcp/) has it. The rest is
-**planned**:
-it describes the design the code is being built toward, so the details may still change.
+[Databases and boards](/docs/guides/databases-and-boards/) have it. Agents and integrations
+work in the API and the web app, with tokens their owners make or apps connected over
+[OAuth](/docs/guides/oauth/), as [Agents](/docs/guides/agents/) has it, over MCP, as
+[Agents over MCP](/docs/guides/agents-over-mcp/) has it, and through
+[webhooks](/docs/guides/webhooks/) both ways. What is marked **planned** is not built yet:
+comments, mentions and the inbox, page history, search and attachments, which come next, and
+the desktop and mobile apps. It describes the design the code is being built toward, so the
+details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -53,8 +56,8 @@ and usage, and nothing inside it unless they are a member themselves.
 Limits cap a workspace's members, storage and agents. Each is unlimited unless an instance
 admin sets an instance-wide default or a workspace's own limit. A workspace at its member
 limit takes no more invitations or joins, and nobody already in it is removed; one at its
-agent limit makes no more agents. The storage limit will hold once attachments exist. There
-is no billing.
+agent limit makes no more agents or incoming webhooks. The storage limit will hold once
+attachments, **planned**, exist. There is no billing.
 
 ## Workspaces
 
@@ -104,9 +107,10 @@ rules.
 
 A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
 tables. Everyone on a page edits the same live document: each sees the others' cursors, and
-their edits merge. Markdown is the way in and out. Markdown shortcuts work while typing. A
-database can sit inside a page, its views shown where it was placed. **Planned:** callouts,
-mentions, agents editing beside people, and pasted markdown becoming blocks.
+their edits merge, agents' edits over MCP and the API included. Markdown is the way in and
+out: markdown shortcuts work while typing, and pasted markdown becomes blocks. A database
+can sit inside a page, its views shown where it was placed. **Planned:** callouts and
+mentions.
 
 `.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
 zip of markdown files, in the web app and through the API; see
@@ -118,8 +122,8 @@ pages under them, where those who could edit them restore them for 30 days unles
 instance keeps them for another time. **Planned:** a page's history keeps earlier versions
 to look at and restore.
 
-Comments go on a whole page or on a passage of it, and stay with that passage as the text
-around it changes. Mentions land in the inbox of the person mentioned.
+**Planned:** comments go on a whole page or on a passage of it, and stay with that passage
+as the text around it changes. Mentions land in the inbox of the person mentioned.
 
 ## Databases and views
 
@@ -135,7 +139,7 @@ Properties have a type:
 | Title | The row's name, which is its page's title. |
 | Text, number, URL, checkbox, date | A value of that kind. |
 | Select, multi-select | One or several options from a list. |
-| Status | One option from a list of states, such as To do, In progress, Review, Done. |
+| Status | One option from a list of states, such as Not started, In progress and Done, each in a group: to do, in progress or done. |
 | Person | People or agents of the workspace. |
 | Unique ID | A number with the database's prefix, such as `NW-42`. |
 | Created time, created by, edited time, edited by | Kept by the server. |
@@ -179,33 +183,37 @@ When its owner leaves the workspace, becomes a guest there or has their account 
 the agent is suspended.
 Agents count toward the workspace's agent limit. Workspace admins can turn agents off for
 the workspace, and choose who may create them: admins only, or any member, which is the
-default. Agents work today through API tokens their owner makes, bound to the workspace.
+default.
 
 Agents connect over MCP at `/mcp` with a token their owner makes for them, bound to the
-workspace, with the scope read or write, never doing more than its owner may. Everything an
+workspace, with the scope read or write, never doing more than its owner may. Or the
+agent's client signs in through its owner's browser with [OAuth 2.1](/docs/guides/oauth/),
+where the owner chooses whether it acts as them or as one of their agents. Everything an
 agent does over MCP, a script can also do through the HTTP API with the same token;
-[Agents over MCP](/docs/guides/agents-over-mcp/) has the tools. **Planned:** an agent's
-client signs in through its owner's browser with OAuth 2.1, where the owner chooses whether
-it acts as them or as one of their agents.
+[Agents over MCP](/docs/guides/agents-over-mcp/) has the tools.
 
 ## Integrations
 
-An integration is a member of kind integration, which the agent rules cover already.
-**Planned:** each comes with an incoming webhook. A workspace admin creates one with a
-name and a target: a database, where it creates rows or updates them by unique ID, or a
-page, where it appends blocks or comments. It gets a secret address under `/hooks/in/`, and
-can also check a signature from senders that sign their requests. An integration is a member
-of kind integration, so it has the same attribution, permissions and limits as an agent.
+An integration is a member of kind integration, made with an
+[incoming webhook](/docs/guides/webhooks/#incoming-webhooks). A workspace owner or admin
+creates one with a name and a target: a database, where it creates rows or updates them by
+unique ID, or a page, where it appends blocks. It gets a secret address under `/hooks/in/`,
+and can also check a signature from senders that sign their requests. It has the same
+attribution, permissions and limits as an agent, and joins no teamspace: its access is its
+target alone. **Planned:** incoming webhooks that comment.
 
-Outgoing webhooks go the other way. Workspace admins and agents' owners register them, and
-the server calls them on events for a member: being assigned, being mentioned, a reply to
-their comment, or a status change on a row assigned to them. This is how an agent that runs
-on its own hears of new work without polling.
+[Outgoing webhooks](/docs/guides/webhooks/#outgoing-webhooks) go the other way. Workspace
+owners and admins register them for anyone in the workspace, and everyone else but guests for
+themselves and their own agents and integrations. The server calls them on events for that
+identity: being assigned a row, or a status change on a row assigned to them. This is how an
+agent that runs on its own hears of new work without polling. **Planned:** being mentioned,
+and a reply to their comment.
 
 ## Hues
 
-Users, workspaces and teamspaces each get a hue worked out from their ID, so the same one has
-the same colour everywhere, with nothing to choose or store. Each can pin a hue of its own
-instead. Agents, integrations and databases will get theirs the same way. A workspace's hue
+Users, workspaces, teamspaces, agents and integrations each get a hue worked out from their
+ID, so the same one has the same colour everywhere, with nothing to choose or store. Each can
+pin a hue of its own instead. Databases will get theirs the same way, **planned**. A
+workspace's hue
 is also the accent of the app for its members, unless they pick one of their own; see
 [The web app](/docs/architecture/web/#the-theme-model).

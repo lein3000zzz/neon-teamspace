@@ -88,12 +88,34 @@ enum Payload {
     },
 }
 
+/// The fields an action takes beside `action`, in the order its message names them.
+fn fields_of(action: &str) -> Option<&'static [&'static str]> {
+    match action {
+        "create_row" => Some(&["version", "values"]),
+        "update_row" => Some(&["version", "unique_id", "values"]),
+        "append" => Some(&["version", "markdown"]),
+        _ => None,
+    }
+}
+
 /// The action an incoming request asks for, or what is wrong with it.
 pub(crate) fn read(body: &[u8], target: TargetKind) -> Result<Order, String> {
     let json: Json =
         serde_json::from_slice(body).map_err(|error| format!("the body is not JSON: {error}"))?;
-    if !json.is_object() {
+    let Some(object) = json.as_object() else {
         return Err("the body is a JSON object".to_owned());
+    };
+    if let Some(action) = object.get("action").and_then(Json::as_str)
+        && let Some(fields) = fields_of(action)
+        && let Some(unknown) = object
+            .keys()
+            .find(|key| *key != "action" && !fields.contains(&key.as_str()))
+    {
+        let (last, rest) = fields.split_last().unwrap_or((&"", &[]));
+        return Err(format!(
+            "unknown field `{unknown}`: {action} takes action, {} and {last}",
+            rest.join(", ")
+        ));
     }
     let payload: Payload = serde_json::from_value(json).map_err(|error| error.to_string())?;
     let (Payload::CreateRow { version, .. }
@@ -206,12 +228,26 @@ mod tests {
             )
             .contains("unknown variant `delete_row`")
         );
-        assert!(
+        assert_eq!(
             refused(
                 json!({"version": 1, "action": "create_row", "values": {}, "extra": true}),
                 db
-            )
-            .contains("unknown field `extra`")
+            ),
+            "unknown field `extra`: create_row takes action, version and values"
+        );
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "append", "markdown": "x", "extra": true}),
+                TargetKind::Page
+            ),
+            "unknown field `extra`: append takes action, version and markdown"
+        );
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "update_row", "unique_id": "1", "x": 1}),
+                db
+            ),
+            "unknown field `x`: update_row takes action, version, unique_id and values"
         );
         assert!(refused(json!({"version": 1, "action": "create_row"}), db).contains("values"));
         assert!(refused(json!({"version": 1, "values": {}}), db).contains("action"));

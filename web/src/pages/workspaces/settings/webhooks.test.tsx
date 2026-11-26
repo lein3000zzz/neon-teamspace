@@ -11,9 +11,9 @@ import {
   delivered,
   fakeWebhooks,
   generalPages,
-  HOOK_PATH,
+  HOOK_URL,
   loggedRequest,
-  NEW_HOOK_PATH,
+  NEW_HOOK_URL,
   retried,
   ROTATED_SECRET,
   scoutHook,
@@ -363,9 +363,7 @@ describe("incoming webhooks", () => {
     await user.click(form.getByRole("button", { name: "Make incoming webhook" }));
 
     expect(await screen.findByText("Deploys is made")).toBeInTheDocument();
-    expect(screen.getByDisplayValue(`${window.location.origin}${HOOK_PATH}`)).toHaveAttribute(
-      "readonly",
-    );
+    expect(screen.getByDisplayValue(HOOK_URL)).toHaveAttribute("readonly");
     expect(screen.getByDisplayValue(SIGNING_SECRET)).toHaveAttribute("readonly");
     expect(api.changes).toEqual([
       {
@@ -416,9 +414,7 @@ describe("incoming webhooks", () => {
     let dialog = within(await screen.findByRole("alertdialog", { name: "Give CI a new URL?" }));
     expect(dialog.getByText(/The old URL stops working at once/)).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "New URL" }));
-    expect(
-      await card.findByDisplayValue(`${window.location.origin}${NEW_HOOK_PATH}`),
-    ).toBeInTheDocument();
+    expect(await card.findByDisplayValue(NEW_HOOK_URL)).toBeInTheDocument();
     await user.click(card.getByRole("button", { name: "Done" }));
 
     await user.click(card.getByRole("button", { name: "Make a signing secret for CI" }));

@@ -321,8 +321,21 @@ async fn an_agent_s_token_is_refused_once_its_owner_leaves(pool: PgPool) {
         .post(&format!("/api/v1/workspaces/{ws}/leave"), json!({}))
         .await;
     assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
+    // Refused saying why and how it resumes, apart from a token unknown or revoked.
     let refused = worker.get("/api/v1/workspaces").await;
-    assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{}", refused.body);
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::FORBIDDEN, "agent_suspended"),
+        "{}",
+        refused.body
+    );
+    assert!(
+        refused.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("hand it to someone else")),
+        "{}",
+        refused.body
+    );
     let listed = team
         .ada
         .get(&format!("/api/v1/workspaces/{ws}/agents"))
@@ -338,6 +351,44 @@ async fn an_agent_s_token_is_refused_once_its_owner_leaves(pool: PgPool) {
             .expect("a list")
             .iter()
             .any(|member| member["user"]["id"] == scout.as_str() && member["suspended"] == true)
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_s_token_says_agents_are_off_while_they_are(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let scout = agent(&team.cy, ws, "Scout").await;
+    let worker = Bearer::new(&app, agent_token(&team.cy, ws, &scout, &["read"]).await);
+    let switch = |on: bool| {
+        let uri = format!("/api/v1/workspaces/{ws}");
+        let ada = &team.ada;
+        async move {
+            let changed = ada
+                .send(Method::PATCH, &uri, Some(json!({"agents_enabled": on})))
+                .await;
+            assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+        }
+    };
+
+    switch(false).await;
+    let refused = worker.get("/api/v1/whoami").await;
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::FORBIDDEN, "agents_off"),
+        "{}",
+        refused.body
+    );
+    switch(true).await;
+    assert_eq!(worker.get("/api/v1/whoami").await.status, StatusCode::OK);
+
+    // A token unknown is unauthenticated, whatever agents do.
+    let unknown = Bearer::new(&app, "Bearer nw_unknown".to_owned());
+    assert_eq!(
+        unknown.get("/api/v1/whoami").await.status,
+        StatusCode::UNAUTHORIZED
     );
 }
 
@@ -641,7 +692,12 @@ async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
     // A guest owns no agent: Cy's is suspended, and the admins see it so.
     role("guest").await;
     let refused = worker.get("/api/v1/workspaces").await;
-    assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{}", refused.body);
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::FORBIDDEN, "agent_suspended"),
+        "{}",
+        refused.body
+    );
     assert_eq!(team.ada.get(&one).await.body["status"], "suspended");
 
     // A member again, it works again; an admin may also hand it to someone else.

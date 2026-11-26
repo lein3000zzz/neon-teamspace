@@ -82,7 +82,7 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
         .send(
             Method::PATCH,
             &markdown,
-            Some(json!({"operations": [
+            Some(json!({"base": read.body["revision"], "operations": [
                 {"op": "insert_after", "block_id": ids[1], "markdown": "Then *more*"},
                 {"op": "find_replace", "find": "Ship it", "replace": "Ship it soon"},
                 {"op": "replace_range", "from": ids[2], "to": ids[3], "markdown": "- uno\n- dos"},
@@ -96,6 +96,8 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
     assert_eq!(results[0]["added"].as_array().map(Vec::len), Some(1));
     assert_eq!(results[1]["replaced"], 1);
     assert_eq!(results[2]["removed"], 2);
+    assert_eq!(results[2]["removed_ids"], json!([ids[2], ids[3]]));
+    assert!(edited.body["revision"].is_string(), "{}", edited.body);
     let read = t.ada.get(&markdown).await;
     assert_eq!(
         text(markdown_of(&read)),
@@ -110,7 +112,7 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
         .send(
             Method::PATCH,
             &markdown,
-            Some(json!({"operations": [
+            Some(json!({"base": read.body["revision"], "operations": [
                 {"op": "replace_body", "markdown": markdown_of(&read)},
             ]})),
         )
@@ -118,20 +120,72 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
     assert_eq!(same.status, StatusCode::OK, "{}", same.body);
     assert_eq!(same.body["results"][0]["removed"], 0);
     assert_eq!(same.body["results"][0]["added"], json!([]));
+    assert_eq!(same.body["revision"], read.body["revision"]);
+    // The answer's revision is the base of the next edit.
     let shorter = t
         .ada
         .send(
             Method::PATCH,
             &markdown,
-            Some(json!({"operations": [
+            Some(json!({"base": same.body["revision"], "operations": [
                 {"op": "replace_body", "markdown": "# Goals\n\nShip it soon\n\nThe end"},
             ]})),
         )
         .await;
+    assert_eq!(shorter.status, StatusCode::OK, "{}", shorter.body);
     assert_eq!(shorter.body["results"][0]["removed"], 3);
     let read = t.ada.get(&markdown).await;
     let kept = block_ids(markdown_of(&read));
     assert_eq!(kept, [ids[0].clone(), ids[1].clone(), ids[5].clone()]);
+
+    // Replacing needs a base, and is refused once someone changed the page since it.
+    let stale = read.body["revision"].clone();
+    let unbased = t
+        .ada
+        .send(
+            Method::PATCH,
+            &markdown,
+            Some(json!({"operations": [{"op": "replace_body", "markdown": "Gone"}]})),
+        )
+        .await;
+    assert_eq!(
+        (unbased.status, unbased.code()),
+        (StatusCode::BAD_REQUEST, "base_required"),
+        "{}",
+        unbased.body
+    );
+    let added = t
+        .dee
+        .send(
+            Method::PATCH,
+            &markdown,
+            Some(json!({"operations": [{"op": "append", "markdown": "Dee's line"}]})),
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.body);
+    assert_eq!(added.body["revision"], Value::Null);
+    let conflict = t
+        .ada
+        .send(
+            Method::PATCH,
+            &markdown,
+            Some(json!({"base": stale, "operations": [
+                {"op": "replace_range", "from": ids[5], "markdown": "The very end"},
+            ]})),
+        )
+        .await;
+    assert_eq!(
+        (conflict.status, conflict.code()),
+        (StatusCode::CONFLICT, "edit_conflict"),
+        "{}",
+        conflict.body
+    );
+    let read = t.ada.get(&markdown).await;
+    assert!(
+        markdown_of(&read).contains("Dee's line"),
+        "{}",
+        markdown_of(&read)
+    );
 
     // A refused operation names itself, and nothing changes.
     let refused = t
@@ -167,7 +221,7 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
             )
             .await
             .status,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert!(!markdown_of(&t.ada.get(&markdown).await).contains("Lost"));
 
@@ -284,6 +338,12 @@ async fn rows_are_read_with_their_properties_claimed_and_changed_by_unique_id(po
             .await;
     assert_eq!(held.status, StatusCode::CONFLICT, "{}", held.body);
     assert_eq!(held.code(), "already_claimed");
+    assert_eq!(
+        held.body["error"]["holders"],
+        json!([{"id": dee_id, "name": "dee"}]),
+        "{}",
+        held.body
+    );
     let message = held.body["error"]["message"].as_str().expect("a message");
     assert!(
         message.contains(dee_id.as_str().expect("an id")),

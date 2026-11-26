@@ -197,12 +197,15 @@ type AddMemberFormProps = {
   onAdded: (name: string) => void;
 };
 
-/** The teamspace roles someone may have: an agent's or integration's is member alone. */
+/** The teamspace roles someone may have: an agent's is member alone. */
 function rolesFor(person: Pick<Person, "kind"> | undefined): readonly TeamspaceRole[] {
   return person !== undefined && actsForOwner(person) ? ["member"] : TEAMSPACE_ROLES;
 }
 
-/** Someone from the workspace who is not a guest and not in the teamspace yet. */
+/**
+ * Someone from the workspace who is not a guest, nor an integration, which
+ * joins no teamspace, and not in the teamspace yet.
+ */
 function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
   const workspace = useWorkspace();
   const people = useQuery(membersQuery(workspace.id));
@@ -211,7 +214,12 @@ function AddMemberForm({ teamspaceId, members, onAdded }: AddMemberFormProps) {
   const [role, setRole] = useState<TeamspaceRole>("member");
   const inside = new Set(members.map((member) => member.user.id));
   const candidates =
-    people.data?.filter((person) => person.role !== "guest" && !inside.has(person.user.id)) ?? [];
+    people.data?.filter(
+      (person) =>
+        person.role !== "guest" &&
+        person.user.kind !== "integration" &&
+        !inside.has(person.user.id),
+    ) ?? [];
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

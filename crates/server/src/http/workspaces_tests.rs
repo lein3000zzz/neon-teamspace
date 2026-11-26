@@ -200,8 +200,15 @@ async fn a_workspace_is_created_listed_and_read(pool: PgPool) {
             Some(json!({"owner": "me"})),
         )
         .await;
-    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(unknown.code(), "invalid_json");
+    assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
+    assert_eq!(unknown.code(), "invalid_input");
+    assert!(
+        unknown.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("unknown field `owner`")),
+        "{}",
+        unknown.body
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

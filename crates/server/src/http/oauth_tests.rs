@@ -1609,9 +1609,9 @@ async fn an_agents_tokens_stop_while_it_is_suspended_and_resume_after(pool: PgPo
         async move { ada.send(Method::PATCH, &path, Some(body)).await }
     };
 
-    // Its owner a guest: suspended, and a refresh spends nothing meanwhile.
+    // Its owner a guest: suspended, saying so, and a refresh spends nothing meanwhile.
     assert_eq!(role("guest").await.status, StatusCode::OK);
-    assert_eq!(works(&app, &connected, ws).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(works(&app, &connected, ws).await, StatusCode::FORBIDDEN);
     let meanwhile = refresh(&app, &connected.client, &connected.refresh, None).await;
     assert_eq!(oauth_error(&meanwhile), "invalid_grant");
     assert_eq!(role("member").await.status, StatusCode::OK);
@@ -1630,11 +1630,11 @@ async fn an_agents_tokens_stop_while_it_is_suspended_and_resume_after(pool: PgPo
         }
     };
     assert_eq!(switch(false).await.status, StatusCode::OK);
-    assert_eq!(works(&app, &connected, ws).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(works(&app, &connected, ws).await, StatusCode::FORBIDDEN);
     assert_eq!(switch(true).await.status, StatusCode::OK);
     assert_eq!(works(&app, &connected, ws).await, StatusCode::OK);
     setting(&state, "mcp.identities", json!(["user"])).await;
-    assert_eq!(works(&app, &connected, ws).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(works(&app, &connected, ws).await, StatusCode::FORBIDDEN);
     setting(&state, "mcp.identities", json!(["user", "agent"])).await;
     assert_eq!(works(&app, &connected, ws).await, StatusCode::OK);
 
@@ -1716,7 +1716,20 @@ async fn a_persons_tokens_stop_once_they_lose_access(pool: PgPool) {
         .await;
     assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
     assert_eq!(works(&app, &as_cy, ws).await, StatusCode::UNAUTHORIZED);
-    assert_eq!(works(&app, &as_scout, ws).await, StatusCode::UNAUTHORIZED);
+    // The agent is suspended with its owner out, and its token says so.
+    assert_eq!(works(&app, &as_scout, ws).await, StatusCode::FORBIDDEN);
+    // Her list says both are stopped, as she is out of their workspace. Disabling her ended
+    // her session, so she signs in again.
+    let cy_again = Browser::sign_in(&app, "cy@example.com").await;
+    let listed = cy_again.get("/api/v1/account/connected-apps").await;
+    let apps = listed.body["apps"].as_array().expect("apps");
+    assert_eq!(apps.len(), 2, "{}", listed.body);
+    assert!(
+        apps.iter()
+            .all(|app| app["connected_by_in_workspace"] == false),
+        "{}",
+        listed.body
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

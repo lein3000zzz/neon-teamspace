@@ -267,8 +267,12 @@ export const strings = {
       connected: "Connected",
       lastUsed: "Last used",
       never: "Never",
+      stopped: "Stopped",
+      stoppedHint:
+        "You are no longer in this workspace: its tokens are refused. They work again if you are back in it; disconnect it to stop it for good.",
       disconnect: "Disconnect",
-      disconnectLabel: (app: string, workspace: string) => `Disconnect ${app} from ${workspace}`,
+      disconnectLabel: (app: string, workspace: string, identity: string) =>
+        `Disconnect ${app} from ${workspace} as ${identity}`,
       disconnectTitle: (app: string) => `Disconnect ${app}?`,
       disconnectLede: "Its tokens stop working at once, and the connections they opened close.",
       disconnected: (app: string) => `${app} is disconnected.`,
@@ -925,12 +929,16 @@ export const strings = {
       transferTitle: (name: string, to: string) => `Hand ${name} to ${to}?`,
       transferLede:
         "It acts for them from now on, which resumes it if it was suspended. Its tokens are revoked: they were made by its former owner.",
+      transferLedeIntegration:
+        "It acts for them from now on, which resumes it if it was suspended. Its incoming webhook gets a URL and signing secret nobody is shown, as the old ones were shown to whoever made them: make it a new URL under Webhooks to use it again.",
       transferred: (name: string, to: string) => `${name} now acts for ${to}.`,
       delete: "Delete",
       deleteLabel: (name: string) => `Delete ${name}`,
       deleteTitle: (name: string) => `Delete ${name}?`,
       deleteLede:
         "It leaves the workspace and its tokens are revoked at once. What it made still names it, as deleted.",
+      deleteLedeIntegration:
+        "It leaves the workspace, and its incoming webhook is deleted with it. What it made still names it, as deleted.",
       deleted: (name: string) => `${name} is deleted.`,
       teamspaces: "Add to a teamspace",
       teamspacesHint:
@@ -1734,7 +1742,9 @@ export const strings = {
     },
     row: {
       properties: "Properties",
-      uniqueId: "ID",
+      uniqueId: "Row number",
+      uniqueIdHint:
+        "The row's number in its database. Filters and sorts name properties: add a unique ID property to filter by it.",
       created: "Created",
       lastEdited: "Last edited",
       noDatabase:

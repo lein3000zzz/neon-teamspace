@@ -17,29 +17,28 @@ use time::OffsetDateTime;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::auth::AuthError;
 use crate::crypto::hash_secret;
 use crate::settings::mcp;
 
 /// The principal of an access token that works now, noting the grant's use at most once
-/// a minute; `None` for one that is unknown, expired or whose grant does not work.
+/// a minute. One that is unknown, expired or whose grant does not work is unauthenticated,
+/// but for an unexpired one whose agent alone stopped working, which names why.
 pub(crate) async fn authenticate(
     pool: &PgPool,
     settings: &Snapshot,
     token: &str,
     now: OffsetDateTime,
-) -> sqlx::Result<Option<Principal>> {
+) -> Result<Principal, AuthError> {
     let Some(found) = repo::access_by_hash(pool, &hash_secret(token)).await? else {
-        return Ok(None);
+        return Err(AuthError::Unauthenticated);
     };
-    let principal = principal(&found, settings, now);
+    let principal = principal(&found, settings, now)?;
     let grant = &found.found.grant;
     let due = grant
         .last_used_at
         .is_none_or(|last| now - last >= TOUCH_INTERVAL);
-    if principal.is_some()
-        && due
-        && let Err(error) = repo::touch_grant(pool, grant.id, now).await
-    {
+    if due && let Err(error) = repo::touch_grant(pool, grant.id, now).await {
         warn!(grant_id = %grant.id, %error, "recording an OAuth grant's use failed");
     }
     Ok(principal)
@@ -55,22 +54,34 @@ pub(crate) async fn recheck(
 ) -> sqlx::Result<Option<Principal>> {
     Ok(repo::access_by_id(pool, id)
         .await?
-        .and_then(|found| principal(&found, settings, now)))
+        .and_then(|found| principal(&found, settings, now).ok()))
 }
 
 /// The principal of a token while it works: unexpired, its grant working, and some scope
-/// left to it.
-fn principal(found: &FoundAccess, settings: &Snapshot, now: OffsetDateTime) -> Option<Principal> {
+/// left to it. An unexpired token whose grant stopped for its agent's status alone names
+/// that status.
+fn principal(
+    found: &FoundAccess,
+    settings: &Snapshot,
+    now: OffsetDateTime,
+) -> Result<Principal, AuthError> {
     let FoundAccess { token, found } = found;
-    if now >= token.expires_at
-        || !found
+    let identities = settings.get(mcp::IDENTITIES);
+    if now >= token.expires_at {
+        return Err(AuthError::Unauthenticated);
+    }
+    if !found.standing.works(&found.grant, identities) {
+        return Err(found
             .standing
-            .works(&found.grant, settings.get(mcp::IDENTITIES))
-    {
-        return None;
+            .stopped_agent(&found.grant, identities)
+            .and_then(AuthError::agent_stopped)
+            .unwrap_or(AuthError::Unauthenticated));
     }
     let scopes = narrowed(&token.scopes, &found.grant.scopes);
-    (!scopes.is_empty()).then(|| Principal {
+    if scopes.is_empty() {
+        return Err(AuthError::Unauthenticated);
+    }
+    Ok(Principal {
         user: found.user.clone(),
         credential: Credential::Token {
             id: token.id,

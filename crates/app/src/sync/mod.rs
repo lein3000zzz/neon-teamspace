@@ -82,7 +82,7 @@ pub(crate) use limits::Bucket;
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
-pub use content::{ContentError, Edited, MAX_EDITS, changes_document};
+pub use content::{ContentError, Edited, MAX_EDITS, changes_document, revision};
 pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 
@@ -492,6 +492,11 @@ impl SyncService {
         blocks: Vec<neon_blocks::Block>,
     ) -> Result<(), PageError> {
         let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.page.is_trashed() {
+            return Err(PageError::Forbidden(
+                "this page is in the trash: restore it first",
+            ));
+        }
         if view.access != PageAccess::Edit {
             return Err(PageError::Forbidden("you may view this page, not edit it"));
         }

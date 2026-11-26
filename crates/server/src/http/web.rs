@@ -292,6 +292,21 @@ pub(super) async fn same_origin_only(
     }
 }
 
+/// The server's origin as the request's client reaches it: see
+/// [`WebConfig::public_origin`].
+pub(crate) struct RequestOrigin(pub(crate) String);
+
+impl FromRequestParts<AppState> for RequestOrigin {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self(state.web.request_origin(parts)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

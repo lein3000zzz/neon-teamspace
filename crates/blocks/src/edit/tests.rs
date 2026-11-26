@@ -235,6 +235,7 @@ fn a_range_of_siblings_is_replaced_both_ends_included() {
 
     assert_eq!(applied.added, ["new-1", "new-2", "new-3"]);
     assert_eq!(applied.removed, 2);
+    assert_eq!(applied.removed_ids, ["block-2", "block-3"]);
     assert_eq!(ids(&doc), ["block-1", "new-1", "new-2", "new-3", "block-4"]);
     assert_eq!(md(&doc), "a\n\nX\n\nY\n\nZ\n\nd\n");
 
@@ -579,6 +580,7 @@ fn replacing_the_body_keeps_the_blocks_that_stay_the_same() {
 
     assert_eq!(applied.added, ["new-1", "new-2"]);
     assert_eq!(applied.removed, 1);
+    assert_eq!(applied.removed_ids, ["block-2"]);
     assert_eq!(
         ids(&doc),
         ["block-1", "new-1", "block-3", "new-2", "block-4"]

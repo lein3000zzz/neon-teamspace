@@ -97,7 +97,8 @@ impl WorkspaceServiceBuilder {
         self
     }
 
-    /// Seals invite links' tokens, so they can be copied again.
+    /// Seals invite links' tokens, so they can be copied again, and the secret an
+    /// integration's incoming webhook gets when it is handed over.
     pub fn envelope(mut self, envelope: Envelope) -> Self {
         self.envelope = envelope;
         self
@@ -155,6 +156,11 @@ impl WorkspaceService {
 
     fn pool(&self) -> &PgPool {
         &self.inner.pool
+    }
+
+    /// What seals the secrets these use cases make.
+    pub(crate) fn envelope(&self) -> &Envelope {
+        &self.inner.envelope
     }
 
     /// Tells the port, once the change committed.

@@ -1330,7 +1330,7 @@ export interface paths {
         };
         /**
          * A page's content as markdown
-         * @description Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values. A database has no body of its own: read its rows.
+         * @description Its blocks as markdown, each block's id on a line of its own before it, `<!-- block <id> -->`, which the edits name, and for a row its properties with their values; and the revision they are at, which an edit replacing blocks names as its base. A database has no body of its own: read its rows.
          */
         get: operations["get_markdown"];
         put?: never;
@@ -1340,7 +1340,7 @@ export interface paths {
         head?: never;
         /**
          * Edit a page's content
-         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
+         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. replace_range and replace_body need base, the revision the markdown they were made from was read at: once the page is at another, they are refused, as they would remove what was added or changed since. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
          */
         patch: operations["edit_markdown"];
         trace?: never;
@@ -1833,7 +1833,7 @@ export interface paths {
         put?: never;
         /**
          * Create a database
-         * @description A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.
+         * @description A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under, which shows it where a block of it stands: `embed` adds that block at the end of the page, or an edit of the page's markdown adds `:::database <id>` where it should go. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.
          */
         post: operations["create_database"];
         delete?: never;
@@ -2836,6 +2836,11 @@ export interface components {
             client: components["schemas"]["ConsentClient"];
             connected_by: components["schemas"]["ConnectedBy"];
             /**
+             * @description False while whoever connected it is out of its workspace: its tokens are refused
+             *     meanwhile, and work again once they are back.
+             */
+            connected_by_in_workspace: boolean;
+            /**
              * Format: date-time
              * @description When it was first connected.
              */
@@ -2993,8 +2998,17 @@ export interface components {
             workspace_id?: string | null;
         };
         CreateDatabase: {
+            /**
+             * @description With `inline`, also adds the block that shows it at the end of the page it goes
+             *     under, as an edit's `append` would. The web app's editor adds its own where the
+             *     cursor is, and so leaves this out.
+             */
+            embed?: boolean;
             icon?: string | null;
-            /** @description Embedded in the page it goes under, which `parent_id` names. */
+            /**
+             * @description Embedded in the page it goes under, which `parent_id` names: the page's body shows
+             *     it where a block of it stands.
+             */
             inline?: boolean;
             /**
              * Format: uuid
@@ -3208,8 +3222,8 @@ export interface components {
             /** @description `whsec_` and 43 characters; absent unless it checks signatures. */
             signing_secret?: string | null;
             /**
-             * @description Where senders post: `/hooks/in/` and its token, after the server's public URL when
-             *     it has one. The token is in this answer only.
+             * @description Where senders post: `/hooks/in/` and its token, after the server's public URL, or
+             *     without one, the origin the request was sent to. The token is in this answer only.
              * @example https://neon.example.com/hooks/in/nwh_...
              */
             url: string;
@@ -3358,6 +3372,12 @@ export interface components {
             op: "replace_body";
         };
         EditPage: {
+            /**
+             * @description The revision of the page the operations were made from, as reading it or the last
+             *     edit answered. Needed by `replace_range` and `replace_body`, which are refused with
+             *     `edit_conflict` once the page is at another revision.
+             */
+            base?: string | null;
             /** @description Made in order, all or none: 1 to 50. */
             operations: components["schemas"]["EditOperation"][];
         };
@@ -3367,6 +3387,8 @@ export interface components {
             added: string[];
             /** @description How many blocks it removed, those under them left out. */
             removed: number;
+            /** @description The ids of the blocks it removed, in order, those under them left out. */
+            removed_ids: string[];
             /** @description How many times it replaced the text it was to find. */
             replaced: number;
         };
@@ -3375,6 +3397,12 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description What each operation did, in order. */
             results: components["schemas"]["EditResult"][];
+            /**
+             * @description The page's revision after the edit, when it was made on its `base`: the next edit
+             *     may name it without reading again. Null otherwise, as the page may hold changes the
+             *     caller has not read.
+             */
+            revision?: string | null;
         };
         /** @description The limits that hold for a workspace; absent is no limit. */
         EffectiveLimits: {
@@ -3407,6 +3435,8 @@ export interface components {
              * @example not_found
              */
             code: string;
+            /** @description For `already_claimed`: whom the row's person property names. */
+            holders?: components["schemas"]["HolderDetail"][];
             /**
              * @description What went wrong, for people.
              * @example no such route
@@ -3422,7 +3452,8 @@ export interface components {
         /**
          * @description A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
          *     `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
-         *     conditions in all.
+         *     conditions in all. A filter that does not read says where and why, naming the fields a
+         *     condition has and the operators: see [`Filter::read`].
          */
         Filter: {
             and: components["schemas"]["Filter"][];
@@ -3445,6 +3476,16 @@ export interface components {
             order?: (string | null)[];
             /** @description The property, by id or name. */
             property: string;
+        };
+        /** @description Someone who holds a row: a person or an agent the row's person property names. */
+        HolderDetail: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description As the workspace names them: an agent with its owner's name.
+             * @example Scout · via Ada Lovelace
+             */
+            name: string;
         };
         /** @description What an import made. */
         ImportResult: {
@@ -3883,7 +3924,10 @@ export interface components {
         /** @description An option as a change lists it: an existing one by its id, a new one without. */
         OptionChange: {
             group?: components["schemas"]["StatusGroup"] | null;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description 0 to 359; none draws it in grey.
+             */
             hue?: number | null;
             /** Format: uuid */
             id?: string | null;
@@ -3997,6 +4041,12 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description For a row: each property of its database, in order, with the row's value. */
             properties?: components["schemas"]["RowProperty"][] | null;
+            /**
+             * @description The revision of what `markdown` shows, which changes whenever it does: an edit that
+             *     replaces a range or the body sends it as its `base`.
+             * @example AAAAAAAAAAAAAAAAAAAAAA
+             */
+            revision: string;
         };
         /** @description How a page is set. */
         PageStyle: {
@@ -5066,7 +5116,8 @@ export interface components {
         WorkspaceUsage: {
             /**
              * Format: int64
-             * @description Always 0 until agents exist.
+             * @description Its agents and integrations together, deleted ones left out, as its agent limit
+             *     counts them.
              */
             agents: number;
             /** Format: int64 */
@@ -8635,7 +8686,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description already_claimed, naming who holds it. */
+            /** @description already_claimed, naming who holds it in its message and holders. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9537,6 +9588,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description invalid_input: it is not in the trash. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description unauthenticated. */
             401: {
                 headers: {
@@ -9546,7 +9606,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: it is not in the trash; or insufficient_scope. */
+            /** @description forbidden: the caller could not edit it; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9892,7 +9952,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9921,6 +9981,15 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description edit_conflict: the page is no longer at base, and the edit replaces blocks; nothing changed. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10068,6 +10137,15 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
+            /** @description invalid_input: it is not in the trash. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description unauthenticated. */
             401: {
                 headers: {
@@ -10077,7 +10155,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope. */
+            /** @description forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10641,7 +10719,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description already_claimed: the person property names someone already, whom the message names with their ids. */
+            /** @description already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12168,7 +12246,7 @@ export interface operations {
                     "application/json": components["schemas"]["Database"];
                 };
             };
-            /** @description invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds. */
+            /** @description invalid_input: no place or several, an inline database without a parent, embed without inline, a parent that is a database or a row, or a title or icon out of bounds. */
             400: {
                 headers: {
                     [name: string]: unknown;

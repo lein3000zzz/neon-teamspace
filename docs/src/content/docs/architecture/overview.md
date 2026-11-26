@@ -18,9 +18,9 @@ flowchart LR
     app[The web app]
     docs[These docs]
   end
-  caddy -- "/api, /ws, /mcp, /hooks, /.well-known/oauth-*" --> server[neon]
+  caddy -- "/api, /ws, /mcp, /hooks, /.well-known" --> server[neon]
   server --> pg[(Postgres 18)]
-  server --> files[(Attachments: local disk or S3)]
+  server -. "planned" .-> files[(Attachments: local disk or S3)]
   server --> mail[Mail server]
   ops((Operator)) -- "127.0.0.1:9090" --> server
 ```
@@ -81,10 +81,12 @@ A use case calls the store's repositories directly, with the transaction passed 
 `&mut Transaction`, so the use case decides what commits together. There is no trait over
 the repositories: tests run them against a real Postgres, a fresh database for each test.
 
-Traits are kept for side effects outside the database, the **ports**: `Mailer`, `BlobStore`,
-`Broadcaster`, `RateLimiter` and `WebhookSender`. `neon-app` declares them, `neon-server`
-provides the adapters, such as SMTP and object storage, and tests use fakes. They are held as
-`Arc<dyn Trait>`. Each port arrives with the feature that needs it, from accounts on.
+Traits are kept for side effects outside the database, the **ports**: `Mailer`,
+`Broadcaster`, `AccessChanges`, which tells the live documents, the database feeds and the
+MCP sessions whose access changed, `RateLimiter` and `WebhookTransport`, and `BlobStore` for
+attachments, **planned**. `neon-app` declares them, `neon-server` provides the adapters, such
+as SMTP and HTTP for webhooks, and tests use fakes. They are held as `Arc<dyn Trait>`. Each
+port arrives with the feature that needs it, from accounts on.
 
 ## A request's way
 
@@ -139,7 +141,7 @@ configure. Under it:
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
 | `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
 | `/hooks/*` | Incoming webhooks, each at `/hooks/in/{token}`; see [Webhooks](/docs/guides/webhooks/#incoming-webhooks). |
-| `/.well-known/oauth-*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). |
+| `/.well-known/*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). Any other well-known path gets the server's JSON `404`, so a client that looks for a document the server lacks, such as an OpenID configuration, is told it is not there. |
 | `/docs` | These docs. |
 | Anything else | The web app. |
 

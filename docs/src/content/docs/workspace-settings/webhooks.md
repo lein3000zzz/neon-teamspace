@@ -69,6 +69,9 @@ integration's status and owner. A suspended integration says why it refuses what
 - **Turn off** and **Turn on**.
 - **Rename** renames it and its integration.
 - **New URL**, after a question, shows the new URL once; the old one stops working at once.
+  After its integration is handed to another person under
+  [Agents](/docs/workspace-settings/agents/), the webhook has a URL and secret nobody was
+  shown, so it needs a new URL, and a new secret if it is signed, before it works again.
 - **Require signatures**, or **Rotate signing secret** once it has one, after a question,
   shows the new secret once; one it had still verifies for a day.
 - **Stop checking signatures**, after a question.

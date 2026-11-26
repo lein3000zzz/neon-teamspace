@@ -68,6 +68,7 @@ use crate::workspaces::{AgentService, WorkspaceService};
 
 pub use delivery::{DELIVERY_HEADER, DeliveryJob, EVENT_HEADER};
 pub use error::{IncomingError, Refusal, WebhookError};
+pub(crate) use incoming::hand_over as hand_over_incoming;
 pub use incoming::{
     Accepted, BodyError, CreatedIncoming, IncomingRequest, IncomingUpdate, IncomingWebhook,
     Integration, LoggedRequest, NewIncomingWebhook, Target,

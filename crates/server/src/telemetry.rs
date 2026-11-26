@@ -36,7 +36,7 @@ pub(crate) fn init(config: &neon_observability::Config) -> Result<Telemetry, Ini
 /// The MCP SDK logs each request and answer whole at `debug`, tool arguments and page
 /// content with them, so it logs at `info` at most, unless the level names its target. A
 /// level of `info` or less verbose holds for it as it is.
-fn quiet_mcp_sdk(level: &str) -> String {
+pub(crate) fn quiet_mcp_sdk(level: &str) -> String {
     let verbose = level.split(',').map(str::trim).any(|directive| {
         ["debug", "trace", "4", "5"]
             .iter()

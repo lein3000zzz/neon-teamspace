@@ -1052,6 +1052,9 @@ pub struct ConnectedAppInfo {
     /// When its tokens were last issued or used.
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_used_at: Option<OffsetDateTime>,
+    /// False while whoever connected it is out of its workspace: its tokens are refused
+    /// meanwhile, and work again once they are back.
+    pub connected_by_in_workspace: bool,
 }
 
 impl From<ConnectedApp> for ConnectedAppInfo {
@@ -1077,6 +1080,7 @@ impl From<ConnectedApp> for ConnectedAppInfo {
             created_at: app.grant.created_at,
             updated_at: app.grant.updated_at,
             last_used_at: app.grant.last_used_at,
+            connected_by_in_workspace: app.person_in_workspace,
         }
     }
 }

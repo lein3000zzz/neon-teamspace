@@ -37,6 +37,7 @@ schemars = { workspace = true, features = ["uuid1"] }
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["serde", "formatting", "parsing"] }
@@ -68,6 +69,8 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 # WebSocket clients for the real-time sync's tests, the version axum's server side uses.
 tokio-tungstenite = "0.30.0"
 tower = { workspace = true, features = ["util"] }
+# Log lines captured at every level, for the tests that check what is never logged.
+tracing-subscriber = { workspace = true, features = ["fmt", "registry", "env-filter"] }
 yrs.workspace = true
 # Zips to import, and to read exports with, in the import and export tests.
 zip.workspace = true

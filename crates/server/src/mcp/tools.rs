@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use neon_app::databases::{DatabaseError, NewDatabase, NewRow, QueryInput};
+use neon_app::databases::{NewDatabase, NewRow, QueryInput};
 use neon_app::pages::NewPage;
 use neon_blocks::edit::Edit;
 use neon_domain::auth::{Principal, Scope};
@@ -29,7 +29,10 @@ use super::Services;
 use crate::http::ApiError;
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
-use crate::http::databases::{Database, Filter, Sort};
+use crate::http::databases::{
+    AddProperty, Database, Filter, NumberFormat, OptionChange, Property, PropertyKind, Sort,
+    embed_in, embedding,
+};
 use crate::http::pages::{Page, Placement, TreePage, location};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
@@ -79,12 +82,28 @@ impl ToolError {
 }
 
 impl From<ApiError> for ToolError {
+    /// The API's answer as a tool's. A wait the API would send as `Retry-After` is the
+    /// error's `retry_after`, in whole seconds rounded up, and its message says it too; the
+    /// holders of a row a claim was refused for are its `holders`, as the API's error has
+    /// them.
     fn from(error: ApiError) -> Self {
+        let wait = error
+            .retry_after()
+            .map(|wait| (wait.as_secs() + u64::from(wait.subsec_nanos() > 0)).max(1));
+        let message = match wait {
+            Some(seconds) => format!("{}: try again in {seconds}s", error.message()),
+            None => error.message().to_owned(),
+        };
+        let details = match wait {
+            Some(seconds) => Some(("retry_after", json!(seconds))),
+            None if !error.holders().is_empty() => Some(("holders", json!(error.holders()))),
+            None => None,
+        };
         Self {
             code: error.code(),
-            message: error.message().to_owned(),
+            message,
             expected: !error.status().is_server_error(),
-            details: None,
+            details,
         }
     }
 }
@@ -132,7 +151,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 16] = [
+pub(crate) const TOOLS: [Spec; 17] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -179,9 +198,10 @@ pub(crate) const TOOLS: [Spec; 16] = [
         name: "read_page",
         title: "Read a page",
         description: "A page's blocks as markdown, each block's id on a line of its own before \
-                      it, `<!-- block <id> -->`, which edit_page names; and for a row of a \
-                      database, its properties with their values. A database itself has no \
-                      body: use get_database and query_database.",
+                      it, `<!-- block <id> -->`, which edit_page names; the revision they are \
+                      at, which edit_page takes as base; and for a row of a database, its \
+                      properties with their values. A database itself has no body: use \
+                      get_database and query_database.",
         writes: false,
         destructive: false,
         idempotent: true,
@@ -194,7 +214,8 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       (teamspace_id), or among your private pages (private: true): name one. \
                       It starts with the blocks of `markdown`, nested at most 32 levels deep. \
                       Answers with its markdown and block ids. Rows of a database are made \
-                      with create_row.",
+                      with create_row. A request holds at most 2 MiB: add more content with \
+                      edit_page appends.",
         writes: true,
         destructive: false,
         idempotent: false,
@@ -208,7 +229,12 @@ pub(crate) const TOOLS: [Spec; 16] = [
                       append, insert_after a block, replace_range of sibling blocks (empty \
                       markdown removes them), find_replace of text within one line (once, unless \
                       all), replace_body (blocks that stay the same are kept). Blocks are named \
-                      by the ids read_page shows; markdown nests at most 32 levels deep.",
+                      by the ids read_page shows; markdown nests at most 32 levels deep. \
+                      replace_range and replace_body need base, the revision read_page gave: \
+                      people may edit the page meanwhile, and once it changed they are refused \
+                      with edit_conflict, rather than remove what others added; read it again \
+                      then. The answer's revision, when set, is the base of the next edit. A \
+                      request holds at most 2 MiB: send large content in several appends.",
         writes: true,
         destructive: true,
         idempotent: false,
@@ -273,14 +299,31 @@ pub(crate) const TOOLS: [Spec; 16] = [
     Spec {
         name: "create_database",
         title: "Create a database",
-        description: "A database under a page (parent_id, inline to embed it in that page), at \
-                      the top of a teamspace (teamspace_id) or among your private pages \
-                      (private: true). It starts with a Name title, a Status with Not started, \
-                      In progress and Done, a table view and a board grouped by status.",
+        description: "A database under a page (parent_id), at the top of a teamspace \
+                      (teamspace_id) or among your private pages (private: true). Inline, it \
+                      belongs to its parent page, which shows it where a line `:::database \
+                      <id>` stands in its markdown: embed: true adds that line at the end, or \
+                      edit_page puts it elsewhere. It starts with a Name title, a Status with \
+                      Not started, In progress and Done, a table view and a board grouped by \
+                      status.",
         writes: true,
         destructive: false,
         idempotent: false,
         schema: schema::<CreateDatabaseArguments>,
+    },
+    Spec {
+        name: "add_property",
+        title: "Add a property",
+        description: "Adds a property, a column, to a database: a type of title, text, \
+                      number, select, multi_select, status, date, person, checkbox, url, \
+                      unique_id, created_time or last_edited_time, as the databases reference \
+                      lists them, with options for a select, multi-select or status. A board \
+                      agents claim tasks on needs a person property, such as Assignee: \
+                      claim_task names whoever claims a row there.",
+        writes: true,
+        destructive: false,
+        idempotent: false,
+        schema: schema::<AddPropertyArguments>,
     },
     Spec {
         name: "create_row",
@@ -328,12 +371,18 @@ pub(crate) fn find(name: &str) -> Option<&'static Spec> {
 }
 
 /// The arguments of a call, as their type reads them.
+/// A tool's arguments, or `invalid_arguments` naming the field that does not fit, as
+/// `teamspace_id` or `filter.and[0]`, and why.
 fn arguments<T: DeserializeOwned>(arguments: JsonObject) -> Result<T, ToolError> {
-    serde_json::from_value(Json::Object(arguments)).map_err(|error| {
-        ToolError::invalid(
-            "invalid_arguments",
-            format!("the arguments do not fit the tool's schema: {error}"),
-        )
+    serde_path_to_error::deserialize(Json::Object(arguments)).map_err(|error| {
+        let path = error.path().to_string();
+        let why = error.into_inner();
+        let message = if path == "." {
+            format!("the arguments do not fit the tool's schema: {why}")
+        } else {
+            format!("the arguments do not fit the tool's schema: `{path}`: {why}")
+        };
+        ToolError::invalid("invalid_arguments", message)
     })
 }
 
@@ -409,6 +458,7 @@ pub(crate) async fn call(
             let EditArguments {
                 page_id,
                 operations,
+                base,
             } = arguments(given)?;
             let edits = operations
                 .into_iter()
@@ -416,7 +466,7 @@ pub(crate) async fn call(
                 .collect::<Result<_, _>>()?;
             let edited = s
                 .sync
-                .edit(principal, page_id, edits)
+                .edit(principal, page_id, edits, base)
                 .await
                 .map_err(refused)?;
             answer(EditedPage::from(edited))
@@ -467,6 +517,33 @@ pub(crate) async fn call(
         }
         "query_database" => query(s, principal, arguments(given)?).await,
         "create_database" => create_database(s, principal, arguments(given)?).await,
+        "add_property" => {
+            let AddPropertyArguments {
+                database_id,
+                name,
+                kind,
+                number_format,
+                currency,
+                prefix,
+                options,
+                placement,
+            } = arguments(given)?;
+            let new = AddProperty {
+                name,
+                kind,
+                number_format,
+                currency,
+                prefix,
+                options,
+                placement,
+            };
+            let property = s
+                .databases
+                .add_property(principal, database_id, new.into())
+                .await
+                .map_err(refused)?;
+            answer(Property::from(property))
+        }
         "create_row" => {
             let CreateRowArguments {
                 database_id,
@@ -508,27 +585,12 @@ pub(crate) async fn call(
                 person_property,
             } = arguments(given)?;
             let row_id = row_named(s, principal, row_id, database_id, unique_id).await?;
-            match s
+            let row = s
                 .databases
                 .claim_row(principal, row_id, person_property.as_deref())
                 .await
-            {
-                Ok(row) => answer(Row::from(row)),
-                Err(DatabaseError::AlreadyClaimed(holders)) => {
-                    let message = DatabaseError::AlreadyClaimed(holders.clone()).to_string();
-                    let holders = holders
-                        .into_iter()
-                        .map(|holder| json!({"id": holder.id, "name": holder.name}))
-                        .collect();
-                    Err(ToolError {
-                        code: "already_claimed",
-                        message,
-                        expected: true,
-                        details: Some(("holders", Json::Array(holders))),
-                    })
-                }
-                Err(error) => Err(refused(error)),
-            }
+                .map_err(refused)?;
+            answer(Row::from(row))
         }
         other => Err(ToolError {
             code: "internal",
@@ -605,6 +667,11 @@ struct EditArguments {
     page_id: Uuid,
     /// Made in order, all or none: 1 to 50.
     operations: Vec<EditOperation>,
+    /// The revision read_page, or the last edit_page, gave for the page the operations were
+    /// made from. Needed by replace_range and replace_body, which are refused with
+    /// edit_conflict once the page is at another revision.
+    #[serde(default)]
+    base: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -665,9 +732,14 @@ struct CreateDatabaseArguments {
     /// True to make it one of your private pages.
     #[serde(default)]
     private: bool,
-    /// Embedded in the page it goes under, which parent_id names.
+    /// Embedded in the page it goes under, which parent_id names: the page shows it where a
+    /// block `:::database <id>` stands in its markdown.
     #[serde(default)]
     inline: bool,
+    /// With inline, also adds that block at the end of the parent page. Leave it out to
+    /// place the block yourself with edit_page.
+    #[serde(default)]
+    embed: bool,
     /// Where among its siblings; "last" when absent.
     #[serde(default)]
     placement: Option<Placement>,
@@ -677,6 +749,34 @@ struct CreateDatabaseArguments {
     /// An emoji or up to 16 characters.
     #[serde(default)]
     icon: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddPropertyArguments {
+    /// The database's id, a UUID.
+    database_id: Uuid,
+    /// 1 to 100 characters, unique in the database, ignoring case.
+    name: String,
+    /// What it holds.
+    #[serde(rename = "type")]
+    kind: PropertyKind,
+    /// For a number: plain when absent.
+    #[serde(default)]
+    number_format: Option<NumberFormat>,
+    /// For a number in the currency format, such as EUR.
+    #[serde(default)]
+    currency: Option<String>,
+    /// For a unique id: 1 to 10 letters and digits, starting with a letter.
+    #[serde(default)]
+    prefix: Option<String>,
+    /// For a select, multi-select or status, at most 200; a status without them gets Not
+    /// started, In progress and Done.
+    #[serde(default)]
+    options: Option<Vec<OptionChange>>,
+    /// Among the properties; "last" when absent.
+    #[serde(default)]
+    placement: Option<Placement>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -789,6 +889,7 @@ async fn create_database(
 ) -> Result<Json, ToolError> {
     let at = location(given.parent_id, given.teamspace_id, given.private)?;
     let placement = given.placement.map(Into::into).unwrap_or_default();
+    let embed = embedding(given.embed, given.inline, given.parent_id)?;
     let created = s
         .databases
         .create_database(
@@ -804,6 +905,9 @@ async fn create_database(
         )
         .await
         .map_err(refused)?;
+    if let Some(parent) = embed {
+        embed_in(&s.sync, principal, parent, created.page.page.id).await?;
+    }
     answer(Database::from(created))
 }
 

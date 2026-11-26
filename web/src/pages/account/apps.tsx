@@ -49,6 +49,7 @@ function AppCard({ app, onDone }: { app: ConnectedApp; onDone: (message: string)
   const disconnect = useDisconnectApp();
   const [confirming, setConfirming] = useState(false);
   const name = app.client.name;
+  const actsAs = app.identity.kind === "human" ? copy.you : app.identity.display_name;
 
   return (
     <ItemCard aria-label={name}>
@@ -59,6 +60,11 @@ function AppCard({ app, onDone }: { app: ConnectedApp; onDone: (message: string)
             <Chip key={scope}>{strings.consent.scopeNames[scope]}</Chip>
           ))}
         </ChipList>
+        {!app.connected_by_in_workspace && (
+          <p className="text-sm text-muted-foreground">
+            <Chip>{copy.stopped}</Chip> {copy.stoppedHint}
+          </p>
+        )}
         <KeyValueList className="text-sm">
           <KeyValueRow label={copy.workspace}>{app.workspace.name}</KeyValueRow>
           <KeyValueRow label={copy.actsAs}>
@@ -76,7 +82,7 @@ function AppCard({ app, onDone }: { app: ConnectedApp; onDone: (message: string)
           variant="outline"
           size="sm"
           disabled={disconnect.isPending}
-          aria-label={copy.disconnectLabel(name, app.workspace.name)}
+          aria-label={copy.disconnectLabel(name, app.workspace.name, actsAs)}
           onClick={() => setConfirming(true)}
         >
           {copy.disconnect}

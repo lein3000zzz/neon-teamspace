@@ -11,10 +11,12 @@ use neon_domain::auth::Principal;
 use neon_observability::errors::{mark_expected, mark_unexpected};
 use neon_observability::red::Red;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ErrorData, Implementation,
-    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
-    ServerCapabilities, ServerConfig, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
+    CallToolRequestParams, CallToolResponse, CallToolResult, CompleteRequestParams, CompleteResult,
+    ErrorCode, ErrorData, GetPromptRequestParams, GetPromptResponse, Implementation,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, ServerCapabilities, ServerConfig, SubscribeRequestParams, Tool,
+    UnsubscribeRequestParams,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::common::http_header::HEADER_SESSION_ID;
@@ -26,9 +28,23 @@ use super::sessions::Sessions;
 use super::tools::{self, ToolError};
 use super::{RequestSpan, Services, watch};
 
-/// The revisions of the protocol the server speaks: those with sessions, up to 2025-11-25.
+/// The oldest revision of the protocol the server speaks: the first whose transport has
+/// sessions over Streamable HTTP. An `initialize` asking for an older one, or one the server
+/// does not know, is answered with [`NEWEST`].
+const OLDEST: ProtocolVersion = ProtocolVersion::V_2025_03_26;
+
+/// The newest revision the server speaks, the last with an `initialize` handshake.
+const NEWEST: ProtocolVersion = ProtocolVersion::V_2025_11_25;
+
+/// The revisions of the protocol the server speaks, oldest first: from [`OLDEST`] to
+/// [`NEWEST`].
 fn protocol_versions() -> &'static [ProtocolVersion] {
-    ProtocolVersion::known_up_to(&ProtocolVersion::V_2025_11_25)
+    let known = ProtocolVersion::known_up_to(&NEWEST);
+    let first = known
+        .iter()
+        .position(|version| version.as_str() >= OLDEST.as_str())
+        .unwrap_or(known.len());
+    &known[first..]
 }
 
 /// What the server tells a client as it initializes.
@@ -113,15 +129,26 @@ fn session(context: &RequestContext<RoleServer>) -> Result<String, ErrorData> {
 }
 
 /// A resource request's refusal as a protocol error: what is not there, or not the
-/// caller's to see, is not found.
+/// caller's to see, is not found. Its data holds the API's code, as `{"code"}`.
 fn resource_error(error: ToolError) -> ErrorData {
+    let data = Some(serde_json::json!({"code": error.code}));
     if !error.expected {
-        return ErrorData::internal_error(error.message, None);
+        return ErrorData::internal_error(error.message, data);
     }
     match error.code {
-        "not_found" => ErrorData::resource_not_found(error.message, None),
-        _ => ErrorData::invalid_params(error.message, None),
+        "not_found" => ErrorData::resource_not_found(error.message, data),
+        _ => ErrorData::invalid_params(error.message, data),
     }
+}
+
+/// What a client asking for something the server does not offer gets: method not found,
+/// saying so in a sentence.
+fn not_offered(what: &str) -> ErrorData {
+    ErrorData::new(
+        ErrorCode::METHOD_NOT_FOUND,
+        format!("this server offers no {what}: it has tools and resources"),
+        None,
+    )
 }
 
 impl ServerHandler for Server {
@@ -132,7 +159,7 @@ impl ServerHandler for Server {
             .enable_resources_subscribe()
             .build();
         ServerConfig::new(capabilities)
-            .with_protocol_version(ProtocolVersion::V_2025_11_25)
+            .with_protocol_version(NEWEST)
             .with_server_info(
                 Implementation::new("neon", env!("CARGO_PKG_VERSION")).with_title("Neon Teamspace"),
             )
@@ -251,6 +278,30 @@ impl ServerHandler for Server {
         })
         .await
         .map_err(resource_error)
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Err(not_offered("prompts"))
+    }
+
+    async fn get_prompt(
+        &self,
+        _request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, ErrorData> {
+        Err(not_offered("prompts"))
+    }
+
+    async fn complete(
+        &self,
+        _request: CompleteRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CompleteResult, ErrorData> {
+        Err(not_offered("completions"))
     }
 
     async fn unsubscribe(

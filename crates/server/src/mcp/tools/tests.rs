@@ -10,7 +10,7 @@ use crate::http::pages::PageKind;
 
 /// Each tool's routes of the API, which do what it does with the same tokens: method and
 /// path below `/api/v1`.
-const REST: [(&str, &[(&str, &str)]); 16] = [
+const REST: [(&str, &[(&str, &str)]); 17] = [
     ("whoami", &[("get", "/whoami")]),
     ("list_members", &[("get", "/workspaces/{id}/members")]),
     ("list_teamspaces", &[("get", "/workspaces/{id}/teamspaces")]),
@@ -30,6 +30,7 @@ const REST: [(&str, &[(&str, &str)]); 16] = [
     ("get_database", &[("get", "/databases/{id}")]),
     ("query_database", &[("post", "/databases/{id}/query")]),
     ("create_database", &[("post", "/workspaces/{id}/databases")]),
+    ("add_property", &[("post", "/databases/{id}/properties")]),
     ("create_row", &[("post", "/databases/{id}/rows")]),
     (
         "update_row",
@@ -145,6 +146,7 @@ fn tools_publish_their_schemas_and_what_they_change() {
             ("trash_page", true),
             ("restore_page", false),
             ("create_database", false),
+            ("add_property", false),
             ("create_row", false),
             ("update_row", true),
             ("claim_task", true),
@@ -259,13 +261,50 @@ fn arguments_are_read_as_their_schema_has_them() {
     })))
     .expect("valid");
     assert!(query.filter.is_some());
-    assert!(
-        arguments::<QueryArguments>(object(json!({
-            "database_id": page,
-            "filter": {"property": "Status", "operator": "is_sort_of"},
-        })))
-        .is_err()
-    );
+}
+
+#[test]
+fn arguments_that_do_not_read_name_the_field_and_what_it_takes() {
+    let page = Uuid::from_u128(7);
+    let refused = |given: Json| {
+        arguments::<QueryArguments>(object(given))
+            .expect_err("refused")
+            .message
+    };
+    let message = arguments::<TreeArguments>(object(json!({"teamspace_id": "general"})))
+        .expect_err("refused")
+        .message;
+    assert!(message.contains("`teamspace_id`: UUID"), "{message}");
+    for (filter, says) in [
+        (
+            json!({"property": "Status", "operator": "is_sort_of"}),
+            "unknown operator `is_sort_of`: the operators are is, is_not,",
+        ),
+        (
+            json!({"property": "Status"}),
+            "a condition names its `operator`, one of is, is_not,",
+        ),
+        (
+            json!([{"property": "Status", "operator": "is"}]),
+            "a filter is a condition",
+        ),
+        (
+            json!({"and": [{"property": "Status", "operator": "is"}, {"operator": "is"}]}),
+            "and[1]: a condition names its `property`",
+        ),
+        (
+            json!({"and": [], "or": []}),
+            "a group holds \"and\" alone, and no field `or`",
+        ),
+        (
+            json!({"property": "Status", "operator": "is", "values": 1}),
+            "unknown field `values`",
+        ),
+    ] {
+        let message = refused(json!({"database_id": page, "filter": filter}));
+        assert!(message.contains("`filter`"), "{message}");
+        assert!(message.contains(says), "{message}");
+    }
 }
 
 #[test]
@@ -322,4 +361,27 @@ fn trees_nest_to_their_depth() {
     assert_eq!(shown[0]["children"][0].get("children"), None);
     assert_eq!(shown[0]["children"][0]["child_count"], 1);
     assert_eq!(shown[1]["children"], json!([]));
+}
+
+#[test]
+fn a_rate_limit_tells_the_tool_s_caller_when_to_try_again() {
+    let limited = ApiError::new(
+        axum::http::StatusCode::TOO_MANY_REQUESTS,
+        "rate_limited",
+        "too many edits of pages' content: slow down",
+    )
+    .with_retry_after(std::time::Duration::from_millis(1500));
+
+    let result = ToolError::from(limited).into_result();
+    let error = &result.structured_content.expect("structured content")["error"];
+    assert_eq!(error["code"], "rate_limited");
+    assert_eq!(error["retry_after"], 2);
+    assert_eq!(
+        error["message"],
+        "too many edits of pages' content: slow down: try again in 2s"
+    );
+
+    let refused = ToolError::from(ApiError::forbidden("no"));
+    let error = refused.into_result().structured_content.expect("content");
+    assert_eq!(error["error"].get("retry_after"), None);
 }

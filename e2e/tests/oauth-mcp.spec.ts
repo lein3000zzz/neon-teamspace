@@ -78,6 +78,10 @@ test("an MCP client connects over OAuth as an agent, and the task it claims show
       await http.get(`${origin}/.well-known/oauth-authorization-server`)
     ).json()) as ServerMetadata;
     expect(server.authorization_endpoint).toBe(`${origin}/api/v1/oauth/authorize`);
+    // A well-known document the server lacks is not there, rather than the app's page.
+    const openid = await http.get(`${origin}/.well-known/openid-configuration`);
+    expect(openid.status()).toBe(404);
+    expect(((await openid.json()) as { error: { code: string } }).error.code).toBe("not_found");
 
     // It registers, and the owner allows it as the agent at the consent page.
     const registered = await http.post(server.registration_endpoint, {

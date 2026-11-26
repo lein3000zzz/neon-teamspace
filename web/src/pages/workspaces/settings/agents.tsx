@@ -334,7 +334,9 @@ function AgentCard({ agent, onDone }: { agent: Agent; onDone: (message: string) 
             onDone={onDone}
           />
         )}
-        {live && managing && <AddToTeamspace agent={agent} own={own} onDone={onDone} />}
+        {live && managing && agent.kind === "agent" && (
+          <AddToTeamspace agent={agent} own={own} onDone={onDone} />
+        )}
         {agent.kind === "agent" && managing && <Tokens agent={agent} own={own} />}
       </div>
       {live && (own || managing) && (
@@ -375,7 +377,7 @@ function AgentCard({ agent, onDone }: { agent: Agent; onDone: (message: string) 
       <ConfirmDialog
         open={open?.kind === "delete"}
         title={copy.deleteTitle(agent.name)}
-        description={copy.deleteLede}
+        description={agent.kind === "integration" ? copy.deleteLedeIntegration : copy.deleteLede}
         confirm={copy.delete}
         onCancel={() => setOpen(undefined)}
         onConfirm={() => {
@@ -515,7 +517,9 @@ function TransferForm({ agent, pending, onChoose, onSettled, onDone }: TransferF
       <ConfirmDialog
         open={pending !== undefined}
         title={pending === undefined ? "" : copy.transferTitle(agent.name, pending.name)}
-        description={copy.transferLede}
+        description={
+          agent.kind === "integration" ? copy.transferLedeIntegration : copy.transferLede
+        }
         confirm={copy.transfer}
         onCancel={onSettled}
         onConfirm={() => {

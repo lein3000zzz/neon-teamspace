@@ -214,8 +214,8 @@ keys of their own; both go when their page goes, and when the person leaves the 
 
 ## Content
 
-Content is stored according to how it is edited. Pages' documents are kept as below;
-database properties, search and attachments are **planned**.
+Content is stored according to how it is edited. Pages' documents and databases' properties
+are kept as below; search and attachments are **planned**.
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
   numbered in order with their authors, and the latest snapshot of the whole document,

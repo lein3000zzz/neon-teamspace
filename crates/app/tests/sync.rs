@@ -12,7 +12,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
-use neon_app::pages::{Location, NewPage};
+use neon_app::pages::{Location, NewPage, PageError};
 use neon_app::ratelimit::{Bucket, Limited, MemoryLimiter, RateLimiter};
 use neon_app::sync::{
     CloseReason, Connection, ContentError, Ending, Limits, Next, SyncService, access_feed,
@@ -951,7 +951,7 @@ async fn an_edit_reaches_whoever_has_the_page_open_at_once(pool: PgPool) {
     ada.write("Typed").await.expect("sent");
 
     let edited = sync
-        .edit(&t.dee, t.page, append("Added by Dee"))
+        .edit(&t.dee, t.page, append("Added by Dee"), None)
         .await
         .expect("edited");
     assert_eq!(edited.applied.len(), 1);
@@ -984,7 +984,7 @@ async fn an_edit_merges_with_typing_the_server_had_not_heard_of(pool: PgPool) {
     // Typed before the edit, sent after it.
     let typed = ada.paragraph("Typed meanwhile");
 
-    sync.edit(&t.dee, t.page, vec![replace("Mine", "Ours")])
+    sync.edit(&t.dee, t.page, vec![replace("Mine", "Ours")], None)
         .await
         .expect("edited");
     ada.send(&typed).await.expect("sent");
@@ -1008,7 +1008,7 @@ async fn an_edit_opens_the_document_nobody_has_open_and_it_is_saved(pool: PgPool
         idle_unload: Duration::from_millis(50),
         ..quick()
     });
-    sync.edit(&t.ada, t.page, append("# Hello\n\nWorld"))
+    sync.edit(&t.ada, t.page, append("# Hello\n\nWorld"), None)
         .await
         .expect("edited");
     eventually("the edit saved", || async {
@@ -1028,7 +1028,7 @@ async fn an_edit_opens_the_document_nobody_has_open_and_it_is_saved(pool: PgPool
 async fn an_edit_of_several_parts_makes_all_or_none(pool: PgPool) {
     let t = team(pool).await;
     let sync = t.sync(quick());
-    sync.edit(&t.ada, t.page, append("First"))
+    sync.edit(&t.ada, t.page, append("First"), None)
         .await
         .expect("edited");
 
@@ -1042,6 +1042,7 @@ async fn an_edit_of_several_parts_makes_all_or_none(pool: PgPool) {
                 },
                 replace("absent", "x"),
             ],
+            None,
         )
         .await;
     match refused {
@@ -1063,13 +1064,14 @@ async fn an_edit_of_several_parts_makes_all_or_none(pool: PgPool) {
                 },
                 replace("First", "1st"),
             ],
+            None,
         )
         .await
         .expect("edited");
     assert_eq!(made.applied[1].replaced, 1);
     assert_eq!(text_of(&sync, &t.ada, t.page).await, "1st\nSecond");
     assert!(matches!(
-        sync.edit(&t.ada, t.page, Vec::new()).await,
+        sync.edit(&t.ada, t.page, Vec::new(), None).await,
         Err(ContentError::InvalidInput(_))
     ));
     sync.shutdown().await;
@@ -1093,7 +1095,7 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
 
     assert_eq!(refused(sync.read(&gus, t.page).await), "not_found");
     assert_eq!(
-        refused(sync.edit(&gus, t.page, append("x")).await),
+        refused(sync.edit(&gus, t.page, append("x"), None).await),
         "not_found"
     );
     assert_eq!(refused(sync.read(&stranger, t.page).await), "not_found");
@@ -1103,7 +1105,7 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
         .expect("shared");
     assert_eq!(refused(sync.read(&gus, t.page).await), "ok");
     assert_eq!(
-        refused(sync.edit(&gus, t.page, append("x")).await),
+        refused(sync.edit(&gus, t.page, append("x"), None).await),
         "forbidden"
     );
 
@@ -1112,7 +1114,7 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
     let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
     assert_eq!(refused(sync.read(&reader, t.page).await), "ok");
     assert_eq!(
-        refused(sync.edit(&reader, t.page, append("x")).await),
+        refused(sync.edit(&reader, t.page, append("x"), None).await),
         "forbidden"
     );
 
@@ -1140,13 +1142,19 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
         Err(ContentError::Database)
     ));
     assert!(matches!(
-        sync.edit(&t.ada, database, append("x")).await,
+        sync.edit(&t.ada, database, append("x"), None).await,
         Err(ContentError::Database)
     ));
     t.h.pages.trash_page(&t.ada, t.page).await.expect("trashed");
-    assert_eq!(
-        refused(sync.edit(&t.ada, t.page, append("x")).await),
-        "forbidden"
+    // It says it is in the trash, rather than that it may only be viewed.
+    let in_trash = sync.edit(&t.ada, t.page, append("x"), None).await;
+    assert!(
+        matches!(
+            &in_trash,
+            Err(ContentError::Page(PageError::Forbidden(message)))
+                if *message == "this page is in the trash: restore it first"
+        ),
+        "{in_trash:?}"
     );
     sync.shutdown().await;
 }
@@ -1159,7 +1167,7 @@ async fn an_edit_past_the_size_a_document_keeps_is_refused(pool: PgPool) {
         ..quick()
     });
     let refused = sync
-        .edit(&t.ada, t.page, append(&"word ".repeat(200)))
+        .edit(&t.ada, t.page, append(&"word ".repeat(200)), None)
         .await;
     assert!(
         matches!(refused, Err(ContentError::TooLarge(512))),
@@ -1216,7 +1224,7 @@ async fn a_new_page_starts_with_its_content(pool: PgPool) {
 async fn replacing_text_that_multiplies_it_stops_at_the_limit_at_once(pool: PgPool) {
     let t = team(pool).await;
     let sync = t.sync(quick());
-    sync.edit(&t.ada, t.page, append("x"))
+    sync.edit(&t.ada, t.page, append("x"), None)
         .await
         .expect("edited");
     let tenfold = Edit::FindReplace {
@@ -1227,7 +1235,7 @@ async fn replacing_text_that_multiplies_it_stops_at_the_limit_at_once(pool: PgPo
 
     // Each part makes ten of every x: the sixth would replace a hundred thousand.
     let started = std::time::Instant::now();
-    let refused = sync.edit(&t.ada, t.page, vec![tenfold; 7]).await;
+    let refused = sync.edit(&t.ada, t.page, vec![tenfold; 7], None).await;
     match refused {
         Err(ContentError::Refused { index, error }) => {
             assert_eq!(index, 5);
@@ -1253,7 +1261,7 @@ async fn replacements_past_the_size_a_document_keeps_are_refused_before_they_are
         max_document: 64 * 1024,
         ..quick()
     });
-    sync.edit(&t.ada, t.page, append(&"x ".repeat(100)))
+    sync.edit(&t.ada, t.page, append(&"x ".repeat(100)), None)
         .await
         .expect("edited");
     let grown = Edit::FindReplace {
@@ -1262,7 +1270,7 @@ async fn replacements_past_the_size_a_document_keeps_are_refused_before_they_are
         all: true,
     };
 
-    let refused = sync.edit(&t.ada, t.page, vec![grown]).await;
+    let refused = sync.edit(&t.ada, t.page, vec![grown], None).await;
     assert!(
         matches!(refused, Err(ContentError::TooLarge(65_536))),
         "{refused:?}"
@@ -1294,14 +1302,14 @@ async fn edits_past_their_rate_are_refused_per_user(pool: PgPool) {
     let t = team(pool).await;
     let sync = t.sync_counting(quick(), Arc::new(RefusingEdits(t.dee.user.id)));
 
-    let refused = sync.edit(&t.dee, t.page, append("Dee's")).await;
+    let refused = sync.edit(&t.dee, t.page, append("Dee's"), None).await;
     match refused {
         Err(ContentError::RateLimited { retry_after }) => {
             assert_eq!(retry_after, Duration::from_secs(7));
         }
         other => panic!("expected a rate limit, got {other:?}"),
     }
-    sync.edit(&t.ada, t.page, append("Ada's"))
+    sync.edit(&t.ada, t.page, append("Ada's"), None)
         .await
         .expect("another user's edit");
     // Reading is not counted.
@@ -1333,7 +1341,12 @@ async fn the_body_sent_back_as_read_keeps_what_is_typed_in_its_last_paragraph(po
     // Ada types in the last paragraph while the body goes back as it was read.
     let typed = ada.type_last("Typed meanwhile");
     let edited = sync
-        .edit(&t.dee, t.page, vec![Edit::ReplaceBody { blocks: sent }])
+        .edit(
+            &t.dee,
+            t.page,
+            vec![Edit::ReplaceBody { blocks: sent }],
+            Some(neon_app::sync::revision(&read)),
+        )
         .await
         .expect("edited");
     assert_eq!(edited.applied[0].added, Vec::<String>::new());
@@ -1345,6 +1358,100 @@ async fn the_body_sent_back_as_read_keeps_what_is_typed_in_its_last_paragraph(po
     .await;
     assert_eq!(ada.text(), "Intro\nTyped meanwhile");
     drop(ada);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn replacing_blocks_from_a_stale_read_is_refused_rather_than_remove_what_came_since(
+    pool: PgPool,
+) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    sync.edit(
+        &t.ada,
+        t.page,
+        append("Fix the redirect\n\nAdd a regression test"),
+        None,
+    )
+    .await
+    .expect("edited");
+    let (_, read) = sync.read(&t.dee, t.page).await.expect("read");
+    let base = neon_app::sync::revision(&read);
+    let done = |read: &neon_blocks::Document| Edit::ReplaceBody {
+        blocks: from_markdown(
+            &neon_blocks::markdown::to_markdown_with_ids(read)
+                .replace("Fix the redirect", "Fix the redirect (done)"),
+        )
+        .blocks,
+    };
+
+    // Replacing names the revision it was made from.
+    assert!(matches!(
+        sync.edit(&t.dee, t.page, vec![done(&read)], None).await,
+        Err(ContentError::NoBase)
+    ));
+
+    // Ada adds a block after Dee read the page: Dee's body, made from the read, is refused,
+    // and Ada's block stays.
+    sync.edit(&t.ada, t.page, append("Added after the read"), None)
+        .await
+        .expect("edited");
+    assert!(matches!(
+        sync.edit(&t.dee, t.page, vec![done(&read)], Some(base.clone()))
+            .await,
+        Err(ContentError::Conflict)
+    ));
+    assert_eq!(
+        text_of(&sync, &t.dee, t.page).await,
+        "Fix the redirect\nAdd a regression test\nAdded after the read"
+    );
+    // Adding needs no base; made off it, it tells no revision.
+    let appended = sync
+        .edit(&t.dee, t.page, append("Dee's note"), Some(base))
+        .await
+        .expect("edited");
+    assert_eq!(appended.revision, None);
+
+    // Read again, it goes in, and its answer is the base of the next edit.
+    let (_, read) = sync.read(&t.dee, t.page).await.expect("read");
+    let edited = sync
+        .edit(
+            &t.dee,
+            t.page,
+            vec![done(&read)],
+            Some(neon_app::sync::revision(&read)),
+        )
+        .await
+        .expect("edited");
+    let next = edited.revision.expect("a revision");
+    let (_, now) = sync.read(&t.dee, t.page).await.expect("read");
+    assert_eq!(next, neon_app::sync::revision(&now));
+    let note = now
+        .blocks
+        .iter()
+        .find(|block| {
+            neon_blocks::Document::new(vec![(*block).clone()]).plain_text() == "Dee's note"
+        })
+        .and_then(|block| block.id.clone())
+        .expect("the note's id");
+    let removed = sync
+        .edit(
+            &t.dee,
+            t.page,
+            vec![Edit::ReplaceRange {
+                from: note.clone(),
+                to: note.clone(),
+                blocks: Vec::new(),
+            }],
+            Some(next),
+        )
+        .await
+        .expect("edited");
+    assert_eq!(removed.applied[0].removed_ids, [note]);
+    assert_eq!(
+        text_of(&sync, &t.dee, t.page).await,
+        "Fix the redirect (done)\nAdd a regression test\nAdded after the read"
+    );
     sync.shutdown().await;
 }
 

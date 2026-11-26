@@ -32,7 +32,8 @@ a teamspace, its owners and the workspace's owners and admins, also get:
   sending only what changed. General keeps its access, which the form says.
 - **Members**: who is in it, opened in place. A select changes each one's teamspace role,
   owner or member, and **Remove** takes them out after asking; they stay in the workspace.
-  **Add a member** picks someone from the workspace who is not a guest and not in it yet. If
+  **Add a member** picks someone from the workspace who is not a guest, nor an integration,
+  which joins no teamspace, and not in it yet. If
   that person became a guest in the meantime, the server refuses, and the card says why.
   General takes everyone but guests, so nobody is added to it or removed from it here.
   A teamspace keeps an owner while its own owners manage it, and the card says so when a

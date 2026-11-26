@@ -12,8 +12,8 @@ const CREATED = "2026-11-20T09:00:00Z";
 /** Stand-ins for what the server makes: real ones are 43 random base64url characters long. */
 export const SIGNING_SECRET = `whsec_${"s".repeat(43)}`;
 export const ROTATED_SECRET = `whsec_${"r".repeat(43)}`;
-export const HOOK_PATH = `/hooks/in/nwh_${"t".repeat(43)}`;
-export const NEW_HOOK_PATH = `/hooks/in/nwh_${"n".repeat(43)}`;
+export const HOOK_URL = `https://neon.example.com/hooks/in/nwh_${"t".repeat(43)}`;
+export const NEW_HOOK_URL = `https://neon.example.com/hooks/in/nwh_${"n".repeat(43)}`;
 
 /** Ada's webhook for herself, on and asking for both events. */
 export const adaHook: Webhook = {
@@ -281,7 +281,7 @@ export function fakeWebhooks(options: Options = {}) {
         return HttpResponse.json(
           {
             hook,
-            url: HOOK_PATH,
+            url: HOOK_URL,
             ...(input.signed ? { signing_secret: SIGNING_SECRET } : {}),
           },
           { status: 201 },
@@ -314,7 +314,7 @@ export function fakeWebhooks(options: Options = {}) {
     http.post(
       `${base}/incoming-webhooks/:hook_id/token`,
       record((_, params) =>
-        HttpResponse.json({ hook: findHook(params["hook_id"]) ?? ciHook, url: NEW_HOOK_PATH }),
+        HttpResponse.json({ hook: findHook(params["hook_id"]) ?? ciHook, url: NEW_HOOK_URL }),
       ),
     ),
     http.post(

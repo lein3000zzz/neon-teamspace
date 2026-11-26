@@ -99,19 +99,38 @@ Its owner and the workspace's owners and admins list its tokens with
 token stops at once, and the connections it opened close. Making tokens needs the agent to
 work: a suspended, turned off or deleted agent gets none.
 
+A token refused says why, so a program that holds one knows whether to wait or to get
+another:
+
+| Status | `code` | Why |
+|---|---|---|
+| `401` | `unauthenticated` | The token is unknown, revoked or expired: only a new one helps. |
+| `403` | `agent_suspended` | The agent is suspended. It works again once its owner is a member again, or once it is handed to someone else. |
+| `403` | `agents_off` | Agents are off, on the instance or in the workspace. It works again once they are on. |
+| `403` | `agent_deleted` | The agent was deleted as the request came in. Deleting revokes its tokens, so later requests answer `401`. |
+
+An [OAuth](/docs/guides/oauth/#when-tokens-stop) access token that acts as an agent answers
+the same.
+
 ## Handing over and deleting
 
 The workspace's owners and admins hand an agent to another person of the workspace, neither
 a guest nor disabled, with `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer`. It
 acts for its new owner from then on, which resumes it if it was suspended, and its tokens
 and the apps connected as it are revoked: its former owner made them, and they would
-otherwise act for the new owner.
+otherwise act for the new owner. For the same reason, an integration handed over gets a new
+URL for its incoming webhook, and a new signing secret if it checks signatures, which
+nobody is shown: the old URL answers `404 not_found` at once. The workspace's owners and
+admins make a **New URL**, and a new secret, to use the webhook again, as
+[incoming webhooks](/docs/guides/webhooks/#its-url) describe.
 
 Its owner renames it and changes its hue with `PATCH /api/v1/workspaces/{id}/agents/{agent_id}`.
 Its owner, or the workspace's owners and admins, delete it with `DELETE` on the same path.
 A deleted agent leaves the workspace and its teamspaces, its shares and favorites go, and
-its tokens and the apps connected as it are revoked, the connections they opened closing at once; its identity stays, so
-what it made still names it, as deleted.
+its tokens and the apps connected as it are revoked, the connections they opened closing
+at once; its identity stays, so what it made still names it, as deleted. Deleting an
+integration deletes its incoming webhook too, as deleting the webhook deletes its
+integration.
 
 ## How agents are named
 

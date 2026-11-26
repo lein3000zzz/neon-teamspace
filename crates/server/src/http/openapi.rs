@@ -10,9 +10,11 @@ use super::web::SESSION_COOKIE;
 const DESCRIPTION: &str = "The HTTP API of Neon Teamspace.\n\n\
 Every error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. \
 `code` is stable and meant for programs, such as `not_found` or `invalid_json`; \
-`message` says what went wrong, for people. A request with several wrong fields, such as \
-settings, also lists each in `problems`. A rate-limited request answers 429 with \
-`Retry-After`.\n\n\
+`message` says what went wrong, for people. A body that is not JSON answers \
+`400 invalid_json`; JSON with a field missing, unknown or of the wrong type answers \
+`400 invalid_input`, its message naming the field. A request with several wrong fields, \
+such as settings, also lists each in `problems`, and a refused claim lists who holds the \
+row in `holders`. A rate-limited request answers 429 with `Retry-After`.\n\n\
 A request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with \
 `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` \
 for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a \

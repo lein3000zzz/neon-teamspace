@@ -84,7 +84,10 @@ edits them by those ids, through the page's live document, so whoever has the pa
 the change at once, and what they type meanwhile stays. Its `operations` append blocks,
 insert them after a block, replace a range of blocks, find and replace text, or replace the
 whole body, in order, all or none. The
-[editing section](/docs/guides/agents-over-mcp/#editing-a-page) of that guide lists them. A
+[editing section](/docs/guides/agents-over-mcp/#editing-a-page) of that guide lists them.
+Reading answers the `revision` the blocks are at; an edit that replaces a range or the body
+sends it as `base`, and is refused with `409 edit_conflict` once someone changed the page
+since, as [stale reads](/docs/guides/agents-over-mcp/#stale-reads) explain. A
 refused operation answers `400 edit_refused`, naming it, and changes nothing. Each user has
 100 edits at once, then two a second, with those made over MCP, and past that the route
 answers `429 rate_limited` with `Retry-After`.
