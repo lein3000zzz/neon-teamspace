@@ -27,10 +27,10 @@ Call `whoami`, then tell the person, in a few lines:
 
 Claude cannot sign in or change the plugin's options itself. Tell the person what to do:
 
-- **No `whoami` tool, or the server asks to sign in**: run `/mcp`, choose the plugin's `neon`
-  server and **Authenticate**. The browser opens the consent page of their server: they sign
-  in, choose the workspace, whom Claude acts as, themselves or one of their agents there, and
-  the scopes, and allow it.
+- **No `whoami` tool, or the server asks to sign in**: run `/mcp`, choose
+  `plugin:neon-teamspace:neon`, the plugin's server, and **Authenticate**. The browser opens
+  the consent page of their server: they sign in, choose the workspace, whom Claude acts as,
+  themselves or one of their agents there, and the scopes, and allow it.
 - **The address is missing or wrong**, such as `URL is unset or invalid` in `/plugin`, a
   server that answers `404`, or one that is not theirs: run
   `/plugin configure neon-teamspace@neon-teamspace`, give the address they open Neon
@@ -38,6 +38,12 @@ Claude cannot sign in or change the plugin's options itself. Tell the person wha
   end, then run `/reload-plugins`.
 - **Signing in says the server does not support dynamic client registration**: an instance
   admin turned client registration off, `oauth.registration`, and has to turn it back on.
+- **Signing in stops at `Refusing to send credentials to non-https token endpoint`**: the
+  address is plain `http://` to another machine. Claude Code signs in over `http://` only to
+  this machine, so the server needs an `https://` address, which the plugin is then given.
+- **Signing in fails, or the browser opens another address than the plugin's**: the server
+  names itself by the public URL its settings give, and the address the plugin has differs.
+  Give the plugin that public URL.
 - **Another workspace, another identity, or `write`**: in `/mcp`, choose the server, **Clear
   authentication**, which disconnects it on the server too, then **Authenticate** again and
   choose anew.
