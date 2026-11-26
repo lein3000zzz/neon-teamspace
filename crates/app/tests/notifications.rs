@@ -1334,3 +1334,75 @@ async fn a_mention_an_edit_adds_is_told_as_of_the_edit_and_mailed_from_then(pool
         "the mail waits its delay after the edit"
     );
 }
+
+/// Listens to someone's inbox's room, as their open tabs and MCP subscriptions do.
+fn listen(t: &Team, who: &Principal) -> neon_app::sync::OutboxReceiver {
+    let (outbox, heard) = Outbox::new(16, 4096);
+    t.h.broadcaster.join(
+        Room::Inbox(who.user.id),
+        neon_app::sync::ClientId::next(),
+        outbox,
+    );
+    heard
+}
+
+async fn hears_the_inbox(heard: &mut neon_app::sync::OutboxReceiver, what: &str) {
+    let Next::Send(message) = timeout(PATIENCE, heard.next())
+        .await
+        .unwrap_or_else(|_| panic!("{what}: nothing heard"))
+    else {
+        panic!("{what}: closed")
+    };
+    assert_eq!(&message[..], br#"{"type":"inbox"}"#, "{what}");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_inbox_hears_when_a_deletion_or_an_answer_takes_from_it(pool: PgPool) {
+    let t = team(pool).await;
+    let mut bea = listen(&t, &t.bea);
+    let posted = t.post(&t.ada, &format!("{} look", mention(&t.bea))).await;
+    hears_the_inbox(&mut bea, "the mention").await;
+    t.comments
+        .delete(&t.ada, posted.comment_id)
+        .await
+        .expect("deleted");
+    hears_the_inbox(&mut bea, "the comment deleted").await;
+    assert_eq!(t.unread(&t.bea).await, 0);
+
+    let dan = t.h.person("dan@example.com").await;
+    let mut heard = listen(&t, &dan);
+    let invite = || async {
+        t.h.workspaces
+            .invite(
+                &t.ada,
+                t.workspace,
+                dan.user.address(),
+                WorkspaceRole::Member,
+            )
+            .await
+            .expect("invited")
+            .invitation
+            .id
+    };
+    let sent = invite().await;
+    hears_the_inbox(&mut heard, "invited").await;
+    t.h.workspaces
+        .revoke_invitation(&t.ada, t.workspace, sent)
+        .await
+        .expect("revoked");
+    hears_the_inbox(&mut heard, "revoked").await;
+    let sent = invite().await;
+    hears_the_inbox(&mut heard, "invited again").await;
+    t.h.workspaces
+        .decline_invitation(&dan, sent)
+        .await
+        .expect("declined");
+    hears_the_inbox(&mut heard, "declined").await;
+    let sent = invite().await;
+    hears_the_inbox(&mut heard, "invited once more").await;
+    t.h.workspaces
+        .accept_invitation(&dan, sent)
+        .await
+        .expect("accepted");
+    hears_the_inbox(&mut heard, "accepted").await;
+}

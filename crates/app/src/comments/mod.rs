@@ -38,7 +38,7 @@ use neon_domain::workspaces::{Action, Person};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::comments::{self as repo, Comment, Thread};
-use neon_store::{pages as pages_repo, workspaces};
+use neon_store::{notifications as notifications_repo, pages as pages_repo, workspaces};
 use sqlx::{PgConnection, PgPool};
 use tracing::{Instrument as _, info, info_span};
 use uuid::Uuid;
@@ -425,6 +425,11 @@ impl CommentService {
         self.observe("delete", async {
             let mut tx = self.pool().begin().await?;
             let (thread, _, comment) = self.own(&mut tx, principal, comment_id).await?;
+            // Its notifications go with it: their inboxes hear so.
+            let mut notifier = Notifier::of(&self.inner.pages);
+            for user in notifications_repo::told_of_comment(&mut *tx, comment.id).await? {
+                notifier.touched(user);
+            }
             repo::delete_comment(&mut *tx, comment.id).await?;
             let gone = repo::delete_thread_if_empty(&mut *tx, thread.id).await?;
             tx.commit().await?;
@@ -434,6 +439,7 @@ impl CommentService {
                 thread_deleted = gone,
                 "comment deleted"
             );
+            notifier.tell();
             self.changed(thread.page_id, thread.id);
             Ok(!gone)
         })

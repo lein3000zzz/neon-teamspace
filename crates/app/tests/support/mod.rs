@@ -205,13 +205,15 @@ impl Harness {
             time.clock(),
         );
         let changes = Arc::new(ToldChanges::default());
+        // One broadcaster for every service, as the server has it.
+        let broadcaster = Arc::new(LocalBroadcaster::new());
         let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
             .envelope(options.envelope.clone())
             .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
+            .broadcaster(Arc::clone(&broadcaster) as Arc<dyn Broadcaster>)
             .clock(time.clock())
             .build();
-        let broadcaster = Arc::new(LocalBroadcaster::new());
         let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
             .access_changes(Arc::clone(&changes) as Arc<dyn AccessChanges>)
             .broadcaster(Arc::clone(&broadcaster) as Arc<dyn Broadcaster>)

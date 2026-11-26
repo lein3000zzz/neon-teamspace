@@ -386,6 +386,19 @@ pub async fn mark_all_read(
     Ok(result.rows_affected())
 }
 
+/// Whose notifications are of a comment: the inboxes its deletion changes.
+pub async fn told_of_comment(
+    executor: impl PgExecutor<'_>,
+    comment_id: Uuid,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT DISTINCT user_id FROM notifications WHERE comment_id = $1",
+        comment_id,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Marks notifications told of by mail.
 pub async fn mark_mailed(
     executor: impl PgExecutor<'_>,

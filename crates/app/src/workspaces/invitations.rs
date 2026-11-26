@@ -1,6 +1,7 @@
 //! Invitations into a workspace: sent to an account by its address, listed and revoked by
 //! the workspace's owners and admins, accepted or declined by the account. Each comes to
-//! the account's inbox as it is sent, and shows there while it waits.
+//! the account's inbox as it is sent, and shows there while it waits; the inbox hears each
+//! change, sent, answered or revoked.
 
 use neon_domain::auth::{Email, Principal};
 use neon_domain::notifications::NotificationKind;
@@ -160,18 +161,17 @@ impl WorkspaceService {
             locked_membership(&mut tx, principal, workspace_id)
                 .await?
                 .check(Action::ManageInvitations)?;
-            let revoked = repo::decide(
+            let invitee = repo::decide(
                 &mut *tx,
                 workspace_id,
                 id,
                 InvitationState::Revoked,
                 self.now(),
             )
-            .await?;
-            if !revoked {
-                return Err(WorkspaceError::NotFound(NO_INVITATION));
-            }
+            .await?
+            .ok_or(WorkspaceError::NotFound(NO_INVITATION))?;
             tx.commit().await?;
+            self.answered(invitee);
             info!(
                 actor_id = %principal.user.id,
                 workspace_id = %workspace_id,
@@ -238,6 +238,7 @@ impl WorkspaceService {
             self.add_member(&mut tx, workspace_id, user, invitation.role)
                 .await?;
             tx.commit().await?;
+            self.answered(user);
             info!(
                 user_id = %user,
                 workspace_id = %workspace_id,
@@ -261,17 +262,16 @@ impl WorkspaceService {
     ) -> Result<(), WorkspaceError> {
         self.observe("decline_invitation", async {
             let invitation = self.open_invitation(id, principal.user.id).await?;
-            let declined = repo::decide(
+            let invitee = repo::decide(
                 self.pool(),
                 invitation.workspace_id,
                 id,
                 InvitationState::Declined,
                 self.now(),
             )
-            .await?;
-            if !declined {
-                return Err(WorkspaceError::NotFound(NO_INVITATION));
-            }
+            .await?
+            .ok_or(WorkspaceError::NotFound(NO_INVITATION))?;
+            self.answered(invitee);
             info!(
                 user_id = %principal.user.id,
                 workspace_id = %invitation.workspace_id,
@@ -281,6 +281,14 @@ impl WorkspaceService {
             Ok(())
         })
         .await
+    }
+
+    /// Tells the invitee's inbox that an invitation of theirs no longer waits, so it drops
+    /// from every tab and subscription that has it open.
+    fn answered(&self, invitee: Uuid) {
+        let mut notifier = self.notifier();
+        notifier.touched(invitee);
+        notifier.tell();
     }
 
     /// One of the account's invitations, while it waits for an answer.
