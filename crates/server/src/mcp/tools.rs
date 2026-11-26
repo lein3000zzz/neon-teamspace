@@ -354,12 +354,18 @@ pub(crate) fn find(name: &str) -> Option<&'static Spec> {
 }
 
 /// The arguments of a call, as their type reads them.
+/// A tool's arguments, or `invalid_arguments` naming the field that does not fit, as
+/// `teamspace_id` or `filter.and[0]`, and why.
 fn arguments<T: DeserializeOwned>(arguments: JsonObject) -> Result<T, ToolError> {
-    serde_json::from_value(Json::Object(arguments)).map_err(|error| {
-        ToolError::invalid(
-            "invalid_arguments",
-            format!("the arguments do not fit the tool's schema: {error}"),
-        )
+    serde_path_to_error::deserialize(Json::Object(arguments)).map_err(|error| {
+        let path = error.path().to_string();
+        let why = error.into_inner();
+        let message = if path == "." {
+            format!("the arguments do not fit the tool's schema: {why}")
+        } else {
+            format!("the arguments do not fit the tool's schema: `{path}`: {why}")
+        };
+        ToolError::invalid("invalid_arguments", message)
     })
 }
 

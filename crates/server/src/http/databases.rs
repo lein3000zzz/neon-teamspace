@@ -295,8 +295,9 @@ mirror!(
 
 /// A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
 /// `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
-/// conditions in all.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+/// conditions in all. A filter that does not read says where and why, naming the fields a
+/// condition has and the operators: see [`Filter::read`].
+#[derive(Debug, Clone, Serialize, ToSchema, JsonSchema)]
 #[serde(untagged)]
 pub enum Filter {
     And {
@@ -324,6 +325,99 @@ pub struct Condition {
     /// range such as `past_week`. Absent for `is_empty` and `is_not_empty`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Json>,
+}
+
+impl Filter {
+    /// The filter `value` writes, or what is wrong with it and where, as `and[1].operator`.
+    fn read(value: Json) -> Result<Self, String> {
+        const SHAPE: &str = "a filter is a condition {\"property\", \"operator\", \"value\"}, \
+                             or {\"and\": [...]} or {\"or\": [...]} of filters";
+        let Json::Object(mut fields) = value else {
+            return Err(SHAPE.to_owned());
+        };
+        for group in ["and", "or"] {
+            let Some(members) = fields.remove(group) else {
+                continue;
+            };
+            if let Some(other) = fields.keys().next() {
+                return Err(format!(
+                    "a group holds \"{group}\" alone, and no field `{other}`"
+                ));
+            }
+            let Json::Array(members) = members else {
+                return Err(format!("`{group}` holds a list of filters"));
+            };
+            let members = members
+                .into_iter()
+                .enumerate()
+                .map(|(index, member)| {
+                    Self::read(member).map_err(|why| format!("{group}[{index}]: {why}"))
+                })
+                .collect::<Result<_, _>>()?;
+            return Ok(match group {
+                "and" => Self::And { and: members },
+                _ => Self::Or { or: members },
+            });
+        }
+        if let Some(other) = fields
+            .keys()
+            .find(|key| !["property", "operator", "value"].contains(&key.as_str()))
+        {
+            return Err(format!(
+                "unknown field `{other}`: a condition has property, operator and value; {SHAPE}"
+            ));
+        }
+        let operators = || {
+            filters::Operator::ALL
+                .iter()
+                .map(|operator| operator.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let property = match fields.remove("property") {
+            Some(Json::String(property)) => property,
+            Some(_) => return Err("`property` names a property by its id or name".to_owned()),
+            None => {
+                return Err(format!(
+                    "a condition names its `property`, by id or name, and its `operator`; \
+                     {SHAPE}"
+                ));
+            }
+        };
+        let operator = match fields.remove("operator") {
+            Some(Json::String(operator)) => {
+                filters::Operator::parse(&operator).ok_or_else(|| {
+                    format!(
+                        "unknown operator `{operator}`: the operators are {}",
+                        operators()
+                    )
+                })?
+            }
+            Some(_) => {
+                return Err(format!(
+                    "`operator` is one of the operators' names: {}",
+                    operators()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "a condition names its `operator`, one of {}",
+                    operators()
+                ));
+            }
+        };
+        Ok(Self::Condition(Condition {
+            property,
+            operator: operator.into(),
+            value: fields.remove("value").filter(|value| !value.is_null()),
+        }))
+    }
+}
+
+impl<'de> Deserialize<'de> for Filter {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::read(Json::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
 }
 
 impl From<Filter> for filters::FilterSpec {

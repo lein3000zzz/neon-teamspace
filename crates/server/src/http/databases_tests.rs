@@ -164,8 +164,8 @@ async fn databases_their_properties_and_views_are_made_and_changed(pool: PgPool)
         ),
         (
             json!({"name": "P", "type": "nope"}),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid_json",
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
         ),
     ] {
         let refused = t
@@ -1071,4 +1071,33 @@ async fn an_inline_database_is_embedded_in_its_parent_when_asked(pool: PgPool) {
         "{}",
         full.body
     );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_filter_that_does_not_read_says_what_a_condition_holds(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let db = database_id(&database(&t.ada, &t.workspace).await);
+    let refused = t
+        .ada
+        .post(
+            &format!("/api/v1/databases/{db}/query"),
+            json!({"filter": {"property": "Status"}}),
+        )
+        .await;
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input"),
+        "{}",
+        refused.body
+    );
+    let message = refused.body["error"]["message"]
+        .as_str()
+        .expect("a message");
+    assert!(
+        message.contains("filter: a condition names its `operator`, one of is, is_not,"),
+        "{message}"
+    );
+    assert!(!message.contains("untagged"), "{message}");
 }

@@ -221,7 +221,7 @@ async fn markdown_names_each_block_and_edits_name_them_back(pool: PgPool) {
             )
             .await
             .status,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert!(!markdown_of(&t.ada.get(&markdown).await).contains("Lost"));
 

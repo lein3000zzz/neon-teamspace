@@ -3447,7 +3447,8 @@ export interface components {
         /**
          * @description A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
          *     `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
-         *     conditions in all.
+         *     conditions in all. A filter that does not read says where and why, naming the fields a
+         *     condition has and the operators: see [`Filter::read`].
          */
         Filter: {
             and: components["schemas"]["Filter"][];

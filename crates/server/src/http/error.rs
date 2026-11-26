@@ -478,10 +478,23 @@ impl From<UpdateError> for ApiError {
 }
 
 impl From<JsonRejection> for ApiError {
+    /// A body that is not JSON is `invalid_json`; JSON that is not what the route takes, a
+    /// field missing, unknown or of the wrong type, is `400 invalid_input`, as any other
+    /// input the route refuses, its message naming the field.
     fn from(rejection: JsonRejection) -> Self {
         let status = rejection.status();
+        if let JsonRejection::JsonDataError(error) = &rejection {
+            const PREFIX: &str = "Failed to deserialize the JSON body into the target type: ";
+            let text = error.body_text();
+            let why = text.strip_prefix(PREFIX).unwrap_or(&text);
+            return Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_input",
+                format!("the body does not fit the route: {why}"),
+            );
+        }
         let code = match &rejection {
-            JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_) => "invalid_json",
+            JsonRejection::JsonSyntaxError(_) => "invalid_json",
             JsonRejection::MissingJsonContentType(_) => "unsupported_media_type",
             _ if status == StatusCode::PAYLOAD_TOO_LARGE => "payload_too_large",
             _ => "invalid_body",

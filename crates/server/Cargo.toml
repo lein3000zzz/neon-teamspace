@@ -37,6 +37,7 @@ schemars = { workspace = true, features = ["uuid1"] }
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["serde", "formatting", "parsing"] }

@@ -259,13 +259,50 @@ fn arguments_are_read_as_their_schema_has_them() {
     })))
     .expect("valid");
     assert!(query.filter.is_some());
-    assert!(
-        arguments::<QueryArguments>(object(json!({
-            "database_id": page,
-            "filter": {"property": "Status", "operator": "is_sort_of"},
-        })))
-        .is_err()
-    );
+}
+
+#[test]
+fn arguments_that_do_not_read_name_the_field_and_what_it_takes() {
+    let page = Uuid::from_u128(7);
+    let refused = |given: Json| {
+        arguments::<QueryArguments>(object(given))
+            .expect_err("refused")
+            .message
+    };
+    let message = arguments::<TreeArguments>(object(json!({"teamspace_id": "general"})))
+        .expect_err("refused")
+        .message;
+    assert!(message.contains("`teamspace_id`: UUID"), "{message}");
+    for (filter, says) in [
+        (
+            json!({"property": "Status", "operator": "is_sort_of"}),
+            "unknown operator `is_sort_of`: the operators are is, is_not,",
+        ),
+        (
+            json!({"property": "Status"}),
+            "a condition names its `operator`, one of is, is_not,",
+        ),
+        (
+            json!([{"property": "Status", "operator": "is"}]),
+            "a filter is a condition",
+        ),
+        (
+            json!({"and": [{"property": "Status", "operator": "is"}, {"operator": "is"}]}),
+            "and[1]: a condition names its `property`",
+        ),
+        (
+            json!({"and": [], "or": []}),
+            "a group holds \"and\" alone, and no field `or`",
+        ),
+        (
+            json!({"property": "Status", "operator": "is", "values": 1}),
+            "unknown field `values`",
+        ),
+    ] {
+        let message = refused(json!({"database_id": page, "filter": filter}));
+        assert!(message.contains("`filter`"), "{message}");
+        assert!(message.contains(says), "{message}");
+    }
 }
 
 #[test]

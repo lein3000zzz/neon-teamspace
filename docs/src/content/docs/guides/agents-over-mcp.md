@@ -138,7 +138,10 @@ content holds `{"error": {"code", "message"}}` with the API's code. `not_found` 
 what is not there and for what the caller may not see, alike. Others are `forbidden`, `invalid_input`,
 `insufficient_scope` for a change made with a token without `write`, `rate_limited` with
 `retry_after`, and `invalid_arguments`. Each tool publishes the JSON schema of its arguments, and refuses
-unknown fields, missing ones and values of the wrong type with `invalid_arguments`. Its
+unknown fields, missing ones and values of the wrong type with `invalid_arguments`, naming
+the field, as `` `teamspace_id`: UUID parsing failed ``. A filter that does not read says where
+and what a condition holds, as `` `filter`: and[0]: a condition names its `operator`, one of
+is, is_not, … ``. Its
 annotations tell a client whether it only reads, and whether it may overwrite or remove what
 is there, as `edit_page`, `move_page`, `trash_page`, `update_row` and `claim_task` may, so a
 client that asks before such a call asks before these.
