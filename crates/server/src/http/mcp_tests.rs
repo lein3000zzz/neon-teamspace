@@ -764,11 +764,17 @@ async fn the_gate_wants_a_token_bound_to_a_workspace_on_every_request(pool: PgPo
         .to_owned();
     assert_eq!(state.mcp.session_count(), 1);
 
-    // Outside a session only initialize is taken; a session is its identity's alone.
+    // Outside a session only initialize is taken, whatever the method; a session is its
+    // identity's alone.
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
     let (status, _, body) = raw(&app, Method::POST, &[auth], Some(list.clone())).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(code_of(&body), "session_required");
+    for method in [Method::GET, Method::DELETE] {
+        let (status, _, body) = raw(&app, method.clone(), &[auth], None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{method}: {body}");
+        assert_eq!(code_of(&body), "session_required", "{method}");
+    }
     let dee = format!("Bearer {}", bound_token(&t.dee, &ws, &["read"]).await);
     let (status, _, body) = raw(
         &app,

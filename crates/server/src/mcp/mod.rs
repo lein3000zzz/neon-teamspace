@@ -248,13 +248,7 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
                 }
             };
             if !initializes(&bytes) {
-                return ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    "session_required",
-                    "MCP requests belong to a session: send initialize first, then its \
-                     Mcp-Session-Id with every request",
-                )
-                .into_response();
+                return session_required();
             }
             match mcp.inner.sessions.reserve(&principal, limits(&mcp)) {
                 Ok(opening) => (Body::from(bytes), Some(opening)),
@@ -268,6 +262,8 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
                 }
             }
         }
+        // A stream, or the end of a session, needs the session.
+        (None, &Method::GET | &Method::DELETE) => return session_required(),
         _ => (body, None),
     };
     parts.extensions.insert(principal.clone());
@@ -308,6 +304,17 @@ fn own_origin(web: &WebConfig, origin: &str, headers: &HeaderMap) -> bool {
         Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
         None => false,
     })
+}
+
+/// What a request outside a session gets, but an `initialize`.
+fn session_required() -> Response {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "session_required",
+        "MCP requests belong to a session: send initialize first, then its Mcp-Session-Id \
+         with every request",
+    )
+    .into_response()
 }
 
 /// Whether a request's body is a JSON-RPC `initialize` request.

@@ -130,7 +130,9 @@ fn tools_publish_their_schemas_and_what_they_change() {
         .filter(|spec| spec.writes)
         .map(|spec| {
             let tool = spec.tool();
-            let hint = tool.annotations.and_then(|annotations| annotations.destructive_hint);
+            let hint = tool
+                .annotations
+                .and_then(|annotations| annotations.destructive_hint);
             (spec.name, hint.expect("a destructive hint"))
         })
         .collect();
