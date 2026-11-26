@@ -153,9 +153,11 @@ impl From<AppResults> for SearchResults {
     description = "The pages, databases and rows of the workspace that the query finds, among \
                    those the caller may see, out of the trash, the best first: a match in a \
                    title ranks above one in a row's property values, which ranks above one in \
-                   the text. Each comes with its title and a snippet, in runs that mark the \
-                   matches. Read are titles, rows' text and URL values, and the text of pages \
-                   and rows, as the server last saved it, which is a moment after an edit. \
+                   the text, which ranks above one in its comments. Each comes with its title \
+                   and a snippet, in runs that mark the matches. Read are titles, rows' text \
+                   and URL values, the text of pages and rows, as the server last saved it, \
+                   which is a moment after an edit, and the text of their comments, as they \
+                   are written. \
                    Filters narrow it to a teamspace, a kind, who made or last changed it, and \
                    how recently it changed. A snippet is drawn from the 5000 characters around \
                    the first place the query's words are. Each user's searches are rate \

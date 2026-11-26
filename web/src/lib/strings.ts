@@ -1494,7 +1494,7 @@ export const strings = {
     page: {
       eyebrow: "Search",
       title: "Search",
-      lede: "Titles, text and rows' values of every page you see. Quote words to find them together, put - before a word to leave it out, and OR between two to find either.",
+      lede: "Titles, text, rows' values and comments of every page you see. Quote words to find them together, put - before a word to leave it out, and OR between two to find either.",
       label: "Search",
       placeholder: "Search…",
       filters: "Filters",

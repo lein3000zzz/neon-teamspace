@@ -2,9 +2,11 @@
 //! may see, the best first, with their matches marked; and rebuilding the text search reads.
 //!
 //! - **What is read.** A page's title; a row's title and the values of its text and URL
-//!   properties; and the text of a page's or a row's document, which is stored with each
-//!   snapshot of it, in the same transaction. Titles and values change with their own
-//!   writes. Nothing goes through the job queue. See [`neon_store::search`].
+//!   properties; the text of a page's or a row's document, which is stored with each
+//!   snapshot of it, in the same transaction; and the words of its comments. Titles, values
+//!   and comments change with their own writes. Nothing goes through the job queue. See
+//!   [`neon_store::search`]. A comment is found through its page alone, which whoever finds
+//!   may read its comments.
 //! - **The query** is read by [`neon_domain::search`]: words, quoted phrases, words left
 //!   out and `OR`. A query without words lists what the filters let through, the most
 //!   recently changed first.

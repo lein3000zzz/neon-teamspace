@@ -1,5 +1,5 @@
-//! Search: the pages of a workspace whose title, text or rows' property values match a
-//! query, among those someone may see, ranked, with their matches marked.
+//! Search: the pages of a workspace whose title, text, rows' property values or comments
+//! match a query, among those someone may see, ranked, with their matches marked.
 //!
 //! Who may see what is the rules' to say, and the search service asks them before it runs
 //! this: which teamspaces show their pages to the searcher, whether their own private pages
@@ -11,7 +11,8 @@
 //!
 //! The matches are full-text search with the `simple` configuration over
 //! `pages.search_vector`, the title weighted most, then a row's property values, then the
-//! document's text, and a trigram match of titles typed loosely, with
+//! document's text, then the words of the page's comments, and a trigram match of titles
+//! typed loosely, with
 //! `pg_trgm.word_similarity_threshold` at [`FUZZY_THRESHOLD`]. Pages in the trash are left
 //! out.
 //!
@@ -107,8 +108,8 @@ pub struct Hit {
     /// The title with its matches between [`MATCH_START`] and [`MATCH_END`]; `None`
     /// without a query.
     pub title: Option<String>,
-    /// A few words of its property values and text around its matches, marked so; `None`
-    /// without a query or text.
+    /// A few words of its property values, text and comments around its matches, marked
+    /// so; `None` without a query or any of them.
     pub snippet: Option<String>,
 }
 
@@ -178,7 +179,7 @@ macro_rules! search_sql {
                           OR p.id IN (SELECT id FROM owner_shared))
                ),
                ranked AS (
-                   SELECT p.id, p.title, p.property_text, p.search_text,
+                   SELECT p.id, p.title, p.property_text, p.search_text, p.comment_text,
                           (CASE WHEN $2::text IS NULL THEN 0
                                 ELSE ts_rank(p.search_vector, to_tsquery('simple', $2)) END
                            + CASE WHEN $3::text IS NULL THEN 0
@@ -198,8 +199,8 @@ macro_rules! search_sql {
                    FROM ranked r
                )
                -- The page past the part tells that more follow, and is not marked. A
-               -- snippet is marked in $20 characters of the text and values, from $21 before
-               -- the first place one of the query's words is, or from the start.
+               -- snippet is marked in $20 characters of the values, text and comments, from
+               -- $21 before the first place one of the query's words is, or from the start.
                SELECT r.id AS "id!", r.rank AS "rank!", r.n AS "n!",
                       CASE WHEN $2::text IS NOT NULL AND r.n <= $16 THEN
                           ts_headline('simple', translate(r.title, E'\x01\x02', ''),
@@ -218,10 +219,11 @@ macro_rules! search_sql {
                FROM numbered r
                LEFT JOIN LATERAL (
                    SELECT b.body, lower(b.body) AS low
-                   FROM (SELECT left(concat_ws(E'\n', r.property_text, r.search_text), 100000)
-                                AS body) b
+                   FROM (SELECT left(concat_ws(E'\n', r.property_text, r.search_text,
+                                               r.comment_text), 100000) AS body) b
                    WHERE $2::text IS NOT NULL AND r.n <= $16
-                     AND (r.property_text IS NOT NULL OR r.search_text IS NOT NULL)
+                     AND (r.property_text IS NOT NULL OR r.search_text IS NOT NULL
+                          OR r.comment_text IS NOT NULL)
                    OFFSET 0
                ) t ON true
                LEFT JOIN LATERAL (

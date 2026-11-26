@@ -203,16 +203,17 @@ pub(crate) const TOOLS: [Spec; 23] = [
     Spec {
         name: "search",
         title: "Search the workspace",
-        description: "Pages, databases and rows this connection sees whose title, text or rows' \
-                      text values match the query, the best first, each with a snippet whose \
-                      runs mark the matches; a part at a time: pass `next` back as `after`. \
-                      Words must all be there (two characters or more also find the words they \
-                      start), \"quoted words\" in that order, -word leaves out, OR between two \
-                      terms finds either; titles also match misspelled. Filters: teamspace_id, \
-                      kind (page, database or row), created_by, edited_by (who changed it \
-                      last), edited_within such as 7d. Without a query, the filters list what \
-                      changed last. Text is found once the server saved the page, a moment \
-                      after an edit.",
+        description: "Pages, databases and rows this connection sees whose title, text, rows' \
+                      text values or comments match the query, the best first, each with a \
+                      snippet whose runs mark the matches; a part at a time: pass `next` back \
+                      as `after`. Words must all be there (two characters or more also find \
+                      the words they start), \"quoted words\" in that order, -word leaves out, \
+                      OR between two terms finds either; titles also match misspelled. \
+                      Filters: teamspace_id, kind (page, database or row), created_by, \
+                      edited_by (who changed it last), edited_within such as 7d. Without a \
+                      query, the filters list what changed last. Text is found once the \
+                      server saved the page, a moment after an edit; comments as they are \
+                      written.",
         writes: false,
         destructive: false,
         idempotent: true,

@@ -81,6 +81,23 @@ What happens with edits made around the restore:
   version saved before the restore either, as the server had not received them. The editor
   shows the restored block right away, so the person typing sees the change.
 
+### Comments and mentions
+
+A version holds the page's blocks and nothing else, so restoring one leaves the page's
+[comments](/docs/guides/comments-and-mentions/) as they are: no thread is added, removed,
+resolved or reopened. An inline thread stays on its text while that text is still there,
+which it is in a block the version and the page share. A block the restore writes anew holds
+new text, so a thread on its old text shows as detached, as after any edit that removes the
+text it was on.
+
+A mention the restore brings back, of someone the page no longer mentioned, is written by
+you, as a mention typed again would be: it tells them, as from you, as
+[Whom a mention tells](/docs/guides/comments-and-mentions/#whom-a-mention-tells) describes.
+
+The history lists versions of the page's blocks only. Comments are not versions, and the
+panel shows no comment activity: the page's comments, resolved threads included, and the
+[inbox](/docs/guides/inbox/) tell what was said and when.
+
 ## How long versions are kept
 
 The hourly cleanup thins each page's versions, as three settings say:

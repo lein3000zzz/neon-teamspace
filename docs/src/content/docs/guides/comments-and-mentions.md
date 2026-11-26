@@ -132,6 +132,17 @@ The inbox checks again, each time it lists or counts a notification, whether its
 still see what it is about: one about a page they lost is left out, and shows again should
 they get the page back. Deleting a comment deletes the notifications it made.
 
+## Search
+
+[Search](/docs/guides/search/) finds a page by the words of its comments, those of resolved
+threads too, from the moment each comment is saved: its text without styles or link targets,
+a mention as `@` and the label it was written with. A changed comment is found by its new
+words, a deleted one no more. A match in a comment ranks below one in the page's own text,
+and the result's snippet may show the comment's words. A comment is found only through its
+page, by those who may see the page and so read its comments: nobody learns from a search
+of a comment on a page they may not see. A mention in a page's text is found by its label
+too.
+
 ## In the web app
 
 **Comments** in a page's header opens its comments in a panel beside the page, which leaves

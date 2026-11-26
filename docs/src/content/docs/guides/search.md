@@ -1,11 +1,12 @@
 ---
 title: Search
-description: Finding pages, databases and rows by their titles, text and values, the query syntax, the filters, what search reads and when, who finds what, and the API and MCP tool.
+description: Finding pages, databases and rows by their titles, text, values and comments, the query syntax, the filters, what search reads and when, who finds what, and the API and MCP tool.
 ---
 
-Search finds the pages, databases and rows of a workspace by their words. It looks only at
-what the person searching may see, so two people typing the same query can get different
-answers, and nobody learns from a search that a page they were not given exists.
+Search finds the pages, databases and rows of a workspace by their words, and by the words
+of their comments. It looks only at what the person searching may see, so two people typing
+the same query can get different answers, and nobody learns from a search that a page they
+were not given exists, nor what is said about it.
 
 ## In the web app
 
@@ -57,15 +58,16 @@ lists what the filters let through, the most recently changed first.
 ## The results
 
 Results come best first. A match in a title counts most, then one in a row's text or URL
-values, then one in a page's text, and a title that is the query itself, however short,
-such as `Go`, ranks above all.
+values, then one in a page's text, then one in its comments, and a title that is the query
+itself, however short, such as `Go`, ranks above all.
 More of the query's words, and more matches, rank higher. Between results that rank the
 same, the one changed last comes first.
 
 Each result has its title and a snippet of up to two passages of about thirty words around
 the matches, both in runs that mark what matched. The snippet comes from the 5,000
-characters around the first place one of the query's words is, so on a long page it shows
-the first matches, not the best ones further on. A loose title match has nothing marked.
+characters around the first place one of the query's words is, in a row's values, then the
+page's text, then its comments, so on a long page it shows the first matches, not the best
+ones further on. A loose title match has nothing marked.
 Search reaches the best 1000 results of a query.
 
 ## Filters
@@ -88,13 +90,17 @@ answers `403 forbidden`, and the web app offers no such filter to them.
 | A page's, database's or row's title | As the title is saved. |
 | A row's text and URL values | As the row's values are saved. A property that stops being text or a URL stops counting at once, and so do the values of one deleted. |
 | The text of a page's or a row's content | Each time the server saves the document as a snapshot. |
+| The words of a page's or a row's [comments](/docs/guides/comments-and-mentions/#search) | As each comment is saved, changed or deleted, with its thread or its own. |
 
-Other values of a row, such as numbers, selects and dates, are not read. Nor are comments,
-or the files a page links to. Of a page's content, search reads
+Other values of a row, such as numbers, selects and dates, are not read. Nor are the files a
+page links to. Of a page's content, search reads
 what [plain text](/docs/architecture/documents/#the-model) gives: each block's words,
-tables' cells, and the names and captions of images and files. It reads at most the first
-100,000 characters of a page's text and of a row's values. A URL is read whole and as its
-words, so `zebra` finds `https://example.com/zebra`.
+tables' cells, the names and captions of images and files, and each mention as `@` and the
+label it was written with, so a page that mentions `@Dee Diaz` is found by `diaz`. Of a
+comment, it reads the same: its text without styles or link targets, and its mentions by
+their labels. It reads at most the first 100,000 characters of a page's text, of a row's
+values and of its comments' words, the newest comments first. A URL in a row's value is read
+whole and as its words, so `zebra` finds `https://example.com/zebra`.
 
 Text typed in the editor is found once the server saves the document: when the last person
 editing it leaves and half a minute passes, after enough changes, or when the server stops.
@@ -106,7 +112,8 @@ written in the same transaction as what it comes from, as
 ## Who finds what
 
 Search finds exactly the pages the person searching may [see](/docs/guides/pages/#where-a-page-lives),
-out of the trash.
+out of the trash. A comment is found only through its page: whoever may see a page reads its
+comments, so a search shows nobody a comment they could not read.
 
 - Members find the pages of the teamspaces they see, their own private pages, and what is
   shared with them, with the pages under it.
@@ -172,5 +179,7 @@ reads documents' text differently. Both are safe while servers run: each page is
 written while its row is locked, so a snapshot saved at the same moment writes its own text
 after. They apply pending migrations first, as `neon serve` does.
 
-The migration that brought search indexed every title, every row's values and the text each
-page had stored already, so a new install and an upgraded one need no rebuild.
+The migrations that brought search indexed every title, every row's values, the text each
+page had stored already and every comment, so a new install and an upgraded one need no
+rebuild. Comments' words are kept by the database itself as comments change, and never need
+rebuilding.

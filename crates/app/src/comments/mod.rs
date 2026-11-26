@@ -25,6 +25,8 @@
 //!   those it mentions anew. See [`crate::notifications`].
 //! - **Live.** Once a change commits, the page's room of comments hears which thread
 //!   changed, and the open editors read the comments again.
+//! - **Search.** Each comment is kept with its words, which search finds its page by, as
+//!   whoever finds the page may read its comments.
 //!
 //! Every use case runs in a span named `comments <operation>` and is measured as RED
 //! metrics of [`SUBSYSTEM`].
@@ -370,7 +372,7 @@ impl CommentService {
             };
             repo::insert_thread(&mut *tx, &thread).await?;
             let comment = new_comment(thread.id, principal, body, now);
-            repo::insert_comment(&mut *tx, &comment).await?;
+            repo::insert_comment(&mut *tx, &comment, &words(&comment.body)).await?;
             let mut notifier = Notifier::of(&self.inner.pages);
             let told = mentions::comment(
                 &mut tx,
@@ -428,7 +430,7 @@ impl CommentService {
             repo::lock_page(&mut *tx, thread.page_id).await?;
             room_for_a_comment(&mut tx, thread.page_id).await?;
             let comment = new_comment(thread_id, principal, body, now);
-            repo::insert_comment(&mut *tx, &comment).await?;
+            repo::insert_comment(&mut *tx, &comment, &words(&comment.body)).await?;
             let mut notifier = Notifier::of(&self.inner.pages);
             let told = mentions::comment(
                 &mut tx,
@@ -475,7 +477,7 @@ impl CommentService {
                 return Err(CommentError::Forbidden(AUTHOR_ONLY));
             }
             let before = mentions::mentioned_in(&comment.body);
-            repo::set_body(&mut *tx, comment.id, &body, now).await?;
+            repo::set_body(&mut *tx, comment.id, &body, &words(&body), now).await?;
             let edited = Comment {
                 body,
                 edited_at: Some(now),
@@ -954,6 +956,12 @@ fn part(limit: Option<usize>) -> usize {
 
 fn count(limit: usize) -> i64 {
     i64::try_from(limit).unwrap_or(i64::MAX)
+}
+
+/// A comment's words, for search: its text without styles or link targets, a mention as
+/// `@` and its label, as a page's text reads.
+fn words(body: &str) -> String {
+    Inline::plain_text(&inline_from_markdown(body))
 }
 
 fn new_comment(

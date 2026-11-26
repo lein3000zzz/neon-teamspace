@@ -1,12 +1,13 @@
 //! Page history: the versions snapshots keep, with their authors and summaries, listing,
 //! reading and comparing them as the rules allow, restoring one through the live document,
-//! with editors connected and typing, and thinning them out.
+//! with editors connected and typing, beside the page's comments, and thinning them out.
 
 mod support;
 
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_app::comments::{CommentService, Placing, ThreadQuery};
 use neon_app::history::{HistoryError, HistoryService};
 use neon_app::pages::{Location, NewPage, PageError};
 use neon_app::ratelimit::{Bucket, RateLimiter};
@@ -633,6 +634,104 @@ async fn restoring_brings_a_version_back_and_keeps_what_it_replaced(pool: PgPool
         .await
         .expect("restored");
     assert_eq!(text_of(&sync, page).await, "Goals\nShip it\nAdded later");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_restore_keeps_the_comments_and_detaches_those_on_text_it_writes_anew(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync();
+    let history = t.history(&sync);
+    let comments = CommentService::new(t.h.pages.clone(), sync.clone());
+    let page = t.page(&sync, "Plan", "Ship it\n\nKeep this\n").await;
+    let first = history
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions[0]
+        .id;
+    let ids: Vec<String> = sync
+        .content(page)
+        .await
+        .expect("content")
+        .blocks
+        .iter()
+        .map(|block| block.id.clone().expect("an id"))
+        .collect();
+    let mut threads = Vec::new();
+    for (words, placing) in [
+        ("On the page", Placing::Page),
+        ("On shipping", Placing::Block(ids[0].clone())),
+        ("On keeping", Placing::Block(ids[1].clone())),
+    ] {
+        let posted = comments
+            .start_thread(&t.ada, page, words, placing)
+            .await
+            .expect("started");
+        threads.push(posted.thread.thread.id);
+    }
+    t.h.time.advance(Duration::from_secs(60));
+    sync.edit(
+        &t.dee,
+        page,
+        vec![Edit::FindReplace {
+            find: "it".to_owned(),
+            replace: "it today".to_owned(),
+            all: false,
+        }],
+        None,
+    )
+    .await
+    .expect("edited");
+    let anchors = |listed: &neon_app::comments::PageThreads| -> Vec<(Uuid, Option<bool>)> {
+        listed
+            .threads
+            .iter()
+            .map(|thread| {
+                (
+                    thread.thread.id,
+                    thread.anchored.as_ref().map(|anchored| anchored.detached),
+                )
+            })
+            .collect()
+    };
+    let before = comments
+        .threads(&t.ada, page, ThreadQuery::default())
+        .await
+        .expect("listed");
+    assert_eq!(
+        anchors(&before),
+        [
+            (threads[0], None),
+            (threads[1], Some(false)),
+            (threads[2], Some(false))
+        ]
+    );
+
+    let compared = history
+        .compare(&t.ada, page, first)
+        .await
+        .expect("compared");
+    history
+        .restore(&t.ada, page, first, compared.revision)
+        .await
+        .expect("restored");
+    assert_eq!(text_of(&sync, page).await, "Ship it\nKeep this");
+    // Versions hold the blocks alone: every thread stays, with its comments. The block the
+    // restore wrote anew no longer holds the text its thread was on; the other still does.
+    let after = comments
+        .threads(&t.ada, page, ThreadQuery::default())
+        .await
+        .expect("listed");
+    assert_eq!(
+        anchors(&after),
+        [
+            (threads[0], None),
+            (threads[1], Some(true)),
+            (threads[2], Some(false))
+        ]
+    );
+    assert!(after.threads.iter().all(|thread| thread.count == 1));
     sync.shutdown().await;
 }
 

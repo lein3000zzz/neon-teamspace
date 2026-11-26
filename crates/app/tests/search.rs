@@ -1,7 +1,7 @@
-//! Search: what is indexed and when, in the transaction of the write it comes from; each
-//! filter; access, against the rules for every page and every kind of caller; ranking,
-//! snippets, unicode, short queries and loose titles; parts of the results; refusals; and
-//! rebuilding the text.
+//! Search: what is indexed and when, in the transaction of the write it comes from, comments
+//! and mentions too; each filter; access, against the rules for every page and every kind
+//! of caller; ranking, snippets, unicode, short queries and loose titles; parts of the
+//! results; refusals; and rebuilding the text.
 
 mod support;
 
@@ -10,6 +10,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use neon_app::comments::{CommentService, Placing};
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertyChange, PropertySpec};
 use neon_app::pages::{ImportedContent, Location, NewPage, PageUpdate};
 use neon_app::ratelimit::{Bucket, RateLimiter};
@@ -431,6 +432,115 @@ async fn titles_text_and_rows_values_are_found_as_they_are_written(pool: PgPool)
         .expect("deleted");
     assert!(t.titles(&t.dee, "steady").await.is_empty());
     assert_eq!(t.titles(&t.dee, "zebra").await, ["Fix login"]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn comments_find_their_pages_by_their_words_as_they_are_written(pool: PgPool) {
+    let t = team(pool).await;
+    let comments = CommentService::new(t.h.pages.clone(), t.sync());
+    let page = t.general_page("Launch", "The ferry timetable\n").await;
+    let words = format!(
+        "Ask @[Dee](user:{}) about the [walrus](https://example.com/narwhal) **schedule**",
+        t.dee.user.id
+    );
+    let posted = comments
+        .start_thread(&t.cy, page, &words, Placing::Page)
+        .await
+        .expect("started");
+    let first = posted.comment_id;
+    let reply = comments
+        .reply(&t.ada, posted.thread.thread.id, "Pelicans too")
+        .await
+        .expect("replied")
+        .comment_id;
+
+    // Its words are found as it is written: styles, link texts and the mention's label, but
+    // not a link's target nor whom the mention names by id.
+    for word in ["schedule", "walrus", "dee", "pelicans"] {
+        assert_eq!(t.titles(&t.bob, word).await, ["Launch"], "{word}");
+    }
+    for word in ["narwhal", "user", &t.dee.user.id.to_string()] {
+        assert!(t.titles(&t.bob, word).await.is_empty(), "{word}");
+    }
+    // A match in the page's own text ranks above one in its comments.
+    t.general_page("Schedule notes", "").await;
+    t.general_page("Rota", "The schedule for May\n").await;
+    assert_eq!(
+        t.titles(&t.bob, "schedule").await,
+        ["Schedule notes", "Rota", "Launch"]
+    );
+    // The snippet marks the comment's words.
+    let found = t.find(&t.bob, "pelicans").await;
+    assert!(
+        found.hits[0]
+            .snippet
+            .iter()
+            .any(|run| run.highlight && run.text == "Pelicans"),
+        "{:?}",
+        found.hits[0].snippet
+    );
+
+    // Changed, its old words are not found and its new ones are; deleted, neither.
+    comments
+        .edit(&t.cy, first, "Ask about the gannets")
+        .await
+        .expect("edited");
+    assert!(t.titles(&t.bob, "walrus").await.is_empty());
+    assert_eq!(t.titles(&t.bob, "gannets").await, ["Launch"]);
+    assert_eq!(t.titles(&t.bob, "pelicans").await, ["Launch"]);
+    comments.delete(&t.ada, reply).await.expect("deleted");
+    assert!(t.titles(&t.bob, "pelicans").await.is_empty());
+    let other = comments
+        .start_thread(&t.ada, page, "Puffins", Placing::Page)
+        .await
+        .expect("started");
+    comments
+        .delete_thread(&t.ada, other.thread.thread.id)
+        .await
+        .expect("deleted");
+    assert!(t.titles(&t.bob, "puffins").await.is_empty());
+    assert_eq!(t.titles(&t.bob, "gannets").await, ["Launch"]);
+
+    // A comment is found only through a page the searcher sees: Bob, outside Secret, finds
+    // nothing of it, nor does Gus, a guest, of a page not shared with him.
+    let secret = t
+        .page(&t.cy, Location::Teamspace(t.secret), "Ledger", "")
+        .await;
+    comments
+        .start_thread(&t.cy, secret, "Cormorants", Placing::Page)
+        .await
+        .expect("started");
+    assert_eq!(t.titles(&t.dee, "cormorants").await, ["Ledger"]);
+    assert!(t.titles(&t.bob, "cormorants").await.is_empty());
+    assert!(t.titles(&t.gus, "cormorants").await.is_empty());
+    assert!(t.titles(&t.gus, "gannets").await.is_empty());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_in_a_page_s_text_is_found_by_the_name_it_shows(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page(
+        "Standup",
+        &format!("Thanks @[Dee Diaz](user:{}) for the notes\n", t.dee.user.id),
+    )
+    .await;
+    assert_eq!(t.titles(&t.bob, "diaz").await, ["Standup"]);
+    assert_eq!(t.titles(&t.bob, "dee diaz").await, ["Standup"]);
+    assert!(t.titles(&t.bob, "user").await.is_empty());
+    let found = t.find(&t.bob, "diaz").await;
+    let marked: Vec<(&str, bool)> = found.hits[0]
+        .snippet
+        .iter()
+        .map(|run| (run.text.as_str(), run.highlight))
+        .collect();
+    assert_eq!(
+        marked,
+        [
+            ("Thanks @Dee ", false),
+            ("Diaz", true),
+            (" for the notes", false)
+        ]
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
