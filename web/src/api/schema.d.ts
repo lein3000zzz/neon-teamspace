@@ -3217,8 +3217,8 @@ export interface components {
             /** @description `whsec_` and 43 characters; absent unless it checks signatures. */
             signing_secret?: string | null;
             /**
-             * @description Where senders post: `/hooks/in/` and its token, after the server's public URL when
-             *     it has one. The token is in this answer only.
+             * @description Where senders post: `/hooks/in/` and its token, after the server's public URL, or
+             *     without one, the origin the request was sent to. The token is in this answer only.
              * @example https://neon.example.com/hooks/in/nwh_...
              */
             url: string;

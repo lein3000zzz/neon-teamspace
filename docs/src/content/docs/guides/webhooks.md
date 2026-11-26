@@ -330,6 +330,9 @@ The webhook gets a URL, shown once:
 https://neon.example.com/hooks/in/nwh_<43 characters>
 ```
 
+It is below [`server.public_url`](/docs/self-hosting/configuration/); without one, below the
+origin the request that made it was sent to, as the OAuth metadata is.
+
 The token in it is 256 random bits; the server keeps only its SHA-256. Anyone who has the URL
 may post to it, so keep it like a password. **New URL** makes another and the old one stops
 working at once. Handing the webhook's integration to another person replaces the URL too,
@@ -418,7 +421,7 @@ curl -X POST "$HOOK_URL" \
 |---|---|---|
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
 | `400` | `invalid_body` | The body could not be read to its end. |
-| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. |
+| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. An unknown field is named with the fields its action takes. |
 | `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
 | `403` | `hook_disabled` | The webhook is turned off. |

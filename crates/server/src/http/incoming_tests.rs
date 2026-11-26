@@ -80,11 +80,15 @@ async fn signed(app: &Router, path: &str, payload: &Value, secret: &str, skew: i
     .await
 }
 
-/// The path of a webhook's URL.
+/// The path of a webhook's URL, which is absolute: below the origin the request was sent
+/// to, as the tests' server has no public URL.
 pub(super) fn path_of(created: &Answer) -> String {
     let url = created.body["url"].as_str().expect("a URL");
-    assert!(url.starts_with("/hooks/in/nwh_"), "{url}");
-    url.to_owned()
+    let path = url
+        .strip_prefix("http://localhost")
+        .unwrap_or_else(|| panic!("an absolute URL: {url}"));
+    assert!(path.starts_with("/hooks/in/nwh_"), "{url}");
+    path.to_owned()
 }
 
 /// Makes an incoming webhook as `by`, on `target`.

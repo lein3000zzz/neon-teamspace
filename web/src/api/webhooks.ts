@@ -221,8 +221,3 @@ export function incomingRequestsQuery(id: string, hookId: string) {
       ).requests,
   });
 }
-
-/** Where senders post: the URL as the server gave it, on this origin when it gave a path. */
-export function absoluteUrl(url: string): string {
-  return url.startsWith("/") ? `${window.location.origin}${url}` : url;
-}
