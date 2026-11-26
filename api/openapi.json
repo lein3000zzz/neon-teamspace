@@ -10578,6 +10578,98 @@
         ]
       }
     },
+    "/api/v1/workspaces/{id}/agents/{agent_id}/teamspaces": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List the teamspaces an agent is in",
+        "description": "Those whose members the caller may list, never a private one they are not in, with whether the caller may take the agent out of each, which `DELETE /workspaces/{id}/teamspaces/{teamspace_id}/members/{user_id}` does. For everyone in the workspace but guests.",
+        "operationId": "list_agent_teamspaces",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The workspace's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "The agent's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The teamspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTeamspaceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspaces/{id}/agents/{agent_id}/tokens": {
       "get": {
         "tags": [
@@ -16222,6 +16314,63 @@
           "disabled",
           "deleted"
         ]
+      },
+      "AgentTeamspace": {
+        "type": "object",
+        "description": "A teamspace an agent is in.",
+        "required": [
+          "id",
+          "name",
+          "hue",
+          "access",
+          "removable"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/TeamspaceAccess"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The hue it is drawn in, 0 to 359: the one it pinned, or else its id's.",
+            "example": 98,
+            "maximum": 359,
+            "minimum": 0
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Design"
+          },
+          "removable": {
+            "type": "boolean",
+            "description": "Whether the caller may take the agent out of it."
+          }
+        }
+      },
+      "AgentTeamspaceList": {
+        "type": "object",
+        "required": [
+          "teamspaces"
+        ],
+        "properties": {
+          "teamspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentTeamspace"
+            },
+            "description": "The default one first, then by name."
+          }
+        }
       },
       "AnchorIn": {
         "type": "object",

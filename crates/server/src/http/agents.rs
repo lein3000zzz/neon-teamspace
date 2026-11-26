@@ -1,5 +1,5 @@
-//! `/api/v1/workspaces/{id}/agents`: a workspace's agents and integrations, and agents'
-//! API tokens.
+//! `/api/v1/workspaces/{id}/agents`: a workspace's agents and integrations, the teamspaces
+//! each is in, and agents' API tokens.
 //!
 //! An agent is a member of its workspace that acts for a person there, its owner: what it
 //! may do is what both may. Its owner makes it, renames and recolours it, and makes its
@@ -9,7 +9,7 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use neon_app::workspaces::{AgentUpdate, NewAgent};
+use neon_app::workspaces::{AgentTeamspace as AppAgentTeamspace, AgentUpdate, NewAgent};
 use neon_domain::agents::{self as domain, AgentStatus as DomainStatus};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -22,6 +22,7 @@ use super::dto::{Owner, Scope, UserKind, nullable};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path};
 use super::principal::Authenticated;
+use super::teamspaces::TeamspaceAccess;
 
 /// Whether an agent or integration works now, and why not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
@@ -202,6 +203,77 @@ pub(super) async fn get_agent(
     Ok(Json(
         state.agents.agent(&principal, id, agent_id).await?.into(),
     ))
+}
+
+/// A teamspace an agent is in.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AgentTeamspace {
+    pub id: Uuid,
+    #[schema(example = "Design")]
+    pub name: String,
+    pub icon: Option<String>,
+    /// The hue it is drawn in, 0 to 359: the one it pinned, or else its id's.
+    #[schema(minimum = 0, maximum = 359, example = 98)]
+    pub hue: u16,
+    pub access: TeamspaceAccess,
+    /// Whether the caller may take the agent out of it.
+    pub removable: bool,
+}
+
+impl From<AppAgentTeamspace> for AgentTeamspace {
+    fn from(entry: AppAgentTeamspace) -> Self {
+        let teamspace = entry.teamspace;
+        Self {
+            hue: teamspace.hue(),
+            id: teamspace.id,
+            name: teamspace.name,
+            icon: teamspace.icon,
+            access: teamspace.access.into(),
+            removable: entry.removable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AgentTeamspaceList {
+    /// The default one first, then by name.
+    pub teamspaces: Vec<AgentTeamspace>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/agents/{agent_id}/teamspaces",
+    tag = "agents",
+    summary = "List the teamspaces an agent is in",
+    description = "Those whose members the caller may list, never a private one they are not \
+                   in, with whether the caller may take the agent out of each, which \
+                   `DELETE /workspaces/{id}/teamspaces/{teamspace_id}/members/{user_id}` \
+                   does. For everyone in the workspace but guests.",
+    params(
+        ("id" = Uuid, Path, description = "The workspace's id."),
+        ("agent_id" = Uuid, Path, description = "The agent's id."),
+    ),
+    responses(
+        (status = OK, description = "The teamspaces.", body = AgentTeamspaceList),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn list_agent_teamspaces(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path((id, agent_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<AgentTeamspaceList>, ApiError> {
+    let teamspaces = state
+        .agents
+        .agent_teamspaces(&principal, id, agent_id)
+        .await?;
+    Ok(Json(AgentTeamspaceList {
+        teamspaces: teamspaces.into_iter().map(AgentTeamspace::from).collect(),
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]

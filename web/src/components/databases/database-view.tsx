@@ -84,7 +84,10 @@ export function DatabaseView({
   }
   return (
     <DatabaseScope database={database} report={report} compact={compact} startFilter={startFilter}>
-      <section aria-label={copy.label(titleOf(database.page))} className="grid min-w-0 gap-2">
+      <section
+        aria-label={copy.label(titleOf(database.page))}
+        className="grid min-w-0 grid-cols-1 gap-2"
+      >
         {header}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border pb-1">
           <ViewTabs view={view} panelId={panelId} onSelect={onViewChange} />
@@ -188,7 +191,7 @@ function ViewRows({ view }: { view: View }) {
   };
   const count = new Set(rows.data.rows.map((row) => row.id)).size;
   return (
-    <div className="grid gap-2">
+    <div className="grid grid-cols-1 gap-2">
       {view.layout === "table" && <TableView {...body} />}
       {view.layout === "board" && <BoardView {...body} />}
       {view.layout === "list" && <ListView {...body} />}

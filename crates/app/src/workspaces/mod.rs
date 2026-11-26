@@ -51,7 +51,9 @@ use crate::standing::Standing;
 use crate::sync::{Broadcaster, LocalBroadcaster};
 
 pub use admin::{AdminWorkspace, AdminWorkspacePage, LimitsUpdate, Usage};
-pub use agents::{AgentService, AgentUpdate, NewAgent, SUBSYSTEM as AGENTS_SUBSYSTEM};
+pub use agents::{
+    AgentService, AgentTeamspace, AgentUpdate, NewAgent, SUBSYSTEM as AGENTS_SUBSYSTEM,
+};
 pub use cleanup::{Cleanup, CleanupReport};
 pub use error::WorkspaceError;
 pub use invitations::{ReceivedInvitation, SentInvitation};

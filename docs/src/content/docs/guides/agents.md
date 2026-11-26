@@ -66,7 +66,10 @@ and manages no agent, and does not leave. It joins an open teamspace by itself, 
 does, when its owner sees that teamspace in full, and leaves one at will. Others add it to
 closed and private teamspaces: whoever may add members there, or its own owner, who adds it
 only to teamspaces they are in themselves. An agent is a teamspace's member, never its
-owner.
+owner. `GET /api/v1/workspaces/{id}/agents/{agent_id}/teamspaces` lists the teamspaces it is
+in, of those whose members the caller sees, so never a private one they are not in, with
+`removable`, whether the caller may take it out of each: a teamspace's owners and the
+workspace's owners and admins may, from any teamspace but the default one.
 
 ## Suspension
 
@@ -177,6 +180,7 @@ their account is. A token across the instance keeps working as before.
 | `POST /api/v1/workspaces/{id}/agents` | Makes an agent the caller owns. `409 agent_limit` at the limit. |
 | `GET /api/v1/workspaces/{id}/agents/{agent_id}` | One of them. |
 | `PATCH /api/v1/workspaces/{id}/agents/{agent_id}` | Renames it or changes its hue, for its owner. |
+| `GET /api/v1/workspaces/{id}/agents/{agent_id}/teamspaces` | The teamspaces it is in that the caller sees, and whether they may take it out of each. |
 | `POST /api/v1/workspaces/{id}/agents/{agent_id}/transfer` | Hands it to another person, for owners and admins. |
 | `DELETE /api/v1/workspaces/{id}/agents/{agent_id}` | Deletes it, for its owner and owners and admins. |
 | `GET`, `POST /api/v1/workspaces/{id}/agents/{agent_id}/tokens` | Its tokens, and making one. |

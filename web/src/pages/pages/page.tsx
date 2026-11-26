@@ -174,7 +174,9 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
       data-page-font={page.style.font}
       {...(page.style.small_text ? { "data-small-text": "" } : {})}
       {...(page.style.full_width || page.kind === "database" ? { "data-page-width": "full" } : {})}
-      className="grid gap-6"
+      // One column as wide as the page, whatever is inside: a database's views scroll
+      // sideways within it rather than widen it past a phone's screen.
+      className="grid grid-cols-1 gap-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <Breadcrumbs page={page} />
@@ -529,8 +531,14 @@ function DatabaseBody({ page }: { page: Page }) {
       <DatabaseView
         database={{ ...database.data, page }}
         viewId={view}
+        // The router puts back no scroll as the view changes, which would undo the row of
+        // tabs scrolling the chosen one into sight.
         onViewChange={(next) =>
-          void navigate({ search: (previous) => ({ ...previous, view: next }), replace: true })
+          void navigate({
+            search: (previous) => ({ ...previous, view: next }),
+            replace: true,
+            resetScroll: false,
+          })
         }
       />
     </div>

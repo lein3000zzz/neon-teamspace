@@ -20,6 +20,9 @@ import type {
   ViewProperty,
   ViewRows,
 } from "@/api/databases";
+import { formatDateTime } from "@/lib/format";
+import { attribution, type Someone } from "@/lib/people";
+import { strings } from "@/lib/strings";
 
 /** Types whose values the server works out from the row, which nobody sets. */
 const COMPUTED: ReadonlySet<PropertyKind> = new Set([
@@ -392,8 +395,13 @@ export const MAX_WIDTH = 2000;
 export const TITLE_WIDTH = 260;
 export const COLUMN_WIDTH = 180;
 
+/** A column's width: the one its view keeps, within the bounds, else its type's. */
 export function widthOf(column: Column): number {
-  return column.width ?? (column.property.type === "title" ? TITLE_WIDTH : COLUMN_WIDTH);
+  const kept = column.width ?? null;
+  if (kept !== null) {
+    return clampWidth(kept);
+  }
+  return column.property.type === "title" ? TITLE_WIDTH : COLUMN_WIDTH;
 }
 
 export function clampWidth(width: number): number {
@@ -656,6 +664,60 @@ export function idsOf(value: unknown): string[] {
     return value.filter((entry): entry is string => typeof entry === "string");
   }
   return typeof value === "string" ? [value] : [];
+}
+
+/** Names on one line, those known; nothing for none. */
+function oneLine(names: (string | undefined)[]): string | undefined {
+  const text = names.filter((name) => name !== undefined).join(", ");
+  return text === "" ? undefined : text;
+}
+
+/**
+ * A value as one line of plain text, as the tooltip of a cell cut short tells
+ * it in full: options and people by name, an agent with whom it acts for,
+ * numbers and dates as they show. Nothing for no value, nor for a checkbox,
+ * which shows whole.
+ */
+export function valueText(
+  property: Property,
+  value: unknown,
+  people: ReadonlyMap<string, Someone>,
+  dateFormat: DateFormat = "medium",
+): string | undefined {
+  if (isEmpty(value)) {
+    return undefined;
+  }
+  switch (property.type) {
+    case "title":
+    case "text":
+    case "url":
+    case "unique_id":
+      return typeof value === "string" ? value : undefined;
+    case "number":
+      return typeof value === "number"
+        ? formatNumber(value, property.number_format, property.currency)
+        : undefined;
+    case "select":
+    case "status":
+    case "multi_select":
+      return oneLine(idsOf(value).map((id) => optionOf(property, id)?.name));
+    case "date":
+      return isDateValue(value) ? formatDate(value, dateFormat) : undefined;
+    case "created_time":
+    case "last_edited_time":
+      return typeof value === "string" ? formatDateTime(value) : undefined;
+    case "person":
+    case "created_by":
+    case "last_edited_by":
+      return oneLine(
+        idsOf(value).map((id) => {
+          const person = people.get(id);
+          return person === undefined ? strings.databases.cells.someone : attribution(person);
+        }),
+      );
+    case "checkbox":
+      return undefined;
+  }
 }
 
 /** Whether a value is empty, as a card leaves such a property out. */

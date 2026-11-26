@@ -2,6 +2,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@/api/agents";
+import type { TeamspaceMember } from "@/api/teamspaces";
+import type { Person } from "@/api/workspaces";
 import type { ConnectedApp } from "@/api/oauth";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
@@ -35,6 +37,16 @@ const ranger: Agent = {
   owner: { id: people.cy.id, display_name: "Cy", hue: people.cy.hue },
   status: "suspended",
 };
+
+/** Someone in a teamspace since the agents were made. */
+const inTeamspace = (person: Person, role: TeamspaceMember["role"]): TeamspaceMember => ({
+  user: person,
+  role,
+  joined_at: scout.created_at,
+});
+
+const inScout = inTeamspace(asPerson(scout), "member");
+const inRanger = inTeamspace(asPerson(ranger), "member");
 
 describe("the agents of a workspace", () => {
   it("lists each with its owner and whether it works", async () => {
@@ -275,6 +287,9 @@ describe("the agents of a workspace", () => {
     const { user } = renderApp("/w/design/settings/agents");
 
     const card = await agentCard("Scout");
+    const listed = within(await card.findByRole("list", { name: "Teamspaces" }));
+    expect(listed.getByText("General")).toBeInTheDocument();
+    expect(listed.queryByRole("button", { name: /^Take Scout out/ })).toBeNull();
     const form = within(card.getByRole("form", { name: "Add to a teamspace: Scout" }));
     const choices = within(await form.findByRole("combobox", { name: "Teamspace" }))
       .getAllByRole("option")
@@ -298,20 +313,15 @@ describe("the agents of a workspace", () => {
         { ...teamspaces.closed, role: "member" },
         teamspaces.private,
       ],
+      teamspaceMembers: { [teamspaces.private.id]: [inTeamspace(people.ada, "owner"), inScout] },
     });
-    server.use(
-      http.get(`${base}/teamspaces/${teamspaces.private.id}/members`, () =>
-        HttpResponse.json({
-          members: [
-            { user: people.ada, role: "owner", joined_at: scout.created_at },
-            { user: asPerson(scout), role: "member", joined_at: scout.created_at },
-          ],
-        }),
-      ),
-    );
     const { user } = renderApp("/w/design/settings/agents");
 
     const card = await agentCard("Scout");
+    const listed = within(await card.findByRole("list", { name: "Teamspaces" }));
+    const [general, lab] = listed.getAllByRole("listitem");
+    expect(general).toHaveTextContent("General");
+    expect(lab).toHaveTextContent("Secret lab, private");
     const form = within(card.getByRole("form", { name: "Add to a teamspace: Scout" }));
     const teamspace = await form.findByRole("combobox", { name: "Teamspace" });
     await waitFor(() =>
@@ -326,6 +336,49 @@ describe("the agents of a workspace", () => {
 
     expect(await screen.findByText("Scout is in Closed room.")).toBeInTheDocument();
     await waitFor(() => expect(form.getByText("No teamspace to add it to.")).toBeInTheDocument());
+    expect(listed.getByText("Closed room")).toBeInTheDocument();
+  });
+
+  it("takes an agent out of a teamspace where the user may, after asking", async () => {
+    const api = fakeWorkspaces({
+      agents: [scout],
+      teamspaceMembers: { [teamspaces.closed.id]: [inTeamspace(people.bob, "owner"), inScout] },
+    });
+    const { user } = renderApp("/w/design/settings/agents");
+
+    const card = await agentCard("Scout");
+    const listed = within(await card.findByRole("list", { name: "Teamspaces" }));
+    expect(listed.queryByRole("button", { name: "Take Scout out of General" })).toBeNull();
+    await user.click(listed.getByRole("button", { name: "Take Scout out of Closed room" }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    expect(dialog.getByText("Take Scout out of Closed room?")).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Take out" }));
+
+    expect(await screen.findByText("Scout is out of Closed room.")).toBeInTheDocument();
+    await waitFor(() => expect(listed.queryByText("Closed room")).toBeNull());
+    expect(api.changes).toEqual([
+      {
+        method: "DELETE",
+        path: `${base}/teamspaces/${teamspaces.closed.id}/members/${scout.id}`,
+        body: undefined,
+      },
+    ]);
+  });
+
+  it("lists another's agent's teamspaces without the way to change them", async () => {
+    fakeWorkspaces({
+      role: "member",
+      agents: [{ ...ranger, status: "active" }],
+      teamspaceMembers: { [teamspaces.closed.id]: [inTeamspace(people.bob, "owner"), inRanger] },
+    });
+    renderApp("/w/design/settings/agents");
+
+    const card = await agentCard("Ranger");
+    const listed = within(await card.findByRole("list", { name: "Teamspaces" }));
+    expect(await listed.findByText("Closed room")).toBeInTheDocument();
+    expect(listed.getByText("General")).toBeInTheDocument();
+    expect(listed.queryByRole("button")).toBeNull();
+    expect(card.queryByRole("form", { name: "Add to a teamspace: Ranger" })).toBeNull();
   });
 
   it("shows no Agents tab to a guest", async () => {
