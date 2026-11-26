@@ -160,6 +160,37 @@ async fn admins_make_incoming_webhooks_each_with_an_integration_of_least_access(
     assert_eq!(share["access"], "can_edit");
     assert_eq!(share["user"]["kind"], "integration");
 
+    // Nobody adds it to a teamspace, which would widen its access past its target.
+    let ops = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces"),
+            json!({"name": "Ops", "access": "closed"}),
+        )
+        .await;
+    let joined = t
+        .bob
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces/{}/join", id(&ops)),
+            json!({}),
+        )
+        .await;
+    assert_eq!(joined.status, StatusCode::OK, "{}", joined.body);
+    for by in [&t.ada, &t.bob] {
+        let added = by
+            .post(
+                &format!("/api/v1/workspaces/{ws}/teamspaces/{}/members", id(&ops)),
+                json!({"user_id": integration, "role": "member"}),
+            )
+            .await;
+        assert_eq!(
+            (added.status, added.code()),
+            (StatusCode::BAD_REQUEST, "invalid_input"),
+            "{}",
+            added.body
+        );
+    }
+
     // It counts against the agent limit.
     state
         .settings

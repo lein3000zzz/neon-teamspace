@@ -219,8 +219,9 @@ not:
 
 An agent's or integration's role is always member: changing it, removing it from the
 workspace and making it an owner answer `403 forbidden`, as it is deleted instead. In a
-teamspace it is a member, never an owner, and its own owner adds it only to teamspaces they
-are in: elsewhere that answers `403 forbidden`.
+teamspace an agent is a member, never an owner, and its own owner adds it only to teamspaces
+they are in: elsewhere that answers `403 forbidden`. An integration joins no teamspace, as
+its access is its incoming webhook's target alone: adding one answers `400 invalid_input`.
 
 ### What an agent may do
 

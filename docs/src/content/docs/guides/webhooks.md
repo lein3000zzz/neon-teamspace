@@ -303,7 +303,8 @@ the webhook: what it writes shows as `CI · via Ada Lovelace`, like an
 workspace at its limit refuses with `409 agent_limit`.
 
 Its access is the least its target needs. Its integration joins no teamspace, not even the
-default one; the webhook shares its target with it to edit, a share its maker must be allowed
+default one, and adding it to one answers `400 invalid_input`; the webhook shares its target
+with it to edit, a share its maker must be allowed
 to make, so its maker must edit the target. It may then change the target, and for a database
 its rows, and nothing else: elsewhere it sees what any member sees from outside a teamspace,
 and edits nothing. And as for every agent, it does no more than its owner may: once its owner

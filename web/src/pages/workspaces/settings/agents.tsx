@@ -334,7 +334,9 @@ function AgentCard({ agent, onDone }: { agent: Agent; onDone: (message: string) 
             onDone={onDone}
           />
         )}
-        {live && managing && <AddToTeamspace agent={agent} own={own} onDone={onDone} />}
+        {live && managing && agent.kind === "agent" && (
+          <AddToTeamspace agent={agent} own={own} onDone={onDone} />
+        )}
         {agent.kind === "agent" && managing && <Tokens agent={agent} own={own} />}
       </div>
       {live && (own || managing) && (

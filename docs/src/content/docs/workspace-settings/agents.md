@@ -42,9 +42,10 @@ What the card offers depends on who looks:
   to use it again.
 - Its owner and the workspace's owners and admins **delete** it, after a question. Deleting
   an integration deletes its incoming webhook too.
-- They also **add it to a teamspace** it is not in yet: its owner to the teamspaces they
-  are in, whatever their role in the workspace; owners and admins someone else's agent to
-  any teamspace but General, which it is in already. It joins as a member.
+- They also **add an agent to a teamspace** it is not in yet: its owner to the teamspaces
+  they are in, whatever their role in the workspace; owners and admins someone else's agent
+  to any teamspace but General, which it is in already. It joins as a member. An
+  integration joins no teamspace, so its card offers none.
 
 ## Tokens
 
