@@ -335,6 +335,12 @@ async fn comments_are_bounded_inline_markdown(pool: PgPool) {
             &"x".repeat(10_001)[..],
             "a comment holds at most 10000 characters",
         ),
+        // The database keeps no NUL: it is refused as the caller's, not failed as the
+        // server's.
+        (
+            "a\u{0}b",
+            "a comment holds no control characters but line breaks and tabs",
+        ),
     ] {
         let refused = t
             .comments

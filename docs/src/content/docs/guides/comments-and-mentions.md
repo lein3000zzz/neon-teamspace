@@ -49,7 +49,7 @@ last comment deletes the thread.
 
 | Limit | |
 |---|---|
-| A comment | 10000 characters of markdown. |
+| A comment | 10000 characters of markdown, without control characters but line breaks and tabs; one with another, such as NUL, answers `400 invalid_input`. |
 | The text an inline thread keeps | Its first 1000 characters. |
 | Threads on a page | 1000, resolved ones included; one more answers `409 too_many_threads`. |
 | Comments in a thread | 500; one more answers `409 too_many_replies`. |

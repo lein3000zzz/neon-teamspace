@@ -41,16 +41,25 @@ pub enum InvalidComment {
     Empty,
     #[error("a comment holds at most {MAX_COMMENT} characters")]
     TooLong,
+    #[error("a comment holds no control characters but line breaks and tabs")]
+    ControlCharacter,
 }
 
 /// The markdown of a comment as kept: trimmed, not empty, at most [`MAX_COMMENT`]
-/// characters. What of it is inline content is the converter's to say.
+/// characters, and without control characters but line breaks and tabs, which no text
+/// needs and the database does not keep. What of it is inline content is the converter's
+/// to say.
 pub fn check_comment(raw: &str) -> Result<String, InvalidComment> {
     let body = raw.trim();
     if body.is_empty() {
         Err(InvalidComment::Empty)
     } else if body.chars().count() > MAX_COMMENT {
         Err(InvalidComment::TooLong)
+    } else if body
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        Err(InvalidComment::ControlCharacter)
     } else {
         Ok(body.to_owned())
     }
@@ -99,6 +108,26 @@ mod tests {
             check_comment(&"a".repeat(MAX_COMMENT + 1)),
             Err(InvalidComment::TooLong)
         );
+    }
+
+    #[test]
+    fn comments_hold_no_control_characters_but_breaks_and_tabs() {
+        assert_eq!(
+            check_comment("one\r\ntwo\tthree"),
+            Ok("one\r\ntwo\tthree".to_owned())
+        );
+        for raw in [
+            "a\u{0}b",
+            "bell \u{7} rings",
+            "escape \u{1b}[0m",
+            "next \u{85} line",
+        ] {
+            assert_eq!(
+                check_comment(raw),
+                Err(InvalidComment::ControlCharacter),
+                "{raw:?}"
+            );
+        }
     }
 
     #[test]
