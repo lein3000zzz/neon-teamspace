@@ -1,0 +1,80 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Files the server keeps, by their paths on it:",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "Team photo.jpg",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1",
+      "caption": "At the offsite",
+      "showPreview": true,
+      "previewWidth": 480
+    },
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "video",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "demo (final).mp4",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f4",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "audio",
+    "props": {
+      "backgroundColor": "default",
+      "name": "stand-up.m4a",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f5",
+      "caption": "Monday",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "block-5",
+    "type": "file",
+    "props": {
+      "backgroundColor": "default",
+      "name": "Quarterly report.pdf",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3",
+      "caption": ""
+    },
+    "children": []
+  },
+  {
+    "id": "block-6",
+    "type": "file",
+    "props": {
+      "backgroundColor": "default",
+      "name": "not uploaded yet",
+      "url": "",
+      "caption": ""
+    },
+    "children": []
+  }
+]

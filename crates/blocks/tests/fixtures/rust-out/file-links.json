@@ -1,0 +1,78 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Files the server keeps, by their paths on it:",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "The diagram",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f2",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "A link to ",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3",
+        "content": [
+          {
+            "type": "text",
+            "text": "the report",
+            "styles": {}
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": " in a paragraph.",
+        "styles": {}
+      }
+    ],
+    "children": []
+  }
+]

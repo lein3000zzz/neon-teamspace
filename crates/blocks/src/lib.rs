@@ -12,6 +12,7 @@
 //! Like `neon-domain`, it does no I/O and has no async code.
 
 pub mod edit;
+mod files;
 mod ids;
 mod inline;
 pub mod markdown;
