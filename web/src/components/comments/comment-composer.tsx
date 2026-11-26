@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { mentionMarkdown, mentionsQuery } from "@/api/comments";
+import type { PageKind } from "@/api/pages";
 import type { Person } from "@/api/workspaces";
 import { PersonLabel } from "@/components/people/person-label";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ const MENTION = /(^|\s)@([^\s@[\]()]{0,40})$/;
 
 type Choice =
   | { kind: "user"; id: string; label: string; person: Person; sees: boolean }
-  | { kind: "page"; id: string; label: string };
+  | { kind: "page"; id: string; label: string; page: PageKind };
 
 type CommentComposerProps = {
   workspaceId: string;
@@ -77,6 +78,7 @@ export function CommentComposer({
           kind: "page",
           id: page.id,
           label: titleOf(page),
+          page: page.kind,
         })),
       ]
     : [];
@@ -215,8 +217,10 @@ export function CommentComposer({
                   </>
                 ) : (
                   <span className="truncate">
-                    {choice.label}
-                    <span className="ml-2 text-xs text-muted-foreground">{copy.page}</span>
+                    {choice.label}{" "}
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      {strings.search.kinds[choice.page]}
+                    </span>
                   </span>
                 )}
               </div>

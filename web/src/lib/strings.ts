@@ -1904,7 +1904,6 @@ export const strings = {
     placeholder: "Write a comment. Type @ to mention someone or a page.",
     mentionList: "People and pages to mention",
     cannotSee: "Cannot see this page",
-    page: "Page",
     cancel: "Cancel",
     sending: "Sending…",
     send: "Comment",

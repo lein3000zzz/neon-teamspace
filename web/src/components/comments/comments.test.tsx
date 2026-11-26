@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { FRAGMENT } from "@/components/editor/connection";
 import { COMMENT_IDS, comment, fakeComments, pageThread } from "@/test/comments";
-import { fakePages, PAGE_IDS, samplePages } from "@/test/pages";
+import { fakePages, PAGE_IDS, samplePage, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { commentsMessage, fakeSync } from "@/test/sync";
 import { fakeWorkspaces, people } from "@/test/workspaces";
@@ -192,6 +192,27 @@ describe("a page's comments", () => {
       "href",
       `/w/design/p/${PAGE_IDS.launch}`,
     );
+  });
+
+  it("names each page it offers by its kind, a board's card as a row", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const launch = samplePage(PAGE_IDS.launch);
+    fakeComments({
+      pages: [
+        launch,
+        { ...launch, id: PAGE_IDS.q1, title: "Launch checklist", kind: "row" },
+        { ...launch, id: PAGE_IDS.goals, title: "Launch tasks", kind: "database" },
+      ],
+    });
+    const { user } = renderApp(PATH);
+
+    const panel = await openPanel(user);
+    await user.type(panel.getByRole("combobox", { name: "A comment on the page" }), "@lau");
+    expect(await panel.findByRole("option", { name: "Launch Page" })).toBeInTheDocument();
+    expect(panel.getByRole("option", { name: "Launch checklist Row" })).toBeInTheDocument();
+    expect(panel.getByRole("option", { name: "Launch tasks Database" })).toBeInTheDocument();
   });
 
   it("changes and deletes the user's own comments, and only those", async () => {

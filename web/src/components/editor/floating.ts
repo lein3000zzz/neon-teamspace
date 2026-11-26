@@ -1,5 +1,85 @@
 import type { FloatingUIOptions } from "@blocknote/react";
-import { flip, offset, shift, type Rect } from "@floating-ui/react";
+import {
+  detectOverflow,
+  flip,
+  offset,
+  shift,
+  size,
+  type Middleware,
+  type Placement,
+  type Rect,
+} from "@floating-ui/react";
+
+/** The gap between a menu and the text it is for. */
+const GAP = 8;
+
+/** The room a menu keeps from the edges of the window. */
+const EDGE = 12;
+
+/**
+ * The tallest a menu of suggestions grows, whatever room there is: a longer
+ * list scrolls. Opened above the caret, it stays clear of the page's header.
+ */
+export const MENU_MAX_HEIGHT = 352;
+
+/**
+ * Below the caret, unless a menu of the tallest height has no room there and
+ * more above. The menu's own height is not asked, as its items come after it
+ * opens, so it keeps its side while the list is filtered.
+ */
+const belowUnlessCramped: Middleware = {
+  name: "belowUnlessCramped",
+  async fn(state) {
+    const { rects, placement } = state;
+    const floating = { ...rects.floating, height: MENU_MAX_HEIGHT };
+    const at = (y: number) =>
+      detectOverflow({ ...state, rects: { ...rects, floating }, y }, { padding: EDGE });
+    const below = await at(rects.reference.y + rects.reference.height + GAP);
+    let wanted: Placement = "bottom-start";
+    if (below.bottom > 0) {
+      const above = await at(rects.reference.y - GAP - MENU_MAX_HEIGHT);
+      if (above.top < below.bottom) {
+        wanted = "top-start";
+      }
+    }
+    return wanted === placement ? {} : { reset: { placement: wanted } };
+  },
+};
+
+/**
+ * Keeps a menu at the widest it has been since it opened, so it does not
+ * shrink and grow as the list is filtered. Whole pixels, so it never loops.
+ */
+function keepWidest(element: HTMLElement) {
+  const width = element.getBoundingClientRect().width;
+  if (width >= (Number.parseFloat(element.style.minWidth) || 0) + 1) {
+    element.style.minWidth = `${Math.ceil(width)}px`;
+  }
+}
+
+/**
+ * Where the slash and mention menus go: below the caret unless cramped there,
+ * clear of the window's edges by a margin, as wide as they have been, and no
+ * taller than the room on their side or {@link MENU_MAX_HEIGHT}.
+ */
+export const suggestionMenuOptions: FloatingUIOptions = {
+  useFloatingOptions: {
+    middleware: [
+      belowUnlessCramped,
+      offset(GAP),
+      shift({ padding: EDGE }),
+      size({
+        padding: EDGE,
+        apply({ elements, availableHeight, availableWidth }) {
+          const style = elements.floating.style;
+          style.maxHeight = `${Math.max(0, Math.min(availableHeight, MENU_MAX_HEIGHT))}px`;
+          style.maxWidth = `${Math.max(0, availableWidth)}px`;
+          keepWidest(elements.floating);
+        },
+      }),
+    ],
+  },
+};
 
 /**
  * Where the formatting toolbar may go: over the page's text, from the left of

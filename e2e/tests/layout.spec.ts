@@ -1,4 +1,4 @@
-import type { Browser, BrowserContextOptions, Page } from "@playwright/test";
+import type { Browser, BrowserContextOptions, Locator, Page } from "@playwright/test";
 import { account, callApi, clientAddress, makeAccounts, PASSWORD } from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
 
@@ -307,6 +307,93 @@ test("the sidebar keeps to its column with a long page title and its emoji, and 
     await page.reload();
     await expect(sidebar.getByRole("button", { name: "Expand General" })).toBeVisible();
     await expect(row).toBeHidden();
+  } finally {
+    await page.context().close();
+  }
+});
+
+/**
+ * Selects the last word that ends on the first line of the editor's text, or puts the
+ * caret before it, as a click there would.
+ */
+async function lastWordOfFirstLine(content: Locator, select: boolean) {
+  await content.getByText("Friday evening", { exact: false }).click();
+  await content.evaluate((root, whole) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const node = walker.nextNode();
+    const text = node?.textContent ?? "";
+    if (node === null) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const line = range.getClientRects()[0];
+    for (let end = text.length; end > 0; end -= 1) {
+      range.setStart(node, end - 1);
+      range.setEnd(node, end);
+      if (range.getBoundingClientRect().top === line?.top && text[end - 1] !== " ") {
+        const start = text.lastIndexOf(" ", end - 1) + 1;
+        document.getSelection()?.setBaseAndExtent(node, start, node, whole ? end : start);
+        return;
+      }
+    }
+  }, select);
+}
+
+test("the editor's toolbar keeps off the comments panel, and its mention menu inside the window", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const screen = { width: 1440, height: 900 };
+  const { page, workspace } = await sprintOf(browser, "placer", { context: { viewport: screen } });
+  try {
+    const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    const plan = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      {
+        teamspace_id: general?.id,
+        title: "Launch plan",
+        markdown:
+          "Friday evening we wire the sensor and get readings into the database. Saturday is " +
+          "for the rules worker and the dashboard, and Sunday for the rehearsal.",
+      },
+      201,
+    );
+    await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    const content = page.getByRole("region", { name: "Page content" }).getByRole("textbox");
+    await expect(content).toHaveAttribute("contenteditable", "true");
+
+    // A word at the end of the first line, selected with the comments panel open beside it.
+    await page.getByRole("button", { name: "Comments" }).click();
+    const panel = page.getByRole("complementary", { name: "Comments" });
+    await expect(panel).toBeVisible();
+    await lastWordOfFirstLine(content, true);
+    const toolbar = page.locator(".bn-formatting-toolbar");
+    await expect(toolbar).toBeVisible();
+    const panelBox = await panel.boundingBox();
+    const toolbarBox = await toolbar.boundingBox();
+    expect(
+      (toolbarBox?.x ?? 0) + (toolbarBox?.width ?? 0),
+      "the toolbar ends before the panel starts",
+    ).toBeLessThanOrEqual(panelBox?.x ?? 0);
+
+    // With the panel closed, @ typed near the end of the line opens a menu inside the window.
+    await panel.getByRole("button", { name: "Close comments" }).click();
+    await lastWordOfFirstLine(content, false);
+    await page.keyboard.type("@");
+    const menu = page.locator(".bn-suggestion-menu");
+    await expect(menu).toBeVisible();
+    await expect
+      .poll(async () => {
+        const box = await menu.boundingBox();
+        return box === null ? Number.POSITIVE_INFINITY : box.x + box.width;
+      })
+      .toBeLessThanOrEqual(screen.width - 8);
+    await page.keyboard.press("Escape");
   } finally {
     await page.context().close();
   }
