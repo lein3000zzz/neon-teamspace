@@ -1,40 +1,11 @@
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
 import { account, callApi, clientAddress, makeAccounts, PASSWORD } from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
-import { events, INITIALIZE, McpClient, PROTOCOL, type Message } from "./mcp-client";
+import { INITIALIZE, listen, McpClient, PROTOCOL } from "./mcp-client";
 
 test.use({ extraHTTPHeaders: clientAddress(16) });
 
 type Workspace = { id: string; slug: string };
-
-/**
- * The session's stream of notifications, opened as a client listens, read with fetch as it
- * arrives, compressed if Caddy compresses it: what it hears, and whether it ended.
- */
-async function listen(origin: string, client: McpClient) {
-  const response = await fetch(`${origin}/mcp`, {
-    headers: { ...client.headers(), Accept: "text/event-stream", "Accept-Encoding": "gzip" },
-  });
-  expect(response.status).toBe(200);
-  const heard: Message[] = [];
-  const stream = { heard, ended: false };
-  const reader = response.body?.pipeThrough(new TextDecoderStream()).getReader();
-  void (async () => {
-    let pending = "";
-    for (;;) {
-      const read = await reader?.read().catch(() => undefined);
-      if (read === undefined || read.done) {
-        stream.ended = true;
-        return;
-      }
-      // Events end with a blank line; the text after the last one is an event on its way.
-      const parts = (pending + read.value).split(/\r?\n\r?\n/);
-      pending = parts.pop() ?? "";
-      heard.push(...parts.flatMap(events));
-    }
-  })();
-  return stream;
-}
 
 /** The editable content of the page in view. */
 function content(page: Page) {
