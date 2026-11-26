@@ -124,8 +124,19 @@ with its workspace or once no page had shown it for `attachments.orphan_grace`.
 [Attachments](/docs/guides/attachments/#when-files-are-deleted) says when files go. Each run
 deletes them a thousand at a time until none are left, for up to ten minutes, so a workspace
 of many files is gone from the store within the hour after it is deleted unless the store is
-slow, and what is left then goes in the next run. It also deletes the bytes of uploads a
-server stopped in the middle of, half an hour after they began. Bytes the store refused to
-delete stay listed for the next run. The server touches nothing else in the bucket or the
-directory, so they may hold other things under other keys, though a bucket of its own keeps
-backups simple.
+slow, and what is left then goes in the next run. Bytes the store refused to delete stay
+listed for the next run.
+
+An upload cut off while the server runs, by its client, its time limit or a refusal, leaves
+nothing: the server deletes what it wrote, and aborts a multipart upload, at once. A server
+that stops in the middle of an upload, killed or crashed, leaves bytes behind, which the
+cleanup deletes half an hour after the upload began: on local disk, the file the blob was
+being written to, beside where it would go. In an S3 bucket, a file larger than 8 MiB goes up
+in parts, and the parts of an upload no one aborted stay in the store, outside any
+workspace's storage, until something aborts it. Give the bucket a lifecycle rule that aborts
+incomplete multipart uploads after a day, `AbortIncompleteMultipartUpload` on Amazon S3,
+MinIO and the stores that take one, or list and abort them now and then with
+`aws s3api list-multipart-uploads` and `aws s3api abort-multipart-upload`.
+
+The server touches nothing else in the bucket or the directory, so they may hold other things
+under other keys, though a bucket of its own keeps backups simple.

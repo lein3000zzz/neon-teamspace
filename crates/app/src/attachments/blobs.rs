@@ -5,11 +5,13 @@
 //! A blob is written as a stream, a part at a time, and never held whole in memory: a blob
 //! that ends within its first part goes up in one request, and a longer one as a multipart
 //! upload, a few parts at once. Reading streams it too, the whole blob or a range of it.
-//! Deleting a blob that is not there is no error, so a deletion tried twice does no harm.
+//! Deleting a blob that is not there is no error, so a deletion tried twice does no harm,
+//! and it deletes what a server that stopped while writing the blob left of it on local
+//! disk too.
 
 use std::fmt;
 use std::ops::Range;
-use std::path::Path as LocalPath;
+use std::path::{Path as LocalPath, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -70,8 +72,8 @@ impl fmt::Debug for BlobRead {
     }
 }
 
-/// A blob being written. Nothing is kept unless it is finished; one dropped unfinished may
-/// leave parts in the store, which aborting removes.
+/// A blob being written. Nothing is kept unless it is finished; one aborted, or dropped
+/// unfinished, as when the request writing it is cut off, has what went up of it removed.
 #[async_trait]
 pub trait BlobWriter: Send {
     /// Adds bytes at the end. A part goes up once one is full.
@@ -129,11 +131,14 @@ pub type Connector = Arc<dyn HttpConnector>;
 #[derive(Debug, Clone)]
 pub struct ObjectBlobs {
     store: Arc<dyn ObjectStore>,
+    /// On local disk, the directory, where a blob is written to a file beside its own, its
+    /// name and `#` and a number, before it takes the blob's place.
+    dir: Option<PathBuf>,
 }
 
 impl ObjectBlobs {
     pub fn new(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store }
+        Self { store, dir: None }
     }
 
     /// Blobs as files under `dir`, which is made if it is missing.
@@ -141,7 +146,49 @@ impl ObjectBlobs {
         std::fs::create_dir_all(dir)
             .map_err(|error| BlobError::Store(format!("cannot make {}: {error}", dir.display())))?;
         let store = LocalFileSystem::new_with_prefix(dir)?.with_automatic_cleanup(true);
-        Ok(Self::new(Arc::new(store)))
+        Ok(Self {
+            store: Arc::new(store),
+            dir: Some(dir.to_owned()),
+        })
+    }
+
+    /// Deletes the files a blob was being written to on local disk, which a server that
+    /// stopped while writing it leaves.
+    async fn delete_staged(&self, key: &str) -> Result<(), BlobError> {
+        let Some(dir) = &self.dir else {
+            return Ok(());
+        };
+        let blob = dir.join(key);
+        let (Some(folder), Some(name)) = (blob.parent(), blob.file_name()) else {
+            return Ok(());
+        };
+        let staged = format!("{}#", name.to_string_lossy());
+        let mut entries = match tokio::fs::read_dir(folder).await {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(BlobError::Store(format!("cannot list a folder: {error}"))),
+        };
+        let unreadable =
+            |error: std::io::Error| BlobError::Store(format!("cannot list a folder: {error}"));
+        while let Some(entry) = entries.next_entry().await.map_err(unreadable)? {
+            let name = entry.file_name();
+            let is_staged = name
+                .to_string_lossy()
+                .strip_prefix(&staged)
+                .is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                });
+            if is_staged {
+                match tokio::fs::remove_file(entry.path()).await {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(BlobError::Store(format!("cannot delete a part: {error}")));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Blobs in an S3 bucket, its requests made through `connector`.
@@ -202,9 +249,10 @@ impl BlobStore for ObjectBlobs {
 
     async fn delete(&self, key: &str) -> Result<(), BlobError> {
         match self.store.delete(&path(key)?).await {
-            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-            Err(error) => Err(error.into()),
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
+            Err(error) => return Err(error.into()),
         }
+        self.delete_staged(key).await
     }
 }
 
@@ -217,13 +265,55 @@ struct ObjectWriter {
     upload: Option<Upload>,
 }
 
-/// A multipart upload under way, with its parts in flight.
+/// A multipart upload under way, with its parts in flight. One dropped before it is
+/// completed or aborted, its writer's future dropped mid-way, is aborted then, on the
+/// runtime, so its parts do not stay in the store: a store keeps those of an upload never
+/// completed until it is aborted, and deleting the blob's key does not remove them.
 struct Upload {
-    upload: Box<dyn MultipartUpload>,
+    /// `None` once completed or aborted.
+    upload: Option<Box<dyn MultipartUpload>>,
     parts: tokio::task::JoinSet<object_store::Result<()>>,
 }
 
+impl Drop for Upload {
+    fn drop(&mut self) {
+        let Some(mut upload) = self.upload.take() else {
+            return;
+        };
+        let mut parts = std::mem::take(&mut self.parts);
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        runtime.spawn(async move {
+            parts.shutdown().await;
+            if let Err(error) = upload.abort().await {
+                tracing::warn!(%error, "the parts of an upload cut off stay in the store");
+            }
+        });
+    }
+}
+
 impl Upload {
+    fn upload(&mut self) -> Result<&mut Box<dyn MultipartUpload>, BlobError> {
+        self.upload
+            .as_mut()
+            .ok_or_else(|| BlobError::Store("the upload has ended".to_owned()))
+    }
+
+    async fn complete(&mut self) -> Result<(), BlobError> {
+        self.settle(0).await?;
+        self.upload()?.complete().await?;
+        self.upload = None;
+        Ok(())
+    }
+
+    async fn abort(&mut self) -> Result<(), BlobError> {
+        self.parts.shutdown().await;
+        let aborted = self.upload()?.abort().await;
+        self.upload = None;
+        Ok(aborted?)
+    }
+
     /// Waits until fewer than `most` parts are in flight, failing with the first that
     /// failed.
     async fn settle(&mut self, most: usize) -> Result<(), BlobError> {
@@ -237,7 +327,8 @@ impl Upload {
 
     async fn send(&mut self, part: PutPayload) -> Result<(), BlobError> {
         self.settle(PARTS_AT_ONCE - 1).await?;
-        self.parts.spawn(self.upload.put_part(part));
+        let part = self.upload()?.put_part(part);
+        self.parts.spawn(part);
         Ok(())
     }
 }
@@ -249,7 +340,7 @@ impl ObjectWriter {
         let upload = match &mut self.upload {
             Some(upload) => upload,
             None => self.upload.insert(Upload {
-                upload: self.store.put_multipart(&self.path).await?,
+                upload: Some(self.store.put_multipart(&self.path).await?),
                 parts: tokio::task::JoinSet::new(),
             }),
         };
@@ -281,31 +372,20 @@ impl BlobWriter for ObjectWriter {
         if self.buffer.content_length() > 0 {
             self.flush().await?;
         }
-        let Some(mut upload) = self.upload.take() else {
+        let Some(upload) = self.upload.as_mut() else {
             return Ok(());
         };
-        let done = async {
-            upload.settle(0).await?;
-            upload.upload.complete().await?;
-            Ok::<_, BlobError>(())
-        }
-        .await;
-        if let Err(error) = done {
-            upload.parts.shutdown().await;
+        if let Err(error) = upload.complete().await {
             // The upload failed already; what aborting says adds nothing to that.
-            let _ = upload.upload.abort().await;
+            let _ = upload.abort().await;
             return Err(error);
         }
         Ok(())
     }
 
     async fn abort(mut self: Box<Self>) -> Result<(), BlobError> {
-        match self.upload.take() {
-            Some(mut upload) => {
-                upload.parts.shutdown().await;
-                upload.upload.abort().await?;
-                Ok(())
-            }
+        match self.upload.as_mut() {
+            Some(upload) => upload.abort().await,
             None => Ok(()),
         }
     }

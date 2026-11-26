@@ -178,8 +178,11 @@ to those who may see the page it came from, and the cleanup keeps the file while
 it. The file still goes when its own page goes.
 
 The cleanup deletes a file's bytes from the store after its row, however the row went. An
-upload cut short by a server that stopped mid-way leaves bytes behind, and the cleanup deletes
-those too, half an hour after the upload began.
+upload cut off while the server runs, by its client, its time limit or a refusal, leaves
+nothing behind: the server deletes what it wrote at once. One cut short by a server that
+stopped mid-way leaves bytes behind, which the cleanup deletes half an hour after the upload
+began, except the parts of a large file's upload to an S3 store, which
+[File storage](/docs/self-hosting/storage/#what-the-server-deletes) covers.
 
 ## Import and export
 

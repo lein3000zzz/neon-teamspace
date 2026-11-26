@@ -2,14 +2,20 @@
 //! S3-compatible server, such as SeaweedFS, when `NEON_TEST_S3_ENDPOINT` names one, which
 //! `make test-s3` starts in a container. Each keeps the same promises: a blob comes back as
 //! it was written, whole or a range of it, written in one request or in parts, and is gone
-//! once deleted or given up on.
+//! once deleted or given up on, and so are the parts of one whose writer was dropped
+//! unfinished, as when its request is cut off.
 
+use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::StreamExt as _;
 use neon_app::attachments::{BlobError, BlobStore, ObjectBlobs, PART_BYTES, S3Location};
 use neon_server::storage::S3Connector;
+
+/// Long enough for what is waited on to happen, on the slowest runner.
+const PATIENCE: Duration = Duration::from_secs(20);
 
 /// Bytes that differ from one place to the next, so a part out of order would show.
 fn pattern(len: usize) -> Vec<u8> {
@@ -104,12 +110,71 @@ async fn keeps_its_promises(store: &dyn BlobStore, prefix: &str) {
     }
 }
 
+/// Starts writing a blob of more than a part, so that a part of it is in the store, and
+/// drops its writer unfinished.
+async fn drop_mid_way(store: &dyn BlobStore, key: &str) {
+    let mut writer = store.create(key).await.expect("created");
+    writer
+        .write(Bytes::from(pattern(PART_BYTES + 10)))
+        .await
+        .expect("written");
+    drop(writer);
+    assert!(matches!(
+        store.read(key, None).await,
+        Err(BlobError::NotFound)
+    ));
+}
+
+/// Every file under `dir`, however deep.
+fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).expect("listed") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
 #[tokio::test]
 async fn local_disk_keeps_blobs_as_files_in_its_directory() {
     let dir = tempfile::tempdir().expect("a directory");
     let root = dir.path().join("attachments");
     let store = ObjectBlobs::local(&root).expect("a store");
     keeps_its_promises(&store, "0193a5b20000700080000000000000a1").await;
+    tokio::time::timeout(PATIENCE, async {
+        while !files_under(&root).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("nothing is left of what was given up on");
+
+    drop_mid_way(&store, "workspace/dropped").await;
+    tokio::time::timeout(PATIENCE, async {
+        while !files_under(&root).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("nothing is left of what was dropped");
+
+    // What a server that stopped while writing a blob leaves of it goes with it.
+    std::fs::create_dir_all(root.join("workspace")).expect("a folder");
+    for left in ["cut#1", "cut#12"] {
+        std::fs::write(root.join("workspace").join(left), b"half").expect("written");
+    }
+    std::fs::write(root.join("workspace").join("cut#other"), b"kept").expect("written");
+    store.delete("workspace/cut").await.expect("deleted");
+    assert_eq!(
+        files_under(&root),
+        [root.join("workspace").join("cut#other")],
+        "only the parts of that blob"
+    );
+    std::fs::remove_file(root.join("workspace").join("cut#other")).expect("removed");
 
     write(&store, "workspace/file", b"bytes", 2).await;
     assert_eq!(
@@ -145,6 +210,22 @@ async fn an_s3_compatible_store_keeps_blobs_in_its_bucket() {
     let store = ObjectBlobs::s3(&location, Arc::new(S3Connector)).expect("a store");
     let prefix = format!("test/{}", uuid::Uuid::now_v7().simple());
     keeps_its_promises(&store, &prefix).await;
+    assert_eq!(
+        open_uploads(&location, &prefix).await,
+        "",
+        "aborted uploads are gone"
+    );
+
+    // Dropped mid-way, its upload is aborted, its parts with it.
+    let dropped = format!("{prefix}/dropped");
+    drop_mid_way(&store, &dropped).await;
+    tokio::time::timeout(PATIENCE, async {
+        while !open_uploads(&location, &dropped).await.is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the dropped upload is aborted");
 
     // Wrong keys are the store's refusal, never a blob.
     let wrong = S3Location {
@@ -156,4 +237,50 @@ async fn an_s3_compatible_store_keeps_blobs_in_its_bucket() {
         refused.read(&format!("{prefix}/none"), None).await,
         Err(BlobError::Store(_))
     ));
+}
+
+/// The keys of the multipart uploads under way under `prefix` in the bucket, one a line, as
+/// S3's ListMultipartUploads names them.
+async fn open_uploads(location: &S3Location, prefix: &str) -> String {
+    use object_store::aws::{AwsAuthorizer, AwsCredential};
+    use object_store::client::{ClientOptions, HttpConnector as _, HttpRequestBody};
+
+    let client = S3Connector
+        .connect(&ClientOptions::default())
+        .expect("a client");
+    let encoded: String = prefix
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    let mut request = axum::http::Request::builder()
+        .method("GET")
+        .uri(format!(
+            "{}/{}?prefix={encoded}&uploads=",
+            location.endpoint, location.bucket
+        ))
+        .body(HttpRequestBody::empty())
+        .expect("a request");
+    let credential = AwsCredential {
+        key_id: location.access_key_id.clone(),
+        secret_key: location.secret_access_key.clone(),
+        token: None,
+    };
+    AwsAuthorizer::new(&credential, "s3", &location.region)
+        .try_authorize(&mut request, None)
+        .expect("signed");
+    let answer = client.execute(request).await.expect("an answer");
+    assert!(answer.status().is_success(), "{}", answer.status());
+    let body = answer.into_body().bytes().await.expect("a body");
+    let text = String::from_utf8(body.to_vec()).expect("XML");
+    text.split("<Key>")
+        .skip(1)
+        .filter_map(|rest| rest.split("</Key>").next())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
