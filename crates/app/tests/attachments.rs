@@ -506,6 +506,26 @@ async fn a_blob_whose_upload_never_finished_goes_once_none_could_be_running(pool
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn one_run_deletes_every_blob_due_a_batch_after_another(pool: PgPool) {
+    let t = files(pool).await;
+    // More than a batch, as a workspace's deletion leaves them.
+    sqlx::query(
+        "INSERT INTO blob_deletions (storage_key, due_at)
+         SELECT '0193a5b20000700080000000000000a1/' || lpad(n::text, 32, '0'), '-infinity'
+         FROM generate_series(1, 2345) AS n",
+    )
+    .execute(&t.h.pool)
+    .await
+    .expect("queued");
+    assert_eq!(t.cleanup().await.blobs, 2345);
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM blob_deletions")
+        .fetch_one(&t.h.pool)
+        .await
+        .expect("counted");
+    assert_eq!(left, 0);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn uploads_need_an_editor_and_room(pool: PgPool) {
     let t = files(pool).await;
     let page = t.page("Plan", None).await;

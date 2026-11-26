@@ -7,9 +7,12 @@
 //! is now. A file shown
 //! nowhere is marked, then deleted once it has stayed so for `attachments.orphan_grace`; a
 //! file shown again is unmarked, and starts over the next time it is shown nowhere. When a
-//! document cannot be read, its workspace's files wait for the next run.
+//! document cannot be read, its workspace's files wait for the next run. The blobs of files
+//! deleted, by the run or before it, are deleted a batch after another, for as long as
+//! [`SWEEP_TIME`] allows.
 
 use std::collections::{BTreeSet, HashSet};
+use std::time::{Duration, Instant};
 
 use neon_store::files::{self, Unreferenced};
 use tracing::{info, warn};
@@ -18,9 +21,13 @@ use uuid::Uuid;
 use super::{AttachmentError, AttachmentService, shown_files};
 use crate::settings::attachments as keys;
 
-/// How many files, and how many blobs, one run looks at, at most. The next run takes the
-/// rest.
+/// How many files one run looks at, at most, and how many blobs it reads to delete at once.
+/// The next run takes the rest of the files.
 const BATCH: i64 = 1000;
+
+/// How long one run goes on deleting blobs, a batch after another, once their files are
+/// gone: those still due then wait for the next run.
+const SWEEP_TIME: Duration = Duration::from_secs(10 * 60);
 
 /// What one run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -112,24 +119,33 @@ impl AttachmentService {
         Ok((shown, unsure))
     }
 
-    /// Deletes the blobs due to be, a batch of them, and says how many went. One the store
-    /// does not delete stays for the next run.
+    /// Deletes the blobs due to be, a batch after another, until none are left, or a batch
+    /// deletes none, or [`SWEEP_TIME`] is spent; says how many went. One the store does not
+    /// delete stays for the next run.
     async fn sweep(&self, now: time::OffsetDateTime) -> Result<u64, AttachmentError> {
-        let keys = files::due_blobs(self.pool(), now, BATCH).await?;
-        if keys.is_empty() {
-            return Ok(0);
-        }
-        let store = self.blobs()?;
+        let started = Instant::now();
         let mut deleted = 0;
-        for key in keys {
-            match store.delete(&key).await {
-                Ok(()) => {
-                    files::blob_deleted(self.pool(), &key).await?;
-                    deleted += 1;
+        loop {
+            let keys = files::due_blobs(self.pool(), now, BATCH).await?;
+            if keys.is_empty() {
+                return Ok(deleted);
+            }
+            let store = self.blobs()?;
+            let full = i64::try_from(keys.len()).unwrap_or(i64::MAX) >= BATCH;
+            let mut batch = 0;
+            for key in keys {
+                match store.delete(&key).await {
+                    Ok(()) => {
+                        files::blob_deleted(self.pool(), &key).await?;
+                        batch += 1;
+                    }
+                    Err(error) => warn!(%error, "a blob stays to delete at the next cleanup"),
                 }
-                Err(error) => warn!(%error, "a blob stays to delete at the next cleanup"),
+            }
+            deleted += batch;
+            if !full || batch == 0 || started.elapsed() >= SWEEP_TIME {
+                return Ok(deleted);
             }
         }
-        Ok(deleted)
     }
 }
