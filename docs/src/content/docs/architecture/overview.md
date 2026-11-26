@@ -18,7 +18,7 @@ flowchart LR
     app[The web app]
     docs[These docs]
   end
-  caddy -- "/api, /ws, /mcp, /hooks, /.well-known/oauth-*" --> server[neon]
+  caddy -- "/api, /ws, /mcp, /hooks, /.well-known" --> server[neon]
   server --> pg[(Postgres 18)]
   server --> files[(Attachments: local disk or S3)]
   server --> mail[Mail server]
@@ -139,7 +139,7 @@ configure. Under it:
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
 | `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
 | `/hooks/*` | Incoming webhooks, each at `/hooks/in/{token}`; see [Webhooks](/docs/guides/webhooks/#incoming-webhooks). |
-| `/.well-known/oauth-*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). |
+| `/.well-known/*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). Any other well-known path gets the server's JSON `404`, so a client that looks for a document the server lacks, such as an OpenID configuration, is told it is not there. |
 | `/docs` | These docs. |
 | Anything else | The web app. |
 
