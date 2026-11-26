@@ -416,7 +416,7 @@ fn text_is_found_in_nested_blocks_table_cells_and_code() {
                 },
                 TableRow {
                     cells: vec![TableCell {
-                        content: Inline::plain("TODO name"),
+                        content: Inline::plain("Somebody"),
                         ..TableCell::default()
                     }],
                 },
@@ -430,21 +430,21 @@ fn text_is_found_in_nested_blocks_table_cells_and_code() {
         props: CodeBlockProps {
             language: "rust".into(),
         },
-        code: "fn main() {\n    // TODO name\n}".into(),
+        code: "fn main() {\n    // Somebody\n}".into(),
     });
     let doc = page(vec![
-        bullet("list").with_children(vec![bullet("TODO name")]),
+        bullet("list").with_children(vec![bullet("Somebody")]),
         table,
         code,
     ]);
-    let applied = edit(&doc, &find("TODO name", "Ada", true)).expect("replaced");
+    let applied = edit(&doc, &find("Somebody", "Ada", true)).expect("replaced");
 
     assert_eq!(applied.replaced, 3);
     let markdown = md(&doc);
     assert!(markdown.contains("  - Ada"), "{markdown}");
     assert!(markdown.contains("| Ada |"), "{markdown}");
     assert!(markdown.contains("    // Ada"), "{markdown}");
-    assert!(!markdown.contains("TODO"), "{markdown}");
+    assert!(!markdown.contains("Somebody"), "{markdown}");
 }
 
 #[test]
