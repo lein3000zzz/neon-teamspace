@@ -1409,6 +1409,54 @@ async fn an_import_takes_the_files_its_pages_show_within_their_rules(pool: PgPoo
     assert_eq!(files, 1);
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_files_of_an_import_unpack_within_its_budget(pool: PgPool) {
+    let t = team_with(
+        pool,
+        Limits {
+            max_files_unpacked: 6000,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let notes = |second: usize| {
+        zipped_bytes(&[
+            (
+                "Notes.md",
+                b":::file [a](Notes/a.txt)\n\n:::file [b](Notes/b.txt)\n",
+            ),
+            ("Notes/a.txt", &[b'a'; 4000]),
+            ("Notes/b.txt", &vec![b'b'; second]),
+        ])
+    };
+    let fits = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            notes(2000),
+        )
+        .await
+        .expect("imported");
+    assert_eq!(t.files_of(fits.pages[0].page.id).await.len(), 2);
+
+    let over = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            notes(2001),
+        )
+        .await
+        .expect_err("past the budget");
+    assert_eq!(over.code(), "too_large");
+    assert!(over.to_string().contains("unpack to more than"), "{over}");
+    let files: i64 = t.h.scalar("SELECT count(*) FROM files").await;
+    assert_eq!(files, 2, "nothing of the second import is kept");
+    let left: i64 = t.h.scalar("SELECT count(*) FROM blob_deletions").await;
+    assert_eq!(left, 0, "the blob written for it was deleted");
+}
+
 /// The files a page's last snapshot names, by id.
 async fn page_refs(pool: &PgPool, page: Uuid) -> sqlx::Result<Vec<Uuid>> {
     sqlx::query_scalar("SELECT file_id FROM page_file_refs WHERE page_id = $1 ORDER BY file_id")

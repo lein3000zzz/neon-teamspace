@@ -403,19 +403,21 @@ impl TransferService {
                     continue;
                 };
                 let bytes = upload.clone();
-                let data = blocking(move || archive::unpack(bytes, index, max_file)).await?;
+                let budget = most.saturating_sub(unpacked);
+                let data =
+                    blocking(move || archive::unpack(bytes, index, max_file, budget)).await?;
                 let refused = match data {
-                    None => Some(SkipReason::TooLarge),
-                    Some(data) => {
+                    archive::Unpacked::TooLarge => Some(SkipReason::TooLarge),
+                    archive::Unpacked::OverBudget => {
+                        return Err(TransferError::too_large(format!(
+                            "the files the pages show unpack to more than {}, the most one \
+                             import takes",
+                            size(self.inner.limits.max_files_unpacked)
+                        )));
+                    }
+                    archive::Unpacked::Data(data) => {
                         unpacked =
                             unpacked.saturating_add(u64::try_from(data.len()).unwrap_or(u64::MAX));
-                        if unpacked > most {
-                            return Err(TransferError::too_large(format!(
-                                "the files the pages show unpack to more than {}, the most one \
-                                 import takes",
-                                size(self.inner.limits.max_files_unpacked)
-                            )));
-                        }
                         let prepared = attachments
                             .prepare(
                                 &ticket.principal,

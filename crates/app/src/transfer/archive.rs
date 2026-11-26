@@ -272,27 +272,52 @@ fn unzip(bytes: Bytes, limits: &Limits, deadline: Deadline) -> Result<Contents, 
     Ok(contents)
 }
 
-/// The bytes of a zip's entry kept aside for the pages that show it, at most `max` of them:
-/// `None` when it unpacks to more, whatever size the zip states.
-pub(super) fn unpack(bytes: Bytes, index: usize, max: u64) -> Result<Option<Bytes>, TransferError> {
+/// What unpacking an entry a page shows gave.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Unpacked {
+    Data(Bytes),
+    /// More than a file may be, which leaves it out.
+    TooLarge,
+    /// More than what is left of what an import's files may unpack to, which refuses it.
+    OverBudget,
+}
+
+/// The bytes of a zip's entry kept aside for the pages that show it: at most `max`, what a
+/// file may be, and `budget`, what is left of what the import's files may unpack to. The
+/// size the zip states is checked against both before anything is read, and no more than
+/// the smaller of the two and a byte is read whatever it states.
+pub(super) fn unpack(
+    bytes: Bytes,
+    index: usize,
+    max: u64,
+    budget: u64,
+) -> Result<Unpacked, TransferError> {
     let unreadable = |error: zip::result::ZipError| {
         TransferError::invalid(format!("the zip cannot be read: {error}"))
     };
     let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(unreadable)?;
     let entry = zip.by_index(index).map_err(unreadable)?;
     if entry.size() > max {
-        return Ok(None);
+        return Ok(Unpacked::TooLarge);
+    }
+    if entry.size() > budget {
+        return Ok(Unpacked::OverBudget);
     }
     let path = shown(&entry.name().map_err(unreadable)?);
+    let most = max.min(budget);
     let mut data = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
     entry
-        .take(max.saturating_add(1))
+        .take(most.saturating_add(1))
         .read_to_end(&mut data)
         .map_err(|error| TransferError::invalid(format!("{path} cannot be unpacked: {error}")))?;
-    if u64::try_from(data.len()).unwrap_or(u64::MAX) > max {
-        return Ok(None);
-    }
-    Ok(Some(Bytes::from(data)))
+    let read = u64::try_from(data.len()).unwrap_or(u64::MAX);
+    Ok(if read > max {
+        Unpacked::TooLarge
+    } else if read > budget {
+        Unpacked::OverBudget
+    } else {
+        Unpacked::Data(Bytes::from(data))
+    })
 }
 
 /// The most entries any end-of-directory record of a zip says it lists, before its
@@ -649,6 +674,24 @@ mod tests {
         assert!(
             matches!(error.code(), "too_large" | "invalid_input"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn a_file_a_page_shows_unpacks_within_its_limit_and_the_budget() {
+        let content = "x".repeat(4096);
+        let bytes = Bytes::from(zipped(&[("a.png", &content)]));
+        let unpacked = |max, budget| unpack(bytes.clone(), 0, max, budget).expect("read");
+        assert_eq!(
+            unpacked(4096, 4096),
+            Unpacked::Data(Bytes::from(content.clone()))
+        );
+        assert_eq!(unpacked(4095, 1 << 20), Unpacked::TooLarge);
+        assert_eq!(unpacked(1 << 20, 4095), Unpacked::OverBudget);
+        assert_eq!(
+            unpacked(4095, 100),
+            Unpacked::TooLarge,
+            "too large either way"
         );
     }
 
