@@ -111,7 +111,7 @@ the session.
   past the server's, does `initialize` get `429 too_many_sessions`, with `Retry-After` saying
   when the next idle session that counts ends, if one is idle.
 - **Size.** A request holds at most 2 MiB; a larger one gets `413 payload_too_large`. Send
-  large content in several edits, such as several `append` operations.
+  large content in several calls, such as an `edit_page` with one `append` each.
 - **Rate.** Each identity has 200 requests at once, then four a second, and each person 400
   at once, then ten a second, with their agents together. Past that, a request gets
   `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their

@@ -505,7 +505,8 @@ pub fn registry() -> Registry {
                 mcp::MAX_SESSIONS_PER_IDENTITY,
                 10,
                 "The most MCP sessions one person or agent holds at once on this server. One \
-                 more is refused until one of theirs ends.",
+                 more ends their session used least recently that has no request or stream \
+                 open, or is refused while each of theirs is in use.",
             )
             .check(between_counts(1, 1000)),
         )
