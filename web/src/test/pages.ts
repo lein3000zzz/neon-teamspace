@@ -76,6 +76,15 @@ export function samplePages(): Page[] {
   ];
 }
 
+/** A page of samplePages(), by its id. */
+export function samplePage(id: string): Page {
+  const found = samplePages().find((entry) => entry.id === id);
+  if (found === undefined) {
+    throw new Error(`no sample page ${id}`);
+  }
+  return found;
+}
+
 type Options = {
   pages?: Page[];
   favorites?: string[];

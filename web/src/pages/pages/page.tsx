@@ -24,6 +24,7 @@ import { DatabaseView } from "@/components/databases/database-view";
 import { RowProperties } from "@/components/databases/row-properties";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
+import { HistoryButton } from "@/components/history/history-panel";
 import { CoverBand, CoverPicker } from "@/components/pages/cover-picker";
 import { IconPicker } from "@/components/pages/icon-picker";
 import { PageMenu } from "@/components/pages/page-menu";
@@ -159,6 +160,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
               readOnly={!editable || connection.access === "view"}
             />
           )}
+          {page.kind !== "database" && !peek && <HistoryButton page={page} editable={editable} />}
           {!trashed && <FavoriteToggle page={page} />}
           {!trashed && mayShare(workspace.role, page.access) && <ShareButton page={page} />}
           {editable && (
