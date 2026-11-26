@@ -18,7 +18,7 @@ use neon_app::crypto::{Envelope, Keyring};
 use neon_app::databases::PropertySpec;
 use neon_app::databases::{GroupMove, NewDatabase, NewProperty, NewRow, NewView, RowMove};
 use neon_app::jobs::{RedHook, Worker, WorkerConfig, run_span};
-use neon_app::pages::Location;
+use neon_app::pages::{AccessChange, Location};
 use neon_app::sync::{SyncService, access_feed};
 use neon_app::webhooks::transport::{Answer, Outgoing, SendError, WebhookTransport};
 use neon_app::webhooks::{
@@ -627,6 +627,16 @@ async fn an_integration_edits_its_target_alone_and_only_while_its_owner_may(pool
         )
         .await
         .expect("made");
+    // Its target's share with the integration is told once made, as any share is.
+    let integration_id = created.hook.integration.id;
+    assert!(
+        t.h.changes.take().contains(&AccessChange::Pages {
+            workspace_id: t.workspace,
+            page_id: incidents,
+            user_id: Some(integration_id),
+        }),
+        "the share is told"
+    );
     let token = created.token.expose().to_owned();
     let page = json!({"version": 1, "action": "create_row", "values": {"Name": "Disk full"}});
 

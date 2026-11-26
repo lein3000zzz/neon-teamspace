@@ -26,12 +26,12 @@ use std::time::Instant;
 use bytes::Bytes;
 use neon_domain::agents::{AgentOwner, AgentStatus};
 use neon_domain::auth::{Credential, Principal, Scope, UserKind};
-use neon_domain::pages::{PageAccess, PageKind, Share};
+use neon_domain::pages::{PageAccess, PageKind};
 use neon_domain::settings::Secret;
 use neon_domain::webhooks::check_name;
 use neon_domain::workspaces::{Action, Resource};
 use neon_store::incoming_webhooks::{self as repo, IncomingWebhook as Stored, Request};
-use neon_store::{agents, page_shares, users};
+use neon_store::{agents, users};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use tracing::{Instrument as _, info, info_span};
@@ -249,19 +249,11 @@ impl WebhookService {
                     other => other.into(),
                 })?;
             let now = self.now();
-            page_shares::insert(
-                &mut *tx,
-                &Share {
-                    page_id: new.target_id,
-                    workspace_id,
-                    user_id: integration,
-                    access: PageAccess::Edit,
-                    created_by: Some(principal.user.id),
-                    created_at: now,
-                    updated_at: now,
-                },
-            )
-            .await?;
+            let (_, shared) = self
+                .inner
+                .pages
+                .insert_share(&mut tx, principal, &context, integration, PageAccess::Edit)
+                .await?;
             let id = Uuid::now_v7();
             let token = new_secret(TOKEN_PREFIX);
             let secret = new.signed.then(|| new_secret(SECRET_PREFIX));
@@ -289,6 +281,7 @@ impl WebhookService {
                 .ok_or(WebhookError::NotFound(NO_HOOK))?;
             let hook = self.incoming_view(&mut tx, principal, stored).await?;
             tx.commit().await?;
+            self.inner.pages.report_access(shared);
             info!(
                 user_id = %principal.user.id,
                 workspace_id = %workspace_id,
