@@ -203,7 +203,7 @@ describe("a page's header", () => {
       new File([new Uint8Array([137, 80, 78, 71])], "beach.png", { type: "image/png" }),
     );
     await waitFor(() => expect(api.changes.at(-1)?.body).toEqual({ cover_image: UPLOADED_IDS[0] }));
-    expect(api.uploads).toEqual([{ page: PAGE_IDS.goals, kind: "image", name: "upload" }]);
+    expect(api.uploads).toEqual([{ page: PAGE_IDS.goals, kind: "image" }]);
     await waitFor(() =>
       expect(document.querySelector("[data-cover-image]")).toHaveAttribute(
         "data-cover-image",

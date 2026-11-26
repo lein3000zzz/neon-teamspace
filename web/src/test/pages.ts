@@ -122,7 +122,7 @@ export function fakePages(options: Options = {}) {
   /** Each export asked for, by its path and query. */
   const exports: string[] = [];
   /** Each file uploaded, with the page and kind it was for and its name. */
-  const uploads: { page: string; kind: string; name: string }[] = [];
+  const uploads: { page: string; kind: string }[] = [];
   let made = 0;
 
   const record = (
@@ -327,13 +327,14 @@ export function fakePages(options: Options = {}) {
       }),
     ),
     // A file uploaded to a page, as the server answers it. jsdom's files lose their names on
-    // their way into Node's requests, so the name is the form's own.
+    // their way into Node's requests, so the uploads are told apart by page and kind alone,
+    // and the answer names the file "upload".
     http.post(`${base}/files`, async ({ request, params }) => {
       const kind = (new URL(request.url).searchParams.get("kind") ?? "file") as Schemas["FileKind"];
       const file = (await request.formData()).get("file");
       const size = typeof file === "string" || file === null ? 0 : file.size;
       const id = UPLOADED_IDS[uploads.length] ?? UPLOADED_IDS[0];
-      uploads.push({ page: String(params["id"]), kind, name: "upload" });
+      uploads.push({ page: String(params["id"]), kind });
       return HttpResponse.json(
         {
           id,

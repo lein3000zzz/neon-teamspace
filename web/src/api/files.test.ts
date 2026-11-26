@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiError } from "@/test/fixtures";
 import { server } from "@/test/server";
 import { ApiError } from "./errors";
@@ -9,6 +9,10 @@ const PAGE = "0193a5b2-0000-7000-8000-0000000000a3";
 const FILE = "0193a5b2-0000-7000-8000-0000000000f1";
 
 describe("files", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("are uploaded for the kind of block they go in, or else for what they are", () => {
     const png = { type: "image/png" };
     const pdf = { type: "application/pdf" };
@@ -41,13 +45,14 @@ describe("files", () => {
         );
       }),
     );
-    const uploaded = await uploadFile(
-      PAGE,
-      "image",
-      new File([new Uint8Array(5)], "a.png", { type: "image/png" }),
-    );
+    // jsdom's files lose their names on their way into Node's requests, so the form is
+    // asked what it was given.
+    const append = vi.spyOn(FormData.prototype, "append");
+    const file = new File([new Uint8Array(5)], "a.png", { type: "image/png" });
+    const uploaded = await uploadFile(PAGE, "image", file);
     expect(uploaded.url).toBe(`/api/v1/files/${FILE}`);
     expect(seen).toEqual([{ kind: "image", name: PAGE, size: 5 }]);
+    expect(append.mock.calls).toEqual([["file", file, "a.png"]]);
   });
 
   it("say why the server refused them", async () => {
