@@ -168,8 +168,11 @@ attempts, then one more every 30 seconds:
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
 cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
-agent to the MCP server, 200 at once, then four a second, since agents work in bursts. A
-request over a limit gets `429` with the code `rate_limited` and a `Retry-After` header.
+agent to the MCP server, 200 at once, then four a second, since agents work in bursts.
+`page-edit:user:` counts one person's or agent's edits of pages' content, through the
+markdown API and MCP's `edit_page` together, 100 at once, then two a second, since each may
+go over the whole page. A request over a limit gets `429` with the code `rate_limited` and a
+`Retry-After` header.
 
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.

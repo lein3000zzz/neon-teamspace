@@ -4,11 +4,13 @@
 //! they type meanwhile merges with them.
 //!
 //! Reading needs to see the page; editing needs to edit it, out of the trash, with the write
-//! scope when through a token, as editing in the browser does. A database has no body of its
-//! own: its rows do. Reads and edits are RED metrics of [`SUBSYSTEM`](super::SUBSYSTEM), in
-//! spans `sync read` and `sync edit`; neither logs a page's content.
+//! scope when through a token, as editing in the browser does, and is rate limited per user.
+//! A database has no body of its own: its rows do. Reads and edits are RED metrics of
+//! [`SUBSYSTEM`](super::SUBSYSTEM), in spans `sync read` and `sync edit`; neither logs a
+//! page's content.
 
 use std::future::Future;
+use std::time::Duration;
 
 use neon_blocks::Document;
 use neon_blocks::edit::{Applied, Edit, EditError};
@@ -16,13 +18,14 @@ use neon_domain::auth::Principal;
 use neon_domain::pages::{PageAccess, PageKind};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use tokio::sync::oneshot;
-use tracing::{Instrument as _, info, info_span};
+use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 use yrs::sync::{Message, SyncMessage};
 
 use super::document::{Command, Unedited};
 use super::{CloseReason, JOIN_ATTEMPTS, LoadError, SyncService, protocol};
 use crate::pages::{ImportedContent, PageError, PageView};
+use crate::ratelimit::Bucket;
 
 /// The most parts one edit has.
 pub const MAX_EDITS: usize = 50;
@@ -45,6 +48,8 @@ pub enum ContentError {
     Database,
     #[error("the page would grow larger than {} bytes, the most a page holds", .0)]
     TooLarge(usize),
+    #[error("too many edits of pages' content: slow down")]
+    RateLimited { retry_after: Duration },
     /// The live document could not open, or the server is stopping.
     #[error("the page's document is not available now: {0}")]
     Unavailable(CloseReason),
@@ -60,6 +65,7 @@ impl ContentError {
             Self::InvalidInput(_) | Self::Database => "invalid_input",
             Self::Refused { .. } => "edit_refused",
             Self::TooLarge(_) => "document_too_large",
+            Self::RateLimited { .. } => "rate_limited",
             Self::Unavailable(_) => "unavailable",
             Self::Load(_) => "internal",
         }
@@ -113,7 +119,7 @@ impl SyncService {
 
     /// Makes `edits` to a page's blocks, in order, all or none, through its live document,
     /// which opens for them if nobody has the page open. They count as the principal's
-    /// change of the page.
+    /// change of the page, and against their rate of edits.
     pub async fn edit(
         &self,
         principal: &Principal,
@@ -136,6 +142,13 @@ impl SyncService {
                      of the trash, and a token with the write scope",
                 )
                 .into());
+            }
+            let user = principal.user.id.to_string();
+            if let Err(limited) = self.inner.limiter.check(Bucket::PageEdit, &user).await {
+                warn!(user_id = %principal.user.id, "edits of pages' content rate limited");
+                return Err(ContentError::RateLimited {
+                    retry_after: limited.retry_after,
+                });
             }
             let parts: Vec<&'static str> = edits.iter().map(Edit::name).collect();
             let applied = self
@@ -273,6 +286,11 @@ mod tests {
             "edit 1: the text to find is not in the page; nothing was changed"
         );
         assert!(ContentError::TooLarge(10).is_expected());
+        let limited = ContentError::RateLimited {
+            retry_after: Duration::from_secs(1),
+        };
+        assert!(limited.is_expected());
+        assert_eq!(limited.code(), "rate_limited");
         assert!(!ContentError::Unavailable(CloseReason::Restarting).is_expected());
         assert_eq!(ContentError::Database.code(), "invalid_input");
     }

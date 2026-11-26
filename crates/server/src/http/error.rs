@@ -293,6 +293,12 @@ impl From<ContentError> for ApiError {
                 tracing::error!(error = %failed, "a page's content use case failed");
                 Self::internal()
             }
+            ContentError::RateLimited { retry_after } => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                "too many edits of pages' content: slow down",
+            )
+            .with_retry_after(retry_after),
             other => {
                 let status = match &other {
                     ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,

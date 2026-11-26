@@ -233,7 +233,8 @@ pub(super) async fn get_markdown(
                    document: whoever has the page open sees the change at once, and what they \
                    type meanwhile merges with it. Operations name blocks by the ids reading the \
                    markdown shows. Editing needs edit access to the page, out of the trash. A \
-                   page holds at most 16 MiB.",
+                   page holds at most 16 MiB. Each user has 100 edits at once, through this \
+                   route and MCP together, then two a second.",
     params(("id" = Uuid, Path, description = "The page's id.")),
     request_body = EditPage,
     responses(
@@ -243,6 +244,7 @@ pub(super) async fn get_markdown(
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the page would grow past what it holds.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many edits of pages' content; Retry-After says when to try again.", body = ErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "unavailable: the server is stopping.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),

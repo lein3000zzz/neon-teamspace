@@ -80,7 +80,8 @@ pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppSta
     .await
 }
 
-/// The state, with the MCP server counting requests in `limiter`, on `web`.
+/// The state, with the MCP server counting requests, and the content routes edits, in
+/// `limiter`, on `web`.
 pub(crate) async fn state_with_mcp(
     pool: PgPool,
     web: WebConfig,
@@ -104,7 +105,7 @@ async fn build_state(
     web: WebConfig,
     limits: SyncLimits,
     feeds: LiveLimits,
-    mcp_limiter: Arc<dyn RateLimiter>,
+    limiter: Arc<dyn RateLimiter>,
 ) -> AppState {
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -148,6 +149,7 @@ async fn build_state(
     let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
         .limits(limits)
         .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
@@ -164,7 +166,7 @@ async fn build_state(
             databases: databases.clone(),
             broadcaster,
         },
-        mcp_limiter,
+        limiter,
         mcp_feed,
     );
     AppState {

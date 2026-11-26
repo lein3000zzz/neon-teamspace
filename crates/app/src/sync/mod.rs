@@ -69,6 +69,7 @@ use yrs::Transact as _;
 use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
+use crate::ratelimit::{MemoryLimiter, RateLimiter};
 use document::{Command, Joining, Presence};
 pub(crate) use limits::Bucket;
 
@@ -107,6 +108,7 @@ pub(crate) struct Inner {
     pages: PageService,
     auth: AuthService,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
     red: Red,
@@ -183,13 +185,14 @@ impl Registry {
 }
 
 /// Puts a [`SyncService`] together. Without being told otherwise it serves one process's
-/// clients, with the default limits, on the system clock.
+/// clients, with the default limits, counting edits in its own memory, on the system clock.
 pub struct SyncServiceBuilder {
     pool: PgPool,
     pages: PageService,
     auth: AuthService,
     feed: AccessFeed,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
 }
@@ -197,6 +200,13 @@ pub struct SyncServiceBuilder {
 impl SyncServiceBuilder {
     pub fn broadcaster(mut self, broadcaster: Arc<dyn Broadcaster>) -> Self {
         self.broadcaster = broadcaster;
+        self
+    }
+
+    /// Where edits of pages' content from the API and MCP are counted, against
+    /// [`Bucket::PageEdit`](crate::ratelimit::Bucket::PageEdit).
+    pub fn limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
+        self.limiter = limiter;
         self
     }
 
@@ -220,6 +230,7 @@ impl SyncServiceBuilder {
             pages: self.pages,
             auth: self.auth,
             broadcaster: self.broadcaster,
+            limiter: self.limiter,
             limits: self.limits,
             clock: self.clock,
             red: Red::new(SUBSYSTEM),
@@ -308,6 +319,7 @@ impl SyncService {
             auth,
             feed,
             broadcaster: Arc::new(LocalBroadcaster::new()),
+            limiter: Arc::new(MemoryLimiter::new()),
             limits: Limits::default(),
             clock: Clock::system(),
         }

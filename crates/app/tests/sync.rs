@@ -6,12 +6,14 @@
 mod support;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::pages::{Location, NewPage};
+use neon_app::ratelimit::{Bucket, Limited, MemoryLimiter, RateLimiter};
 use neon_app::sync::{
     CloseReason, Connection, ContentError, Ending, Limits, Next, SyncService, access_feed,
 };
@@ -77,6 +79,11 @@ async fn team(pool: PgPool) -> Team {
 
 impl Team {
     fn sync(&self, limits: Limits) -> SyncService {
+        self.sync_counting(limits, Arc::new(MemoryLimiter::new()))
+    }
+
+    /// The service, counting edits in `limiter`.
+    fn sync_counting(&self, limits: Limits, limiter: Arc<dyn RateLimiter>) -> SyncService {
         let (_, feed) = access_feed();
         SyncService::builder(
             self.h.pool.clone(),
@@ -85,6 +92,7 @@ impl Team {
             feed,
         )
         .limits(limits)
+        .limiter(limiter)
         .build()
     }
 }
@@ -1238,5 +1246,40 @@ async fn replacements_past_the_size_a_document_keeps_are_refused_before_they_are
         text_of(&sync, &t.ada, t.page).await,
         "x ".repeat(100).trim_end()
     );
+    sync.shutdown().await;
+}
+
+/// A limiter that refuses one user's edits of pages' content, and counts the rest.
+struct RefusingEdits(Uuid);
+
+#[async_trait::async_trait]
+impl RateLimiter for RefusingEdits {
+    async fn check(&self, bucket: Bucket, key: &str) -> Result<(), Limited> {
+        if bucket == Bucket::PageEdit && key == self.0.to_string() {
+            return Err(Limited {
+                retry_after: Duration::from_secs(7),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn edits_past_their_rate_are_refused_per_user(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync_counting(quick(), Arc::new(RefusingEdits(t.dee.user.id)));
+
+    let refused = sync.edit(&t.dee, t.page, append("Dee's")).await;
+    match refused {
+        Err(ContentError::RateLimited { retry_after }) => {
+            assert_eq!(retry_after, Duration::from_secs(7));
+        }
+        other => panic!("expected a rate limit, got {other:?}"),
+    }
+    sync.edit(&t.ada, t.page, append("Ada's"))
+        .await
+        .expect("another user's edit");
+    // Reading is not counted.
+    assert_eq!(text_of(&sync, &t.dee, t.page).await, "Ada's");
     sync.shutdown().await;
 }

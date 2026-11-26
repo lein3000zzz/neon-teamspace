@@ -271,6 +271,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .build();
     let live = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
         .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();

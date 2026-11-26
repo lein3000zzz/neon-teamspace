@@ -1,6 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, and requests to the MCP server.
+//! pages, edits of pages' content from the API and MCP, and requests to the MCP server.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -42,6 +42,13 @@ pub const MCP: Quota = Quota {
     every: Duration::from_millis(250),
 };
 
+/// A hundred edits, then two a second: one user's edits of pages' content through the API
+/// and MCP, each of which may go over the whole page.
+pub const EDITS: Quota = Quota {
+    burst: 100,
+    every: Duration::from_millis(500),
+};
+
 /// What is being limited. Each has its own buckets, keyed by an IP, an address or a user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bucket {
@@ -73,12 +80,15 @@ pub enum Bucket {
     PageImport,
     /// Exporting pages, by user: each export reads every page it holds.
     PageExport,
+    /// Editing pages' content through their live documents, by user: each edit may go over
+    /// the whole page, twice.
+    PageEdit,
     /// Requests to the MCP server, by identity: a person or an agent.
     Mcp,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -93,6 +103,7 @@ impl Bucket {
         Self::WorkspaceLinkJoin,
         Self::PageImport,
         Self::PageExport,
+        Self::PageEdit,
         Self::Mcp,
     ];
 
@@ -113,6 +124,7 @@ impl Bucket {
             Self::WorkspaceLinkJoin => "workspace-link:user:",
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
+            Self::PageEdit => "page-edit:user:",
             Self::Mcp => "mcp:user:",
         }
     }
@@ -120,6 +132,7 @@ impl Bucket {
     pub fn quota(self) -> Quota {
         match self {
             Self::LoginEmail => ACCOUNT,
+            Self::PageEdit => EDITS,
             Self::Mcp => MCP,
             _ => STANDARD,
         }
@@ -154,10 +167,11 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_and_mcp_buckets_are_looser() {
+    fn only_the_cross_ip_edit_and_mcp_buckets_are_looser() {
         for bucket in Bucket::ALL {
             let want = match bucket {
                 Bucket::LoginEmail => ACCOUNT,
+                Bucket::PageEdit => EDITS,
                 Bucket::Mcp => MCP,
                 _ => STANDARD,
             };

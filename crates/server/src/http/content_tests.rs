@@ -409,3 +409,65 @@ async fn recent_pages_and_whom_a_request_acts_as(pool: PgPool) {
     assert_eq!(me.body["workspace"]["role"], "member");
     assert_eq!(me.body["scopes"], json!(["read", "write"]));
 }
+
+/// A limiter that refuses every edit of pages' content.
+struct RefusingEdits;
+
+#[async_trait::async_trait]
+impl neon_app::ratelimit::RateLimiter for RefusingEdits {
+    async fn check(
+        &self,
+        bucket: neon_app::ratelimit::Bucket,
+        _key: &str,
+    ) -> Result<(), neon_app::ratelimit::Limited> {
+        match bucket {
+            neon_app::ratelimit::Bucket::PageEdit => Err(neon_app::ratelimit::Limited {
+                retry_after: std::time::Duration::from_secs(5),
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn edits_past_their_rate_answer_429_with_retry_after(pool: PgPool) {
+    let state = super::tests::state_with_mcp(
+        pool,
+        WebConfig::new(None, Vec::new()),
+        neon_app::sync::Limits::default(),
+        std::sync::Arc::new(RefusingEdits),
+    )
+    .await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let general = general(&t.ada, &t.workspace).await;
+    let created = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{}/pages", t.workspace),
+            json!({"teamspace_id": general, "title": "Plan", "markdown": "Ship"}),
+        )
+        .await;
+    let markdown = format!("/api/v1/pages/{}/markdown", id(&created));
+
+    let edited = t
+        .ada
+        .send(
+            Method::PATCH,
+            &markdown,
+            Some(json!({"operations": [{"op": "append", "markdown": "More"}]})),
+        )
+        .await;
+    assert_eq!(
+        edited.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        edited.body
+    );
+    assert_eq!(edited.code(), "rate_limited");
+    assert_eq!(edited.headers["retry-after"], "5");
+    // Reading is not counted.
+    let read = t.ada.get(&markdown).await;
+    assert_eq!(text(markdown_of(&read)), "Ship");
+    state.sync.shutdown().await;
+}

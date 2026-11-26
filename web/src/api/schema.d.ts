@@ -1160,7 +1160,7 @@ export interface paths {
         head?: never;
         /**
          * Edit a page's content
-         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB.
+         * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
          */
         patch: operations["edit_markdown"];
         trace?: never;
@@ -8452,6 +8452,15 @@ export interface operations {
             };
             /** @description document_too_large: the page would grow past what it holds. */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many edits of pages' content; Retry-After says when to try again. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

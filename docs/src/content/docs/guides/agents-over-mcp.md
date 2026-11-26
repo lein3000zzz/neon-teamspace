@@ -86,7 +86,9 @@ the session.
   `mcp.session_idle_timeout` without a request or an open stream, and the client starts
   another when it comes back.
 - **Rate.** Each identity has 200 requests at once, then four a second. Past that, a request
-  gets `429 rate_limited` with `Retry-After`.
+  gets `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
+  own, 100 at once, then two a second, with those made over REST. Past that, `edit_page`
+  answers the tool error `rate_limited`.
 
 The [settings reference](/docs/reference/settings/) lists the `mcp.*` settings, which apply
 without a restart.
