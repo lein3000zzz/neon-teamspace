@@ -31,6 +31,22 @@ Dependencies only point inward: `server` → `app` → `store` → `domain`. `bl
 beside `domain`, depending on neither. Each crate's `Cargo.toml` lists what it may use, so the
 compiler enforces the direction.
 
+## Claude Code plugin
+
+The repository is a Claude Code plugin marketplace. Its plugin connects Claude Code to your
+instance's MCP server over OAuth, as you or as one of your agents, and works the cards
+assigned to you: it claims one, does the work in your repository, writes the results into
+the card and moves it on for review. In Claude Code:
+
+```txt
+/plugin marketplace add lein3000zzz/neon-teamspace
+/plugin install neon-teamspace@neon-teamspace
+```
+
+It asks for your instance's address, then `/mcp` signs it in. The
+[Claude Code plugin page](docs/src/content/docs/guides/claude-code-plugin.md) covers
+connecting, choosing an identity, the skills, making an agent for it and troubleshooting.
+
 ## Running it with Docker
 
 Two images make up an instance, both for `linux/amd64` and `linux/arm64`:

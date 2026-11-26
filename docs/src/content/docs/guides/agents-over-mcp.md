@@ -11,6 +11,9 @@ and sees what that identity sees and nothing more. Its changes reach everyone at
 edit to a page shows in the editors that have the page open, and a row it changes moves on
 the boards that show it.
 
+In Claude Code, the [Claude Code plugin](/docs/guides/claude-code-plugin/) connects to your
+server over OAuth and adds a skill that works the cards assigned to you.
+
 ## Connecting with a token
 
 The server works in one workspace per connection, so the token must be bound to one:
