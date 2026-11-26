@@ -73,8 +73,8 @@ lock and no central sequencing of operations. A page is the unit that is loaded,
 permitted, so it is the unit of the document too. Opening a page loads only that page, and a
 workspace's documents do not grow into one. The server runs yrs, so it checks each update
 against the editor's permissions, keeps the update log and snapshots in Postgres, and
-compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Applying agents'
-edits to the live document is **planned**.
+compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Agents' edits go
+through the live document too, as [edits from the server](/docs/architecture/realtime/#edits-from-the-server).
 
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
@@ -89,8 +89,9 @@ Callouts, toggles, mentions and embedded views, which markdown has no syntax for
 extension of it. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
 schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
 edit is applied to the live document, where it merges with the people typing there. Import
-and export exist, as [Import and export](/docs/guides/import-export/) describes; agents'
-edits are **planned**.
+and export exist, as [Import and export](/docs/guides/import-export/) describes, and agents
+read and edit pages as markdown with block ids, as
+[Agents over MCP](/docs/guides/agents-over-mcp/#block-ids) describes.
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
@@ -106,7 +107,7 @@ attribution that hold for people hold for them. **Planned.**
 
 **MCP inside the server.** The MCP endpoint, `/mcp`, is served by the server itself, with
 `rmcp` over Streamable HTTP, not by a service of its own. An agent then reaches the same use
-cases through the same checks as a person, and there is nothing more to deploy. **Planned.**
+cases through the same checks as a person, and there is nothing more to deploy.
 
 **OAuth 2.1 for clients with a person, tokens for the rest.** MCP clients that a person runs
 expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Teamspace
@@ -117,7 +118,7 @@ more than its owner's role allows. Tokens are random and kept as hashes, rather 
 tokens checked without a lookup, so revoking one stops it at once. **Planned.**
 
 **Everything MCP does, the API does.** Each MCP tool has an HTTP endpoint with the same
-tokens, for scripts and bots that do not speak MCP. **Planned.**
+tokens, for scripts and bots that do not speak MCP, and a test holds the table of them.
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
 assigned or mentioned, without polling. Incoming webhooks are members of kind integration,

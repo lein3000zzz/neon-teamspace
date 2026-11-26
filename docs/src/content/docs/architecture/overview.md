@@ -37,7 +37,8 @@ flowchart LR
 - **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
 - **The mail server** is an SMTP relay of the operator's choice, which the server hands its
   mail to; see [Mail](/docs/self-hosting/mail/).
-- **Attachments** and the agents' endpoint are **planned**.
+- **Agents** reach the server's MCP endpoint, `/mcp`, on the same origin; see
+  [Agents over MCP](/docs/guides/agents-over-mcp/). Attachments are **planned**.
 
 ## The crates
 
@@ -50,7 +51,7 @@ The server is a cargo workspace of six crates:
 | `neon-store` | The Postgres repositories, with sqlx. |
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
-| `neon-server` | The `neon` binary: the HTTP API and the WebSocket of real-time sync, and later MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
+| `neon-server` | The `neon` binary: the HTTP API, the WebSocket of real-time sync and the MCP server, and later webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
 
 Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
 further in, never one further out:
@@ -136,7 +137,7 @@ configure. Under it:
 |---|---|
 | `/api/v1` | The JSON API. Its description is at `/api/v1/openapi.json`. |
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
-| `/mcp` | Agents, **planned**. |
+| `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
 | `/hooks/*` | Incoming webhooks, **planned**. |
 | `/.well-known/oauth-*` | OAuth metadata for agents, **planned**. |
 | `/docs` | These docs. |
