@@ -178,6 +178,9 @@ impl From<AuthError> for ApiError {
             | AuthError::InvalidLink => StatusCode::BAD_REQUEST,
             AuthError::InvalidCredentials | AuthError::Unauthenticated => StatusCode::UNAUTHORIZED,
             AuthError::UserDisabled
+            | AuthError::AgentSuspended
+            | AuthError::AgentsOff
+            | AuthError::AgentDeleted
             | AuthError::EmailNotVerified
             | AuthError::RegistrationClosed
             | AuthError::Forbidden(_)

@@ -170,7 +170,7 @@ pub(crate) async fn bearer(state: &AppState, header: &HeaderValue) -> Result<Pri
 
 /// The token of an `Authorization` value of the Bearer scheme, whose name is matched
 /// whatever its case (RFC 9110, section 11.1).
-fn bearer_token(value: &str) -> Option<&str> {
+pub(crate) fn bearer_token(value: &str) -> Option<&str> {
     let (scheme, token) = value.trim_start().split_once(' ')?;
     scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
 }

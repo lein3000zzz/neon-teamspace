@@ -109,13 +109,16 @@ test("an agent's token makes a page where it was added, named with its owner, un
       await expect(byline.getByText("Agent", { exact: true })).toBeVisible();
       await expect(byline.getByText(`· via ${keeper.name}`, { exact: true })).toBeVisible();
 
-      // Once its owner leaves the workspace, the agent's token is refused.
+      // Once its owner leaves the workspace, the agent's token is refused, saying why.
       const leave = await keeperPage.request.post(`${base}/leave`, {
         headers: { Origin: new URL(keeperPage.url()).origin },
       });
       expect(leave.status(), await leave.text()).toBe(204);
       const refused = await agent.get("/api/v1/workspaces");
-      expect(refused.status()).toBe(401);
+      expect(refused.status()).toBe(403);
+      expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+        "agent_suspended",
+      );
       await ownerPage.goto(`/w/${workspace.slug}/settings/agents`);
       await expect(
         ownerPage

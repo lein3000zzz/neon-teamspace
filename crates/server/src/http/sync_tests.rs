@@ -1037,7 +1037,7 @@ async fn an_agent_s_connections_follow_its_owner_s_access(pool: PgPool) {
         open(addr, &room.page, &[("authorization", worker.header())])
             .await
             .err(),
-        Some(StatusCode::UNAUTHORIZED)
+        Some(StatusCode::FORBIDDEN)
     );
     finish(&state, [room.server], vec![ada, scout_here, scout_ops]).await;
 }

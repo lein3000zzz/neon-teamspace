@@ -11,7 +11,7 @@
 use uuid::Uuid;
 
 use super::{ErrorCode, Grant, Problem};
-use crate::agents::{IdentityMode, Standing};
+use crate::agents::{AgentStatus, IdentityMode, Standing};
 use crate::auth::{Scope, UserKind};
 use crate::workspaces::WorkspaceRole;
 
@@ -169,11 +169,36 @@ impl GrantStanding {
                 && IdentityMode::User.among(identities)
                 && self.person_role.is_some();
         }
-        let agents_on = IdentityMode::Agent.among(identities);
+        self.agent_of(grant)
+            && self
+                .agent
+                .status(self.kind, IdentityMode::Agent.among(identities))
+                .works()
+    }
+
+    /// Why a grant that acts as an agent stopped working when that is the agent's status
+    /// alone: its person can sign in and the agent is still theirs, of the grant's
+    /// workspace, but it is suspended, switched off or deleted. `None` for a grant that
+    /// works, or that stopped for another reason.
+    pub fn stopped_agent<S: AsRef<str>>(
+        &self,
+        grant: &Grant,
+        identities: &[S],
+    ) -> Option<AgentStatus> {
+        if self.person_disabled || !grant.acts_as_agent() || !self.agent_of(grant) {
+            return None;
+        }
+        let status = self
+            .agent
+            .status(self.kind, IdentityMode::Agent.among(identities));
+        (!status.works()).then_some(status)
+    }
+
+    /// Whether the identity is an agent of the grant's person, in the grant's workspace.
+    fn agent_of(&self, grant: &Grant) -> bool {
         self.kind == UserKind::Agent
             && self.owner_id == Some(grant.person_id)
             && self.identity_workspace_id == Some(grant.workspace_id)
-            && self.agent.status(self.kind, agents_on).works()
     }
 }
 
@@ -482,5 +507,55 @@ mod tests {
             !agent().works(&theirs, &["user"]),
             "agents are switched off on the instance"
         );
+    }
+
+    #[test]
+    fn a_grant_names_its_agents_status_when_that_alone_stops_it() {
+        let theirs = grant(true);
+        let with = |agent_standing: Standing| GrantStanding {
+            agent: agent_standing,
+            ..agent()
+        };
+
+        assert_eq!(agent().stopped_agent(&theirs, BOTH), None);
+        assert_eq!(
+            with(Standing {
+                owner_active: false,
+                ..WORKING_AGENT
+            })
+            .stopped_agent(&theirs, BOTH),
+            Some(AgentStatus::Suspended)
+        );
+        assert_eq!(
+            with(Standing {
+                deleted: true,
+                ..WORKING_AGENT
+            })
+            .stopped_agent(&theirs, BOTH),
+            Some(AgentStatus::Deleted)
+        );
+        assert_eq!(
+            agent().stopped_agent(&theirs, &["user"]),
+            Some(AgentStatus::Disabled)
+        );
+        for (standing, why) in [
+            (
+                GrantStanding {
+                    owner_id: Some(Uuid::from_u128(9)),
+                    ..agent()
+                },
+                "handed to someone else",
+            ),
+            (
+                GrantStanding {
+                    person_disabled: true,
+                    ..agent()
+                },
+                "its person disabled",
+            ),
+        ] {
+            assert_eq!(standing.stopped_agent(&theirs, BOTH), None, "{why}");
+        }
+        assert_eq!(person().stopped_agent(&grant(false), BOTH), None);
     }
 }

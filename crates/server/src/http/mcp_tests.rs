@@ -719,17 +719,26 @@ async fn the_gate_wants_a_token_bound_to_a_workspace_on_every_request(pool: PgPo
     let ws = t.workspace.clone();
     let challenge = "Bearer resource_metadata=\"https://neon.example.com/.well-known/oauth-protected-resource\"";
 
-    // No token, a cookie alone, a token that does not work: 401, naming the metadata.
-    for headers in [
-        vec![],
-        vec![("cookie", t.ada.cookie())],
-        vec![("authorization", "Bearer nw_nothing")],
-        vec![("authorization", "Basic abc")],
+    // No token, a cookie alone, a token that does not work: 401, naming the metadata, and
+    // for a bearer token that does not work, saying so.
+    for (headers, invalid) in [
+        (vec![], false),
+        (vec![("cookie", t.ada.cookie())], false),
+        (vec![("authorization", "Basic abc")], false),
+        (vec![("authorization", "Bearer nw_nothing")], true),
     ] {
         let (status, answered, body) = raw(&app, Method::POST, &headers, Some(initialize())).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{headers:?}: {body}");
         assert_eq!(code_of(&body), "unauthenticated");
-        assert_eq!(answered[WWW_AUTHENTICATE], challenge);
+        let expected = if invalid {
+            format!(
+                "{challenge}, error=\"invalid_token\", error_description=\"the API token does \
+                 not work: it is unknown, revoked or expired\""
+            )
+        } else {
+            challenge.to_owned()
+        };
+        assert_eq!(answered[WWW_AUTHENTICATE], expected.as_str(), "{headers:?}");
     }
     // A token across the instance: refused, saying why.
     let across = t.ada.token(&["read", "write"]).await;
@@ -1211,6 +1220,18 @@ async fn a_session_ends_at_once_when_what_it_acts_as_stops_working(pool: PgPool)
         .await;
     assert!(after.is_err(), "{after:?}");
     scout.close().await;
+    // Its token is refused saying why, without a challenge: no new token would help.
+    let bearer = format!("Bearer {token}");
+    let (status, answered, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &bearer)],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(code_of(&body), "agent_suspended");
+    assert!(answered.get(WWW_AUTHENTICATE).is_none(), "{answered:?}");
 
     // A token revoked ends its session too.
     let made = t

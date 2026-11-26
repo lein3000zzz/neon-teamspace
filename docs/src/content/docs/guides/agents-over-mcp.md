@@ -79,6 +79,13 @@ the session.
   longer in the workspace at once. It also ends their sessions as soon as one of those
   happens, without waiting for a request, and closes their streams. A token that expires
   tells nobody, so its session ends at its next request, which is refused.
+- **Refusals say why.** A token unknown, revoked or expired answers `401 unauthenticated`
+  with the challenge above, which then holds `error="invalid_token"` and why, as RFC 6750
+  has it; a client gets a new token. An agent's token that works but for its agent answers
+  `403` without a challenge, as a new token would not help: `agent_suspended`, `agents_off`
+  or `agent_deleted`, as [Agents](/docs/guides/agents/#tokens) describes, with how the agent
+  works again. A token whose identity is no longer in the token's workspace answers
+  `403 token_unusable`.
 - **A session is its identity's.** A request on a session with another identity's token,
   or for another workspace, gets `404`, as for a session that ended. A new token of the same
   identity carries on with the session.

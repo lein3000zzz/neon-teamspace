@@ -190,7 +190,11 @@ A grant is read again with every request, so its tokens stop at once when:
 
 The page and database connections opened with them close as an API token's do when it
 ends. A refresh refused for one of those reasons leaves the refresh token as it was, so a
-client whose agent was suspended for a while carries on once it resumes.
+client whose agent was suspended for a while carries on once it resumes. Meanwhile, an
+access token that has not expired, whose grant stopped for its agent's status alone,
+answers `403` with `agent_suspended`, `agents_off` or `agent_deleted`, as an
+[agent's token](/docs/guides/agents/#tokens) does, rather than `401`, so the client waits
+rather than connecting again.
 
 An access token acts as a token bound to the grant's workspace: another workspace answers
 `404 not_found`, and the account's and the instance admins' routes answer

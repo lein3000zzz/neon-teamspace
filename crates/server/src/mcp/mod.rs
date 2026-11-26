@@ -11,7 +11,10 @@
 //!   and is authenticated as the API routes authenticate it, an API token or an OAuth access
 //!   token alike; a session cookie is not taken. One without a working token gets 401 and a
 //!   `WWW-Authenticate` header naming the protected resource's metadata, which the OAuth
-//!   server publishes, so that a client finds where to get a token. The token must be bound
+//!   server publishes, so that a client finds where to get a token; a token sent that is
+//!   unknown, revoked or expired is `invalid_token` there. An agent's token that works but
+//!   for its agent, suspended, switched off or deleted, gets 403 naming why, without the
+//!   challenge, as no new token would help. The token must be bound
 //!   to one workspace, as an agent's and every OAuth token always is, and the server acts in
 //!   that workspace alone. A refused request on a session has the session looked at again,
 //!   which ends it when its own token no longer works.
@@ -421,11 +424,29 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal
 }
 
 /// A 401 that names where the OAuth server publishes the metadata of `/mcp` (RFC 9728),
-/// below the public origin its metadata names, so a client finds how to get a token.
+/// below the public origin its metadata names, so a client finds how to get a token. When
+/// the request carried a bearer token, the challenge says it is `invalid_token`, with why,
+/// as RFC 6750 (section 3) has it.
 fn challenge(state: &AppState, parts: &Parts, error: ApiError) -> Response {
     let origin = state.web.request_origin(parts);
+    let mut value = format!("Bearer resource_metadata=\"{origin}{RESOURCE_METADATA_PATH}\"");
+    let presented = parts
+        .headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(crate::http::principal::bearer_token)
+        .is_some();
+    if presented {
+        let description: String = error
+            .message()
+            .chars()
+            .filter(|c| matches!(c, ' '..='~') && !matches!(c, '"' | '\\'))
+            .collect();
+        value.push_str(&format!(
+            ", error=\"invalid_token\", error_description=\"{description}\""
+        ));
+    }
     let mut response = error.into_response();
-    let value = format!("Bearer resource_metadata=\"{origin}{RESOURCE_METADATA_PATH}\"");
     if let Ok(value) = HeaderValue::from_str(&value) {
         response.headers_mut().insert(WWW_AUTHENTICATE, value);
     }

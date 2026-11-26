@@ -99,6 +99,19 @@ Its owner and the workspace's owners and admins list its tokens with
 token stops at once, and the connections it opened close. Making tokens needs the agent to
 work: a suspended, turned off or deleted agent gets none.
 
+A token refused says why, so a program that holds one knows whether to wait or to get
+another:
+
+| Status | `code` | Why |
+|---|---|---|
+| `401` | `unauthenticated` | The token is unknown, revoked or expired: only a new one helps. |
+| `403` | `agent_suspended` | The agent is suspended. It works again once its owner is a member again, or once it is handed to someone else. |
+| `403` | `agents_off` | Agents are off, on the instance or in the workspace. It works again once they are on. |
+| `403` | `agent_deleted` | The agent was deleted as the request came in. Deleting revokes its tokens, so later requests answer `401`. |
+
+An [OAuth](/docs/guides/oauth/#when-tokens-stop) access token that acts as an agent answers
+the same.
+
 ## Handing over and deleting
 
 The workspace's owners and admins hand an agent to another person of the workspace, neither
