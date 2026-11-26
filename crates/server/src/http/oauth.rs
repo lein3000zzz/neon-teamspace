@@ -17,8 +17,12 @@
 //! The URLs the metadata and every authorization response name come from
 //! `server.public_url`; without it, from the scheme and host each request was sent to.
 
+use std::borrow::Cow;
+use std::collections::HashSet;
+
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::extract::rejection::BytesRejection;
+use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequestParts, Request, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_TYPE, LOCATION, PRAGMA, RETRY_AFTER,
@@ -51,6 +55,25 @@ use super::web::ClientIp;
 
 /// The largest registration read: a name and ten addresses, with room to spare.
 const MAX_REGISTRATION: usize = 64 * 1024;
+
+/// The largest form the token and revocation endpoints read: a code, its verifier and the
+/// longest redirect URI, each character percent-encoded, with room to spare.
+const MAX_FORM: usize = 16 * 1024;
+
+/// The most parameters a form may hold: more than any request here sends, few enough that
+/// looking through them costs nothing.
+const MAX_FORM_PAIRS: usize = 16;
+
+/// The body limit of the registration endpoint, so that a larger body is never read.
+pub(super) fn registration_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(MAX_REGISTRATION)
+}
+
+/// The body limit of the token and revocation endpoints, so that a larger form is never
+/// read.
+pub(super) fn form_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(MAX_FORM)
+}
 
 /// How long clients may keep the metadata.
 const METADATA_MAX_AGE: &str = "public, max-age=3600";
@@ -292,6 +315,26 @@ fn protocol(code: ErrorCode, description: &str) -> Protocol {
     )))
 }
 
+/// A body that could not be read, in OAuth's shape with `code` and the status the
+/// rejection has: `413`, saying `too_large`, for one larger than the endpoint's limit.
+fn unreadable(rejection: &BytesRejection, code: ErrorCode, too_large: &str) -> Response {
+    let status = rejection.status();
+    let description = if status == StatusCode::PAYLOAD_TOO_LARGE {
+        too_large
+    } else {
+        "the body could not be read"
+    };
+    (
+        status,
+        [(CACHE_CONTROL, "no-store"), (PRAGMA, "no-cache")],
+        axum::Json(OAuthErrorBody {
+            error: code.as_str().to_owned(),
+            error_description: description.to_owned(),
+        }),
+    )
+        .into_response()
+}
+
 /// What a client says of itself to register (RFC 7591). Metadata this server does not use
 /// is ignored.
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
@@ -338,6 +381,7 @@ pub struct RegisteredClient {
         (status = CREATED, description = "The client.", body = RegisteredClient),
         (status = BAD_REQUEST, description = "invalid_redirect_uri or invalid_client_metadata.", body = OAuthErrorBody),
         (status = FORBIDDEN, description = "registration_off.", body = OAuthErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "invalid_client_metadata: a body larger than 64 KiB.", body = OAuthErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = OAuthErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "temporarily_unavailable: too many clients wait unconnected.", body = OAuthErrorBody),
     )
@@ -345,14 +389,24 @@ pub struct RegisteredClient {
 pub(super) async fn register_client(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let invalid = |description| protocol(ErrorCode::InvalidClientMetadata, description);
-    if body.len() > MAX_REGISTRATION {
-        return invalid("the metadata is larger than a client needs").into_response();
-    }
+    let body = match body {
+        Ok(body) => body,
+        Err(rejection) => {
+            return unreadable(
+                &rejection,
+                ErrorCode::InvalidClientMetadata,
+                "the metadata is larger than a client needs",
+            );
+        }
+    };
     let Ok(registration) = serde_json::from_slice::<ClientRegistration>(&body) else {
-        return invalid("the body is not a client's metadata as JSON").into_response();
+        return protocol(
+            ErrorCode::InvalidClientMetadata,
+            "the body is not a client's metadata as JSON",
+        )
+        .into_response();
     };
     let metadata = ClientMetadata {
         client_name: registration.client_name,
@@ -385,7 +439,8 @@ pub(super) async fn register_client(
     }
 }
 
-/// The parameters of a form body, each named at most once, or why not.
+/// The parameters of a form body, each named at most once, or why not. A form of more
+/// than [`MAX_FORM_PAIRS`] is refused as soon as that shows.
 fn form(headers: &HeaderMap, body: &[u8]) -> Result<Vec<(String, String)>, Protocol> {
     let urlencoded = headers
         .get(CONTENT_TYPE)
@@ -402,16 +457,33 @@ fn form(headers: &HeaderMap, body: &[u8]) -> Result<Vec<(String, String)>, Proto
             "the body is a form: application/x-www-form-urlencoded",
         ));
     }
-    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(body).into_owned().collect();
-    for (index, (key, _)) in pairs.iter().enumerate() {
-        if pairs[..index].iter().any(|(seen, _)| seen == key) {
+    let mut pairs = Vec::new();
+    let mut seen: HashSet<Cow<'_, str>> = HashSet::new();
+    for (key, value) in url::form_urlencoded::parse(body) {
+        if pairs.len() == MAX_FORM_PAIRS {
+            return Err(protocol(
+                ErrorCode::InvalidRequest,
+                "the form has more parameters than any request here sends",
+            ));
+        }
+        if !seen.insert(key.clone()) {
             return Err(protocol(
                 ErrorCode::InvalidRequest,
                 "a parameter is sent more than once",
             ));
         }
+        pairs.push((key.into_owned(), value.into_owned()));
     }
     Ok(pairs)
+}
+
+/// A form the token or revocation endpoint could not read.
+fn too_large_form(rejection: &BytesRejection) -> Response {
+    unreadable(
+        rejection,
+        ErrorCode::InvalidRequest,
+        "the form is larger than any request here sends",
+    )
 }
 
 fn take(pairs: &mut Vec<(String, String)>, key: &str) -> Option<String> {
@@ -516,14 +588,19 @@ impl From<IssuedTokens> for TokenResponse {
         (status = OK, description = "The tokens.", body = TokenResponse),
         (status = BAD_REQUEST, description = "invalid_request, invalid_grant, invalid_scope, invalid_target or unsupported_grant_type.", body = OAuthErrorBody),
         (status = UNAUTHORIZED, description = "invalid_client.", body = OAuthErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "invalid_request: a form larger than 16 KiB.", body = OAuthErrorBody),
     )
 )]
 pub(super) async fn issue_tokens(
     State(state): State<AppState>,
     Base(base): Base,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
+    let body = match body {
+        Ok(body) => body,
+        Err(rejection) => return too_large_form(&rejection),
+    };
     let request = match form(&headers, &body) {
         Ok(pairs) => TokenRequest::from(TokenForm::from_pairs(pairs)),
         Err(refusal) => return refusal.into_response(),
@@ -573,13 +650,18 @@ impl RevokeForm {
         (status = OK, description = "Revoked, or nothing to revoke."),
         (status = BAD_REQUEST, description = "invalid_request.", body = OAuthErrorBody),
         (status = UNAUTHORIZED, description = "invalid_client.", body = OAuthErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "invalid_request: a form larger than 16 KiB.", body = OAuthErrorBody),
     )
 )]
 pub(super) async fn revoke_oauth_token(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
+    let body = match body {
+        Ok(body) => body,
+        Err(rejection) => return too_large_form(&rejection),
+    };
     let request = match form(&headers, &body) {
         Ok(pairs) => RevokeForm::from_pairs(pairs),
         Err(refusal) => return refusal.into_response(),
@@ -1139,6 +1221,16 @@ mod tests {
         assert_eq!(take(&mut pairs, "scope").as_deref(), Some("read write"));
         assert_eq!(take(&mut pairs, "code"), None);
         assert!(form(&headers, b"code=a&code=b").is_err());
+        assert!(form(&headers, b"code=a&c%6Fde=b").is_err());
+        let most: Vec<String> = (0..MAX_FORM_PAIRS).map(|n| format!("k{n}=")).collect();
+        assert_eq!(
+            form(&headers, most.join("&").as_bytes())
+                .expect("a form")
+                .len(),
+            MAX_FORM_PAIRS
+        );
+        let more = format!("{}&one=more", most.join("&"));
+        assert!(form(&headers, more.as_bytes()).is_err());
         assert!(form(&HeaderMap::new(), b"code=a").is_err());
         let mut json = HeaderMap::new();
         json.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));

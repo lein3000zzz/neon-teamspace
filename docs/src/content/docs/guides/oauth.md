@@ -48,9 +48,21 @@ owner may.
 The metadata, the registration, the token endpoint and revocation allow CORS from any
 origin, without credentials, so a client running in a browser can use them; nothing else
 does. They answer errors in OAuth's own shape, `{"error": "invalid_grant",
-"error_description": "…"}`, with `401` for `invalid_client`, `429` with `Retry-After` when
-rate limited, and `400` otherwise. The routes the consent page and the connected apps use
-answer in the API's own shape. The [API reference](/docs/reference/api/) has every field.
+"error_description": "…"}`, with:
+
+| Status | When |
+|---|---|
+| `400` | Most refusals, such as `invalid_request`, `invalid_grant`, `invalid_scope` or `invalid_redirect_uri`. |
+| `401` | `invalid_client`: the `client_id` names no client. |
+| `403` | `registration_off`: clients do not register themselves while `oauth.registration` is off. |
+| `413` | A body larger than the endpoint reads: 64 KiB for a registration, 16 KiB for a form. |
+| `429` | `rate_limited`, with `Retry-After`. |
+| `503` | `temporarily_unavailable`: too many clients wait unconnected. |
+| `500` | `server_error`: the server failed. |
+
+A form holds each parameter once, and at most 16 of them. The routes the consent page and
+the connected apps use answer in the API's own shape. The
+[API reference](/docs/reference/api/) has every field.
 
 Every URL the metadata names, and the `iss` of every answer, is below `server.public_url`.
 Set it in production. Without it, the server names itself after the host each request was

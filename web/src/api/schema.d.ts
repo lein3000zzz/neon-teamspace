@@ -8404,6 +8404,15 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthErrorBody"];
                 };
             };
+            /** @description invalid_client_metadata: a body larger than 64 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
             /** @description rate_limited, with Retry-After. */
             429: {
                 headers: {
@@ -8462,6 +8471,15 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthErrorBody"];
                 };
             };
+            /** @description invalid_request: a form larger than 16 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
         };
     };
     issue_tokens: {
@@ -8497,6 +8515,15 @@ export interface operations {
             };
             /** @description invalid_client. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthErrorBody"];
+                };
+            };
+            /** @description invalid_request: a form larger than 16 KiB. */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

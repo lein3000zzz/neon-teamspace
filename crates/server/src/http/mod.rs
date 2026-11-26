@@ -242,9 +242,19 @@ fn api() -> OpenApiRouter<AppState> {
                 .routes(routes!(transfer::import_pages))
                 .layer(transfer::import_body_limit()),
         )
-        .routes(routes!(oauth::register_client))
-        .routes(routes!(oauth::issue_tokens))
-        .routes(routes!(oauth::revoke_oauth_token));
+        // OAuth's endpoints for clients take anyone's requests, so they read no more than
+        // a request of theirs needs.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::register_client))
+                .layer(oauth::registration_body_limit()),
+        )
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::issue_tokens))
+                .routes(routes!(oauth::revoke_oauth_token))
+                .layer(oauth::form_body_limit()),
+        );
     // Where clients find the OAuth server, at the root (RFC 8414, RFC 9728). The protected
     // resources' are below it too, after the well-known path, as RFC 9728 places them.
     let discovery = OpenApiRouter::new()

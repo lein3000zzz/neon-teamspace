@@ -553,6 +553,7 @@ async fn clients_register_with_strict_redirect_uris(pool: PgPool) {
         format!(r#"{{"client_name": "{}"}}"#, "n".repeat(70 * 1024)),
     )
     .await;
+    assert_eq!(too_big.status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(oauth_error(&too_big), "invalid_client_metadata");
 
     // A client registers a few at a time from one address.
@@ -1277,6 +1278,52 @@ async fn refresh_tokens_rotate_and_a_reused_one_revokes_the_whole_grant(pool: Pg
     }
     let after = refresh(&app, &first.client, &third.refresh, None).await;
     assert_eq!(oauth_error(&after), "invalid_grant");
+}
+
+/// A form of `count` parameters with distinct names and empty values.
+fn distinct_keys(count: usize) -> String {
+    (0..count)
+        .map(|n| format!("k{n}="))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn forms_are_read_only_as_large_and_as_long_as_a_request_needs(pool: PgPool) {
+    let state = public(pool, Clock::system()).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let connected = connect(&app, &team.cy, &team.workspace, None, &["read"]).await;
+    let urlencoded = [(CONTENT_TYPE.as_str(), "application/x-www-form-urlencoded")];
+
+    // A refresh with more parameters than any request sends is refused before anything is
+    // looked up, and its refresh token still works.
+    let crowded = format!(
+        "grant_type=refresh_token&client_id={}&refresh_token={}&{}",
+        connected.client,
+        connected.refresh,
+        distinct_keys(14)
+    );
+    let refused = raw(
+        &app,
+        Method::POST,
+        "/api/v1/oauth/token",
+        &urlencoded,
+        crowded,
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.body);
+    assert_eq!(oauth_error(&refused), "invalid_request");
+    let rotated = refresh(&app, &connected.client, &connected.refresh, None).await;
+    assert_eq!(rotated.status, StatusCode::OK, "{}", rotated.body);
+
+    // A form past 16 KiB is refused unread, however its parameters are named.
+    for uri in ["/api/v1/oauth/token", "/api/v1/oauth/revoke"] {
+        let large = raw(&app, Method::POST, uri, &urlencoded, distinct_keys(8000)).await;
+        assert_eq!(large.status, StatusCode::PAYLOAD_TOO_LARGE, "{uri}");
+        assert_eq!(oauth_error(&large), "invalid_request", "{uri}");
+        assert_eq!(large.headers[CACHE_CONTROL], "no-store", "{uri}");
+    }
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

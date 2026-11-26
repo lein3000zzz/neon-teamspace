@@ -246,6 +246,8 @@ MCP clients and other programs connect through an OAuth 2.1 server, which
   instance admins' routes refuse every OAuth token.
 - **Bounded registration.** Registering is rate limited by address, the clients nobody
   connected are bounded in number, and those are removed after a while.
+- **Small requests.** The endpoints anyone may call read no more than a request of theirs
+  needs: 64 KiB of a registration, 16 KiB and 16 parameters of a form.
 
 ## The last admin
 

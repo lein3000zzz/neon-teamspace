@@ -5415,6 +5415,16 @@
               }
             }
           },
+          "413": {
+            "description": "invalid_client_metadata: a body larger than 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "rate_limited, with Retry-After.",
             "content": {
@@ -5479,6 +5489,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "invalid_request: a form larger than 16 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -5524,6 +5544,16 @@
           },
           "401": {
             "description": "invalid_client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "invalid_request: a form larger than 16 KiB.",
             "content": {
               "application/json": {
                 "schema": {
