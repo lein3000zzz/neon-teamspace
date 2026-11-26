@@ -1718,6 +1718,26 @@ export interface paths {
         patch: operations["update_agent"];
         trace?: never;
     };
+    "/api/v1/workspaces/{id}/agents/{agent_id}/teamspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the teamspaces an agent is in
+         * @description Those whose members the caller may list, never a private one they are not in, with whether the caller may take the agent out of each, which `DELETE /workspaces/{id}/teamspaces/{teamspace_id}/members/{user_id}` does. For everyone in the workspace but guests.
+         */
+        get: operations["list_agent_teamspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{id}/agents/{agent_id}/tokens": {
         parameters: {
             query?: never;
@@ -2633,6 +2653,27 @@ export interface components {
          * @enum {string}
          */
         AgentStatus: "active" | "suspended" | "disabled" | "deleted";
+        /** @description A teamspace an agent is in. */
+        AgentTeamspace: {
+            access: components["schemas"]["TeamspaceAccess"];
+            /**
+             * Format: int32
+             * @description The hue it is drawn in, 0 to 359: the one it pinned, or else its id's.
+             * @example 98
+             */
+            hue: number;
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @example Design */
+            name: string;
+            /** @description Whether the caller may take the agent out of it. */
+            removable: boolean;
+        };
+        AgentTeamspaceList: {
+            /** @description The default one first, then by name. */
+            teamspaces: components["schemas"]["AgentTeamspace"][];
+        };
         /** @description An API token, without its secret. */
         ApiToken: {
             /** Format: date-time */
@@ -11805,6 +11846,67 @@ export interface operations {
                 };
             };
             /** @description forbidden: not its owner, or it is deleted; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_teamspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description The agent's id. */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The teamspaces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTeamspaceList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

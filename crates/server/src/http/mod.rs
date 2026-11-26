@@ -169,6 +169,7 @@ fn api() -> OpenApiRouter<AppState> {
             agents::delete_agent
         ))
         .routes(routes!(agents::transfer_agent))
+        .routes(routes!(agents::list_agent_teamspaces))
         .routes(routes!(
             agents::list_agent_tokens,
             agents::create_agent_token

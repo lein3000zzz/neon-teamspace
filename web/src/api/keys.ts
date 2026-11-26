@@ -30,6 +30,13 @@ export const keys = {
   members: (id: string) => ["workspaces", id, "members"],
   agents: (id: string) => ["workspaces", id, "agents"],
   agentTokens: (id: string, agentId: string) => ["workspaces", id, "agents", agentId, "tokens"],
+  agentTeamspaces: (id: string, agentId: string) => [
+    "workspaces",
+    id,
+    "agents",
+    agentId,
+    "teamspaces",
+  ],
   workspaceApps: (id: string) => ["workspaces", id, "connected-apps"],
   webhooks: (id: string) => ["workspaces", id, "webhooks"],
   webhookDeliveries: (id: string, webhookId: string) => [

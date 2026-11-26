@@ -23,6 +23,22 @@ test("the app, the docs and the API carry the security headers", async ({ reques
   expect((await request.get("/styleguide")).headers()["content-security-policy"]).toBe(APP_CSP);
 });
 
+test("the Permissions-Policy names only features the browser knows, and turns each off", async ({
+  page,
+}) => {
+  const answer = await page.goto("/login");
+  const policy = answer?.headers()["permissions-policy"] ?? "";
+  const named = policy.split(",").map((entry) => entry.trim().split("=")[0] ?? "");
+  // Chromium lists the features it recognises; one it does not is an error on every load.
+  const known = await page.evaluate(() =>
+    (document as unknown as { featurePolicy: { features(): string[] } }).featurePolicy.features(),
+  );
+
+  expect(named.filter((feature) => !known.includes(feature))).toEqual([]);
+  expect(named).toEqual(["camera", "microphone", "geolocation", "payment", "usb"]);
+  expect(policy.split(",").every((entry) => entry.trim().endsWith("=()"))).toBe(true);
+});
+
 test("index.html is checked on every load and hashed assets are cached for good", async ({
   request,
 }) => {

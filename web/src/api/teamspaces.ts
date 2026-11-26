@@ -70,6 +70,12 @@ function refreshTeamspace(queryClient: QueryClient, workspaceId: string, id: str
   void queryClient.invalidateQueries({ queryKey: keys.teamspace(workspaceId, id) });
 }
 
+/** As a member is added or taken out: the teamspace, and the teamspaces an agent lists as its own. */
+function refreshMember(queryClient: QueryClient, workspaceId: string, id: string, userId: string) {
+  refreshTeamspace(queryClient, workspaceId, id);
+  void queryClient.invalidateQueries({ queryKey: keys.agentTeamspaces(workspaceId, userId) });
+}
+
 /**
  * Joining or leaving a teamspace also changes what the user may do with its
  * pages, and which shared pages they reach through it rather than through
@@ -155,7 +161,7 @@ export function useAddTeamspaceMember(workspaceId: string, id: string) {
           body,
         }),
       ),
-    onSuccess: () => refreshTeamspace(queryClient, workspaceId, id),
+    onSuccess: (_, body) => refreshMember(queryClient, workspaceId, id, body.user_id),
   });
 }
 
@@ -182,6 +188,6 @@ export function useRemoveTeamspaceMember(workspaceId: string, id: string) {
           params: { path: { id: workspaceId, teamspace_id: id, user_id: userId } },
         }),
       ),
-    onSuccess: () => refreshTeamspace(queryClient, workspaceId, id),
+    onSuccess: (_, userId) => refreshMember(queryClient, workspaceId, id, userId),
   });
 }
