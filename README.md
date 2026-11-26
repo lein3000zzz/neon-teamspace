@@ -63,10 +63,7 @@ observability stack on its own, beside `make run`; see
 `make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
 the Playwright tests in `e2e/` against it, and removes it, leaving the report in
 `e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
-and headless Chromium itself. The stack is the Compose project `neon-e2e` and its images are
-tagged `local`; `E2E_PROJECT` and `E2E_TAG` name others, so two runs on one machine keep
-apart: `make e2e E2E_PROJECT=neon-e2e-2 E2E_TAG=e2e-2`. The images stay after the run, under
-their tag, for the build cache.
+and headless Chromium itself.
 
 ## Development
 

@@ -1,7 +1,5 @@
 # Both images built from this checkout rather than pulled, under local names, so a build never
 # carries a release's name: `make up`, `make e2e` and a stack run from a clone add this file.
-# Their tag is `local` unless NEON_BUILD_TAG names another, as make e2e does for a run beside
-# another.
 #
 #   docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
 #
@@ -9,14 +7,14 @@
 # stack always runs what the checkout holds.
 services:
   server:
-    image: neon-teamspace-server:${NEON_BUILD_TAG:-local}
+    image: neon-teamspace-server:local
     build:
       context: ..
       dockerfile: deployments/Dockerfile
     pull_policy: build
 
   web:
-    image: neon-teamspace-web:${NEON_BUILD_TAG:-local}
+    image: neon-teamspace-web:local
     build:
       context: ..
       dockerfile: web/Dockerfile
