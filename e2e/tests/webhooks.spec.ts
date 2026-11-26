@@ -20,6 +20,8 @@ type Teamspaces = { teamspaces: { id: string; access: string }[] };
 type Database = { page: { id: string }; properties: { id: string; name: string }[] };
 type Agent = { id: string; name: string };
 type Delivery = { path: string; headers: Record<string, string>; body: string };
+type Webhooks = { webhooks: { id: string; url: string }[] };
+type DeliveryLog = { attempts: { outcome: string; event_type: string }[] };
 
 /** Whether a delivery is signed with `secret`, within five minutes, as the docs check it. */
 function signedWith(delivery: Delivery, secret: string): boolean {
@@ -165,16 +167,29 @@ test("a row an incoming webhook makes, once assigned to an agent, reaches its we
   });
   expect(payload.property.name).toBe("Assignee");
 
-  // Its log shows the delivery, and the incoming webhook's the request.
+  // Its log shows the delivery, and the incoming webhook's the request. The server saves
+  // the attempt once the receiver has answered: wait for it in the log itself first.
+  const url = `${RECEIVER_ON_STACK}/scout-${run}`;
+  const registered = (
+    (await (await page.request.get(`${base}/webhooks`)).json()) as Webhooks
+  ).webhooks.find((webhook) => webhook.url === url);
+  expect(registered, "the webhook").toBeDefined();
+  await expect
+    .poll(
+      async () => {
+        const log = (await (
+          await page.request.get(`${base}/webhooks/${registered?.id}/deliveries`)
+        ).json()) as DeliveryLog;
+        return log.attempts.some(
+          (attempt) => attempt.outcome === "delivered" && attempt.event_type === "row.assigned",
+        );
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
   await page.reload();
-  const card = page.getByRole("listitem", {
-    name: `Webhook for Scout ${run} to ${RECEIVER_ON_STACK}/scout-${run}`,
-  });
-  await card
-    .getByRole("button", {
-      name: `Delivery log of the webhook to ${RECEIVER_ON_STACK}/scout-${run}`,
-    })
-    .click();
+  const card = page.getByRole("listitem", { name: `Webhook for Scout ${run} to ${url}` });
+  await card.getByRole("button", { name: `Delivery log of the webhook to ${url}` }).click();
   await expect(card.getByText("Delivered", { exact: true })).toBeVisible();
   const hook = page.getByRole("listitem", { name: "Forms", exact: true });
   await hook.getByRole("button", { name: "Requests of Forms" }).click();
