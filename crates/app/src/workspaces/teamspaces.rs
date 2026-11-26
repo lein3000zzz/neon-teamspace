@@ -109,6 +109,64 @@ fn check_teamspace(
         .map_err(|denied| WorkspaceError::denied(denied, NO_TEAMSPACE))
 }
 
+/// A teamspace of the workspace with the caller's role in it, and their owner's when the
+/// caller is an agent: what the rules need to tell what the caller may do there.
+pub(super) struct Placed {
+    pub(super) teamspace: Teamspace,
+    pub(super) role: Option<TeamspaceRole>,
+    owner_role: Option<TeamspaceRole>,
+    pub(super) members: i64,
+}
+
+impl Placed {
+    /// Whether the rules let the caller, a member as `membership` says, do `action` there.
+    pub(super) fn allows(&self, membership: &Membership, action: Action) -> bool {
+        check_teamspace(
+            membership,
+            &self.teamspace,
+            self.role,
+            self.owner_role,
+            action,
+        )
+        .is_ok()
+    }
+}
+
+/// Every teamspace of the workspace, the default one first then by name, with the
+/// principal's roles in each. Which of them they may see is the rules' business, through
+/// [`Placed::allows`].
+pub(super) async fn placed_teamspaces(
+    conn: &mut PgConnection,
+    principal: &Principal,
+    membership: &Membership,
+    workspace_id: Uuid,
+) -> Result<Vec<Placed>, WorkspaceError> {
+    let owner = membership.standing.owner_id();
+    let owner_roles: HashMap<Uuid, TeamspaceRole> = match owner {
+        Some(owner) => repo::list_with_membership(&mut *conn, workspace_id, owner)
+            .await?
+            .into_iter()
+            .filter_map(|(teamspace, role, _)| Some((teamspace.id, role?)))
+            .collect(),
+        None => HashMap::new(),
+    };
+    Ok(
+        repo::list_with_membership(&mut *conn, workspace_id, principal.user.id)
+            .await?
+            .into_iter()
+            .map(|(teamspace, role, members)| Placed {
+                owner_role: match owner {
+                    Some(_) => owner_roles.get(&teamspace.id).copied(),
+                    None => role,
+                },
+                teamspace,
+                role,
+                members,
+            })
+            .collect(),
+    )
+}
+
 impl WorkspaceService {
     /// The teamspaces the principal may see, with their role in each. A guest sees none.
     pub async fn list_teamspaces(
@@ -120,33 +178,17 @@ impl WorkspaceService {
             let mut conn = self.pool().acquire().await?;
             let membership = membership(&mut conn, principal, workspace_id).await?;
             membership.check(Action::ViewWorkspace)?;
-            let owner_roles: HashMap<Uuid, TeamspaceRole> = match membership.standing.owner_id() {
-                Some(owner) => repo::list_with_membership(&mut *conn, workspace_id, owner)
-                    .await?
-                    .into_iter()
-                    .filter_map(|(teamspace, role, _)| Some((teamspace.id, role?)))
-                    .collect(),
-                None => HashMap::new(),
-            };
             let mut list = TeamspaceList::default();
-            for (teamspace, role, members) in
-                repo::list_with_membership(&mut *conn, workspace_id, principal.user.id).await?
+            for placed in placed_teamspaces(&mut conn, principal, &membership, workspace_id).await?
             {
-                let owner_role = match membership.standing.owner_id() {
-                    Some(_) => owner_roles.get(&teamspace.id).copied(),
-                    None => role,
-                };
-                let allowed = |action| {
-                    check_teamspace(&membership, &teamspace, role, owner_role, action).is_ok()
-                };
-                if allowed(Action::ViewTeamspace) {
+                if placed.allows(&membership, Action::ViewTeamspace) {
                     list.teamspaces.push(TeamspaceEntry {
-                        teamspace,
-                        role,
-                        members,
+                        teamspace: placed.teamspace,
+                        role: placed.role,
+                        members: placed.members,
                     });
-                } else if allowed(Action::SeeTeamspace) {
-                    list.hidden.push(teamspace);
+                } else if placed.allows(&membership, Action::SeeTeamspace) {
+                    list.hidden.push(placed.teamspace);
                 }
             }
             Ok(list)
