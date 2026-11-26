@@ -225,6 +225,31 @@ impl Client {
         Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
     }
 
+    /// Text typed at the end of the last block, as the update that types it.
+    fn type_last(&mut self, text: &str) -> Message {
+        use yrs::{Text as _, XmlFragment as _, XmlOut, XmlTextPrelim};
+        let mut txn = self.doc.transact_mut();
+        let Some(XmlOut::Element(group)) = self.fragment.first_child() else {
+            panic!("a document");
+        };
+        let Some(XmlOut::Element(last)) = group.get(&txn, group.len(&txn) - 1) else {
+            panic!("a block");
+        };
+        let Some(XmlOut::Element(content)) = last.first_child() else {
+            panic!("its content");
+        };
+        match content.first_child() {
+            Some(XmlOut::Text(run)) => {
+                let end = run.len(&txn);
+                run.insert(&mut txn, end, text);
+            }
+            _ => {
+                content.push_back(&mut txn, XmlTextPrelim::new(text));
+            }
+        }
+        Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
+    }
+
     async fn write(&mut self, text: &str) -> Result<(), CloseReason> {
         let update = self.paragraph(text);
         self.send(&update).await
@@ -1281,5 +1306,44 @@ async fn edits_past_their_rate_are_refused_per_user(pool: PgPool) {
         .expect("another user's edit");
     // Reading is not counted.
     assert_eq!(text_of(&sync, &t.dee, t.page).await, "Ada's");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_body_sent_back_as_read_keeps_what_is_typed_in_its_last_paragraph(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync(quick());
+    let mut ada = Client::open(&sync, &t.ada, t.page, "ada").await;
+    // A page as the editor leaves it: an empty paragraph last.
+    ada.write("Intro").await.expect("sent");
+    ada.write("").await.expect("sent");
+    eventually("the server to hold both blocks", || async {
+        sync.read(&t.dee, t.page)
+            .await
+            .expect("read")
+            .1
+            .blocks
+            .len()
+            == 2
+    })
+    .await;
+    let (_, read) = sync.read(&t.dee, t.page).await.expect("read");
+    let sent = from_markdown(&neon_blocks::markdown::to_markdown_with_ids(&read)).blocks;
+
+    // Ada types in the last paragraph while the body goes back as it was read.
+    let typed = ada.type_last("Typed meanwhile");
+    let edited = sync
+        .edit(&t.dee, t.page, vec![Edit::ReplaceBody { blocks: sent }])
+        .await
+        .expect("edited");
+    assert_eq!(edited.applied[0].added, Vec::<String>::new());
+    assert_eq!(edited.applied[0].removed, 0);
+    ada.send(&typed).await.expect("sent");
+    eventually("the server to hold the typing", || async {
+        text_of(&sync, &t.dee, t.page).await == "Intro\nTyped meanwhile"
+    })
+    .await;
+    assert_eq!(ada.text(), "Intro\nTyped meanwhile");
+    drop(ada);
     sync.shutdown().await;
 }

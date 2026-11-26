@@ -114,7 +114,7 @@ fn markdown_keeps_what_it_can_and_is_stable_after_one_pass() {
 }
 
 #[test]
-fn markdown_with_ids_names_every_block_and_reads_as_markdown_without_them() {
+fn markdown_with_ids_names_every_block_and_reads_as_without_them_but_its_empty_paragraphs() {
     for (name, document) in every_fixture() {
         let named = to_markdown_with_ids(&document);
         for block in document.walk() {
@@ -124,12 +124,45 @@ fn markdown_with_ids_names_every_block_and_reads_as_markdown_without_them() {
                 "{name}: {id} unnamed"
             );
         }
+        // Every empty paragraph stays, where the others are gone.
+        let read = from_markdown(&named);
         assert_eq!(
-            from_markdown(&named),
+            empty_paragraphs(&read),
+            empty_paragraphs(&document),
+            "{name}"
+        );
+        assert_eq!(
+            without_empty_paragraphs(read),
             from_markdown(&to_markdown(&document)),
             "{name}"
         );
     }
+}
+
+fn is_empty_paragraph(block: &Block) -> bool {
+    matches!(&block.kind, BlockKind::Paragraph { content, .. } if content.is_empty())
+        && block.children.is_empty()
+}
+
+fn empty_paragraphs(document: &Document) -> usize {
+    document
+        .walk()
+        .filter(|block| is_empty_paragraph(block))
+        .count()
+}
+
+fn without_empty_paragraphs(document: Document) -> Document {
+    fn keep(blocks: Vec<Block>) -> Vec<Block> {
+        blocks
+            .into_iter()
+            .filter(|block| !is_empty_paragraph(block))
+            .map(|block| Block {
+                children: keep(block.children),
+                ..block
+            })
+            .collect()
+    }
+    Document::new(keep(document.blocks))
 }
 
 #[test]

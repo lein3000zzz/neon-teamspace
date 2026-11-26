@@ -125,7 +125,7 @@ fn flatten<'a>(blocks: &'a [Block], ids: bool, flat: &mut Vec<&'a Block>) {
 }
 
 /// Whether a block's children are written in it, rather than after it.
-fn holds_children(block: &Block) -> bool {
+pub(crate) fn holds_children(block: &Block) -> bool {
     match &block.kind {
         BlockKind::BulletListItem { .. }
         | BlockKind::NumberedListItem { .. }

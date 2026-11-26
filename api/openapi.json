@@ -13286,7 +13286,7 @@
           },
           {
             "type": "object",
-            "description": "Replaces every block with those of `markdown`, but those that come out the same,\nwhich stay as they are with their ids.",
+            "description": "Replaces every block with those of `markdown`, but those that come out the same,\nwhich stay as they are with their ids. The markdown reading gives, sent back with\nits lines naming blocks, changes nothing.",
             "required": [
               "markdown",
               "op"

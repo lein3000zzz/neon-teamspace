@@ -22,12 +22,21 @@
 //!   text occurs in it.
 //! - **Replace the body** replaces every block, but those that write the same markdown as
 //!   one of the blocks given, in the same order: they stay as they are, with their ids, their
-//!   colours and whatever is typed in them meanwhile.
+//!   colours and whatever is typed in them meanwhile. Blocks are compared as markdown shows
+//!   them: a block whose children markdown writes after it, such as a paragraph's, is
+//!   compared without them, and each of them on its own, so markdown read with its ids and
+//!   sent back unchanged changes nothing, its empty paragraphs included. Such a child stays
+//!   only while the block it is under does: when that block changes, its children are
+//!   written anew after it.
 //!
 //! A page keeps at least one block: an edit that removes every block leaves an empty
 //! paragraph, as the editor does. Each edit checks what it needs before it changes
 //! anything, so one that fails changes nothing.
 
+use std::cmp::Reverse;
+use std::collections::HashMap;
+
+use yrs::branch::{Branch, BranchID};
 use yrs::types::text::YChange;
 use yrs::types::{Attrs, Delta};
 use yrs::{
@@ -36,7 +45,7 @@ use yrs::{
 };
 
 use crate::ids::IdSource;
-use crate::markdown::to_markdown;
+use crate::markdown::{holds_children, to_markdown};
 use crate::model::{Block, Document};
 use crate::ydoc::{
     BLOCK_CONTAINER, BLOCK_GROUP, NotADocument, TABLE, TABLE_CELL, TABLE_HEADER, TABLE_PARAGRAPH,
@@ -120,7 +129,8 @@ pub enum EditError {
     NoBlocks,
     #[error(
         "blocks {from} and {to} are not siblings: a range runs between blocks under the same \
-         block, or both at the top"
+         block, or both at the top; markdown writes the blocks under a paragraph, a heading \
+         and other blocks but list items, toggles and quotes after it, though they are under it"
     )]
     NotSiblings { from: String, to: String },
     #[error("block {to} comes before block {from}: a range runs from its first block to its last")]
@@ -550,6 +560,76 @@ fn written(block: Block) -> String {
     to_markdown(&Document::new(vec![block]))
 }
 
+/// A block of the page as replacing the body compares it: as markdown shows it, on its own.
+/// A block whose children markdown writes after it, rather than in it, is one without them,
+/// and each of them another after it.
+struct Row {
+    container: XmlElementRef,
+    /// The group holding it.
+    group: XmlElementRef,
+    /// The row of the block it is under, when markdown writes it after that block.
+    parent: Option<usize>,
+    /// Its markdown; `None` when it does not read, and so never stays.
+    written: Option<String>,
+}
+
+/// The rows of the blocks of `group`, in the order markdown writes them, as read in `blocks`
+/// when they read.
+fn rows<T: ReadTxn>(
+    txn: &T,
+    group: &XmlElementRef,
+    blocks: Option<Vec<Block>>,
+    parent: Option<usize>,
+    found: &mut Vec<Row>,
+) {
+    let mut blocks = blocks.map(Vec::into_iter);
+    for (_, container) in containers(txn, group) {
+        let block = match blocks.as_mut() {
+            Some(blocks) => blocks.next(),
+            None => read_container(txn, &container, None).ok(),
+        };
+        let index = found.len();
+        let (written, children) = match block {
+            Some(block) if holds_children(&block) => (Some(written(block)), None),
+            Some(mut block) => {
+                let children = std::mem::take(&mut block.children);
+                (Some(written(block)), Some(children))
+            }
+            None => (None, None),
+        };
+        found.push(Row {
+            container: container.clone(),
+            group: group.clone(),
+            parent,
+            written,
+        });
+        if let Some(children) = children
+            && let Some(nested) = children_of(txn, &container)
+        {
+            rows(txn, &nested, Some(children), Some(index), found);
+        }
+    }
+}
+
+/// Where blocks go into a group.
+#[derive(Clone)]
+enum Spot {
+    Before(XmlElementRef),
+    After(XmlElementRef),
+    Start,
+}
+
+/// A change to one group, made with the others of that group from its last child back.
+enum Change {
+    Remove(XmlElementRef),
+    /// The blocks of a run of new ones, by its number.
+    Insert(Spot, usize),
+}
+
+fn branch(element: &XmlElementRef) -> BranchID {
+    AsRef::<Branch>::as_ref(element).id()
+}
+
 fn replace_body(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
@@ -566,40 +646,129 @@ fn replace_body(
             ..Applied::default()
         });
     };
-    let old: Vec<Option<String>> = group
-        .children(txn)
-        .map(|child| match child {
-            XmlOut::Element(container) if container.tag().as_ref() == BLOCK_CONTAINER => {
-                read_container(txn, &container, None).ok().map(written)
-            }
-            _ => None,
-        })
-        .collect();
+    let mut old = Vec::new();
+    rows(txn, &group, None, None, &mut old);
+    let old_written: Vec<Option<String>> = old.iter().map(|row| row.written.clone()).collect();
     let new: Vec<String> = blocks.iter().cloned().map(written).collect();
-    let kept = common(&old, &new);
-    // Between the blocks that stay, before the first and after the last, the old blocks go
-    // and the new ones come, in document order: the new ones first, so the group is never
-    // empty between the two.
-    let starts = std::iter::once((0, 0)).chain(kept.iter().map(|&(i, j)| (i + 1, j + 1)));
-    let ends = kept.iter().copied().chain([(old.len(), new.len())]);
-    let mut applied = Applied::default();
-    for ((old_start, new_start), (old_end, new_end)) in starts.zip(ends) {
-        // Where the old block at `old_start` is now.
-        let at = index(old_start + applied.added.len() - applied.removed);
-        let added = write_blocks_at(txn, &group, at, &blocks[new_start..new_end], ids);
-        let gone = old_end - old_start;
-        if gone > 0 {
-            group.remove_range(txn, at + index(added.len()), index(gone));
-        }
-        applied.removed += gone;
-        applied.added.extend(added);
+    let mut kept: Vec<Option<usize>> = vec![None; old.len()];
+    for (i, j) in common(&old_written, &new) {
+        kept[i] = Some(j);
     }
-    tidy(txn, &group, ids);
-    Ok(applied)
-}
+    // Removing a block removes the blocks under it, so a row stays only with its parent.
+    for i in 0..old.len() {
+        if old[i].parent.is_some_and(|parent| kept[parent].is_none()) {
+            kept[i] = None;
+        }
+    }
+    let pairs: Vec<(usize, usize)> = kept
+        .iter()
+        .enumerate()
+        .filter_map(|(i, j)| j.map(|j| (i, j)))
+        .collect();
 
-fn index(at: usize) -> u32 {
-    u32::try_from(at).unwrap_or(u32::MAX)
+    // The blocks that go between the rows that stay, each run before the row after it, or,
+    // after the last, after the top block that row is under.
+    let mut runs: Vec<Vec<Block>> = Vec::new();
+    let mut changes: Vec<(XmlElementRef, Change)> = Vec::new();
+    let ends = pairs.iter().map(Some).chain([None]);
+    let mut from = 0;
+    let mut last: Option<usize> = None;
+    for end in ends {
+        let to = end.map_or(blocks.len(), |&(_, j)| j);
+        if to > from {
+            let spot = match (end, last) {
+                (Some(&(i, _)), _) => {
+                    (old[i].group.clone(), Spot::Before(old[i].container.clone()))
+                }
+                (None, Some(i)) => {
+                    let mut top = i;
+                    while let Some(parent) = old[top].parent {
+                        top = parent;
+                    }
+                    (group.clone(), Spot::After(old[top].container.clone()))
+                }
+                (None, None) => (group.clone(), Spot::Start),
+            };
+            changes.push((spot.0, Change::Insert(spot.1, runs.len())));
+            runs.push(blocks[from..to].to_vec());
+        }
+        if let Some(&(i, j)) = end {
+            from = j + 1;
+            last = Some(i);
+        }
+    }
+    // The rows that go, but those that go with the row they are under.
+    let mut removed = 0;
+    for (i, row) in old.iter().enumerate() {
+        let under_one_gone = row.parent.is_some_and(|parent| kept[parent].is_none());
+        if kept[i].is_none() && !under_one_gone {
+            changes.push((row.group.clone(), Change::Remove(row.container.clone())));
+            removed += 1;
+        }
+    }
+
+    // Ids in document order, parents before their children, as writing them in order would
+    // give them.
+    let mut named = Document::new(runs.concat());
+    named.fill_ids(ids);
+    let mut named = named.blocks.into_iter();
+    let runs: Vec<Vec<Block>> = runs
+        .iter()
+        .map(|run| named.by_ref().take(run.len()).collect())
+        .collect();
+    let added: Vec<String> = runs
+        .iter()
+        .flatten()
+        .filter_map(|block| block.id.clone())
+        .collect();
+
+    let mut groups: Vec<(XmlElementRef, Vec<Change>)> = Vec::new();
+    let mut at_group: HashMap<BranchID, usize> = HashMap::new();
+    for (group, change) in changes {
+        let slot = *at_group.entry(branch(&group)).or_insert_with(|| {
+            groups.push((group, Vec::new()));
+            groups.len() - 1
+        });
+        groups[slot].1.push(change);
+    }
+    for (group, changes) in groups {
+        let index: HashMap<BranchID, u32> = containers(txn, &group)
+            .into_iter()
+            .map(|(at, container)| (branch(&container), at))
+            .collect();
+        let at = |container: &XmlElementRef| index.get(&branch(container)).copied().unwrap_or(0);
+        let mut placed: Vec<(u32, u8, usize, Change)> = changes
+            .into_iter()
+            .map(|change| match &change {
+                Change::Remove(container) => (at(container), 0, 0, change),
+                Change::Insert(spot, run) => {
+                    let position = match spot {
+                        Spot::Before(container) => at(container),
+                        Spot::After(container) => at(container) + 1,
+                        Spot::Start => 0,
+                    };
+                    (position, 1, *run, change)
+                }
+            })
+            .collect();
+        // From the last back, so the places of those before stay; at one place, what goes
+        // before what comes, and the later run before the earlier, which then goes in front.
+        placed.sort_by_key(|(position, kind, run, _)| (Reverse(*position), *kind, Reverse(*run)));
+        for (position, _, run, change) in placed {
+            match change {
+                Change::Remove(_) => group.remove_range(txn, position, 1),
+                Change::Insert(..) => {
+                    write_blocks_at(txn, &group, position, &runs[run], ids);
+                }
+            }
+        }
+        tidy(txn, &group, ids);
+    }
+    Ok(Applied {
+        added,
+        removed,
+        replaced: 0,
+    })
 }
 
 /// The pairs of indexes of `old` and `new` whose blocks stay: a longest common sequence of

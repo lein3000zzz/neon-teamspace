@@ -231,7 +231,10 @@ line `<!-- block <id> -->` at the block's level, the id percent-encoded as a dat
 Every block with an id gets one, empty paragraphs included. Reading markdown drops those
 lines wherever they stand but in code, before it parses the rest. Markdown written with them
 reads as the same blocks as without them, and a numbered list named item by item stays one
-list. A test writes every fixture with its ids and checks just that.
+list. The exception is a line with no lines of the block after it, followed by a blank line,
+another such line or the end of what holds it: it reads as the empty paragraph it names, so
+empty paragraphs come back too. A test writes every fixture with its ids and checks just
+that.
 
 ### What markdown loses
 
@@ -271,7 +274,10 @@ The crate also edits a page's Yjs document in place, for the server's tools. Its
   10000 times, rewrites each text node in one pass, and refuses replacements that would add
   more text than the room it is given;
 - replacing the whole body. A block that writes the same markdown as one of the new ones, in
-  order, stays, with its id, colours and whatever is typed in it.
+  order, stays, with its id, colours and whatever is typed in it. Blocks compare as markdown
+  shows them: the children of a paragraph and the other blocks markdown cannot nest under
+  compare one by one after it, and stay while it does. So the body read with its ids and
+  sent back unchanged changes nothing.
 
 Each edit changes only what it names, in one transaction, so it merges with what others type
 meanwhile. It checks what it needs before it changes anything. Offsets in text count as the

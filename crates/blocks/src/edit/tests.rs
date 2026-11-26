@@ -4,7 +4,7 @@ use yrs::{Doc, OffsetKind, Options, StateVector, Transact as _, Update};
 
 use super::*;
 use crate::ids::SequentialIds;
-use crate::markdown::{from_markdown, to_markdown};
+use crate::markdown::{from_markdown, to_markdown, to_markdown_with_ids};
 use crate::model::{
     BlockKind, CodeBlockProps, Inline, StyledText, Styles, TableCell, TableContent, TableProps,
     TableRow, TextProps,
@@ -691,11 +691,17 @@ fn typed(server: &Doc, client_id: u64, type_into: &str, text: &str) -> (Doc, Vec
         let Some(XmlOut::Element(content)) = container.children(&txn).next() else {
             panic!("its content");
         };
-        let Some(XmlOut::Text(run)) = content.children(&txn).next() else {
-            panic!("its text");
-        };
-        let end = run.len(&txn);
-        run.insert(&mut txn, end, text);
+        match content.children(&txn).next() {
+            Some(XmlOut::Text(run)) => {
+                let end = run.len(&txn);
+                run.insert(&mut txn, end, text);
+            }
+            // An empty paragraph gets its text node as typing starts.
+            None => {
+                content.push_back(&mut txn, yrs::XmlTextPrelim::new(text));
+            }
+            Some(_) => panic!("its text"),
+        }
     }
     let update = client.transact().encode_state_as_update_v1(&before);
     (client, update)
@@ -760,4 +766,126 @@ fn a_replacement_merges_with_typing_in_the_same_block() {
 
     assert_eq!(md(&server), "ALPHA beta gamma\n");
     assert_eq!(md(&client), md(&server));
+}
+
+/// The page's markdown as reading it with ids gives it, read back as blocks: what an agent
+/// sends back unchanged.
+fn as_read(doc: &Doc) -> Vec<Block> {
+    blocks(&to_markdown_with_ids(&read(doc)))
+}
+
+/// A paragraph with blocks nested under it, as the editor nests them on Tab.
+fn nesting(text: &str, children: Vec<Block>) -> Block {
+    Block::paragraph(text).with_children(children)
+}
+
+#[test]
+fn the_body_as_read_sent_back_changes_nothing() {
+    for blocks in [
+        vec![Block::paragraph("B"), Block::paragraph("")],
+        vec![nesting("Parent", vec![Block::paragraph("Child")])],
+        vec![
+            Block::paragraph(""),
+            nesting(
+                "Parent",
+                vec![
+                    nesting("Child", vec![Block::paragraph("Grandchild")]),
+                    bullet("listed").with_children(vec![bullet("under it")]),
+                    Block::paragraph(""),
+                ],
+            ),
+            bullet("after").with_children(vec![Block::paragraph("")]),
+            Block::paragraph(""),
+        ],
+    ] {
+        let doc = page(blocks);
+        let before = state(&doc);
+        let applied = edit(
+            &doc,
+            &Edit::ReplaceBody {
+                blocks: as_read(&doc),
+            },
+        )
+        .expect("replaced");
+
+        assert_eq!(applied, Applied::default(), "{}", md(&doc));
+        assert_eq!(state(&doc), before, "{}", md(&doc));
+    }
+}
+
+#[test]
+fn a_changed_child_is_replaced_under_its_parent_and_its_siblings_stay() {
+    let doc = page(vec![nesting(
+        "Parent",
+        vec![Block::paragraph("One"), Block::paragraph("Two")],
+    )]);
+    let applied = edit(
+        &doc,
+        &Edit::ReplaceBody {
+            blocks: blocks("Parent\n\nOne, changed\n\nTwo\n\nAfter"),
+        },
+    )
+    .expect("replaced");
+
+    assert_eq!(applied.added, ["new-1", "new-2"]);
+    assert_eq!(applied.removed, 1);
+    let read = read(&doc);
+    // The new child goes where the old one was, under the parent; what comes after the
+    // last block goes after the top block it is under.
+    assert_eq!(read.blocks.len(), 2);
+    let children: Vec<_> = read.blocks[0]
+        .children
+        .iter()
+        .map(|child| child.id.clone().unwrap_or_default())
+        .collect();
+    assert_eq!(children, ["new-1", "block-3"]);
+    assert_eq!(read.blocks[0].id.as_deref(), Some("block-1"));
+    assert_eq!(read.blocks[1].id.as_deref(), Some("new-2"));
+    assert_eq!(md(&doc), "Parent\n\nOne, changed\n\nTwo\n\nAfter\n");
+}
+
+#[test]
+fn a_changed_parent_is_replaced_with_the_blocks_under_it() {
+    let doc = page(vec![
+        nesting("Parent", vec![Block::paragraph("Child")]),
+        Block::paragraph("Other"),
+    ]);
+    let applied = edit(
+        &doc,
+        &Edit::ReplaceBody {
+            blocks: blocks("Parent, changed\n\nChild\n\nOther"),
+        },
+    )
+    .expect("replaced");
+
+    assert_eq!(applied.removed, 1);
+    assert_eq!(applied.added, ["new-1", "new-2"]);
+    assert_eq!(ids(&doc), ["new-1", "new-2", "block-3"]);
+    assert_eq!(md(&doc), "Parent, changed\n\nChild\n\nOther\n");
+}
+
+#[test]
+fn typing_in_blocks_the_body_keeps_stays() {
+    // Into the empty paragraph the editor keeps last, and on in a nested child.
+    for (into, text, shows) in [
+        ("block-2", "Typed", "Intro\n\nTyped\n"),
+        ("block-4", " typed", "Child typed\n"),
+    ] {
+        let server = page(vec![
+            Block::paragraph("Intro"),
+            Block::paragraph(""),
+            nesting("Parent", vec![Block::paragraph("Child")]),
+        ]);
+        let sent = as_read(&server);
+        let (client, typing) = typed(&server, 7, into, text);
+        let before = server.transact().state_vector();
+        edit(&server, &Edit::ReplaceBody { blocks: sent }).expect("replaced");
+        let edited = server.transact().encode_state_as_update_v1(&before);
+        apply_update(&server, &typing);
+        apply_update(&client, &edited);
+
+        let markdown = md(&server);
+        assert!(markdown.contains(shows), "{into}: {markdown}");
+        assert_eq!(markdown, md(&client));
+    }
 }

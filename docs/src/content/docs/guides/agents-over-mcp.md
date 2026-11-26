@@ -190,8 +190,15 @@ digits, `-`, `_`, `.` and `~` in it is percent-encoded. Every block has such a l
 empty paragraph too, which has no other. A block keeps its id for as long as it is there,
 whoever edits around it. The lines are HTML comments, which markdown renderers leave unshown.
 The server leaves them out of markdown it reads, wherever they stand but in code, so
-markdown sent back with them makes the same blocks as without them. The rest is the
+markdown sent back with them makes the same blocks as without them. A line with no line of
+its block after it, followed by a blank line, another such line or the end, names an empty
+paragraph, and reads as one. The rest is the
 [markdown the documents use](/docs/architecture/documents/#markdown).
+
+Markdown nests blocks only under list items, toggles and quotes. The blocks someone nests
+under a paragraph or a heading show after it, each with its own line, at the same level,
+though they are under it. A range of `replace_range` runs between blocks under the same
+block, so it cannot start at such a paragraph and end at a block under it.
 
 ## Editing a page
 
@@ -207,7 +214,7 @@ merges with it and stays where they typed it, unless the operation removes that 
 | `insert_after` | `block_id`, `markdown` | Adds the blocks right after the block, beside it under the same block. |
 | `replace_range` | `from`, `to`, `markdown` | Replaces the blocks from `from` to `to`, siblings in order, both included; `to` is `from` unless set. Empty `markdown` removes them. |
 | `find_replace` | `find`, `replace`, `all` | Replaces the text, in every block's text, table cells and code included. |
-| `replace_body` | `markdown` | Replaces every block, but those that come out the same, which stay with their ids. |
+| `replace_body` | `markdown` | Replaces every block, but those that come out the same, which stay with their ids. The markdown `read_page` gave, sent back unchanged, changes nothing. |
 
 `find_replace` matches the text exactly, character for character, case included, and within
 one line, so neither `find` nor `replace` may hold a line break. The replacement takes the
@@ -216,6 +223,12 @@ the page once, and a text found twice answers `edit_refused` saying how many tim
 `all`, it replaces the text at most 10000 times, and a text found more often answers
 `edit_refused` too. Each operation answers what it did, with the ids of the blocks it
 `added`, how many it `removed` and how many times it `replaced` the text.
+
+`replace_body` compares blocks as `read_page` shows them, so send its markdown back with the
+lines naming blocks. Those lines keep the empty paragraphs, such as the one the editor keeps
+last, and whatever someone types in a block that stays merges with the edit. A block shown
+after a paragraph it is under stays while that paragraph does. When the paragraph changes,
+the blocks under it are written anew after it.
 
 A page always keeps a block, so removing every one leaves an empty paragraph. A page holds at
 most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what

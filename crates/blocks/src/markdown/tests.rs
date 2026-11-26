@@ -709,8 +709,10 @@ fn ids_are_written_before_their_blocks_at_their_level() {
          <!-- block tp -->\nHidden\n\n:::\n\n<!-- block c -->\n```\n<!-- block not-one -->\n\
          ```\n\n<!-- block odd%20id%2F1 -->\nan id: of / course\n"
     );
-    // Read back, the lines naming blocks are gone, but for what code holds.
-    let read = from_markdown(&named);
+    // Read back, the lines naming blocks are gone, but for what code holds, and the empty
+    // paragraph a line names alone stays.
+    let mut read = from_markdown(&named);
+    assert_eq!(read.blocks.remove(1), paragraph(vec![]));
     assert_eq!(read, from_markdown(&to_markdown(&document)));
     assert!(read.blocks.iter().any(|block| matches!(
         &block.kind,
@@ -739,4 +741,77 @@ fn only_lines_that_name_a_block_alone_are_left_out() {
         from_markdown("> <!-- block a -->\n> quoted"),
         from_markdown("> quoted")
     );
+}
+
+#[test]
+fn a_line_naming_a_block_with_no_lines_of_its_own_is_an_empty_paragraph() {
+    let empty = || paragraph(vec![]);
+    // At the end, before a blank line, and before another such line.
+    assert_eq!(
+        from_markdown("<!-- block a -->\nA\n\n<!-- block e -->\n"),
+        doc(vec![paragraph(text("A")), empty()])
+    );
+    assert_eq!(
+        from_markdown("<!-- block e -->\n\n<!-- block a -->\nA\n"),
+        doc(vec![empty(), paragraph(text("A"))])
+    );
+    assert_eq!(
+        from_markdown("<!-- block e -->\n<!-- block f -->\n<!-- block a -->\nA"),
+        doc(vec![empty(), empty(), paragraph(text("A"))])
+    );
+    // At the end of a list item, a toggle and a quote.
+    assert_eq!(
+        from_markdown("- a\n\n  <!-- block e -->\n- b\n"),
+        doc(vec![bullet("a").with_children(vec![empty()]), bullet("b")])
+    );
+    assert_eq!(
+        from_markdown("-\n  <!-- block e -->\n"),
+        doc(vec![bullet("").with_children(vec![empty()])])
+    );
+    assert_eq!(
+        from_markdown(":::toggle T\n\n<!-- block e -->\n\n:::\n"),
+        doc(vec![toggle(text("T")).with_children(vec![empty()])])
+    );
+    assert_eq!(
+        from_markdown("> said\n>\n> - a\n>\n> <!-- block e -->\n"),
+        doc(vec![
+            Block::new(BlockKind::Quote {
+                props: QuoteProps::default(),
+                content: text("said"),
+            })
+            .with_children(vec![bullet("a"), empty()])
+        ])
+    );
+    // A line right before a block's lines names that block.
+    assert_eq!(
+        from_markdown("<!-- block a -->\n- a\n  <!-- block b -->\n  - b\n"),
+        from_markdown("- a\n  - b\n")
+    );
+}
+
+#[test]
+fn empty_paragraphs_written_with_their_ids_read_back_in_place() {
+    let document = doc(vec![
+        paragraph(text("One")).with_id("a"),
+        paragraph(vec![]).with_id("b"),
+        bullet("Two").with_id("c").with_children(vec![
+            paragraph(vec![]).with_id("d"),
+            bullet("x").with_id("e"),
+        ]),
+        paragraph(vec![]).with_id("f"),
+    ]);
+    let read = from_markdown(&to_markdown_with_ids(&document));
+    assert_eq!(read.blocks, unnamed(&document.blocks));
+}
+
+/// The blocks without their ids.
+fn unnamed(blocks: &[Block]) -> Vec<Block> {
+    blocks
+        .iter()
+        .map(|block| Block {
+            id: None,
+            kind: block.kind.clone(),
+            children: unnamed(&block.children),
+        })
+        .collect()
 }

@@ -105,7 +105,8 @@ pub enum EditOperation {
         all: bool,
     },
     /// Replaces every block with those of `markdown`, but those that come out the same,
-    /// which stay as they are with their ids.
+    /// which stay as they are with their ids. The markdown reading gives, sent back with
+    /// its lines naming blocks, changes nothing.
     ReplaceBody { markdown: String },
 }
 

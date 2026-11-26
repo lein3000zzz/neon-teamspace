@@ -21,7 +21,9 @@ use crate::model::{
 
 /// The blocks of a markdown text. Any text is markdown, so this cannot fail; the blocks have
 /// no ids. The lines naming blocks that [`to_markdown_with_ids`](super::to_markdown_with_ids)
-/// writes are left out, so its markdown reads as [`to_markdown`](super::to_markdown)'s does.
+/// writes are left out, so its markdown reads as [`to_markdown`](super::to_markdown)'s does,
+/// but for a line naming a block that has no lines of its own: an empty paragraph, which it
+/// stays.
 pub fn from_markdown(markdown: &str) -> Document {
     let markdown = without_ids(markdown);
     Document::new(convert(parse(&markdown)))
@@ -29,16 +31,20 @@ pub fn from_markdown(markdown: &str) -> Document {
 
 /// The markdown without the lines that name a block: each an HTML block of its own, so none
 /// in code is taken, and gone with its line, so blocks around it read as if it never was.
+/// One that names an empty paragraph stays, to be read as one.
 fn without_ids(markdown: &str) -> Cow<'_, str> {
     if !markdown.contains(ID_OPEN) {
         return Cow::Borrowed(markdown);
     }
+    let events: Vec<(Event<'_>, Range<usize>)> = Parser::new_ext(markdown, options())
+        .into_offset_iter()
+        .collect();
     let mut cuts: Vec<Range<usize>> = Vec::new();
-    for (event, range) in Parser::new_ext(markdown, options()).into_offset_iter() {
+    for (index, (event, range)) in events.iter().enumerate() {
         let Event::Html(html) = event else {
             continue;
         };
-        if !names_block(&html) {
+        if !names_block(html) {
             continue;
         }
         let start = markdown[..range.start].rfind('\n').map_or(0, |at| at + 1);
@@ -56,6 +62,9 @@ fn without_ids(markdown: &str) -> Cow<'_, str> {
                 .find('\n')
                 .map_or(markdown.len(), |at| range.end + at + 1)
         };
+        if names_empty_paragraph(markdown, end, &events[index + 1..]) {
+            continue;
+        }
         cuts.push(start..end);
     }
     if cuts.is_empty() {
@@ -71,6 +80,30 @@ fn without_ids(markdown: &str) -> Cow<'_, str> {
     }
     kept.push_str(&markdown[from..]);
     Cow::Owned(kept)
+}
+
+/// Whether a line naming a block, ending at `end`, names one with no lines of its own: an
+/// empty paragraph. The lines of any other block follow right after it, so it is one when
+/// what follows is a blank line, another line naming a block, the end of what holds it, or
+/// nothing. `after` are the events after the line's.
+fn names_empty_paragraph(markdown: &str, end: usize, after: &[(Event<'_>, Range<usize>)]) -> bool {
+    let mut after = after
+        .iter()
+        .filter(|(event, _)| !matches!(event, Event::End(TagEnd::HtmlBlock)));
+    let Some((next, range)) = after.next() else {
+        return true;
+    };
+    let blank_between = markdown[end..range.start.max(end)]
+        .split_inclusive('\n')
+        .any(|line| line.ends_with('\n') && line.chars().all(|c| c.is_whitespace() || c == '>'));
+    match next {
+        Event::End(_) => true,
+        Event::Start(Tag::HtmlBlock) => {
+            blank_between
+                || matches!(after.next(), Some((Event::Html(html), _)) if names_block(html))
+        }
+        _ => blank_between,
+    }
 }
 
 /// Whether an HTML block's line is one naming a block: `<!-- block <id> -->`, the id one word.
@@ -566,6 +599,8 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
             })),
             Md::Rule => builder.push(Block::new(BlockKind::Divider { props: NoProps {} })),
             Md::Table { alignments, rows } => builder.push(table(&alignments, rows)),
+            // A line naming a block that has no other: an empty paragraph.
+            Md::Html(html) if names_block(&html) => builder.push(Block::paragraph("")),
             Md::Html(html) => {
                 let text = if is_break_tag(&html) {
                     "\n".to_owned()
@@ -868,9 +903,13 @@ fn list_item(list_start: Option<u64>, index: usize, blocks: Vec<Md<'_>>) -> Bloc
         Some(Md::Paragraph(lines)) => lines.first().and_then(|line| line.task),
         _ => None,
     };
+    // An empty paragraph a line names first is the item's child, not its text.
+    let named_first = matches!(blocks.first(), Some(Md::Html(html)) if names_block(html));
     let mut converted = convert(blocks).into_iter().peekable();
     let content = match converted.next_if(|block| {
-        matches!(block.kind, BlockKind::Paragraph { .. }) && block.children.is_empty()
+        !named_first
+            && matches!(block.kind, BlockKind::Paragraph { .. })
+            && block.children.is_empty()
     }) {
         Some(Block {
             kind: BlockKind::Paragraph { content, .. },
