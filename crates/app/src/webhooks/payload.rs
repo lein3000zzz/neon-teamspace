@@ -7,12 +7,13 @@
 //! |---|---|---|
 //! | `create_row` | a database | `values`: an object of values by property name or id, as the API's rows take them |
 //! | `update_row` | a database | `unique_id`, such as `NW-42` or `42`, and `values`, at least one |
-//! | `append` | a page | `markdown`: what to add at the end of the page, at least one block |
+//! | `append` | a page | `markdown`: what to add at the end of the page, at least one block, nested at most [`MAX_DEPTH`] levels deep |
 //!
 //! Any other field, a missing one, another version or an action the target does not take is
 //! refused, saying what is wrong.
 
 use neon_blocks::Block;
+use neon_blocks::markdown::{MAX_DEPTH, try_from_markdown};
 use neon_domain::webhooks::PAYLOAD_VERSION;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
@@ -117,7 +118,9 @@ pub(crate) fn read(body: &[u8], target: TargetKind) -> Result<Order, String> {
             Order::UpdateRow { unique_id, values }
         }
         Payload::Append { markdown, .. } => {
-            let blocks = neon_blocks::markdown::from_markdown(&markdown).blocks;
+            let blocks = try_from_markdown(&markdown)
+                .map_err(|_| format!("`markdown` nests blocks more than {MAX_DEPTH} levels deep"))?
+                .blocks;
             if blocks.is_empty() {
                 return Err("`markdown` holds nothing to add".to_owned());
             }
@@ -239,6 +242,20 @@ mod tests {
                 db
             )
             .contains("takes create_row and update_row")
+        );
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "append", "markdown": "> ".repeat(MAX_DEPTH + 1)}),
+                TargetKind::Page
+            ),
+            "`markdown` nests blocks more than 32 levels deep"
+        );
+        assert!(
+            read_json(
+                json!({"version": 1, "action": "append", "markdown": format!("{}x", "> ".repeat(MAX_DEPTH))}),
+                TargetKind::Page
+            )
+            .is_ok()
         );
         assert!(
             refused(

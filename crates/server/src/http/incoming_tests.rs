@@ -370,6 +370,48 @@ async fn a_page_hook_appends_markdown_through_the_live_document(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn markdown_nested_too_deep_is_refused_and_the_server_keeps_answering(pool: PgPool) {
+    let state = keyed(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let page = create(&t.ada, ws, json!({"teamspace_id": general}), "Changelog").await;
+    let path = path_of(&hook(&t.ada, ws, "Releases", &page, false).await);
+
+    // Five thousand quotes deep, read on the test's thread, whose stack is a runtime
+    // worker's: two MiB.
+    let deep = json!({"version": 1, "action": "append", "markdown": "> ".repeat(5000)});
+    let answer = send(&app, &path, &deep).await;
+    assert_eq!(
+        (answer.status, answer.code()),
+        (StatusCode::BAD_REQUEST, "invalid_payload"),
+        "{}",
+        answer.body
+    );
+    assert!(
+        answer.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("32 levels deep")),
+        "{}",
+        answer.body
+    );
+
+    let page_id = Uuid::try_parse(&page).expect("an id");
+    let content = state.sync.content(page_id).await.expect("its content");
+    assert!(content.blocks.is_empty(), "{content:?}");
+    let still = send(
+        &app,
+        &path,
+        &json!({"version": 1, "action": "append", "markdown": "Still here"}),
+    )
+    .await;
+    assert_eq!(still.status, StatusCode::OK, "{}", still.body);
+    let content = state.sync.content(page_id).await.expect("its content");
+    assert_eq!(content.plain_text(), "Still here");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_signed_hook_takes_only_requests_signed_with_its_secret(pool: PgPool) {
     let state = keyed(pool).await;
     let app = router(state.clone(), false);

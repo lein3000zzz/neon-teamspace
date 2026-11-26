@@ -315,7 +315,7 @@ action its target does not take answers `400 invalid_payload`, saying what is wr
 |---|---|---|
 | `create_row` | a database | `values`: values by property name or id, as the API's rows take them. The title property's value is the row's title. |
 | `update_row` | a database | `unique_id`, such as `NW-42`, its prefix in any case, or `42`; and `values`, at least one. `null` clears a value. |
-| `append` | a page | `markdown`: what to add at the page's end, at least one block, in the markdown [import](/docs/guides/import-export/) reads. |
+| `append` | a page | `markdown`: what to add at the page's end, at least one block, in the markdown [import](/docs/guides/import-export/) reads, its blocks nested at most [32 levels deep](/docs/architecture/documents/#what-markdown-loses). |
 
 Values take the types the [databases](/docs/guides/databases/) guide lists: a select or
 status by its option's name or id, a person property by members' ids.
@@ -383,7 +383,7 @@ curl -X POST "$HOOK_URL" \
 | Status | `code` | Why |
 |---|---|---|
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
-| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target. |
+| `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. |
 | `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
 | `403` | `hook_disabled` | The webhook is turned off. |

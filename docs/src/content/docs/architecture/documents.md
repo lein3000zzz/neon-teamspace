@@ -249,6 +249,12 @@ that goes out and comes back changes at most once. Reading markdown, a soft line
 space, as CommonMark has it. Raw HTML other than the tags above stays
 text, and an image inside a paragraph splits it, since images are blocks.
 
+Blocks read from markdown nest at most 32 levels deep. A quote or list item that would be
+deeper is left out, its content read at its parent's level; a toggle, quote or list item at
+the 32nd level holds no children, which follow it there instead; and a line that starts with
+more than 33 quote or list markers reads the rest as text. An import reads such markdown that
+way, while an [incoming webhook](/docs/guides/webhooks/#the-payload) refuses it.
+
 ## Tested against BlockNote
 
 `tools/blocknote-fixtures` is a small Bun project that runs BlockNote's server-side editor,
