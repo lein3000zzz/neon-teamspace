@@ -2,11 +2,12 @@
 //!
 //! Each part registers how it stops with the telemetry's shutdown registry as it starts,
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
-//! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains, the job worker stops,
-//! the gauges stop if metrics are on, the live documents close their connections and are
-//! saved, the hourly workspace and auth cleanups stop, the auth work begun after earlier
-//! answers finishes, the database pool closes, the admin listener stops, and the telemetry
-//! flushes last, so what the other parts log while stopping is still written.
+//! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains,
+//! the job worker stops, the gauges stop if metrics are on, the live documents close their
+//! connections and are saved, the hourly workspace and auth cleanups stop, the auth work
+//! begun after earlier answers finishes, the database pool closes, the admin listener stops,
+//! and the telemetry flushes last, so what the other parts log while stopping is still
+//! written.
 
 use std::convert::Infallible;
 use std::future::Future;
