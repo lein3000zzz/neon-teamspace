@@ -38,6 +38,20 @@ async function incomingCard(name: string) {
   return within(await incoming.findByRole("listitem", { name }));
 }
 
+describe("the webhooks tab", () => {
+  it("opens on the outgoing webhooks, whose rule the tabs' own stands for", async () => {
+    fakeWorkspaces();
+    fakeWebhooks({ webhooks: [adaHook], incoming: [ciHook] });
+    renderApp("/w/design/settings/webhooks");
+
+    const outgoing = await screen.findByRole("region", { name: "Outgoing webhooks" });
+    // The tabs drop the rule of what comes first after them, which must be this part.
+    expect(outgoing.parentElement?.firstElementChild).toBe(outgoing);
+    expect(outgoing.parentElement?.parentElement?.firstElementChild).toBe(outgoing.parentElement);
+    expect(screen.getByRole("navigation", { name: "Workspace settings" })).toBeInTheDocument();
+  });
+});
+
 describe("outgoing webhooks", () => {
   it("lists each with whose it is, where it goes and what it asks for, and why one is off", async () => {
     fakeWorkspaces({ agents: [scout] });
@@ -241,8 +255,9 @@ describe("outgoing webhooks", () => {
     );
     const dialog = within(await screen.findByRole("alertdialog", { name: "Delete this webhook?" }));
     await user.click(dialog.getByRole("button", { name: "Delete" }));
-    expect(await screen.findByText("Webhook deleted.")).toBeInTheDocument();
-    expect(await screen.findByText("No outgoing webhooks yet.")).toBeInTheDocument();
+    const outgoing = await section("Outgoing webhooks");
+    expect(await outgoing.findByText("Webhook deleted.")).toBeInTheDocument();
+    expect(await outgoing.findByText("No outgoing webhooks yet.")).toBeInTheDocument();
 
     expect(api.changes).toEqual([
       { method: "PATCH", path: `${base}/webhooks/${adaHook.id}`, body: { enabled: false } },
@@ -478,7 +493,8 @@ describe("incoming webhooks", () => {
     await user.click(card.getByRole("button", { name: "Delete Builds" }));
     const dialog = within(await screen.findByRole("alertdialog", { name: "Delete Builds?" }));
     await user.click(dialog.getByRole("button", { name: "Delete" }));
-    expect(await screen.findByText("Builds is deleted.")).toBeInTheDocument();
+    const incoming = await section("Incoming webhooks");
+    expect(await incoming.findByText("Builds is deleted.")).toBeInTheDocument();
     expect(api.changes).toEqual([
       { method: "PATCH", path: `${base}/incoming-webhooks/${ciHook.id}`, body: { name: "Builds" } },
       { method: "PATCH", path: `${base}/incoming-webhooks/${ciHook.id}`, body: { enabled: false } },

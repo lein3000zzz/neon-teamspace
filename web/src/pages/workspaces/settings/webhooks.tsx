@@ -53,18 +53,17 @@ const copy = strings.workspaces.webhooks;
  * test event, secret, log and switch; and, for owners and admins, the
  * incoming ones, each with its URL and signing secret, shown once, and its
  * requests. `?for=` keeps the outgoing ones of one identity, as an agent's
- * card links here.
+ * card links here. Each part says what was done in it above its list, so the
+ * outgoing ones come first under the tabs, whose rule stands for theirs.
  */
 export function WebhooksSettingsPage() {
   const workspace = useWorkspace();
   const search = useSearch({ from: "/_app/w/$slug/settings/webhooks" });
-  const [done, setDone] = useState<string>();
   return (
     <div className="grid gap-10">
-      <output className="block text-sm text-muted-foreground empty:hidden">{done ?? ""}</output>
-      <Outgoing identity={search.for} onDone={setDone} />
+      <Outgoing identity={search.for} />
       {manages(workspace.role) ? (
-        <Incoming onDone={setDone} />
+        <Incoming />
       ) : (
         <PageSection title={copy.incoming}>
           <p className="text-sm text-muted-foreground">{copy.incomingAdmins}</p>
@@ -119,14 +118,16 @@ function useIdentities(): Person[] {
   return all.filter((person) => person.id === me.id || person.owner?.id === me.id);
 }
 
-function Outgoing({
-  identity,
-  onDone,
-}: {
-  identity: string | undefined;
-  onDone: (message: string) => void;
-}) {
+/** What was done in a part of the page, such as a webhook deleted, read out as it changes. */
+function Done({ message }: { message: string | undefined }) {
+  return (
+    <output className="block text-sm text-muted-foreground empty:hidden">{message ?? ""}</output>
+  );
+}
+
+function Outgoing({ identity }: { identity: string | undefined }) {
   const workspace = useWorkspace();
+  const [done, setDone] = useState<string>();
   const webhooks = useQuery(webhooksQuery(workspace.id));
   const agents = useQuery(agentsQuery(workspace.id));
   const named = agents.data?.find((agent) => agent.id === identity)?.name;
@@ -157,11 +158,12 @@ function Outgoing({
           onRetry={() => void webhooks.refetch()}
         />
       )}
+      <Done message={done} />
       {shown?.length === 0 && <p className="text-sm text-muted-foreground">{copy.none}</p>}
       {shown !== undefined && shown.length > 0 && (
         <ul className="grid gap-3">
           {shown.map((webhook) => (
-            <WebhookCard key={webhook.id} webhook={webhook} onDone={onDone} />
+            <WebhookCard key={webhook.id} webhook={webhook} onDone={setDone} />
           ))}
         </ul>
       )}
@@ -652,9 +654,10 @@ function useTargets(): { choices: Choice[]; pending: boolean } {
   return { choices, pending: teamspaces.isPending || trees.some((tree) => tree.isPending) };
 }
 
-function Incoming({ onDone }: { onDone: (message: string) => void }) {
+function Incoming() {
   const workspace = useWorkspace();
   const hooks = useQuery(incomingWebhooksQuery(workspace.id));
+  const [done, setDone] = useState<string>();
   return (
     <PageSection title={copy.incoming} hint={copy.incomingHint}>
       <MakeIncoming />
@@ -666,13 +669,14 @@ function Incoming({ onDone }: { onDone: (message: string) => void }) {
           onRetry={() => void hooks.refetch()}
         />
       )}
+      <Done message={done} />
       {hooks.data?.length === 0 && (
         <p className="text-sm text-muted-foreground">{copy.noneIncoming}</p>
       )}
       {hooks.data !== undefined && hooks.data.length > 0 && (
         <ul className="grid gap-3">
           {hooks.data.map((hook) => (
-            <IncomingCard key={hook.id} hook={hook} onDone={onDone} />
+            <IncomingCard key={hook.id} hook={hook} onDone={setDone} />
           ))}
         </ul>
       )}
