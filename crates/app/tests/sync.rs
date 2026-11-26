@@ -954,3 +954,29 @@ async fn the_server_appends_to_a_page_nobody_has_open_for_those_who_edit_it(pool
     assert_eq!(ada.text(), "while closed");
     sync.shutdown().await;
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_append_to_a_page_deleted_as_it_is_logged_is_not_found(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let sync = t.sync(quick());
+    // The page goes just as the append is logged: the log finds no page to belong to.
+    sqlx::raw_sql(
+        "CREATE FUNCTION delete_page_first() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN DELETE FROM pages WHERE id = NEW.page_id; RETURN NEW; END $$;
+         CREATE TRIGGER delete_page_first BEFORE INSERT ON page_updates
+             FOR EACH ROW EXECUTE FUNCTION delete_page_first();",
+    )
+    .execute(&pool)
+    .await
+    .expect("the trigger");
+
+    let appended = sync
+        .append(&t.ada, t.page, vec![Block::paragraph("too late")])
+        .await;
+
+    assert!(
+        matches!(appended, Err(neon_app::pages::PageError::NotFound(_))),
+        "{appended:?}"
+    );
+    sync.shutdown().await;
+}

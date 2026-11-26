@@ -26,7 +26,8 @@
 //! - **The server's own edits.** [`SyncService::append`] adds blocks to a page, as an
 //!   incoming webhook does, through its live document, loaded for it if nobody has it
 //!   open: the editors see them at once, they merge with what is being typed, and they are
-//!   logged before the call answers.
+//!   logged before the call answers, or, when the database fails then, kept and logged
+//!   later as every edit is.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -467,7 +468,8 @@ impl SyncService {
     /// Adds blocks after the last one of a page's document, as the principal, for those who
     /// may edit it: through its live document, loaded for this if nobody has it open, so
     /// everyone editing sees them at once and they merge with what is being typed. Once this
-    /// answers, the change is logged.
+    /// answers, the change is logged, or kept in memory to log again when the database
+    /// failed; a page deleted meanwhile answers not found.
     pub async fn append(
         &self,
         principal: &Principal,

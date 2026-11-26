@@ -65,8 +65,8 @@ pub(crate) enum Command {
         done: oneshot::Sender<neon_blocks::Lenient>,
     },
     /// Blocks to add after the last one, as `author`, told to every connection and logged
-    /// at once. The answer is dropped, rather than sent, when the document is unloading,
-    /// as for a join.
+    /// at once, or kept to log later when the database fails. The answer is dropped, rather
+    /// than sent, when the document is unloading, as for a join.
     Append {
         author: Uuid,
         blocks: Vec<neon_blocks::Block>,
@@ -413,8 +413,10 @@ impl Document {
 
     /// Adds blocks after the document's last one, as `author`: every connection gets the
     /// update, and it is logged at once rather than after the usual pause, so it is kept
-    /// once the caller hears it was added. Refused when it would take the document past its
-    /// size limit, which is told before anything changes.
+    /// once the caller hears it was added; when the database fails then, it stays in memory
+    /// and is logged again later, as every edit is. Refused when it would take the document
+    /// past its size limit, which is told before anything changes, and when the page turns
+    /// out to be gone as it is logged.
     async fn append(
         &mut self,
         author: Uuid,
@@ -458,6 +460,9 @@ impl Document {
                 .broadcast(Room::Page(self.page_id), message, None);
             self.queue(changed, author);
             self.flush().await;
+            if self.gone {
+                return Err(AppendError::Gone);
+            }
         }
         debug!(%author, blocks = blocks.len(), "blocks appended");
         Ok(())
