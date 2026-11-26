@@ -136,18 +136,29 @@ test: ## Run the Rust tests (needs the dev database: make db-up and make migrate
 .PHONY: test-s3
 # SeaweedFS on a free port of loopback, with a key and secret for the run alone, run as the
 # seaweedfs profile of deployments/docker-compose.yml runs it; the trap removes its container
-# however the run ends.
+# however the run ends, and prints its log first when the run failed.
+# The S3 port answers its health check before the filer and a volume server can take a write,
+# so the run waits until a signed write of a probe object goes through, and gives up after a
+# minute.
 test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (Docker)
 	@set -e; \
-	trap 'docker container rm --force $(S3_TEST_CONTAINER) >/dev/null 2>&1' EXIT; \
+	trap 'status=$$?; if [ $$status -ne 0 ]; then echo "SeaweedFS log:"; docker logs --tail 200 $(S3_TEST_CONTAINER) 2>&1; fi; docker container rm --force $(S3_TEST_CONTAINER) >/dev/null 2>&1; exit $$status' EXIT; \
 	docker run -d --name $(S3_TEST_CONTAINER) -p 127.0.0.1::8333 \
 		-e AWS_ACCESS_KEY_ID=neon-test -e AWS_SECRET_ACCESS_KEY=neon-test-secret \
 		$(SEAWEEDFS_IMAGE) server -s3 -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3.ip.bind=0.0.0.0 \
 		-s3.port.iceberg=0 -s3.port.lance=0 >/dev/null; \
 	address="$$(docker port $(S3_TEST_CONTAINER) 8333/tcp | head -n 1)"; \
+	signed="--aws-sigv4 aws:amz:us-east-1:s3 --user neon-test:neon-test-secret"; \
+	ready=no; \
 	for _ in $$(seq 1 60); do \
-		curl -fsS "http://$$address/healthz" >/dev/null 2>&1 && break; sleep 1; \
+		curl -fsS $$signed -X PUT "http://$$address/neon-test" >/dev/null 2>&1 || true; \
+		if curl -fsS $$signed -X PUT --data probe "http://$$address/neon-test/ready-probe" >/dev/null 2>&1; then \
+			ready=yes; break; \
+		fi; \
+		sleep 1; \
 	done; \
+	if [ "$$ready" != yes ]; then echo "SeaweedFS took no write within a minute"; exit 1; fi; \
+	curl -fsS $$signed -X DELETE "http://$$address/neon-test/ready-probe" >/dev/null; \
 	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
 		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
 		$(CARGO) test -p neon-server --test blobs
