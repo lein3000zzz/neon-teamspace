@@ -36,7 +36,8 @@ docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.b
 ```
 
 The first start builds the images, which takes some minutes. They are named
-`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. The
+`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release, or with
+the tag `NEON_BUILD_TAG` names in its place. The
 instance is then at `http://127.0.0.1:3000/`, and these docs at
 `http://127.0.0.1:3000/docs/`. With `make`, `make up` builds and runs the same stack in the
 foreground, until Ctrl+C stops it, and `make down` stops it from another terminal.

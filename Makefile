@@ -19,11 +19,17 @@ BUILD_COMPOSE := $(STACK_COMPOSE) -f deployments/docker-compose.build.yml
 # Compose reads the whole file, so starting or stopping services that do not use
 # POSTGRES_PASSWORD still needs one.
 NO_DATABASE   := POSTGRES_PASSWORD=unused
+# The Compose project of make e2e's stack, and the tag of the images it builds. Give a run
+# names of its own, as in make e2e E2E_PROJECT=neon-e2e-2 E2E_TAG=e2e-2, to run it beside
+# another on the same machine.
+E2E_PROJECT   ?= neon-e2e
+E2E_TAG       ?= local
 # A throwaway stack for e2e, built from this checkout, beside any other: a project of its own,
 # a free port on loopback, and neither deployments/.env nor deployments/server.env, so the
 # tests see the defaults.
-E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/docker-compose.yml \
-	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
+E2E_COMPOSE   := NEON_BUILD_TAG=$(E2E_TAG) docker compose -p $(E2E_PROJECT) --env-file /dev/null \
+	-f deployments/docker-compose.yml -f deployments/docker-compose.build.yml \
+	-f deployments/docker-compose.e2e.yml
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
 # The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
@@ -192,7 +198,7 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 .PHONY: e2e
 # The trap removes the stack, its volumes too, however the run ends, after printing the
 # containers' logs when it failed, and keeps the run's exit status.
-e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
+e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it (E2E_PROJECT, E2E_TAG)
 	@set -e; \
 	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
 		E2E_ADMIN_EMAIL="$(E2E_ADMIN)" E2E_ADMIN_PASSWORD="$$(openssl rand -hex 16)" \
