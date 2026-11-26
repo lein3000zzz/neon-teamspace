@@ -47,7 +47,7 @@ use rmcp::transport::streamable_http_server::session::local::{
     create_local_session,
 };
 use tokio::sync::mpsc;
-use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep};
+use tokio::time::{Instant, Interval, MissedTickBehavior, interval_at};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -544,14 +544,23 @@ fn describe() {
     );
 }
 
+/// A timer that ticks every `every`, the first time an `every` from now, and after a tick
+/// it missed an `every` from when it ticked.
+fn every(every: Duration) -> Interval {
+    let mut timer = interval_at(Instant::now() + every, every);
+    timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    timer
+}
+
 /// Ends idle sessions, and those whose access an access change ended, until `stop`.
 async fn watch(
     sessions: Weak<Sessions>,
     mut heard: mpsc::UnboundedReceiver<AccessChange>,
     stop: CancellationToken,
 ) {
-    let mut revalidate = interval_at(Instant::now() + REVALIDATE, REVALIDATE);
-    revalidate.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut revalidate = every(REVALIDATE);
+    // Its own timer, which access changes coming between its ticks do not put off.
+    let mut sweep: Option<(Duration, Interval)> = None;
     loop {
         let Some(idle) = sessions.upgrade().map(|sessions| {
             *sessions
@@ -565,6 +574,12 @@ async fn watch(
         // Looked at often enough that a session ends within a quarter of its idle time of
         // when it should, and at least every second, so a change of the setting holds soon.
         let tick = (idle / 4).clamp(Duration::from_millis(100), Duration::from_secs(1));
+        if sweep.as_ref().is_none_or(|(at, _)| *at != tick) {
+            sweep = Some((tick, every(tick)));
+        }
+        let Some((_, timer)) = sweep.as_mut() else {
+            return;
+        };
         tokio::select! {
             () = stop.cancelled() => return,
             change = heard.recv() => {
@@ -588,7 +603,7 @@ async fn watch(
                 let Some(sessions) = sessions.upgrade() else { return };
                 sessions.recheck(|_, _| true).await;
             }
-            () = sleep(tick) => {
+            _ = timer.tick() => {
                 let Some(sessions) = sessions.upgrade() else { return };
                 sessions.sweep(idle).await;
             }

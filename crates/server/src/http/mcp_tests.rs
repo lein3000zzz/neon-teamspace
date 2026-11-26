@@ -1064,6 +1064,45 @@ async fn sessions_are_bounded_and_end_when_idle(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_idle_session_ends_while_access_changes_keep_coming(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let plan = page(&t, "Plan", "Text").await;
+    set(&state, "mcp.session_idle_timeout", json!("1s")).await;
+    let token = format!(
+        "Bearer {}",
+        bound_token(&t.ada, &t.workspace, &["read"]).await
+    );
+    let (status, _, body) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &token)],
+        Some(initialize()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(state.mcp.session_count(), 1);
+
+    // Trashing a page and restoring it are access changes, each of which has the watcher
+    // look at the sessions again: they come many times between its looks for idle ones.
+    timeout(PATIENCE, async {
+        while state.mcp.session_count() > 0 {
+            for step in ["trash", "restore"] {
+                let changed = t
+                    .ada
+                    .post(&format!("/api/v1/pages/{plan}/{step}"), json!({}))
+                    .await;
+                assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+            }
+        }
+    })
+    .await
+    .expect("the idle session to end");
+    state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn one_person_s_agents_share_one_bound_and_leave_room_for_others(pool: PgPool) {
     let state = state(pool).await;
     let app = router(state.clone(), false);
