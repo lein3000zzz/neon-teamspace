@@ -217,7 +217,8 @@ of `deny.toml`, and a test keeps the two the same.
 ### Configuration
 
 The server reads `neon.yaml` from its working directory, or the file that `NEON_CONFIG`
-names. [`neon.example.yaml`](neon.example.yaml) lists every key with its default. Copy it
+names. [`neon.example.yaml`](neon.example.yaml) lists every key with its default, as a
+server test checks for the runtime settings. Copy it
 to `neon.yaml`, which git ignores.
 
 An environment variable can set any key. Its name is `NEON_` followed by the key's path in
