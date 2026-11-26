@@ -1,0 +1,127 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, page_id, created_at, authors, added, changed, removed, restored_from,\n                restored_from_at\n         FROM page_versions\n         WHERE page_id = $1\n           AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3::uuid))\n         ORDER BY created_at DESC, id DESC\n         LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "authors",
+        "type_info": "UuidArray",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "authors"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "added",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "added"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "changed",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "changed"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "removed",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "removed"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "restored_from",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "restored_from"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "restored_from_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "page_versions",
+            "name": "restored_from_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "057891d1f5b54638fbea39baef621e47388c031a6d4dc405d162281eee1c62ed"
+}

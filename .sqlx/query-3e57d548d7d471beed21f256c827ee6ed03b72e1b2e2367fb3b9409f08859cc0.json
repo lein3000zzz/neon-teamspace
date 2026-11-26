@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (u.kind = 'human' AND u.email IS NOT NULL AND u.disabled_at IS NULL\n                   AND COALESCE(p.mail, $2) = 'each') AS \"wants!\"\n           FROM users u LEFT JOIN notification_preferences p ON p.user_id = u.id\n           WHERE u.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "wants!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3e57d548d7d471beed21f256c827ee6ed03b72e1b2e2367fb3b9409f08859cc0"
+}

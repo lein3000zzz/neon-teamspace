@@ -889,3 +889,64 @@ async fn deleting_an_integration_deletes_its_incoming_webhook(pool: PgPool) {
         .await;
     assert_eq!(agent.body["status"], "deleted");
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_hook_comments_on_the_page_or_a_block_of_it(pool: PgPool) {
+    let state = keyed(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let page = create(&t.ada, ws, json!({"teamspace_id": general}), "Changelog").await;
+    let made = hook(&t.ada, ws, "Deploys", &page, false).await;
+    let path = path_of(&made);
+    send(
+        &app,
+        &path,
+        &json!({"version": 1, "action": "append", "markdown": "Release notes"}),
+    )
+    .await;
+
+    let commented = send(
+        &app,
+        &path,
+        &json!({"version": 1, "action": "comment", "markdown": "Deployed **v1.2**"}),
+    )
+    .await;
+    assert_eq!(commented.status, StatusCode::OK, "{}", commented.body);
+    assert_eq!(commented.body, json!({"ok": true, "action": "comment"}));
+    let page_id = Uuid::try_parse(&page).expect("an id");
+    let content = state.sync.content(page_id).await.expect("its content");
+    let block = content.blocks[0].id.clone().expect("an id");
+    let anchored = send(
+        &app,
+        &path,
+        &json!({"version": 1, "action": "comment", "markdown": "This one", "block_id": block}),
+    )
+    .await;
+    assert_eq!(anchored.status, StatusCode::OK, "{}", anchored.body);
+
+    let listed = t.ada.get(&format!("/api/v1/pages/{page}/comments")).await;
+    let threads = listed.body["threads"].as_array().expect("threads");
+    assert_eq!(threads.len(), 2);
+    let author = &threads[0]["comments"][0]["author"];
+    assert_eq!(author["kind"], "integration");
+    assert_eq!(author["display_name"], "Deploys");
+    assert_eq!(threads[1]["anchor"]["block_id"], block.as_str());
+    assert_eq!(threads[1]["anchor"]["quote"], "Release notes");
+    // Ada made the page: she hears of its comments.
+    let inbox = t.ada.get("/api/v1/inbox").await;
+    assert_eq!(inbox.body["notifications"][0]["kind"], "comment");
+
+    let missing = send(
+        &app,
+        &path,
+        &json!({"version": 1, "action": "comment", "markdown": "x", "block_id": "nowhere"}),
+    )
+    .await;
+    assert_eq!(
+        (missing.status, missing.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input")
+    );
+    state.sync.shutdown().await;
+}

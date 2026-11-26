@@ -1,6 +1,6 @@
 ---
 title: Agents over MCP
-description: Connect an MCP client to a workspace with a token bound to it, or with OAuth, and the tools and resources it gets, claiming tasks, and how pages' blocks are named.
+description: Connect an MCP client to a workspace with a token bound to it, or with OAuth, and the tools and resources it gets, claiming tasks, comments and the inbox, and how pages' blocks are named.
 ---
 
 The server speaks the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`,
@@ -120,7 +120,9 @@ the session.
   `429 rate_limited` with `Retry-After`. Edits of pages' content count again on their
   own, 100 at once, then two a second, with those made over REST. Past that, `edit_page`
   answers the tool error `rate_limited`, whose `retry_after` says in seconds when to try
-  again, as its message does.
+  again, as its message does. Searches count on their own too, 60 at once, then two a
+  second, and `search` answers `rate_limited` past that, `busy` while too many searches
+  run on the server, and `timeout` for a search that runs past 5 seconds.
 - **Refusals of the request itself**, before any tool or resource runs, answer as the API
   does, `{"error": {"code", "message"}}` with an HTTP status: `400 invalid_json` for a body
   that is not a JSON-RPC message, `406 not_acceptable` for an `Accept` without both
@@ -160,15 +162,25 @@ The tools work in the token's workspace. An id of something in another workspace
 | `list_members` | none | The members, people and agents, with roles. A guest sees only themselves. |
 | `list_teamspaces` | none | The teamspaces the caller sees, the default first, with its role in each. |
 | `get_page_tree` | `teamspace_id`, or none for the private pages; `depth`, 1 to 10, 3 unless set | The pages nested to `depth`, each with `kind`, `title`, `icon` and `child_count`. Past `depth`, `children` is left out and `child_count` still counts them. Rows are left out. |
+| `search` | `query`; `teamspace_id`, `kind`, `created_by`, `edited_by`, `edited_within`, `limit` 1 to 50, `after` | The pages, databases and rows the query finds among those the caller sees, the best first, each with its page, its `title` and a `snippet` in runs that mark the matches. Without `query`, the filters alone, the most recently changed first. `next` passed as `after` gives the next part. |
 
 An agent has no private pages, since its owner could not see them, so `get_page_tree`
 without a teamspace answers an agent `forbidden`.
+
+`search` reads the query as [Search](/docs/guides/search/#the-query) describes: words that
+must all be there, each of two characters or more also finding the words it starts,
+`"quoted words"`, `-word` to leave out and `OR`; titles also match misspelled. It finds a
+page's text once the server saved the page, a moment after an edit, so a page an agent just
+wrote is found by its title at once and by its text a little later. A query it cannot run,
+such as one holding a control character, answers `invalid_search`. An agent of a guest may not filter by `created_by` or `edited_by`,
+and is answered `forbidden`.
 
 ### Pages
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `read_page` | `page_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. |
+| `read_page` | `page_id`; `version_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. With `version_id`, that version of the page instead, read-only, its `markdown` and `blocks`, with no revision to edit from, for an agent that may edit the page. |
+| `list_versions` | `page_id`; `limit` 1 to 100, `after` | The page's [history](/docs/guides/history/), the latest first: each version's `id`, when its latest change was made, its `authors`, and how many blocks they `added`, `changed` and `removed`. Only for an agent that may edit the page, as its owner may; one that only views it is answered `forbidden`. |
 | `create_page` | one of `parent_id`, `teamspace_id`, `private: true`; `title`, `icon`, `markdown`, `placement` | Makes the page, its content the blocks of `markdown`, and answers as `read_page` does. |
 | `edit_page` | `page_id`, `operations`, `base` | Makes the operations, in order, all or none; see [Editing](#editing-a-page). |
 | `move_page` | `page_id`; one of `parent_id`, `teamspace_id`, `private: true`; `placement` | Moves it with the pages under it. |
@@ -225,6 +237,39 @@ or the number alone.
   "sorts": [{"property": "Due", "direction": "ascending"}]
 }}
 ```
+
+### Comments and the inbox
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `list_comments` | `page_id`; `include_resolved`, true unless set; `limit` 1 to 100, 50 unless set; `after`; `thread_id` for one thread's comments | The page's threads, oldest first, a part at a time, each with its first comment and its latest replies, their `markdown`, `content` and authors, and `comment_count`; `next` passed as `after` gives the next part. An inline thread's `anchor` names the block its text is in, `block_id`, and the text it was made on, `quote`, or says it is `detached` once that text is gone. With `thread_id`, every comment of that thread instead, in order, a part at a time, `after` then naming a comment. |
+| `add_comment` | `page_id`, `markdown`; `thread_id` to reply in a thread, or `block_id` to start one on that block's text | Starts a thread on the page or on a block, or replies, and answers with the thread, the comment's id, and `unnotified`: those it mentions who may not see the page, and were told nothing. |
+| `get_inbox` | `unread`, false unless set; `limit` 1 to 200, 50 unless set; `before` | The caller's notifications in the workspace, newest first, a part at a time; `next` passed as `before` gives the next part. |
+| `mark_read` | `notification_ids`, or `all: true`; `read`, true unless set | Marks the notifications named read, or unread with `read: false`, all or none: one not found marks nothing and answers `not_found`. Or marks every one read. |
+
+A comment is markdown limited to inline content: text with its styles, links, and mentions,
+`@[Name](user:<id>)` with an id `list_members` gives, or `@[Title](page:<id>)`; at most 10000
+characters. [Comments and mentions](/docs/guides/comments-and-mentions/) has the rules: who
+may comment, and whom a comment tells. An agent that may only view a page, its own access or
+its owner's, may read its comments but not add one, and `add_comment` answers it `forbidden`.
+
+An agent hears of its mentions and replies three ways: in `get_inbox`; from
+`neon://me/inbox`, which a subscription tells of each change; and from an
+[outgoing webhook](/docs/guides/webhooks/#events) for `page.mentioned` and
+`comment.replied`, when it runs where no session stays open. A reply goes back with
+`add_comment` and the notification's `thread_id`:
+
+```json
+{"name": "add_comment", "arguments": {
+  "page_id": "0193a5b2-0000-7000-8000-0000000000d3",
+  "thread_id": "0193a5b2-0000-7000-8000-0000000000e4",
+  "markdown": "Added the date: **25 November**."
+}}
+```
+
+then `mark_read` with the notification's id. Each notification is checked again, as the
+inbox lists it, against what the caller may see now, so one about a page it lost access to
+is not listed.
 
 ## Block ids
 
@@ -370,12 +415,16 @@ person properties name. The caller's own webhooks hear of their own claims only 
 | `neon://database/{id}` | The database's page, properties and views, as JSON. |
 | `neon://database/{id}/view/{view}` | The rows the view shows, in its order, as JSON, at most 1000. |
 | `neon://me/tasks` | The rows whose person properties name the caller, out of the trash, the most recently changed first, at most 100, each with its database's title and its status. |
+| `neon://me/inbox` | The caller's notifications in the workspace, the newest 50, as `get_inbox` answers them. |
 
 A URI writes its ids lowercase and hyphenated, as the server lists them and tells of their
 changes, and a URI that writes them another way is not found.
 
-`resources/list` gives `neon://me/tasks`, then the caller's favorites, at most 50, the 20
-pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
+A page's earlier versions have no resource: a version never changes, so there is nothing to
+subscribe to, and `read_page` with `version_id` reads one.
+
+`resources/list` gives `neon://me/tasks` and `neon://me/inbox`, then the caller's
+favorites, at most 50, the 20 pages changed last, and up to 50 tasks, each resource once. An agent's favorites are its
 own.
 
 `resources/subscribe` works on every one of them. The server then sends
@@ -388,7 +437,9 @@ never asks the database again to find them. A subscription hears of:
 - a database when its properties or views change;
 - a view's rows when a row of the database, its schema or that view changes;
 - the tasks when what the caller sees of them changes: a row of theirs changes, or a row
-  starts or stops naming them. A change in a database the caller cannot see is never told.
+  starts or stops naming them. A change in a database the caller cannot see is never told;
+- the inbox when a notification comes to it, or one of them is marked read, unread or
+  archived, in the app or over MCP.
 
 A subscription ends with its session, with `resources/unsubscribe`, and as soon as the caller
 can no longer see the resource. A session subscribes to at most 100 resources.
@@ -409,7 +460,9 @@ each tool does, with the same tokens.
 | `list_members` | `GET /api/v1/workspaces/{id}/members` |
 | `list_teamspaces` | `GET /api/v1/workspaces/{id}/teamspaces` |
 | `get_page_tree` | `GET /api/v1/teamspaces/{id}/pages`, `GET /api/v1/workspaces/{id}/private-pages` |
-| `read_page`, `neon://page/{id}` | `GET /api/v1/pages/{id}/markdown` |
+| `search` | `GET /api/v1/workspaces/{id}/search` |
+| `read_page`, `neon://page/{id}` | `GET /api/v1/pages/{id}/markdown`; with `version_id`, `GET /api/v1/pages/{id}/versions/{version_id}` |
+| `list_versions` | `GET /api/v1/pages/{id}/versions` |
 | `create_page` | `POST /api/v1/workspaces/{id}/pages`, with `markdown` |
 | `edit_page` | `PATCH /api/v1/pages/{id}/markdown` |
 | `move_page`, `trash_page`, `restore_page` | `POST /api/v1/pages/{id}/move`, `/trash`, `/restore` |
@@ -421,6 +474,10 @@ each tool does, with the same tokens.
 | `update_row` | `PATCH /api/v1/rows/{id}`, `PATCH /api/v1/databases/{id}/rows/{unique_id}` |
 | `claim_task` | `POST /api/v1/rows/{id}/claim`, `POST /api/v1/databases/{id}/rows/{unique_id}/claim`, with `?person_property=` |
 | `neon://me/tasks` | `GET /api/v1/workspaces/{id}/tasks` |
+| `list_comments` | `GET /api/v1/pages/{id}/comments` |
+| `add_comment` | `POST /api/v1/pages/{id}/comments`, `POST /api/v1/threads/{id}/comments` |
+| `get_inbox`, `neon://me/inbox` | `GET /api/v1/inbox`, with `?workspace_id=` |
+| `mark_read` | `PATCH /api/v1/notifications/{id}`, `POST /api/v1/inbox/read` |
 | A file a page shows | `GET /api/v1/files/{id}`, and `POST /api/v1/pages/{id}/files` to upload one, with no tool beside them |
 | `resources/list` | `GET /api/v1/account/favorites`, `GET /api/v1/workspaces/{id}/recent-pages`, and the tasks |
 
@@ -428,7 +485,10 @@ Over REST, the [live connections](/docs/architecture/realtime/) take the place o
 subscriptions, `/ws/pages/{id}` for a page's document and `/ws/databases/{id}` for a
 database. For `neon://me/tasks`, an [outgoing webhook](/docs/guides/webhooks/#outgoing-webhooks)
 registered for the identity takes its place: `row.assigned` and `row.status_changed` tell a
-program that runs elsewhere of its work as it comes, without a socket held open. A claim
+program that runs elsewhere of its work as it comes, without a socket held open. For
+`neon://me/inbox`, the same webhook's `page.mentioned` and `comment.replied`, or the inbox's
+live feed, `/ws/inbox`, which the [realtime page](/docs/architecture/realtime/#the-inbox-feed)
+describes. A claim
 refused over REST answers `409 already_claimed` with the same `holders` beside its code and
 message, each with `id` and `name`.
 

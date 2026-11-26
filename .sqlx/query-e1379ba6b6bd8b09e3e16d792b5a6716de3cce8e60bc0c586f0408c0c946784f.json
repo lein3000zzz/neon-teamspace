@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT mail, digest_sent_at FROM notification_preferences WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mail",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notification_preferences",
+            "name": "mail"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "digest_sent_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notification_preferences",
+            "name": "digest_sent_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "e1379ba6b6bd8b09e3e16d792b5a6716de3cce8e60bc0c586f0408c0c946784f"
+}

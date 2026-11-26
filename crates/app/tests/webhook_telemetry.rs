@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::comments::CommentService;
 use neon_app::databases::{NewDatabase, NewProperty, NewRow, PropertySpec};
 use neon_app::jobs::{Worker, WorkerConfig};
 use neon_app::pages::Location;
@@ -266,6 +267,7 @@ async fn webhooks_count_refusals_as_ok_and_write_no_secret_url_or_payload(pool: 
             agents: h.agents.clone(),
             pages: h.pages.clone(),
             databases: h.databases.clone(),
+            comments: CommentService::new(h.pages.clone(), sync.clone()),
             sync,
         },
         Arc::new(Receivers),

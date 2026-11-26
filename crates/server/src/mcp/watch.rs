@@ -8,6 +8,7 @@
 //! | a database | its schema and views changing |
 //! | a view's rows | its database's rows, schema and that view changing |
 //! | the caller's tasks | the rows of the workspace's databases that name them, in the workspace's room |
+//! | the caller's inbox | their inbox's room, which hears each change to it |
 //!
 //! The first change is told at once; those that come within the interval after are told
 //! together once it ends. The workspace's room tells of every database in it, those the
@@ -93,12 +94,16 @@ enum Interest {
     /// The rows that may name `user`, or named them when last looked at, and the schemas of
     /// the databases they may be in: changes that may change the caller's tasks.
     Tasks { user: String, rows: HashSet<Uuid> },
+    /// The caller's inbox changing: any message of its room.
+    Inbox,
 }
 
 impl Interest {
     fn wants(&self, message: &[u8]) -> bool {
-        if *self == Self::Document {
-            return changes_document(message);
+        match self {
+            Self::Document => return changes_document(message),
+            Self::Inbox => return true,
+            _ => {}
         }
         let Ok(event) = serde_json::from_slice::<Json>(message) else {
             return false;
@@ -109,7 +114,7 @@ impl Interest {
             .or_else(|| event["row"]["id"].as_str())
             .and_then(|id| Uuid::try_parse(id).ok());
         match self {
-            Self::Document => false,
+            Self::Document | Self::Inbox => false,
             Self::Row(id) => kind.starts_with("row_") && row == Some(*id),
             Self::Schema => matches!(kind, "schema_changed" | "view_changed"),
             Self::View(view) => match kind {
@@ -206,6 +211,11 @@ async fn rooms(s: &Services, principal: &Principal, resource: Resource) -> Vec<J
             }
             None => Vec::new(),
         },
+        Resource::Inbox => vec![Joined::new(
+            b,
+            Room::Inbox(principal.user.id),
+            Interest::Inbox,
+        )],
     }
 }
 

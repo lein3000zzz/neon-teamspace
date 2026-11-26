@@ -22,6 +22,8 @@ Range.prototype.getClientRects ??= function getClientRects() {
 Range.prototype.getBoundingClientRect ??= function getBoundingClientRect() {
   return document.createElement("span").getBoundingClientRect();
 };
+// The comments panel scrolls the thread opened into view.
+Element.prototype.scrollIntoView ??= () => {};
 // BlockNote looks for the block under the pointer, to offer its side menu there.
 Document.prototype.elementFromPoint ??= () => null;
 Document.prototype.elementsFromPoint ??= () => [];

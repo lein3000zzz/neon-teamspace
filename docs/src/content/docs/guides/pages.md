@@ -137,8 +137,9 @@ them.
 
 ## Sharing
 
-A page can be shared with a member or guest of its workspace, to view it (`can_view`) or to
-edit it (`can_edit`). A share holds for the page and every page under it. It adds to what
+A page can be shared with a member or guest of its workspace, to view it (`can_view`), to
+view it and [comment](/docs/guides/comments-and-mentions/) on it (`can_comment`), or to edit
+it (`can_edit`). A share holds for the page and every page under it. It adds to what
 the person may do there already and never takes anything away: a teamspace's member who is
 given `can_view` still edits. What a person may do with a page is the most of what its
 space gives them and every share on it or on a page above it.
@@ -208,6 +209,13 @@ Each account keeps favorite pages in an order of its own, across its workspaces.
 
 A favorite the caller can no longer see, or one in the trash, stays saved and is left out of
 the list until it can be seen again.
+
+## History and search
+
+Each page keeps its earlier versions, which [Page history](/docs/guides/history/) lists,
+compares with the page as it is and restores, under `/api/v1/pages/{id}/versions`.
+[Search](/docs/guides/search/) finds pages, databases and rows by their titles, text and
+values, at `GET /api/v1/workspaces/{id}/search`. Both show only what the caller may see.
 
 ## Import and export
 

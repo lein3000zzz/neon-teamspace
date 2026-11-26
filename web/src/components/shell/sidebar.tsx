@@ -4,6 +4,7 @@ import {
   House,
   Inbox,
   LogOut,
+  Search,
   Settings,
   Shapes,
   ShieldCheck,
@@ -12,8 +13,9 @@ import {
 } from "lucide-react";
 import { useId } from "react";
 import { useLogout } from "@/api/auth";
-import { myInvitationsQuery } from "@/api/workspaces";
+import { inboxCountQuery } from "@/api/inbox";
 import { ErrorNotice } from "@/components/feedback/error-notice";
+import { commandIsMeta, useQuickSearch } from "@/components/search/quick-search";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -37,15 +39,17 @@ type SidebarProps = {
  * Brand, the workspace switcher, navigation, who is signed in, and the
  * instance footer. Rendered as a column beside the page on wide screens and
  * inside the drawer on narrow ones. The admin pages are listed for admins
- * only; the server refuses them to anyone else whatever the menu shows.
+ * only; the server refuses them to anyone else whatever the menu shows. The
+ * styleguide, for whoever works on the app, is listed in a development build,
+ * and for instance admins in any.
  */
 export function Sidebar({ onNavigate }: SidebarProps) {
   // The column and the open drawer are mounted together, so ids must be unique per copy.
   const settingsId = useId();
   const me = useMe();
   const { current } = useCurrentWorkspace();
-  const invitations = useQuery(myInvitationsQuery);
-  const waiting = invitations.data?.length ?? 0;
+  const unread = useQuery(inboxCountQuery).data ?? 0;
+  const quickSearch = useQuickSearch();
 
   return (
     <div className="flex min-h-full flex-col gap-6">
@@ -81,25 +85,43 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             )}
           </li>
-          {waiting > 0 && (
+          {current !== undefined && quickSearch.available && (
             <li>
-              <Link
-                to="/account/invitations"
-                onClick={onNavigate}
-                aria-label={strings.nav.pending(waiting)}
-                className={navLink}
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.();
+                  quickSearch.open();
+                }}
+                className={`${navLink} w-full`}
               >
-                <Inbox aria-hidden className="size-4" />
-                <span className="flex-1">{strings.nav.invitations}</span>
+                <Search aria-hidden className="size-4" />
+                <span className="flex-1 text-left">{strings.search.open}</span>
+                <kbd aria-hidden className="font-mono text-[0.68rem] text-muted-foreground">
+                  {strings.search.shortcut(commandIsMeta())}
+                </kbd>
+              </button>
+            </li>
+          )}
+          <li>
+            <Link
+              to="/inbox"
+              onClick={onNavigate}
+              {...(unread > 0 ? { "aria-label": strings.nav.unread(unread) } : {})}
+              className={navLink}
+            >
+              <Inbox aria-hidden className="size-4" />
+              <span className="flex-1">{strings.nav.inbox}</span>
+              {unread > 0 && (
                 <span
                   aria-hidden
                   className="grid h-5 min-w-5 place-items-center rounded-full border border-primary px-1.5 font-mono text-[0.68rem] text-primary tabular-nums"
                 >
-                  {waiting}
+                  {unread > 99 ? "99+" : unread}
                 </span>
-              </Link>
-            </li>
-          )}
+              )}
+            </Link>
+          </li>
           {current !== undefined && (
             <li>
               <Link
@@ -113,12 +135,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             </li>
           )}
-          <li>
-            <Link to="/styleguide" onClick={onNavigate} className={navLink}>
-              <Shapes aria-hidden className="size-4" />
-              {strings.nav.styleguide}
-            </Link>
-          </li>
+          {(import.meta.env.DEV || me.role === "admin") && (
+            <li>
+              <Link to="/styleguide" onClick={onNavigate} className={navLink}>
+                <Shapes aria-hidden className="size-4" />
+                {strings.nav.styleguide}
+              </Link>
+            </li>
+          )}
         </ul>
         {current !== undefined && (
           <>

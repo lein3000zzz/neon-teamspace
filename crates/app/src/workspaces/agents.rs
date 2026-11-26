@@ -1,6 +1,6 @@
-//! Agents and integrations: making agents, listing them, renaming and recolouring them,
-//! handing them to another person, deleting them, and their API tokens; and making the
-//! integrations of incoming webhooks.
+//! Agents and integrations: making agents, listing them and the teamspaces each is in,
+//! renaming and recolouring them, handing them to another person, deleting them, and their
+//! API tokens; and making the integrations of incoming webhooks.
 //!
 //! An agent is made by a person of the workspace, its owner, as the workspace's switches
 //! allow, and within its agent limit, which agents and integrations count against together.
@@ -23,6 +23,7 @@
 //! metrics of [`SUBSYSTEM`]: a refusal is `ok`, only failures of the server are `error`. No
 //! token reaches a log line or a span.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -31,7 +32,7 @@ use neon_domain::auth::token::token_scopes;
 use neon_domain::auth::{ApiToken, Principal, TokenHolder, UserKind};
 use neon_domain::hue::check_hue;
 use neon_domain::settings::Secret;
-use neon_domain::workspaces::{Action, Resource, TeamspaceRole};
+use neon_domain::workspaces::{Action, Resource, Teamspace, TeamspaceRole};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::agents::{self as repo, New, Stored};
@@ -42,6 +43,7 @@ use tracing::{Instrument as _, info, info_span};
 use uuid::Uuid;
 
 use super::members::target;
+use super::teamspaces::placed_teamspaces;
 use super::{
     AccessChange, Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, locked_membership,
     membership,
@@ -69,6 +71,13 @@ pub struct NewAgent {
 pub struct AgentUpdate {
     pub name: Option<String>,
     pub hue: Option<Option<i64>>,
+}
+
+/// A teamspace an agent is in, and whether the caller may take the agent out of it.
+#[derive(Debug, Clone)]
+pub struct AgentTeamspace {
+    pub teamspace: Teamspace,
+    pub removable: bool,
 }
 
 /// The agent use cases. Cheap to clone; clones share everything.
@@ -144,6 +153,51 @@ impl AgentService {
                 )
                 .await?;
             Ok(self.agent_of(stored))
+        })
+        .await
+    }
+
+    /// The teamspaces an agent is in, of those whose members the principal may list, with
+    /// whether they may take it out of each. Whoever may know of the agent asks; a teamspace
+    /// they may not see, such as a private one they are not in, stays out.
+    pub async fn agent_teamspaces(
+        &self,
+        principal: &Principal,
+        workspace_id: Uuid,
+        id: Uuid,
+    ) -> Result<Vec<AgentTeamspace>, WorkspaceError> {
+        self.observe("agent_teamspaces", async {
+            let mut conn = self.workspaces().pool().acquire().await?;
+            let (membership, stored) = self
+                .open(
+                    &mut conn,
+                    principal,
+                    workspace_id,
+                    id,
+                    Action::ViewAgent,
+                    false,
+                )
+                .await?;
+            let theirs: HashSet<Uuid> =
+                teamspaces::list_with_membership(&mut *conn, workspace_id, stored.id)
+                    .await?
+                    .into_iter()
+                    .filter_map(|(teamspace, role, _)| role.map(|_| teamspace.id))
+                    .collect();
+            Ok(
+                placed_teamspaces(&mut conn, principal, &membership, workspace_id)
+                    .await?
+                    .into_iter()
+                    .filter(|placed| {
+                        theirs.contains(&placed.teamspace.id)
+                            && placed.allows(&membership, Action::ListTeamspaceMembers)
+                    })
+                    .map(|placed| AgentTeamspace {
+                        removable: placed.allows(&membership, Action::RemoveTeamspaceMember),
+                        teamspace: placed.teamspace,
+                    })
+                    .collect(),
+            )
         })
         .await
     }

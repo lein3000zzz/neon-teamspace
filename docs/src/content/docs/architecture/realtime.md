@@ -35,6 +35,9 @@ The server checks the request before it upgrades, in this order:
 | The caller has fewer than 20 connections open on this server, and the page fewer than 200. | `429 too_many_connections` |
 | It is a WebSocket upgrade. | `426 upgrade_required` |
 
+`?comments=true` after the room asks for the page's [comment messages](#comment-messages)
+too, as the web app does: y-websocket's `params` option adds it.
+
 The origin check stops cross-site WebSocket hijacking. The check that guards requests that
 change something covers `POST`, `PATCH` and `DELETE`, and an upgrade is a `GET`; without its
 own check, a page on another site could open a socket that carries the visitor's cookie. A
@@ -100,6 +103,27 @@ left, passes as it is.
 A connection may send 20 awareness messages a second, with bursts of 100; past that, the
 server drops them rather than pass them on, and the next one tells the same. When a
 connection closes, its client's cursors go, and the others are told.
+
+### Comment messages
+
+A page's [comments](/docs/guides/comments-and-mentions/) are rows beside its document, not in
+it. A connection that asked with `?comments=true` also hears of them, in a message of the
+server's own beside y-protocols': its type is `100`, then a length and a JSON payload, as
+y-protocols writes a message's bytes:
+
+```json
+{"type": "comments", "thread_id": "0193a5b2-0000-7000-8000-0000000000e4"}
+```
+
+It says that a thread was started, answered, changed, resolved, reopened or deleted, once
+that change committed, and nothing of what it holds: the client reads that thread again
+through the API, `GET /api/v1/threads/{id}`, which leaves out what the caller may not see and
+answers `404` once it is gone. The connection joins the page's room of comments before it
+sends its first sync step, so a thread that changes once the client has the document is never
+missed; what changed while a client was not connected is told by nothing, so a client that
+syncs again after a break reads the page's comments again. y-websocket hands a type it does not know
+to `messageHandlers`, which the web app fills for type `100`; a client that did not ask gets
+none.
 
 ## Viewing and editing
 
@@ -170,6 +194,18 @@ through the same queue, so it holds every update applied before it, saved or not
 of a page nobody has open reads the snapshot and the updates logged after it, and loads no
 live document.
 
+### Restoring a version
+
+A [restore](/docs/guides/history/#restoring) goes through the live document too, as one
+command its task runs in turn with the clients' messages. It names the revision the restorer
+compared against: when the document is at another, nothing changes and the restore is
+refused. Otherwise the task saves a snapshot first, which keeps the page as it is as a
+version, then makes the document hold the version's blocks as one edit, matching blocks by
+their ids so those the version shares with the page stay as they are, and saves again, the
+new version naming the one restored. Updates that clients sent before the restore reached
+the task are in the first snapshot; those that arrive after merge with the restore as Yjs
+merges any two changes.
+
 ### Edits from the server
 
 The server edits a page's document itself for the [markdown API](/docs/guides/pages/#content-as-markdown)
@@ -182,6 +218,24 @@ before it added, so none grows even the copy far past the limit. Then it makes t
 connection at once and the log records it as the editor's, like a client's. A document
 opened for an edit alone stays open its while, as one whose last connection left does, then
 saves and unloads.
+
+### Mentions settle
+
+Whom a page's text mentions is read from its blocks as a snapshot is saved, and recorded in
+`page_mentions`, in the snapshot's transaction, which tells each person it mentions anew; see
+[whom a mention tells](/docs/guides/comments-and-mentions/#whom-a-mention-tells). So that
+someone typing a name is not told of every letter, the document waits until it has gone ten
+seconds without a change, then saves a snapshot early if its text mentions someone it did
+not when last saved.
+
+Each mention is told as from whoever wrote it. Every Yjs item has an id, the client that
+made it and a count of that client's items, and every change the document takes, a client's
+update or an edit of the server's, adds a range of those counts; the document keeps, until
+the next snapshot, which ranges each change's author added, rebuilt from the log when it
+loads. A mention's element falls in one of them. Recording the mentions runs in a savepoint
+of the snapshot's transaction: should it fail, the snapshot and the search text are saved
+without it, and the failure is logged. A page the API or MCP makes with content records its
+mentions as it is made, from its maker; an import records them and tells nobody.
 
 ## Saving
 
@@ -197,9 +251,12 @@ transaction that:
 1. replaces the page's row in `page_snapshots` with the encoded document and its state
    vector, and the number of the last update it holds;
 2. deletes the updates it holds from `page_updates`;
-3. sets `pages.search_text` to the document's plain text, from its blocks;
+3. sets `pages.search_text` to the document's plain text, from its blocks, which
+   [search](/docs/guides/search/) reads from then on;
 4. moves `pages.content_updated_at` forward to the latest change, and names that change's
-   author as `last_edited_by`, unless the page's title, icon, cover or style changed later.
+   author as `last_edited_by`, unless the page's title, icon, cover or style changed later;
+5. keeps the document's blocks as a [version](/docs/guides/history/), with the authors of
+   the updates it took in, unless they show the same as the latest version.
 
 Yjs updates commute, so loading applies the snapshot and the updates after it in any order
 to the same document. A write that fails is logged and tried again, after half a second at
@@ -265,7 +322,9 @@ has the whole order.
 ## Metrics
 
 The sync subsystem's RED metrics, `neon_sync_operations_total` and the others, time three
-operations: `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved.
+operations of the live documents: `load`, `persist`, a batch of updates logged, and
+`compact`, a snapshot saved with its text and version. `read`, `edit` and `restore` time the
+server's own reads and edits of pages' content.
 Beside them:
 
 | Metric | Type | Labels | What it shows |
@@ -344,13 +403,48 @@ Its metrics are `neon_databases_open_connections`, a gauge of the open feeds,
 `neon_databases_disconnects_total`, a counter by `cause` as for documents, and
 `neon_databases_events_total`, the changes told, by `type`.
 
+## The inbox feed
+
+`GET /ws/inbox` tells a signed-in person that their [inbox](/docs/guides/inbox/) changed.
+The upgrade is checked as a page's: the origin, then the session cookie or an API token with
+the `read` scope; there is no page to look at, as the feed is the caller's own. Its messages
+are JSON text:
+
+| `type` | Sent when |
+|---|---|
+| `ready` | First, once the connection hears every change. |
+| `inbox` | A notification of theirs was made, read, marked unread, archived or brought back, or an invitation of theirs changed. |
+
+Neither says what changed: the client reads the inbox and its count again through the API,
+which checks each notification against what they may see, after `ready`, as it connects and
+reconnects, and after each `inbox`. A client has nothing to send. What it sends is read and
+dropped; more than 1 KiB in one message closes it with `1009`, and more than 5 messages a
+second, with bursts of 20, with `4429`.
+
+A notification is made in the transaction of what it tells of, and the person's room of the
+broadcaster hears it once that commits, so a change that rolls back tells nobody. When
+someone's session or token ends, their feeds close with `4401`; every five minutes every feed
+is looked at so again.
+
+| Limit | Default | Past it |
+|---|---|---|
+| Connections | 20 for one person on this server, one for each tab | The upgrade is refused with `429 too_many_connections`; one of several that came at once closes with `1013`. |
+| Messages waiting to be sent to a client | 64, and 64 KiB of them | The client fell behind, and the feed closes with `4408`; it reconnects and reads afresh. |
+| Sending one message | 30 seconds | The feed closes with `4408`. |
+| Silence | Nothing from the client, not even a pong, between two pings; the server pings every 30 seconds | The server drops the connection without a close. |
+
+A client should stop after `4401`, and reconnect after the others, after a pause for `4408`,
+`4429` and `1013`. Its metrics are `neon_notifications_open_connections`, a gauge of the open
+feeds, and `neon_notifications_disconnects_total`, a counter by `cause` as for documents.
+
 ## Following on the server
 
 The broadcaster's rooms have listeners on the server too. The MCP server's
 [subscriptions](/docs/guides/agents-over-mcp/#resources) join a page's room, which hears
 every update, and a database's guests' room, which leaves people's details out. Every change
 to the rows and schema of a workspace's databases also goes to the workspace's own room, as
-members read it. No client joins that room. A subscription to someone's tasks hears there of
+members read it. A subscription to someone's inbox joins their inbox's room, which the
+inbox feed hears too. No client joins that room. A subscription to someone's tasks hears there of
 the rows that name them, of every database, those they cannot see too. So such a change has
 it read their tasks again, at most once an interval, and it tells them only when what they
 see changed. None of it asks the database again until a change comes.

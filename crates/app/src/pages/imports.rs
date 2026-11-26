@@ -5,6 +5,7 @@
 use neon_blocks::Document;
 use neon_domain::attachments::File;
 use neon_domain::auth::Principal;
+use neon_domain::notifications::{TextMention, page_mentions};
 use neon_domain::pages::{
     MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, check_title, position,
 };
@@ -16,6 +17,7 @@ use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
 use super::operations::{Target, in_workspace, save_content};
 use super::{Location, PageError, PageService, PageView};
+use crate::notifications::mentions;
 
 /// A page to import, with the pages to import under it.
 #[derive(Debug, Clone, Default)]
@@ -55,7 +57,7 @@ impl ImportedPage {
 }
 
 /// A page's document, ready to be its first snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportedContent {
     /// The whole Yjs document, encoded as one update.
     pub state: Vec<u8>,
@@ -65,25 +67,35 @@ pub struct ImportedContent {
     pub text: String,
     /// The files it shows, by the ids in their paths.
     pub files: Vec<Uuid>,
+    /// Its blocks, with the ids they were written with: the page's first version.
+    pub document: Document,
+    /// Whom its text mentions, each in its block, recorded as the page is made.
+    pub mentions: Vec<TextMention>,
 }
 
 impl ImportedContent {
-    /// The blocks written into a Yjs document as the editor would, each given a fresh id;
-    /// `None` for no blocks, which a page without a snapshot has already.
+    /// The blocks written into a Yjs document as the editor would, each without an id given
+    /// a fresh one; `None` for no blocks, which a page without a snapshot has already.
     pub fn of(document: &Document) -> Option<Self> {
         if document.is_empty() {
             return None;
         }
+        // Its ids given first, so its first version and whom it mentions are known by block.
+        let mut document = document.clone();
+        document.fill_ids(&mut || Uuid::now_v7().to_string());
         let doc = Doc::new();
         let fragment = neon_blocks::fragment(&doc);
         let mut txn = doc.transact_mut();
-        let mut ids = || Uuid::now_v7().to_string();
-        neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
+        neon_blocks::replace(&mut txn, &fragment, &document, &mut || {
+            Uuid::now_v7().to_string()
+        });
         Some(Self {
             state: txn.encode_state_as_update_v1(&StateVector::default()),
             state_vector: txn.state_vector().encode_v1(),
             text: document.plain_text(),
-            files: crate::attachments::shown_files(document),
+            files: crate::attachments::shown_files(&document),
+            mentions: mentions::in_document(&document),
+            document,
         })
     }
 }
@@ -216,7 +228,11 @@ impl PageService {
                     neon_store::files::keep_blob(&mut *tx, &file.key).await?;
                 }
                 if let Some(content) = &imported.content {
-                    save_content(&mut tx, page.id, content, now).await?;
+                    save_content(&mut tx, page.id, content, now, user).await?;
+                    // Imported text was written elsewhere, before: whom it mentions is
+                    // recorded, so it tells nobody now nor at the next edit.
+                    let mentioned = page_mentions(content.mentions.iter().cloned());
+                    mentions::record(&mut tx, page.id, &mentioned).await?;
                 }
                 count += 1;
                 let keys = position::sequence(imported.children.len());

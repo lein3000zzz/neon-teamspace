@@ -52,6 +52,21 @@ pub(crate) fn encode(message: &Message) -> Bytes {
     Bytes::from(message.encode_v1())
 }
 
+/// The type of the message that tells a connection following a page's comments that a
+/// thread changed, beside y-protocols' own: its payload is a JSON text,
+/// `{"type":"comments","thread_id":"..."}`, and the client reads the comments again.
+pub const MESSAGE_COMMENTS: u8 = 100;
+
+/// The message that a thread of a page's comments changed: made, replied to, edited,
+/// resolved, reopened or deleted.
+pub fn comments_changed(thread_id: uuid::Uuid) -> Bytes {
+    let json = serde_json::json!({"type": "comments", "thread_id": thread_id.to_string()});
+    encode(&Message::Custom(
+        MESSAGE_COMMENTS,
+        json.to_string().into_bytes(),
+    ))
+}
+
 /// What a message is, for the metrics of message sizes.
 pub(crate) fn kind(message: &Message) -> &'static str {
     use yrs::sync::SyncMessage;

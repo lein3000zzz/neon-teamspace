@@ -471,7 +471,7 @@ pub struct DatabaseProps {
     pub view_id: Option<String>,
 }
 
-/// A run of inline content: styled text, or a link around styled text.
+/// A run of inline content: styled text, a link around styled text, or a mention.
 ///
 /// Line breaks inside a block are `\n` in the text, as in BlockNote's JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,6 +479,7 @@ pub struct DatabaseProps {
 pub enum Inline {
     Text(StyledText),
     Link(Link),
+    Mention(Mention),
 }
 
 impl Inline {
@@ -501,6 +502,64 @@ impl Inline {
                 text,
                 styles: Styles::default(),
             })]
+        }
+    }
+}
+
+/// A mention of someone or of a page, the editor's own inline content: an atom, without
+/// styles or text of its own, that names what it mentions by id and keeps the name or title
+/// it had when it was written.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mention {
+    pub props: MentionProps,
+}
+
+impl Mention {
+    pub fn new(kind: MentionKind, target: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            props: MentionProps {
+                kind,
+                target: target.into(),
+                label: label.into(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MentionProps {
+    pub kind: MentionKind,
+    /// The id of the account or page.
+    pub target: String,
+    /// Its name or title when the mention was written.
+    pub label: String,
+}
+
+/// What a mention names.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MentionKind {
+    /// A person, an agent or an integration, by their account's id.
+    #[default]
+    User,
+    /// A page, by its id.
+    Page,
+}
+
+impl MentionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Page => "page",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "user" => Some(Self::User),
+            "page" => Some(Self::Page),
+            _ => None,
         }
     }
 }
@@ -618,6 +677,7 @@ mod plain_content {
                         code.push_str(&text.text);
                     }
                 }
+                Inline::Mention(mention) => code.push_str(&mention.props.label),
             }
         }
         Ok(code)

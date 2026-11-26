@@ -29,7 +29,8 @@ type PersonLabelProps = {
 /**
  * Someone on one line: their hue, their name and, for an agent or
  * integration, its badge and the person it acts for, "via Ada", marked once
- * it is deleted.
+ * it is deleted. Short of room, whom it acts for gives way before the name:
+ * it shrinks so much more readily that the name keeps its width until it is gone.
  */
 export function PersonLabel({ person, className }: PersonLabelProps) {
   return (
@@ -40,7 +41,7 @@ export function PersonLabel({ person, className }: PersonLabelProps) {
         <>
           <KindBadge kind={person.kind} />
           {person.owner && (
-            <span className="truncate text-muted-foreground">
+            <span className="shrink-100000 truncate text-muted-foreground">
               {copy.viaOwner(person.owner.display_name)}
             </span>
           )}

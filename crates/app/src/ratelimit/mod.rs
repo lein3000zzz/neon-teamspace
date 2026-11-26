@@ -1,9 +1,9 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, edits of pages' content from the API and MCP, requests to the MCP server, by
-//! identity and by person, OAuth clients registering themselves, the exchanges of each
-//! OAuth grant, webhooks' test events, the requests incoming webhooks take, and uploads of
-//! attachments.
+//! pages, edits of pages' content from the API and MCP, restores of pages' versions,
+//! searches, comments, requests to the MCP server, by identity and by person, OAuth clients
+//! registering themselves, the exchanges of each OAuth grant, webhooks' test events, the
+//! requests incoming webhooks take, and uploads of attachments.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -72,6 +72,20 @@ pub const EDITS: Quota = Quota {
     every: Duration::from_millis(500),
 };
 
+/// Sixty searches, then two a second: one user's searches, which the quick search sends as
+/// typing pauses.
+pub const SEARCHES: Quota = Quota {
+    burst: 60,
+    every: Duration::from_millis(500),
+};
+
+/// Thirty comments, then one every 2 seconds: one identity's comments, each of which may
+/// tell many inboxes and mailboxes.
+pub const COMMENTS: Quota = Quota {
+    burst: 30,
+    every: Duration::from_secs(2),
+};
+
 /// Sixty uploads, then one a second: one user's attachments, as dropping or pasting a folder
 /// of images uploads each at once.
 pub const UPLOADS: Quota = Quota {
@@ -113,6 +127,13 @@ pub enum Bucket {
     /// Editing pages' content through their live documents, by user: each edit may go over
     /// the whole page, twice.
     PageEdit,
+    /// Restoring versions of pages, by user: each keeps a whole copy of the page as a
+    /// version, and may another of the page as it was.
+    PageRestore,
+    /// Searching a workspace, by user: each search may read many pages' text.
+    Search,
+    /// Writing comments, by identity: starting threads, replying and changing a comment.
+    Comment,
     /// Requests to the MCP server, by identity: a person or an agent.
     Mcp,
     /// Requests to the MCP server, by person: theirs and their agents' together.
@@ -134,7 +155,7 @@ pub enum Bucket {
 }
 
 impl Bucket {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 26] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -150,6 +171,9 @@ impl Bucket {
         Self::PageImport,
         Self::PageExport,
         Self::PageEdit,
+        Self::PageRestore,
+        Self::Search,
+        Self::Comment,
         Self::Mcp,
         Self::McpPerson,
         Self::OAuthRegister,
@@ -178,6 +202,9 @@ impl Bucket {
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
             Self::PageEdit => "page-edit:user:",
+            Self::PageRestore => "page-restore:user:",
+            Self::Search => "search:user:",
+            Self::Comment => "comment:user:",
             Self::Mcp => "mcp:user:",
             Self::McpPerson => "mcp:person:",
             Self::OAuthRegister => "oauth-register:source:",
@@ -193,6 +220,8 @@ impl Bucket {
         match self {
             Self::LoginEmail => ACCOUNT,
             Self::PageEdit => EDITS,
+            Self::Search => SEARCHES,
+            Self::Comment => COMMENTS,
             Self::Mcp => MCP,
             Self::McpPerson => MCP_PERSON,
             Self::IncomingClient => HOOK_CLIENT,
@@ -231,11 +260,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_edit_mcp_incoming_webhook_and_upload_buckets_are_looser() {
+    fn only_the_cross_ip_edit_search_comment_mcp_incoming_webhook_and_upload_buckets_differ() {
         for bucket in Bucket::ALL {
             let want = match bucket {
                 Bucket::LoginEmail => ACCOUNT,
                 Bucket::PageEdit => EDITS,
+                Bucket::Search => SEARCHES,
+                Bucket::Comment => COMMENTS,
                 Bucket::Mcp => MCP,
                 Bucket::McpPerson => MCP_PERSON,
                 Bucket::IncomingClient => HOOK_CLIENT,

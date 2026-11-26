@@ -73,10 +73,13 @@ text_enum! {
 
 text_enum! {
     /// What someone may do with a page: what a share gives, and what the rules work out
-    /// for a person. Edit includes view.
+    /// for a person. Each includes the ones before it: edit includes comment, which
+    /// includes view.
     PageAccess {
-        /// Read it, its subpages and its place in the tree.
+        /// Read it, its subpages, its place in the tree and its comments.
         View => "view",
+        /// Also comment on it: start threads, reply, resolve and reopen them.
+        Comment => "comment",
         /// Also change it, add subpages, move it and trash it.
         Edit => "edit",
     }

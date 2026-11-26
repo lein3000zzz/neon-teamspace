@@ -85,14 +85,18 @@ test("an owner builds a workspace that others join by invitation and by link", a
     await offer.getByRole("button", { name: `Accept: ${workspaceName}` }).click();
     await expect(memberPage).toHaveURL(new RegExp(`/w/${slug}$`));
 
-    // The admin-to-be follows the badge to their invitations.
+    // The admin-to-be follows the inbox's count to their invitation.
     const [deputyContext, deputyPage] = await signedIn(browser, people.deputy);
     contexts.push(deputyContext);
     await deputyPage
       .getByRole("complementary")
-      .getByRole("link", { name: "Invitations, 1 pending" })
+      .getByRole("link", { name: "Inbox, 1 unread" })
       .click();
-    await deputyPage.getByRole("button", { name: `Accept: ${workspaceName}` }).click();
+    await expect(deputyPage).toHaveURL(/\/inbox$/);
+    await main(deputyPage)
+      .getByRole("region", { name: "Invitations" })
+      .getByRole("button", { name: `Accept: ${workspaceName}` })
+      .click();
     await expect(deputyPage.getByText(`You joined ${workspaceName}.`)).toBeVisible();
 
     // A teamspace of each access.

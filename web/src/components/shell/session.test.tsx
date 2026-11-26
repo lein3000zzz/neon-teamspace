@@ -122,6 +122,23 @@ describe("the session", () => {
     expect(nav.queryByRole("link", { name: "Admin" })).toBeNull();
   });
 
+  it("lists the styleguide in a production build for instance admins only, whom it opens for", async () => {
+    vi.stubEnv("DEV", false);
+    const { unmount } = renderApp("/");
+    const member = within(await screen.findByRole("navigation", { name: "Main" }));
+    expect(member.getByRole("link", { name: "Account" })).toBeInTheDocument();
+    expect(member.queryByRole("link", { name: "Styleguide" })).toBeNull();
+    unmount();
+
+    server.use(signedInAs(grace));
+    const { user } = renderApp("/");
+    const admin = within(await screen.findByRole("navigation", { name: "Main" }));
+    await user.click(await admin.findByRole("link", { name: "Styleguide" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Styleguide" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows a member the not-allowed page at an admin address, and asks nothing of the admin API", async () => {
     server.use(http.get("/api/v1/admin/users", () => HttpResponse.error()));
     renderApp("/admin");

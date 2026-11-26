@@ -27,8 +27,10 @@ use super::principal::Authenticated;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageAccess {
-    /// Read it and the pages under it.
+    /// Read it and the pages under it, and their comments.
     View,
+    /// Also comment on it.
+    Comment,
     /// Also change it, add pages under it, move it and trash it.
     Edit,
 }
@@ -37,13 +39,14 @@ impl From<domain::PageAccess> for PageAccess {
     fn from(access: domain::PageAccess) -> Self {
         match access {
             domain::PageAccess::View => Self::View,
+            domain::PageAccess::Comment => Self::Comment,
             domain::PageAccess::Edit => Self::Edit,
         }
     }
 }
 
 /// What a page is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageKind {
     /// A document of blocks, which may have subpages.
@@ -53,6 +56,16 @@ pub enum PageKind {
     /// A row of the database it is under: a document of blocks with the database's
     /// properties; see `/rows/{id}`.
     Row,
+}
+
+impl From<PageKind> for domain::PageKind {
+    fn from(kind: PageKind) -> Self {
+        match kind {
+            PageKind::Page => Self::Page,
+            PageKind::Database => Self::Database,
+            PageKind::Row => Self::Row,
+        }
+    }
 }
 
 impl From<domain::PageKind> for PageKind {

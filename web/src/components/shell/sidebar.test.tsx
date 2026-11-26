@@ -4,14 +4,7 @@ import { describe, expect, it } from "vitest";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import {
-  design,
-  fakeWorkspaces,
-  studio,
-  studioInvitation,
-  summaryOf,
-  teamspaces,
-} from "@/test/workspaces";
+import { design, fakeWorkspaces, studio, summaryOf, teamspaces } from "@/test/workspaces";
 
 /** The sidebar's column, once the signed-in shell is up. */
 async function column() {
@@ -79,15 +72,24 @@ describe("the sidebar in a workspace", () => {
     expect(sidebar.queryByRole("list", { name: "Teamspaces" })).toBeNull();
   });
 
-  it("counts the invitations waiting", async () => {
-    fakeWorkspaces({ received: [studioInvitation] });
+  it("counts what is unread in the inbox", async () => {
+    fakeWorkspaces();
+    server.use(http.get("/api/v1/inbox/count", () => HttpResponse.json({ unread: 3 })));
     renderApp("/w/design");
     const sidebar = await column();
 
-    expect(await sidebar.findByRole("link", { name: "Invitations, 1 pending" })).toHaveAttribute(
+    expect(await sidebar.findByRole("link", { name: "Inbox, 3 unread" })).toHaveAttribute(
       "href",
-      "/account/invitations",
+      "/inbox",
     );
+  });
+
+  it("names the inbox alone while nothing in it is unread", async () => {
+    fakeWorkspaces();
+    renderApp("/w/design");
+    const sidebar = await column();
+
+    expect(await sidebar.findByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox");
   });
 
   it("says when the workspaces could not be loaded, and tries again", async () => {

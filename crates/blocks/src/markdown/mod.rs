@@ -25,6 +25,7 @@
 //! | underline | `<u>underline</u>` |
 //! | inline code | `` `code` `` |
 //! | link | `[text](url)` |
+//! | mention | `@[Name](user:<id>)` for a person, agent or integration, `@[Title](page:<id>)` for a page |
 //!
 //! Children nest under list items, by indentation, and under toggles. The children of other
 //! blocks are written after their parent, at its level.
@@ -59,6 +60,16 @@
 //! `~`, so a UUID is written as it is, and any other word on the line makes it text. A line
 //! of colons that closes nothing is text, as is a line that starts with an escaped colon,
 //! `\:::`.
+//!
+//! # Mentions
+//!
+//! A mention is an `@` right before a link whose target is `user:` or `page:` and the id of
+//! what it names, its text the name or title it had: `@[Ada](user:0193a5b2-...)`. The
+//! writer escapes an `@` before any other link to such a target, `\@[text](user:...)`, so
+//! that it reads back as the link it is.
+//!
+//! [`inline_from_markdown`] reads markdown as a comment holds it: inline content alone,
+//! each line of the text a line of it, nothing on a line starting a block.
 //!
 //! # Block ids
 //!
@@ -114,7 +125,7 @@
 mod parse;
 mod write;
 
-pub use parse::{MAX_DEPTH, TooDeep, from_markdown, try_from_markdown};
+pub use parse::{MAX_DEPTH, TooDeep, from_markdown, inline_from_markdown, try_from_markdown};
 pub(crate) use write::{encode_id, holds_children};
 pub use write::{to_markdown, to_markdown_with_ids};
 

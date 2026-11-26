@@ -91,14 +91,18 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`, and so is each delivery of an outgoing webhook, of kind `webhooks.deliver`.
+`mail.send`, and so is each delivery of an outgoing webhook, of kind `webhooks.deliver`, and
+the mail of each notification, of kind `notifications.mail`, due once it has waited
+`notifications.mail_delay`, which writes its mail as a `mail.send` job if it is still unread.
 Imports and exports are
 not jobs: the request that asks for one waits for it, within
 [their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
 answer. The hourly cleanup of expired sessions, links and invites, and of webhooks' rotated
 secrets once they stop holding, is not a job but a
-task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
-updated with the page it comes from; see [Content](#content).
+task of the server process: it needs no retries, since the next run catches up. So are the
+notification digests, every five minutes: each run takes the people whose digest is due
+with `FOR UPDATE SKIP LOCKED`, so two runs never write the same one. Nothing else goes through it: edits apply live, and search text is
+updated with the page it comes from; see [Search](#search).
 
 The queue is a Postgres table, `jobs`. Each row has a kind, a JSON payload, a status
 (`queued`, `running`, `done` or `dead`), the time it is next due, how many attempts it has
@@ -209,28 +213,46 @@ shares a person has down each branch.
 Trashing a page sets `trashed_at` on it and on every page under it that is not in the trash
 already, with `trashed_with` naming the page trashed. Restoring brings back the pages with
 the same `trashed_with` down from the restored one, so a subpage trashed on its own earlier
-stays where it is. `page_shares` holds each share, `favorites` each account's favorites with
-keys of their own; both go when their page goes, and when the person leaves the workspace.
+stays where it is. `page_shares` holds each share, `view`, `comment` or `edit`, `favorites`
+each account's favorites with keys of their own; both go when their page goes, and when the
+person leaves the workspace.
+
+## Comments and the inbox
+
+[Comments](/docs/guides/comments-and-mentions/) are rows, not part of the page's document:
+
+| Table | What it holds |
+|---|---|
+| `comment_threads` | Each thread, on its page: for an inline one, the two Yjs relative positions of its range, at most 256 bytes each, and the text it was made on; who resolved it and when. |
+| `comments` | Each comment of a thread, in order, its markdown, its author, and when it was last changed. |
+| `page_follows` | Who follows a page's comments, or chose not to, `follows` true or false, so a choice made by hand holds. |
+| `page_mentions` | Whom a page's text mentions now, each with the first block they are in, as its last snapshot has it. |
+| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
+| `notification_preferences` | How each person who chose wants mail of their inbox, and when their last digest went. |
+
+Each goes with its page, its thread or comment, or its person. A notification is never
+deleted for a page its person can no longer see: whether they may is asked again whenever it
+is listed or counted.
 
 ## Content
 
-Content is stored according to how it is edited. Pages' documents, databases' properties and
-attachments are kept as below; search is **planned**.
+Content is stored according to how it is edited. Pages' documents, their history, databases'
+properties, search and attachments are kept as below.
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
   numbered in order with their authors, and the latest snapshot of the whole document,
   `page_snapshots`, which takes in the updates before it: they are deleted in the same
   transaction. An imported page starts with a snapshot of its content and an empty log.
-  Page history, **planned**, is to be built from the snapshots. What a document
-  holds, and how the server reads it, is in [Page documents](/docs/architecture/documents/);
-  how the live documents log and compact, in [Real-time sync](/docs/architecture/realtime/#saving).
+  What a document holds, and how the server reads it, is in
+  [Page documents](/docs/architecture/documents/); how the live documents log and compact,
+  in [Real-time sync](/docs/architecture/realtime/#saving).
+- **Page history** is a version of the document's blocks each time a snapshot changes what
+  the page shows; see [History](#history).
 - **Database properties**, such as a row's status or assignee, are plain columns and rows,
   so views filter, sort and group them in SQL.
-- **Search** uses Postgres full-text search with the `simple` configuration, which does not
-  stem words and so works the same for any language, together with `pg_trgm` for partial
-  words and typos. A page's search text, `pages.search_text`, is updated in the same
-  transaction that stores its snapshot, so search never waits on the job queue. That text
-  is written already; the search over it is to come.
+- **Search** is Postgres full-text search with the `simple` configuration, which does not
+  stem words and so works the same for any language, together with `pg_trgm` for titles
+  typed loosely; see [Search](#search).
 - **Attachments** are rows of `files`, each with its page, workspace, uploader, kind, name,
   type, size, SHA-256 and an image's width and height, and its bytes in the
   [blob store](/docs/self-hosting/storage/) under `storage_key`, made for it alone. A file
@@ -245,6 +267,77 @@ attachments are kept as below; search is **planned**.
   their rows. [Attachments](/docs/guides/attachments/#when-files-are-deleted) has the rules.
 
 The reasons are in [Key decisions](/docs/architecture/decisions/#content).
+
+## History
+
+`page_versions` holds a page's versions: the document's blocks as BlockNote's JSON, in
+`content`, when the latest change they hold was made, the authors of the updates the snapshot
+took in since the version before, and how many blocks those added, changed and removed. A
+version a restore made names the version restored, while that is kept, and its time, which
+stays once it is thinned out. Versions go with their page.
+
+A version is written in the transaction that saves the snapshot it comes from, after the
+page's text: the transaction reads the latest version's blocks, compares them with the
+snapshot's, and writes nothing when they are the same. So a snapshot and its version commit
+together, or neither does. A page made with content writes its first version in the
+transaction that makes it. The index on the page, the time and the id lists a page's
+history latest first, and lets the hourly cleanup walk the pages a part at a time to thin
+them, as [Page history](/docs/guides/history/#how-long-versions-are-kept) describes.
+
+## Search
+
+Everything search reads is in `pages`, kept up to date by the write it comes from, in the
+same transaction. Nothing goes through the job queue, so search never lags behind a queue,
+and a write that rolls back leaves search as it was.
+
+| Column | Holds | Written |
+|---|---|---|
+| `title` | The page's title. | As the title is saved. |
+| `search_text` | The plain text of the document's blocks. | With each snapshot of the document. |
+| `property_text` | A row's text and URL values, one a line, in the properties' order. | By triggers on `database_rows`, when a row is added or its cells change, and on `database_properties`, when a property's type changes. |
+| `comment_text` | The words of the page's comments, the newest first, one a line, at most 100,000 characters: each comment's `search_text`, its text without styles or link targets, which the server writes with the comment. | By statement triggers on `comments`, when comments are added, changed or deleted, and on `comment_threads`, when threads are deleted with their comments. Each reads only the newest comments whose words fit, their sizes known without reading them. |
+| `search_vector` | A `tsvector` of the four: the title weighted `A`, the values `B`, the text `C`, the comments `D`, at most the first 100,000 characters of each of the last three. The values are read again split at every character but letters and digits, since the parser keeps a URL as one token. | Generated by Postgres from the four, in the statement that writes any of them. |
+
+Two GIN indexes find matches: `pages_search` on `search_vector`, and `pages_title_trigrams`
+on the title's trigrams, for the loose match, `<%`, with a word similarity of at least 0.5.
+`pg_trgm` is a trusted extension, which the migration creates as the database's owner.
+
+The query filters by access in the database, so whoever sees a few pages of a large
+workspace finds them without the database reading every match. The search service first
+asks the [rules](/docs/reference/permissions/#pages), for the caller and for an agent's owner,
+which teamspaces show their pages, whether their own private pages do, and whether shares
+do; the domain's tests prove that these answers, combined, are what the rules answer for
+every page. The query is then a union of one branch per way of seeing a page: the pages of
+those teamspaces, through the index on the teamspace; the private pages, through the index
+on their owner; and the pages under the caller's shares, walked down from the shares. Each
+branch applies the match and the filters, and for an agent its owner's own answers. Each
+search is planned for its values, with `plan_cache_mode` set to `force_custom_plan` in its
+transaction, as one plan for every caller would not tell a guest with three shares from an
+owner of every teamspace. A test seeds a workspace of 20,000 matching pages and checks the
+plan, through `EXPLAIN ANALYZE`, of a guest's search and of an agent's: each reads a few
+dozen rows of `pages`, and never scans the table.
+
+Every page found is asked of the rules again before it is answered, as any page read is;
+should the query and the rules ever differ, the rules win and the server logs the page's id.
+A test searches as every kind of caller and fails on any such log line, so a difference
+shows there rather than as short pages of results.
+Ranking is `ts_rank` of the vector, plus the title's word similarity to the query, plus one
+for a title that is the query's words, however short. Snippets are `ts_headline`, which
+costs more than in proportion to the text it reads, so it reads 5,000 characters of the
+values and the text, from 1,000 before the first place one of the query's words is, and
+only for the results answered, not the one read past them to tell whether more follow.
+
+A search holds a connection of the pool while it runs, so what it may take is bounded: each
+statement of its transaction runs 5 seconds at most, through `statement_timeout`, after
+which it answers `503 timeout`; half the pool's connections at most run searches at once,
+and a search waits 2 seconds for its turn before it answers `503 busy`; and each user's
+searches are rate limited, 60 and then 2 a second.
+
+A server killed before it saved a snapshot leaves updates in `page_updates` that the stored
+text lacks, and a page that never had a snapshot has no text at all. `neon search reindex`
+reads the document of every such page, its snapshot and the updates after it, and stores
+its text when it differs, with the page's row locked, so a snapshot saved at the same
+moment waits and writes its own after.
 
 ## Backups
 

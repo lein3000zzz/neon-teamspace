@@ -255,6 +255,14 @@ from a browser session, so an API token that leaked cannot point the password, o
 links, at another server. Errors carry the relay's answer, never the password, and logs
 name a mail by its kind, never its recipient or link. See [Mail](/docs/self-hosting/mail/).
 
+The link that stops someone's [notification mail](/docs/guides/inbox/#notification-mail)
+works without signing in, so it proves itself: its token is the person's id and an
+HMAC-SHA256 of it, with a key derived from the instance's key for that purpose alone, which
+the server checks in constant time and keeps nothing for. It does one thing, setting their
+mail to none, which they undo in their account; it opens nothing else. The page it opens
+waits for a click, so a scanner that follows links stops nothing. A notification mail says
+only what its person may see when it is written.
+
 ## OAuth
 
 MCP clients and other programs connect through an OAuth 2.1 server, which

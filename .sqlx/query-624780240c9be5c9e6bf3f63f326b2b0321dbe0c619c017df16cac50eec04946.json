@@ -1,0 +1,139 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, workspace_id, page_id, anchor_start, anchor_end, quote, resolved_at,\n                resolved_by, created_by, created_at\n         FROM comment_threads\n         WHERE page_id = $1\n           AND ($2::boolean IS NULL OR (resolved_at IS NOT NULL) = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "anchor_start",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "anchor_start"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "anchor_end",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "anchor_end"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "quote",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "quote"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "resolved_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "resolved_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "resolved_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "resolved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "comment_threads",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "624780240c9be5c9e6bf3f63f326b2b0321dbe0c619c017df16cac50eec04946"
+}

@@ -12,9 +12,13 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::attachments::{AttachmentError, BlobError};
 use neon_app::auth::AuthError;
+use neon_app::comments::CommentError;
 use neon_app::databases::DatabaseError;
+use neon_app::history::HistoryError;
+use neon_app::notifications::InboxError;
 use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
+use neon_app::search::SearchError;
 use neon_app::settings::UpdateError;
 use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
@@ -289,6 +293,48 @@ impl From<PageError> for ApiError {
     }
 }
 
+impl From<CommentError> for ApiError {
+    /// Expected errors answer with their message, which never quotes a comment. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: CommentError) -> Self {
+        let status = match &error {
+            CommentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            CommentError::Forbidden(_) => StatusCode::FORBIDDEN,
+            CommentError::NotFound(_) => StatusCode::NOT_FOUND,
+            CommentError::TooManyThreads
+            | CommentError::TooManyReplies
+            | CommentError::TooManyComments => StatusCode::CONFLICT,
+            CommentError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            CommentError::Database(_) | CommentError::Internal(_) => {
+                tracing::error!(error = %error, "a comment use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let CommentError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<InboxError> for ApiError {
+    /// Expected errors answer with their message. Others are logged with their cause, and
+    /// answer as internal errors.
+    fn from(error: InboxError) -> Self {
+        let status = match &error {
+            InboxError::InvalidInput(_) | InboxError::InvalidToken => StatusCode::BAD_REQUEST,
+            InboxError::Forbidden(_) => StatusCode::FORBIDDEN,
+            InboxError::NotFound(_) => StatusCode::NOT_FOUND,
+            InboxError::Database(_) | InboxError::Internal(_) => {
+                tracing::error!(error = %error, "an inbox use case failed");
+                return Self::internal();
+            }
+        };
+        Self::new(status, error.code(), error.to_string())
+    }
+}
+
 impl From<DatabaseError> for ApiError {
     /// Expected errors answer with their message, which never holds a secret or a value.
     /// Others are logged with their cause, and answer as internal errors.
@@ -350,6 +396,61 @@ impl From<ContentError> for ApiError {
                     _ => StatusCode::BAD_REQUEST,
                 };
                 Self::new(status, other.code(), other.to_string())
+            }
+        }
+    }
+}
+
+impl From<HistoryError> for ApiError {
+    /// Expected errors answer with their message, which never quotes a page. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: HistoryError) -> Self {
+        match error {
+            HistoryError::Page(error) => error.into(),
+            HistoryError::Content(error) => error.into(),
+            HistoryError::NoVersion => {
+                Self::new(StatusCode::NOT_FOUND, error.code(), error.to_string())
+            }
+            HistoryError::InvalidInput(_) => {
+                Self::new(StatusCode::BAD_REQUEST, error.code(), error.to_string())
+            }
+            HistoryError::Database(_) | HistoryError::Internal(_) => {
+                tracing::error!(error = %error, "a history use case failed");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<SearchError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the query. Others are
+    /// logged with their cause, and answer as internal errors.
+    fn from(error: SearchError) -> Self {
+        let (status, retry_after) = match &error {
+            SearchError::Page(_) | SearchError::Database(_) => (None, None),
+            SearchError::Forbidden(_) => (Some(StatusCode::FORBIDDEN), None),
+            SearchError::RateLimited { retry_after } => {
+                (Some(StatusCode::TOO_MANY_REQUESTS), Some(*retry_after))
+            }
+            SearchError::Busy => (
+                Some(StatusCode::SERVICE_UNAVAILABLE),
+                Some(SearchError::BUSY_RETRY),
+            ),
+            SearchError::TimedOut(_) => (Some(StatusCode::SERVICE_UNAVAILABLE), None),
+            SearchError::Query(_) | SearchError::InvalidInput(_) => {
+                (Some(StatusCode::BAD_REQUEST), None)
+            }
+        };
+        match (error, status) {
+            (SearchError::Page(error), _) => error.into(),
+            (expected, Some(status)) => {
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                api.retry_after = retry_after;
+                api
+            }
+            (error, None) => {
+                tracing::error!(error = %error, "a search failed");
+                Self::internal()
             }
         }
     }

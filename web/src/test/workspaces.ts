@@ -177,6 +177,8 @@ type Options = {
   invitations?: SentInvitation[];
   links?: InviteLink[];
   received?: ReceivedInvitation[];
+  /** The members of teamspaces, in place of the ones each starts with. */
+  teamspaceMembers?: Record<string, TeamspaceMember[]>;
   /** The workspace's agents; none unless given. */
   agents?: Agent[];
   /** The apps connected over OAuth that act as its agents; none unless given. */
@@ -216,6 +218,7 @@ export function fakeWorkspaces(options: Options = {}) {
       [TEAMSPACE_IDS.open]: [inTeamspace(people.bob, "owner")],
       [TEAMSPACE_IDS.closed]: [inTeamspace(people.bob, "owner")],
       [TEAMSPACE_IDS.private]: [inTeamspace(people.ada, "owner")],
+      ...options.teamspaceMembers,
     } as Record<string, TeamspaceMember[]>,
     invitations: options.invitations ?? [],
     links: options.links ?? [],
@@ -621,6 +624,33 @@ export function fakeWorkspaces(options: Options = {}) {
         return noContent();
       }),
     ),
+    // An agent is in the default teamspace, and in the others whose members list it; Ada
+    // takes it out of those she owns, or of any but the default one while she manages
+    // the workspace.
+    http.get(`${base}/agents/:agent_id/teamspaces`, ({ params }) => {
+      const agent = state.agents.find((entry) => entry.id === params["agent_id"]);
+      if (agent === undefined || role === "guest") {
+        return apiError(404, "not_found", "no such agent");
+      }
+      const live = agent.kind === "agent" && agent.status !== "deleted";
+      const theirs = state.teamspaces.filter((entry) =>
+        entry.access === "default"
+          ? live
+          : (state.teamspaceMembers[entry.id] ?? []).some((inIt) => inIt.user.id === agent.id),
+      );
+      return HttpResponse.json({
+        teamspaces: theirs.map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          icon: entry.icon,
+          hue: entry.hue,
+          access: entry.access,
+          removable:
+            entry.access !== "default" &&
+            (role === "owner" || role === "admin" || entry.role === "owner"),
+        })),
+      });
+    }),
     http.get(`${base}/agents/:agent_id/tokens`, ({ params }) =>
       HttpResponse.json({ tokens: state.agentTokens[String(params["agent_id"])] ?? [] }),
     ),

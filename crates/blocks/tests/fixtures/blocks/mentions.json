@@ -1,0 +1,57 @@
+[
+  {
+    "type": "paragraph",
+    "content": [
+      { "type": "text", "text": "Ask ", "styles": {} },
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } },
+      { "type": "text", "text": " ", "styles": {} },
+      { "type": "text", "text": "about", "styles": { "bold": true } },
+      { "type": "text", "text": " ", "styles": {} },
+      { "type": "mention", "props": { "kind": "page", "target": "0193a5b2-0000-7000-8000-0000000000b1", "label": "The [draft] *plan*" } },
+      { "type": "text", "text": ".", "styles": {} }
+    ]
+  },
+  {
+    "type": "paragraph",
+    "content": [
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a2", "label": "Scout" } },
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } },
+      { "type": "text", "text": "\nafter a break, then a mention in a link's place: @", "styles": {} },
+      {
+        "type": "link",
+        "href": "user:0193a5b2-0000-7000-8000-0000000000a3",
+        "content": [{ "type": "text", "text": "not a mention", "styles": {} }]
+      },
+      { "type": "text", "text": " and ", "styles": {} },
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a3", "label": "Bea" } },
+      { "type": "text", "text": "\n", "styles": {} }
+    ]
+  },
+  {
+    "type": "heading",
+    "props": { "level": 2 },
+    "content": [
+      { "type": "text", "text": "For ", "styles": {} },
+      { "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } }
+    ]
+  },
+  {
+    "type": "bulletListItem",
+    "content": [{ "type": "mention", "props": { "kind": "page", "target": "0193a5b2-0000-7000-8000-0000000000b2", "label": "" } }]
+  },
+  {
+    "type": "table",
+    "content": {
+      "type": "tableContent",
+      "rows": [
+        { "cells": [[{ "type": "text", "text": "Owner", "styles": {} }], [{ "type": "text", "text": "Page", "styles": {} }]] },
+        {
+          "cells": [
+            [{ "type": "mention", "props": { "kind": "user", "target": "0193a5b2-0000-7000-8000-0000000000a1", "label": "Ada" } }],
+            [{ "type": "mention", "props": { "kind": "page", "target": "0193a5b2-0000-7000-8000-0000000000b1", "label": "Plan" } }]
+          ]
+        }
+      ]
+    }
+  }
+]

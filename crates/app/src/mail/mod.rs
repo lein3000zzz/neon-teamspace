@@ -92,6 +92,29 @@ pub enum Message {
     JoinRequested { requester: String, note: String },
     /// A test, sent by an admin to see whether mail goes through.
     Test { sent_by: String },
+    /// Something an inbox tells of, while it is unread, for those who want a mail for each.
+    /// `unsubscribe` is the token of the link that stops these mails.
+    Notification { notice: Notice, unsubscribe: Secret },
+    /// What came to an inbox since the last digest and is still unread, at most
+    /// [`MAX_DIGEST`](neon_domain::notifications::MAX_DIGEST) of it, and how many more;
+    /// `path` opens the inbox.
+    Digest {
+        notices: Vec<Notice>,
+        more: usize,
+        path: String,
+        unsubscribe: Secret,
+    },
+}
+
+/// One thing an inbox tells of, as notification mail says it: what happened, the comment
+/// it is about, and where it opens in the app, a path on the public URL. Only what its
+/// person may see goes in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    /// A short sentence: "Ada mentioned you on Roadmap".
+    pub summary: String,
+    pub excerpt: Option<String>,
+    pub path: String,
 }
 
 impl Message {
@@ -106,6 +129,8 @@ impl Message {
             Self::JoinDenied { .. } => "join_denied",
             Self::JoinRequested { .. } => "join_requested",
             Self::Test { .. } => "test",
+            Self::Notification { .. } => "notification",
+            Self::Digest { .. } => "digest",
         }
     }
 
@@ -120,7 +145,9 @@ impl Message {
             Self::PasswordChanged { .. }
             | Self::JoinDenied { .. }
             | Self::JoinRequested { .. }
-            | Self::Test { .. } => None,
+            | Self::Test { .. }
+            | Self::Notification { .. }
+            | Self::Digest { .. } => None,
         }
     }
 }
@@ -133,6 +160,9 @@ pub struct Outgoing {
     pub subject: String,
     pub text: String,
     pub html: String,
+    /// The link that stops mail of this kind, for the `List-Unsubscribe` headers: an
+    /// address a mail client posts to, as RFC 8058 has it, which needs no sign-in.
+    pub unsubscribe: Option<String>,
 }
 
 impl fmt::Debug for Outgoing {
@@ -188,6 +218,7 @@ mod tests {
             subject: "Grace invited you".into(),
             text: "https://neon.example.com/register?invite=inv_hunter2".into(),
             html: "<a href=\"https://neon.example.com/register?invite=inv_hunter2\">".into(),
+            unsubscribe: Some("https://neon.example.com/api/v1/unsubscribe?token=hunter2".into()),
         };
 
         let shown = format!("{mail:?} {outgoing:?}");

@@ -260,6 +260,7 @@ fn all_actions() -> Vec<Action> {
         Action::EditPage,
         Action::ChangePageSpace,
         Action::TrashPage,
+        Action::CommentPage,
         Action::RestorePage,
         Action::DeletePage,
         Action::ListShares,
@@ -353,6 +354,7 @@ fn kind(action: Action) -> Kind {
         | Action::EditPage
         | Action::ChangePageSpace
         | Action::TrashPage
+        | Action::CommentPage
         | Action::RestorePage
         | Action::DeletePage
         | Action::ListShares
@@ -596,6 +598,7 @@ fn tables() -> Vec<(Action, &'static str)> {
         (Action::EditPage, EDIT_PAGE),
         (Action::ChangePageSpace, CHANGE_SPACE),
         (Action::TrashPage, EDIT_PAGE),
+        (Action::CommentPage, COMMENT_PAGE),
         (Action::RestorePage, FROM_THE_TRASH),
         (Action::DeletePage, FROM_THE_TRASH),
         (Action::ListShares, LIST_SHARES),
@@ -839,8 +842,13 @@ const NEVER_DEFAULT: &str = "
     private owner  f f f h
 ";
 
-/// Every share a page may have for the actor: none, to view, to edit.
-const SHARES: [Option<PageAccess>; 3] = [None, Some(PageAccess::View), Some(PageAccess::Edit)];
+/// Every share a page may have for the actor: none, to view, to comment, to edit.
+const SHARES: [Option<PageAccess>; 4] = [
+    None,
+    Some(PageAccess::View),
+    Some(PageAccess::Comment),
+    Some(PageAccess::Edit),
+];
 
 /// Every space pages are in: a teamspace of each access, the actor outside it, a member or
 /// an owner of it, then the actor's own private pages and another member's.
@@ -914,7 +922,7 @@ fn pages_table(action: Action, table: &str) {
 }
 
 /// Rows by what the actor's role gets of the page's space before shares, what the page or
-/// one above it is shared with them for, `none`, `view` or `edit` each, and `live` or
+/// one above it is shared with them for, `none`, `view`, `comment` or `edit` each, and `live` or
 /// `trashed`, then one outcome for every role: for actions that the space's own access
 /// decides, whatever is shared. Checked on every space with every share, for each role
 /// with what the space gives it.
@@ -922,8 +930,9 @@ fn by_space_table(action: Action, table: &str) {
     let access = |cell: &str| match cell {
         "none" => None,
         "view" => Some(PageAccess::View),
+        "comment" => Some(PageAccess::Comment),
         "edit" => Some(PageAccess::Edit),
-        other => panic!("an access is none, view or edit: {other:?}"),
+        other => panic!("an access is none, view, comment or edit: {other:?}"),
     };
     let mut outcomes = std::collections::HashMap::new();
     for row in rows(table) {
@@ -941,7 +950,7 @@ fn by_space_table(action: Action, table: &str) {
     }
     assert_eq!(
         outcomes.len(),
-        18,
+        24,
         "a row for every access, share and state"
     );
     let mut used = std::collections::HashSet::new();
@@ -993,8 +1002,9 @@ fn space_access_table() -> Vec<(PageSpace, [Option<PageAccess>; 4])> {
         .collect()
 }
 
-/// Rows `none`, `view` and `edit`, the access the actor ends up with, each `live` and
-/// `trashed`: what each role gets on a page. Checked on every space with every share.
+/// Rows `none`, `view`, `comment` and `edit`, the access the actor ends up with, each
+/// `live` and `trashed`: what each role gets on a page. Checked on every space with every
+/// share.
 fn page_table(action: Action, table: &str) {
     let rows = rows(table);
     let labels: Vec<String> = rows
@@ -1008,6 +1018,8 @@ fn page_table(action: Action, table: &str) {
             "none trashed",
             "view live",
             "view trashed",
+            "comment live",
+            "comment trashed",
             "edit live",
             "edit trashed"
         ],
@@ -1017,7 +1029,8 @@ fn page_table(action: Action, table: &str) {
         let index = match access {
             None => 0,
             Some(PageAccess::View) => 2,
-            Some(PageAccess::Edit) => 4,
+            Some(PageAccess::Comment) => 4,
+            Some(PageAccess::Edit) => 6,
         } + usize::from(trashed);
         expected(&rows[index][2..])
     };
@@ -1104,77 +1117,105 @@ const CREATE_PAGE: &str = "
 
 /// Any access shows a live page; only edit access a trashed one.
 const VIEW_PAGE: &str = "
-    none live    h h h h
-    none trashed h h h h
-    view live    y y y y
-    view trashed h h h h
-    edit live    y y y y
-    edit trashed y y y y
+    none live       h h h h
+    none trashed    h h h h
+    view live       y y y y
+    view trashed    h h h h
+    comment live    y y y y
+    comment trashed h h h h
+    edit live       y y y y
+    edit trashed    y y y y
 ";
 
 /// Editing, trashing, adding subpages and moving: with edit access, out of the trash.
 const EDIT_PAGE: &str = "
-    none live    h h h h
-    none trashed h h h h
-    view live    f f f f
-    view trashed h h h h
-    edit live    y y y y
-    edit trashed f f f f
+    none live       h h h h
+    none trashed    h h h h
+    view live       f f f f
+    view trashed    h h h h
+    comment live    f f f f
+    comment trashed h h h h
+    edit live       y y y y
+    edit trashed    f f f f
+";
+
+/// Commenting: with comment or edit access, out of the trash, guests too.
+const COMMENT_PAGE: &str = "
+    none live       h h h h
+    none trashed    h h h h
+    view live       f f f f
+    view trashed    h h h h
+    comment live    y y y y
+    comment trashed h h h h
+    edit live       y y y y
+    edit trashed    f f f f
 ";
 
 /// Moving a page to another teamspace or to private pages: for those its space lets edit
 /// it, out of the trash. A share to edit moves it only within its space, which shares to
-/// view do not.
+/// view or comment do not.
 const CHANGE_SPACE: &str = "
-    none none live    h
-    none none trashed h
-    none view live    f
-    none view trashed h
-    none edit live    f
-    none edit trashed f
-    view none live    f
-    view none trashed h
-    view view live    f
-    view view trashed h
-    view edit live    f
-    view edit trashed f
-    edit none live    y
-    edit none trashed f
-    edit view live    y
-    edit view trashed f
-    edit edit live    y
-    edit edit trashed f
+    none none live       h
+    none none trashed    h
+    none view live       f
+    none view trashed    h
+    none comment live    f
+    none comment trashed h
+    none edit live       f
+    none edit trashed    f
+    view none live       f
+    view none trashed    h
+    view view live       f
+    view view trashed    h
+    view comment live    f
+    view comment trashed h
+    view edit live       f
+    view edit trashed    f
+    edit none live       y
+    edit none trashed    f
+    edit view live       y
+    edit view trashed    f
+    edit comment live    y
+    edit comment trashed f
+    edit edit live       y
+    edit edit trashed    f
 ";
 
 /// Restoring and deleting for good: a page in the trash, by those who could edit it.
 const FROM_THE_TRASH: &str = "
-    none live    h h h h
-    none trashed h h h h
-    view live    f f f f
-    view trashed h h h h
-    edit live    f f f f
-    edit trashed y y y y
+    none live       h h h h
+    none trashed    h h h h
+    view live       f f f f
+    view trashed    h h h h
+    comment live    f f f f
+    comment trashed h h h h
+    edit live       f f f f
+    edit trashed    y y y y
 ";
 
 /// Who a page is shared with: for everyone who sees it but guests, who know no other
 /// member.
 const LIST_SHARES: &str = "
-    none live    h h h h
-    none trashed h h h h
-    view live    y y y f
-    view trashed h h h h
-    edit live    y y y f
-    edit trashed y y y f
+    none live       h h h h
+    none trashed    h h h h
+    view live       y y y f
+    view trashed    h h h h
+    comment live    y y y f
+    comment trashed h h h h
+    edit live       y y y f
+    edit trashed    y y y f
 ";
 
 /// Sharing a page: for its editors but guests, out of the trash.
 const SHARE_PAGE: &str = "
-    none live    h h h h
-    none trashed h h h h
-    view live    f f f f
-    view trashed h h h h
-    edit live    y y y f
-    edit trashed f f f f
+    none live       h h h h
+    none trashed    h h h h
+    view live       f f f f
+    view trashed    h h h h
+    comment live    f f f f
+    comment trashed h h h h
+    edit live       y y y f
+    edit trashed    f f f f
 ";
 
 /// Rows by whether agents are on, on the instance and in the workspace, and who makes them
@@ -1325,7 +1366,7 @@ fn every_action_has_exactly_one_table() {
         .filter(|action| kind(**action) != Kind::Instance)
         .count();
 
-    assert_eq!(actions.len(), 67, "every action and parameter is listed");
+    assert_eq!(actions.len(), 68, "every action and parameter is listed");
     assert_eq!(tables.len(), workspace_and_below);
     for action in actions.iter().filter(|a| kind(**a) != Kind::Instance) {
         let found = tables.iter().filter(|(a, _)| a == action).count();

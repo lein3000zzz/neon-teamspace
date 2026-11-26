@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod api_tokens;
+pub mod comments;
 pub mod databases;
 pub mod documents;
 pub mod email_tokens;
@@ -15,14 +16,17 @@ pub mod incoming_webhooks;
 pub mod invites;
 pub mod jobs;
 pub mod join_requests;
+pub mod notifications;
 pub mod oauth;
 pub mod page_shares;
 pub mod pages;
 mod pool;
+pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod teamspaces;
 pub mod users;
+pub mod versions;
 pub mod webhooks;
 pub mod workspace_invites;
 pub mod workspaces;
