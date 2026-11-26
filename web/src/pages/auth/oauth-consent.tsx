@@ -276,7 +276,7 @@ function ConsentForm({ request, consent }: { request: AuthorizationParams; conse
               />
             ))}
           <p id={`${actAsId}-note`} className="text-xs text-muted-foreground empty:hidden">
-            {option.agents_on ? (option.agents.length === 0 ? copy.noAgents : "") : copy.agentsOff}
+            {agentsNote(option)}
           </p>
         </fieldset>
       )}
@@ -313,6 +313,14 @@ function ConsentForm({ request, consent }: { request: AuthorizationParams; conse
       </div>
     </AuthCard>
   );
+}
+
+/** What the identities of a workspace leave to say: why no agent is offered, if none is. */
+function agentsNote(option: ConsentOption): string {
+  if (option.agents_on) {
+    return option.agents.length === 0 ? copy.noAgents : "";
+  }
+  return option.role === "guest" ? copy.agentsGuest : copy.agentsOff;
 }
 
 /** One identity to act as, a radio with its label and hint. */

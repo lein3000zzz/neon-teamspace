@@ -170,8 +170,22 @@ describe("the consent page", () => {
     expect(page.getByRole("radio", { name: "Me, Ada" })).toBeChecked();
     expect(page.queryByRole("radio", { name: "Scout, my agent" })).toBeNull();
     expect(
-      page.getByText("Acting as an agent is turned off in this workspace."),
+      page.getByText(
+        "Acting as an agent is turned off, in this workspace or on the whole instance.",
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("tells a guest that guests own no agents, rather than that agents are off", async () => {
+    fakeConsent(consentOf([option({ role: "guest", agents_on: false, agents: [] })]));
+    renderApp(consentPath);
+
+    const page = await card();
+    expect(page.getByRole("radio", { name: "Me, Ada" })).toBeChecked();
+    expect(
+      page.getByText("Guests own no agents, so here the app can act only as you."),
+    ).toBeInTheDocument();
+    expect(page.queryByText(/turned off/)).toBeNull();
   });
 
   it("says when the person has no agent that works", async () => {
