@@ -1145,3 +1145,105 @@ async fn an_agent_handed_on_tells_its_former_owner_nothing_more(pool: PgPool) {
     assert_eq!(received[0].path, "/bob");
     assert!(log_of(&t.dee, ws, &cy_hook).await.is_empty());
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn webhooks_are_capped_per_identity_and_per_workspace(pool: PgPool) {
+    use neon_app::webhooks::{MAX_PER_IDENTITY, MAX_PER_WORKSPACE};
+
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let (bob, cy, dee) = (me(&t.bob).await, me(&t.cy).await, me(&t.dee).await);
+    let url = "http://127.0.0.1:9/hook";
+    let events = json!(["row.assigned"]);
+    for _ in 0..MAX_PER_IDENTITY {
+        let made = register(&t.cy, ws, &cy, url, events.clone()).await;
+        assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    }
+
+    let refused = register(&t.cy, ws, &cy, url, events.clone()).await;
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::CONFLICT, "webhook_limit"),
+        "{}",
+        refused.body
+    );
+    assert!(
+        refused.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.starts_with("this identity has 10 webhooks")),
+        "{}",
+        refused.body
+    );
+    // One change concerns each identity's webhooks, no more.
+    let (db, _) = tasks(&t.ada, ws).await;
+    row(&t.ada, &db, json!({"Name": "Fan out", "Assignee": [cy]})).await;
+    assert_eq!(queued(&pool).await, MAX_PER_IDENTITY);
+
+    // The workspace's own limit: dee's, filled in directly, take what is left of it.
+    let workspace = uuid::Uuid::try_parse(ws).expect("an id");
+    let held: i64 = sqlx::query_scalar("SELECT count(*) FROM webhooks WHERE workspace_id = $1")
+        .bind(workspace)
+        .fetch_one(&pool)
+        .await
+        .expect("counted");
+    sqlx::query(
+        "INSERT INTO webhooks (id, workspace_id, user_id, url, events, secret, created_at,
+                               updated_at)
+         SELECT gen_random_uuid(), w.workspace_id, $2, w.url, w.events, w.secret, now(), now()
+         FROM webhooks w, generate_series(1, $3)
+         WHERE w.workspace_id = $1 AND w.user_id <> $2
+         LIMIT $3",
+    )
+    .bind(workspace)
+    .bind(uuid::Uuid::try_parse(&dee).expect("an id"))
+    .bind(MAX_PER_WORKSPACE - held)
+    .execute(&pool)
+    .await
+    .expect("filled in");
+    let full = register(&t.bob, ws, &bob, url, events.clone()).await;
+    assert_eq!(
+        (full.status, full.code()),
+        (StatusCode::CONFLICT, "webhook_limit"),
+        "{}",
+        full.body
+    );
+    assert!(
+        full.body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.starts_with("this workspace has 200 webhooks")),
+        "{}",
+        full.body
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn test_events_are_held_to_a_rate(pool: PgPool) {
+    let state = delivering(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let receiver = Receiver::start().await;
+    let dee = me(&t.dee).await;
+    let (hook, _) = webhook(&t.dee, ws, &dee, &receiver.url("/hook")).await;
+    let test = format!("/api/v1/workspaces/{ws}/webhooks/{hook}/test");
+    for _ in 0..10 {
+        let sent = t.dee.post(&test, json!({})).await;
+        assert_eq!(sent.status, StatusCode::OK, "{}", sent.body);
+    }
+
+    let limited = t.dee.post(&test, json!({})).await;
+
+    assert_eq!(
+        (limited.status, limited.code()),
+        (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+        "{}",
+        limited.body
+    );
+    assert!(limited.headers.contains_key("retry-after"));
+    assert_eq!(receiver.received().len(), 10);
+    // Each person is counted on their own.
+    let by_admin = t.ada.post(&test, json!({})).await;
+    assert_eq!(by_admin.status, StatusCode::OK, "{}", by_admin.body);
+}

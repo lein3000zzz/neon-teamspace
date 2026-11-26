@@ -32,6 +32,11 @@ pub enum WebhookError {
     NoSecretKey,
     #[error("this workspace has reached its limit of {limit} agents and integrations")]
     AgentLimit { limit: u64 },
+    /// An identity or a workspace with as many webhooks as it may have.
+    #[error("{whose} has {limit} webhooks, the most it may have: delete one first")]
+    WebhookLimit { whose: &'static str, limit: i64 },
+    #[error("too many test events: try again in {}", duration::format(*retry_after))]
+    RateLimited { retry_after: Duration },
     /// Turning on a webhook whose URL was set by someone who may no longer register it.
     #[error("{0}: set its URL again to turn it on")]
     SetterLapsed(String),
@@ -52,6 +57,8 @@ impl WebhookError {
             Self::Forbidden(_) => "forbidden",
             Self::NoSecretKey => "no_secret_key",
             Self::AgentLimit { .. } => "agent_limit",
+            Self::WebhookLimit { .. } => "webhook_limit",
+            Self::RateLimited { .. } => "rate_limited",
             Self::SetterLapsed(_) => "url_setter_lapsed",
             Self::Database(_) | Self::Internal(_) => "internal",
         }

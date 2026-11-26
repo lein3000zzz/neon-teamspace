@@ -1,7 +1,8 @@
 //! The [`WebhookTransport`] port over HTTP/1.1, with hyper on rustls.
 //!
-//! Each call resolves the URL's host once, through a [`Resolve`], and checks every address
-//! it gets with the address filter; any one refused refuses the call. It then connects to
+//! Each call resolves the URL's host once, through a [`Resolve`], within
+//! [`CONNECT_TIMEOUT`], and checks every address it gets with the address filter; any one
+//! refused refuses the call. It then connects to
 //! the first address that answers, through a [`Dial`], so the connection goes to an address
 //! that was checked and never to one a second lookup might bring. `https` URLs speak TLS
 //! 1.2 or later, checked against the bundled web PKI roots, with the URL's host as the name
@@ -112,7 +113,8 @@ impl HttpTransport {
         self
     }
 
-    /// The addresses a URL's host stands for, resolved once, every one checked.
+    /// The addresses a URL's host stands for, resolved once within the time connecting may
+    /// take, every one checked.
     async fn addresses(
         &self,
         url: &Url,
@@ -123,9 +125,10 @@ impl HttpTransport {
             Some(ip) => vec![SocketAddr::new(ip, port)],
             None => {
                 let host = url.host_str().ok_or(SendError::Unresolvable)?;
-                self.resolver
-                    .resolve(host, port)
+                // A name that takes longer than connecting may does not resolve.
+                tokio::time::timeout(self.connect_timeout, self.resolver.resolve(host, port))
                     .await
+                    .map_err(|_| SendError::Unresolvable)?
                     .map_err(|_| SendError::Unresolvable)?
             }
         };

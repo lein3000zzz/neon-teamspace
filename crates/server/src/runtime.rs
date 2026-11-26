@@ -35,7 +35,7 @@ use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
-use neon_app::webhooks::{DeliveryJob, Services, WebhookService};
+use neon_app::webhooks::{DELIVERY_SLOTS, DeliveryJob, Services, WebhookService};
 use neon_app::workspaces::{AgentService, Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
 use neon_domain::duration;
@@ -297,7 +297,12 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
     let mailer = SmtpMailer::new(Arc::clone(&settings), public_url);
-    let worker = Worker::new(pool.clone(), WorkerConfig::default())
+    // Deliveries take slots of their own, at most DELIVERY_SLOTS, beside mail's.
+    let jobs = WorkerConfig {
+        concurrency: WorkerConfig::default().concurrency + DELIVERY_SLOTS,
+        ..WorkerConfig::default()
+    };
+    let worker = Worker::new(pool.clone(), jobs)
         .handler(MailJob::new(mail, Arc::new(mailer)))
         .handler(DeliveryJob::new(webhooks.clone()))
         .span(jobs::run_span)

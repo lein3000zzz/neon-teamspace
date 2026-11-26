@@ -283,7 +283,7 @@ pub struct CreateWebhook {
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: not for this identity; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace or member.", body = ErrorBody),
-        (status = CONFLICT, description = "no_secret_key: secrets.keys is not set.", body = ErrorBody),
+        (status = CONFLICT, description = "no_secret_key: secrets.keys is not set; or webhook_limit: the identity has 10 webhooks, or the workspace 200.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -533,6 +533,7 @@ pub(super) async fn webhook_deliveries(
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many test events from this person; see Retry-After.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

@@ -282,6 +282,29 @@ async fn a_receiver_that_never_answers_times_out() {
     silent.abort();
 }
 
+/// Never answers, as a resolver whose name server is a tarpit.
+struct StalledResolver;
+
+#[async_trait]
+impl Resolve for StalledResolver {
+    async fn resolve(&self, _host: &str, _port: u16) -> io::Result<Vec<SocketAddr>> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_name_that_never_resolves_is_given_up_on_in_time() {
+    let transport = HttpTransport::new(Arc::new(StalledResolver), Arc::new(SystemDialer))
+        .timeouts(Duration::from_millis(200), Duration::from_secs(60));
+    let url = Url::parse("https://hooks.example.com/hook").expect("a URL");
+
+    let checked = tokio::time::timeout(Duration::from_secs(30), transport.check(&url, false))
+        .await
+        .expect("the check ends");
+
+    assert_eq!(checked, Err(SendError::Unresolvable));
+}
+
 #[tokio::test]
 async fn a_closed_port_fails_to_connect() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");

@@ -152,6 +152,7 @@ attempts, then one more every 30 seconds:
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
 | `hook-in:ip:` | Requests to incoming webhooks from one IP, before their URL is looked up: 120, then two a second. |
 | `hook-in:hook:` | Requests to one incoming webhook, from anyone: 60, then one a second. |
+| `webhook-test:user:` | Test events sent to outgoing webhooks, by user. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -223,7 +224,10 @@ one is refused, and connects to an address it checked, without resolving again: 
 rebinding cannot swap in another address between the check and the connection. IPv4 hosts
 in every form a browser reads, and IPv6 addresses that carry an IPv4 one, are checked as the
 address they are. Redirects are never followed. Connecting may take 5 seconds, the whole
-exchange 10, and at most 64 KiB of an answer is read. Private ranges open only with
+exchange 10, and at most 64 KiB of an answer is read; resolving a host may take 5 seconds,
+at registration too. An identity has at most 10 webhooks and a workspace 200, so a change
+fans out to a bounded number of deliveries, which run in slots of their own in the job
+worker, never in mail's. Private ranges open only with
 `webhooks.allow_private`, which changes only from a browser session; metadata services and
 reserved ranges never do.
 

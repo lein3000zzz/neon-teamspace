@@ -17,9 +17,12 @@
 //! - **Secrets.** The server makes each webhook's signing secret, shows it once, and keeps
 //!   it sealed with the instance's key. Rotating it makes a new one; the old one signs
 //!   deliveries beside it for [`ROTATION_OVERLAP`], so receivers can move over.
+//! - **Limits.** An identity has at most [`MAX_PER_IDENTITY`] webhooks, a workspace at most
+//!   [`MAX_PER_WORKSPACE`], so one change makes a bounded number of deliveries; and each
+//!   person sends test events at the rate of the standard bucket.
 //! - **Events** are queued with the change that makes them, on its transaction: see
 //!   [`events`]. Each delivery is a job of [`DELIVERY_KIND`], tried up to [`MAX_ATTEMPTS`]
-//!   times with the job queue's backoff. Before each attempt, the identity and whoever set
+//!   times with the job queue's backoff, at most [`DELIVERY_SLOTS`] at once. Before each attempt, the identity and whoever set
 //!   the URL must still see the row, as the rules say then; a delivery that either no longer
 //!   does, or whose webhook is off, is skipped. After [`DISABLE_AFTER`] deliveries in a row are given up
 //!   on, the webhook turns itself off, saying why.
@@ -87,6 +90,16 @@ pub const MAX_ATTEMPTS: i32 = 12;
 
 /// How many deliveries in a row may be given up on before the webhook turns itself off.
 pub const DISABLE_AFTER: i32 = 5;
+
+/// The most deliveries a job worker runs at once. The server's worker has this many slots
+/// more than it had before webhooks, so its other jobs keep theirs.
+pub const DELIVERY_SLOTS: usize = 4;
+
+/// The most outgoing webhooks one identity has.
+pub const MAX_PER_IDENTITY: i64 = 10;
+
+/// The most outgoing webhooks one workspace has.
+pub const MAX_PER_WORKSPACE: i64 = 200;
 
 /// How long a rotated secret still signs deliveries beside the new one, and verifies an
 /// incoming webhook's requests.

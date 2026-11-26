@@ -9,16 +9,18 @@ use neon_store::webhooks::{self as repo, Attempt, Listed, Webhook};
 use neon_store::{users, workspaces};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 use uuid::Uuid;
 
 use super::signature::SECRET_PREFIX;
 use super::transport::SendError;
 use super::{
-    NO_WEBHOOK, ROTATION_OVERLAP, WebhookError, WebhookService, Whose, aad, check, known_events,
+    MAX_PER_IDENTITY, MAX_PER_WORKSPACE, NO_WEBHOOK, ROTATION_OVERLAP, WebhookError,
+    WebhookService, Whose, aad, check, known_events,
 };
 use crate::crypto::new_secret;
+use crate::ratelimit::Bucket;
 use crate::standing::Standing;
 
 const NO_MEMBER: &str = "no such member";
@@ -300,9 +302,9 @@ impl WebhookService {
 
     /// Registers a webhook that delivers an identity's events, for those the rules let:
     /// the workspace's owners and admins for anyone in it, everyone else but guests for
-    /// themselves and their own agents and integrations. Its URL must resolve to addresses
-    /// webhooks may reach. Its signing secret is made here and returned once; it is kept
-    /// sealed.
+    /// themselves and their own agents and integrations, up to [`MAX_PER_IDENTITY`] for an
+    /// identity and [`MAX_PER_WORKSPACE`] in all. Its URL must resolve to addresses webhooks
+    /// may reach. Its signing secret is made here and returned once; it is kept sealed.
     pub async fn create_webhook(
         &self,
         principal: &Principal,
@@ -359,6 +361,23 @@ impl WebhookService {
                 updated_at: now,
             };
             let mut tx = self.pool().begin().await?;
+            // The workspace's lock keeps its count as read until this one is in.
+            workspaces::lock(&mut *tx, workspace_id)
+                .await?
+                .ok_or(WebhookError::NotFound(super::NO_WORKSPACE))?;
+            let (all, theirs) = repo::counts(&mut *tx, workspace_id, new.user_id).await?;
+            if theirs >= MAX_PER_IDENTITY {
+                return Err(WebhookError::WebhookLimit {
+                    whose: "this identity",
+                    limit: MAX_PER_IDENTITY,
+                });
+            }
+            if all >= MAX_PER_WORKSPACE {
+                return Err(WebhookError::WebhookLimit {
+                    whose: "this workspace",
+                    limit: MAX_PER_WORKSPACE,
+                });
+            }
             // The identity must still be in the workspace, as the membership's key holds.
             repo::insert(&mut *tx, &webhook).await.map_err(|error| {
                 if is_foreign_key_violation(&error) {
@@ -576,7 +595,7 @@ impl WebhookService {
 
     /// Sends a test event to a webhook now, on or off, signed as deliveries are, and says
     /// how it went; its log keeps the attempt. It is not retried, and counts for nothing
-    /// toward turning the webhook off.
+    /// toward turning the webhook off. Each person sends test events at the standard rate.
     pub async fn test_webhook(
         &self,
         principal: &Principal,
@@ -589,6 +608,16 @@ impl WebhookService {
                 self.manageable(&mut conn, principal, workspace_id, id)
                     .await?
             };
+            self.inner
+                .limiter
+                .check(Bucket::WebhookTest, &principal.user.id.to_string())
+                .await
+                .map_err(|limited| {
+                    warn!(bucket = Bucket::WebhookTest.prefix(), "rate limited");
+                    WebhookError::RateLimited {
+                        retry_after: limited.retry_after,
+                    }
+                })?;
             let attempt = self.send_test(&listed).await?;
             info!(
                 user_id = %principal.user.id,

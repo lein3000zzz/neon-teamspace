@@ -49,7 +49,9 @@ use super::events::{Choice, Delivery, Event, status_property};
 use super::outgoing::{DeliveryAttempt, url_setter};
 use super::signature::{self, SIGNATURE_HEADER, TIMESTAMP_HEADER};
 use super::transport::{Answer, Outgoing, SendError};
-use super::{DELIVERY_KIND, DISABLE_AFTER, WebhookError, WebhookService, Whose, aad};
+use super::{
+    DELIVERY_KIND, DELIVERY_SLOTS, DISABLE_AFTER, WebhookError, WebhookService, Whose, aad,
+};
 use crate::jobs::{Handler, JobError};
 use crate::pages::{Context, PageError};
 
@@ -60,7 +62,8 @@ pub const DELIVERY_HEADER: &str = "Neon-Webhook-Delivery";
 
 /// Runs the deliveries of webhooks: one attempt per run, as the module docs say. A run that
 /// fails is retried by the queue; its jobs are not kept once they finish, the webhook's log
-/// keeping what matters of them.
+/// keeping what matters of them. At most [`DELIVERY_SLOTS`] run at once in a worker, so the
+/// worker's other jobs, mail among them, never wait behind deliveries to slow receivers.
 pub struct DeliveryJob {
     service: WebhookService,
 }
@@ -79,6 +82,10 @@ impl Handler for DeliveryJob {
 
     fn keeps_finished(&self) -> bool {
         false
+    }
+
+    fn max_running(&self) -> Option<usize> {
+        Some(DELIVERY_SLOTS)
     }
 
     async fn run(&self, job: &Job) -> Result<(), JobError> {

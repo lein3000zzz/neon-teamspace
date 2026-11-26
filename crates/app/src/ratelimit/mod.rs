@@ -1,6 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, and the requests incoming webhooks take.
+//! pages, webhooks' test events, and the requests incoming webhooks take.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -83,10 +83,12 @@ pub enum Bucket {
     IncomingClient,
     /// Requests to one incoming webhook, by webhook.
     IncomingHook,
+    /// Test events sent to outgoing webhooks, by user: each is a request to a URL.
+    WebhookTest,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -103,6 +105,7 @@ impl Bucket {
         Self::PageExport,
         Self::IncomingClient,
         Self::IncomingHook,
+        Self::WebhookTest,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -124,6 +127,7 @@ impl Bucket {
             Self::PageExport => "page-export:user:",
             Self::IncomingClient => "hook-in:ip:",
             Self::IncomingHook => "hook-in:hook:",
+            Self::WebhookTest => "webhook-test:user:",
         }
     }
 

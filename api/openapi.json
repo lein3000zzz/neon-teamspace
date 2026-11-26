@@ -12008,7 +12008,7 @@
             }
           },
           "409": {
-            "description": "no_secret_key: secrets.keys is not set.",
+            "description": "no_secret_key: secrets.keys is not set; or webhook_limit: the identity has 10 webhooks, or the workspace 200.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12589,6 +12589,16 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many test events from this person; see Retry-After.",
             "content": {
               "application/json": {
                 "schema": {

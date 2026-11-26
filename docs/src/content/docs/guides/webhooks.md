@@ -221,7 +221,7 @@ Failures are named:
 
 | `error_kind` | Why |
 |---|---|
-| `unresolvable` | The URL's host does not resolve. |
+| `unresolvable` | The URL's host does not resolve, within 5 seconds. |
 | `address_refused` | It resolves to an address webhooks may not reach. |
 | `connect` | The connection failed. |
 | `tls` | The TLS handshake failed, or the certificate is not one the web trusts for the host. |
@@ -229,12 +229,22 @@ Failures are named:
 | `protocol` | The answer is not HTTP. |
 | `redirect` | A 3xx answer. |
 | `http_status` | Another answer outside 2xx. |
-| `no_access` | Skipped: the identity no longer sees the row. |
+| `no_access` | Skipped: the identity, or whoever set the URL, no longer sees the row. |
+| `lapsed` | Skipped: whoever set the URL may no longer register it, and the webhook turned off. |
 | `disabled` | Skipped: the webhook was turned off before it was sent. |
 
 **Send test event** sends a `webhook.test` event now, signed like any other, with `row` and
 `property` null, whether the webhook is on or off, and says how it went. It is not retried,
-and counts for nothing toward turning the webhook off.
+and counts for nothing toward turning the webhook off. Each person sends 10 test events, then
+one more every 30 seconds; past that, `429 rate_limited` says when to try again.
+
+### Limits
+
+An identity has at most 10 outgoing webhooks, and a workspace at most 200; registering one
+more answers `409 webhook_limit`. So one change makes at most 10 deliveries for each identity
+it concerns. Deliveries run at most four at once, in slots of their own, so mail and the
+server's other work never wait behind them. A host that takes more than 5 seconds to
+resolve does not resolve.
 
 ### Where webhooks may go
 

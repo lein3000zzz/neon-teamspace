@@ -13072,7 +13072,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description no_secret_key: secrets.keys is not set. */
+            /** @description no_secret_key: secrets.keys is not set; or webhook_limit: the identity has 10 webhooks, or the workspace 200. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13469,6 +13469,15 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many test events from this person; see Retry-After. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

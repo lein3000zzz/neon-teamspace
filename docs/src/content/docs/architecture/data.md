@@ -141,6 +141,11 @@ A job whose worker stopped, because the process crashed or was killed, is claime
 its lock is old enough. A job can therefore run more than once, and every job is written so
 that running it twice does the same as running it once.
 
+The server's worker runs eight jobs at once. A kind that may have many jobs takes only a
+share of those slots: webhook deliveries run at most four at once, so mail and the other
+kinds always find a slot free, however many deliveries wait for slow receivers. Within its
+share, and among the other kinds, the job due first runs first.
+
 ### Retries with backoff
 
 A job that fails is queued again, due later, and the delay grows with each attempt, so a

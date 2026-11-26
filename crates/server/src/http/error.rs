@@ -315,13 +315,19 @@ impl From<WebhookError> for ApiError {
             WebhookError::NotFound(_) => StatusCode::NOT_FOUND,
             WebhookError::NoSecretKey
             | WebhookError::AgentLimit { .. }
+            | WebhookError::WebhookLimit { .. }
             | WebhookError::SetterLapsed(_) => StatusCode::CONFLICT,
+            WebhookError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             WebhookError::Database(_) | WebhookError::Internal(_) => {
                 tracing::error!(error = %error, "a webhook use case failed");
                 return Self::internal();
             }
         };
-        Self::new(status, error.code(), error.to_string())
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let WebhookError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
     }
 }
 

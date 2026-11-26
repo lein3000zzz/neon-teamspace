@@ -113,6 +113,23 @@ pub async fn delete(
     Ok(result.rows_affected() == 1)
 }
 
+/// How many webhooks a workspace has, and how many of them are of `user_id`.
+pub async fn counts(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<(i64, i64)> {
+    let row = sqlx::query!(
+        r#"SELECT count(*) AS "all!", count(*) FILTER (WHERE user_id = $2) AS "theirs!"
+           FROM webhooks WHERE workspace_id = $1"#,
+        workspace_id,
+        user_id,
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok((row.all, row.theirs))
+}
+
 /// A webhook by its id alone, for its deliveries.
 pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Webhook>> {
     sqlx::query_as!(
