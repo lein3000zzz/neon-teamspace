@@ -1,7 +1,15 @@
-//! The plain text of a document, for search.
+//! The plain text of a document, for search, and the mentions it holds.
 
 use crate::inline::plain_text;
-use crate::model::{BlockKind, Document};
+use crate::model::{BlockKind, Document, Inline, Mention};
+
+/// The mentions of inline content, in order.
+pub fn mentions_in(content: &[Inline]) -> impl Iterator<Item = &Mention> {
+    content.iter().filter_map(|run| match run {
+        Inline::Mention(mention) => Some(mention),
+        Inline::Text(_) | Inline::Link(_) => None,
+    })
+}
 
 impl Document {
     /// The document's words without markup, for full-text search: each block's text on lines
@@ -38,6 +46,35 @@ impl Document {
         }
         lines.retain(|line| !line.trim().is_empty());
         lines.join("\n")
+    }
+
+    /// Every mention in the document's text, table cells included, in document order, each
+    /// with the id of the block it is in.
+    pub fn mentions(&self) -> Vec<(Option<&str>, &Mention)> {
+        let mut found = Vec::new();
+        for block in self.walk() {
+            let id = block.id.as_deref();
+            match &block.kind {
+                BlockKind::Table { content, .. } => {
+                    for cell in content.rows.iter().flat_map(|row| &row.cells) {
+                        found.extend(mentions_in(&cell.content).map(|mention| (id, mention)));
+                    }
+                }
+                kind => {
+                    let content = kind.inline_content().unwrap_or_default();
+                    found.extend(mentions_in(content).map(|mention| (id, mention)));
+                }
+            }
+        }
+        found
+    }
+}
+
+impl Inline {
+    /// The text of inline content, without styles or link targets; a mention is `@` and
+    /// its label.
+    pub fn plain_text(content: &[Inline]) -> String {
+        plain_text(content)
     }
 }
 

@@ -15,16 +15,19 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppStyleguideRouteImport } from './routes/_app/styleguide'
 import { Route as AuthForgotRouteImport } from './routes/_auth/forgot'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as AuthResetRouteImport } from './routes/_auth/reset'
+import { Route as AuthUnsubscribeRouteImport } from './routes/_auth/unsubscribe'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AppAccountIndexRouteImport } from './routes/_app/account/index'
 import { Route as AppAccountAppearanceRouteImport } from './routes/_app/account/appearance'
 import { Route as AppAccountAppsRouteImport } from './routes/_app/account/apps'
 import { Route as AppAccountInvitationsRouteImport } from './routes/_app/account/invitations'
+import { Route as AppAccountNotificationsRouteImport } from './routes/_app/account/notifications'
 import { Route as AppAccountSessionsRouteImport } from './routes/_app/account/sessions'
 import { Route as AppAccountTokensRouteImport } from './routes/_app/account/tokens'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
@@ -79,6 +82,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStyleguideRoute = AppStyleguideRouteImport.update({
   id: '/styleguide',
   path: '/styleguide',
@@ -104,6 +112,11 @@ const AuthResetRoute = AuthResetRouteImport.update({
   path: '/reset',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthUnsubscribeRoute = AuthUnsubscribeRouteImport.update({
+  id: '/unsubscribe',
+  path: '/unsubscribe',
+  getParentRoute: () => AuthRoute,
+} as any)
 const AuthVerifyRoute = AuthVerifyRouteImport.update({
   id: '/verify',
   path: '/verify',
@@ -127,6 +140,11 @@ const AppAccountAppsRoute = AppAccountAppsRouteImport.update({
 const AppAccountInvitationsRoute = AppAccountInvitationsRouteImport.update({
   id: '/invitations',
   path: '/invitations',
+  getParentRoute: () => AppAccountRoute,
+} as any)
+const AppAccountNotificationsRoute = AppAccountNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => AppAccountRoute,
 } as any)
 const AppAccountSessionsRoute = AppAccountSessionsRouteImport.update({
@@ -265,15 +283,18 @@ export interface FileRoutesByFullPath {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRouteWithChildren
   '/admin': typeof AppAdminRouteWithChildren
+  '/inbox': typeof AppInboxRoute
   '/styleguide': typeof AppStyleguideRoute
   '/forgot': typeof AuthForgotRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/reset': typeof AuthResetRoute
+  '/unsubscribe': typeof AuthUnsubscribeRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
   '/account/apps': typeof AppAccountAppsRoute
   '/account/invitations': typeof AppAccountInvitationsRoute
+  '/account/notifications': typeof AppAccountNotificationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
@@ -304,15 +325,18 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/$': typeof AppSplatRoute
+  '/inbox': typeof AppInboxRoute
   '/styleguide': typeof AppStyleguideRoute
   '/forgot': typeof AuthForgotRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/reset': typeof AuthResetRoute
+  '/unsubscribe': typeof AuthUnsubscribeRoute
   '/verify': typeof AuthVerifyRoute
   '/account/appearance': typeof AppAccountAppearanceRoute
   '/account/apps': typeof AppAccountAppsRoute
   '/account/invitations': typeof AppAccountInvitationsRoute
+  '/account/notifications': typeof AppAccountNotificationsRoute
   '/account/sessions': typeof AppAccountSessionsRoute
   '/account/tokens': typeof AppAccountTokensRoute
   '/admin/invites': typeof AppAdminInvitesRoute
@@ -345,16 +369,19 @@ export interface FileRoutesById {
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRouteWithChildren
   '/_app/admin': typeof AppAdminRouteWithChildren
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/styleguide': typeof AppStyleguideRoute
   '/_auth/forgot': typeof AuthForgotRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
   '/_auth/reset': typeof AuthResetRoute
+  '/_auth/unsubscribe': typeof AuthUnsubscribeRoute
   '/_auth/verify': typeof AuthVerifyRoute
   '/_app/': typeof AppIndexRoute
   '/_app/account/appearance': typeof AppAccountAppearanceRoute
   '/_app/account/apps': typeof AppAccountAppsRoute
   '/_app/account/invitations': typeof AppAccountInvitationsRoute
+  '/_app/account/notifications': typeof AppAccountNotificationsRoute
   '/_app/account/sessions': typeof AppAccountSessionsRoute
   '/_app/account/tokens': typeof AppAccountTokensRoute
   '/_app/admin/invites': typeof AppAdminInvitesRoute
@@ -389,15 +416,18 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/admin'
+    | '/inbox'
     | '/styleguide'
     | '/forgot'
     | '/login'
     | '/register'
     | '/reset'
+    | '/unsubscribe'
     | '/verify'
     | '/account/appearance'
     | '/account/apps'
     | '/account/invitations'
+    | '/account/notifications'
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
@@ -428,15 +458,18 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$'
+    | '/inbox'
     | '/styleguide'
     | '/forgot'
     | '/login'
     | '/register'
     | '/reset'
+    | '/unsubscribe'
     | '/verify'
     | '/account/appearance'
     | '/account/apps'
     | '/account/invitations'
+    | '/account/notifications'
     | '/account/sessions'
     | '/account/tokens'
     | '/admin/invites'
@@ -468,16 +501,19 @@ export interface FileRouteTypes {
     | '/_app/$'
     | '/_app/account'
     | '/_app/admin'
+    | '/_app/inbox'
     | '/_app/styleguide'
     | '/_auth/forgot'
     | '/_auth/login'
     | '/_auth/register'
     | '/_auth/reset'
+    | '/_auth/unsubscribe'
     | '/_auth/verify'
     | '/_app/'
     | '/_app/account/appearance'
     | '/_app/account/apps'
     | '/_app/account/invitations'
+    | '/_app/account/notifications'
     | '/_app/account/sessions'
     | '/_app/account/tokens'
     | '/_app/admin/invites'
@@ -555,6 +591,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/styleguide': {
       id: '/_app/styleguide'
       path: '/styleguide'
@@ -590,6 +633,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthResetRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_auth/unsubscribe': {
+      id: '/_auth/unsubscribe'
+      path: '/unsubscribe'
+      fullPath: '/unsubscribe'
+      preLoaderRoute: typeof AuthUnsubscribeRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/_auth/verify': {
       id: '/_auth/verify'
       path: '/verify'
@@ -623,6 +673,13 @@ declare module '@tanstack/react-router' {
       path: '/invitations'
       fullPath: '/account/invitations'
       preLoaderRoute: typeof AppAccountInvitationsRouteImport
+      parentRoute: typeof AppAccountRoute
+    }
+    '/_app/account/notifications': {
+      id: '/_app/account/notifications'
+      path: '/notifications'
+      fullPath: '/account/notifications'
+      preLoaderRoute: typeof AppAccountNotificationsRouteImport
       parentRoute: typeof AppAccountRoute
     }
     '/_app/account/sessions': {
@@ -807,6 +864,7 @@ interface AppAccountRouteChildren {
   AppAccountAppearanceRoute: typeof AppAccountAppearanceRoute
   AppAccountAppsRoute: typeof AppAccountAppsRoute
   AppAccountInvitationsRoute: typeof AppAccountInvitationsRoute
+  AppAccountNotificationsRoute: typeof AppAccountNotificationsRoute
   AppAccountSessionsRoute: typeof AppAccountSessionsRoute
   AppAccountTokensRoute: typeof AppAccountTokensRoute
   AppAccountIndexRoute: typeof AppAccountIndexRoute
@@ -816,6 +874,7 @@ const AppAccountRouteChildren: AppAccountRouteChildren = {
   AppAccountAppearanceRoute: AppAccountAppearanceRoute,
   AppAccountAppsRoute: AppAccountAppsRoute,
   AppAccountInvitationsRoute: AppAccountInvitationsRoute,
+  AppAccountNotificationsRoute: AppAccountNotificationsRoute,
   AppAccountSessionsRoute: AppAccountSessionsRoute,
   AppAccountTokensRoute: AppAccountTokensRoute,
   AppAccountIndexRoute: AppAccountIndexRoute,
@@ -890,6 +949,7 @@ interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRouteWithChildren
   AppAdminRoute: typeof AppAdminRouteWithChildren
+  AppInboxRoute: typeof AppInboxRoute
   AppStyleguideRoute: typeof AppStyleguideRoute
   AppIndexRoute: typeof AppIndexRoute
   AppWSlugRoute: typeof AppWSlugRouteWithChildren
@@ -900,6 +960,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRouteWithChildren,
   AppAdminRoute: AppAdminRouteWithChildren,
+  AppInboxRoute: AppInboxRoute,
   AppStyleguideRoute: AppStyleguideRoute,
   AppIndexRoute: AppIndexRoute,
   AppWSlugRoute: AppWSlugRouteWithChildren,
@@ -913,6 +974,7 @@ interface AuthRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetRoute: typeof AuthResetRoute
+  AuthUnsubscribeRoute: typeof AuthUnsubscribeRoute
   AuthVerifyRoute: typeof AuthVerifyRoute
   AuthJoinConfirmRoute: typeof AuthJoinConfirmRoute
   AuthOauthConsentRoute: typeof AuthOauthConsentRoute
@@ -926,6 +988,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetRoute: AuthResetRoute,
+  AuthUnsubscribeRoute: AuthUnsubscribeRoute,
   AuthVerifyRoute: AuthVerifyRoute,
   AuthJoinConfirmRoute: AuthJoinConfirmRoute,
   AuthOauthConsentRoute: AuthOauthConsentRoute,

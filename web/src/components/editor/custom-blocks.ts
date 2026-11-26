@@ -24,3 +24,19 @@ export const databaseBlockConfig = {
   },
   content: "none",
 } as const;
+
+/**
+ * A mention, the editor's own inline content: of a person, an agent or an
+ * integration (`user`), or of a page (`page`), by its id, with the name or
+ * title it had when it was written, which shows wherever the live one cannot
+ * be read. It has no content of its own, and takes no styles.
+ */
+export const mentionInlineConfig = {
+  type: "mention",
+  propSchema: {
+    kind: { default: "user", values: ["user", "page"] },
+    target: { default: "" },
+    label: { default: "" },
+  },
+  content: "none",
+} as const;

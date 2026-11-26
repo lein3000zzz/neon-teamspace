@@ -174,8 +174,13 @@ test("an editor whose share turns to view goes read-only at once, and back, on o
       201,
     );
 
+    // The page's connections, beside the inbox's feed, which the shell keeps open too.
     const sockets: string[] = [];
-    guestPage.on("websocket", (socket) => sockets.push(socket.url()));
+    guestPage.on("websocket", (socket) => {
+      if (new URL(socket.url()).pathname.startsWith("/ws/pages/")) {
+        sockets.push(socket.url());
+      }
+    });
     await guestPage.goto(`/w/${workspace.slug}/p/${page.id}`);
     await live(guestPage);
     const title = guestPage.getByRole("textbox", { name: "Page title" });

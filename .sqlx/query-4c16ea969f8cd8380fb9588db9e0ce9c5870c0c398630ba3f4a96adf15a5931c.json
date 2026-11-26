@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT n.id, n.page_id FROM notifications n\n         LEFT JOIN workspace_invitations i ON i.id = n.invitation_id\n         WHERE n.user_id = $1 AND n.read_at IS NULL AND n.archived_at IS NULL\n           AND CASE WHEN n.kind = 'invitation'\n                    THEN $3 AND i.state = 'pending' AND i.expires_at > $4\n                    ELSE $2::uuid IS NULL OR n.workspace_id = $2 END\n         ORDER BY n.id DESC\n         LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "page_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "4c16ea969f8cd8380fb9588db9e0ce9c5870c0c398630ba3f4a96adf15a5931c"
+}

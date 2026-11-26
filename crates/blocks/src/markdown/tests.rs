@@ -1,12 +1,14 @@
 use super::parse::bound_markers;
 use super::{
-    MAX_DEPTH, TooDeep, from_markdown, to_markdown, to_markdown_with_ids, try_from_markdown,
+    MAX_DEPTH, TooDeep, from_markdown, inline_from_markdown, to_markdown, to_markdown_with_ids,
+    try_from_markdown,
 };
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     Block, BlockKind, CheckListItemProps, CodeBlockProps, DatabaseProps, Document, FileProps,
-    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, QuoteProps, StyledText, Styles,
-    TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    HeadingProps, ImageProps, Inline, Link, Mention, MentionKind, NumberedListItemProps,
+    QuoteProps, StyledText, Styles, TableCell, TableCellProps, TableContent, TableProps, TableRow,
+    TextAlignment, TextProps,
 };
 
 fn text(text: &str) -> Vec<Inline> {
@@ -575,6 +577,12 @@ fn char_marks(content: &[Inline]) -> Vec<(char, Marks)> {
                 text.chars().map(|c| (c, marks.clone())).collect::<Vec<_>>()
             }
             Piece::Break => vec![('\n', Marks::default())],
+            Piece::Mention(mention) => mention
+                .props
+                .label
+                .chars()
+                .map(|c| (c, Marks::default()))
+                .collect(),
         })
         .map(|(c, mut marks)| {
             if c.is_whitespace() {
@@ -702,6 +710,7 @@ fn texts(document: &Document) -> Vec<String> {
                 .map(|inline| match inline {
                     Inline::Text(text) => text.text.clone(),
                     Inline::Link(link) => format!("{link:?}"),
+                    Inline::Mention(mention) => format!("{mention:?}"),
                 })
                 .collect(),
             other => format!("{other:?}"),
@@ -989,4 +998,178 @@ fn unnamed(blocks: &[Block]) -> Vec<Block> {
             children: unnamed(&block.children),
         })
         .collect()
+}
+
+fn mention(kind: MentionKind, target: &str, label: &str) -> Inline {
+    Inline::Mention(Mention::new(kind, target, label))
+}
+
+fn link(href: &str, label: &str) -> Inline {
+    Inline::Link(Link {
+        href: href.to_owned(),
+        content: vec![StyledText {
+            text: label.to_owned(),
+            styles: Styles::default(),
+        }],
+    })
+}
+
+/// The inline content of a document of one paragraph.
+fn paragraph_content(document: &Document) -> Vec<Inline> {
+    match document.blocks.as_slice() {
+        [block] => block.kind.inline_content().unwrap_or_default().to_vec(),
+        other => panic!("one paragraph: {other:?}"),
+    }
+}
+
+#[test]
+fn mentions_are_an_at_sign_before_a_link_to_a_user_or_page() {
+    let read = |markdown: &str| paragraph_content(&from_markdown(markdown));
+    assert_eq!(
+        read("Ask @[Ada](user:a1) about @[Plan **draft**](page:b1)."),
+        vec![
+            styled("Ask ", Styles::default()),
+            mention(MentionKind::User, "a1", "Ada"),
+            styled(" about ", Styles::default()),
+            mention(MentionKind::Page, "b1", "Plan draft"),
+            styled(".", Styles::default()),
+        ]
+    );
+    // An escaped at sign, one in code, a link without one, and other targets stay links.
+    assert_eq!(
+        read("\\@[x](user:a1) [y](user:a1) @[z](https://example.com) `@`[w](page:b1)"),
+        vec![
+            styled("@", Styles::default()),
+            link("user:a1", "x"),
+            styled(" ", Styles::default()),
+            link("user:a1", "y"),
+            styled(" @", Styles::default()),
+            link("https://example.com", "z"),
+            styled(" ", Styles::default()),
+            styled(
+                "@",
+                Styles {
+                    code: true,
+                    ..Styles::default()
+                }
+            ),
+            link("page:b1", "w"),
+        ]
+    );
+    // A backslash escaped before it leaves the at sign a mention's.
+    assert_eq!(
+        read("\\\\@[Ada](user:a1)"),
+        vec![
+            styled("\\", Styles::default()),
+            mention(MentionKind::User, "a1", "Ada")
+        ]
+    );
+    assert_eq!(
+        read("@[](user:a1) @[Bea](team:c1)"),
+        vec![
+            mention(MentionKind::User, "a1", ""),
+            styled(" @", Styles::default()),
+            link("team:c1", "Bea"),
+        ]
+    );
+}
+
+#[test]
+fn mentions_and_links_like_them_come_back_from_markdown() {
+    let content = vec![
+        mention(MentionKind::User, "a1", "Ada [the] *first*"),
+        styled("@", Styles::default()),
+        link("user:a1", "a link"),
+        mention(MentionKind::Page, "b1", "Plan"),
+        styled(" ", Styles::default()),
+        styled("done", bold()),
+    ];
+    let document = Document::new(vec![paragraph(content.clone())]);
+    let markdown = to_markdown(&document);
+    assert_eq!(
+        markdown,
+        "@[Ada \\[the\\] \\*first\\*](user:a1)\\@[a link](user:a1)@[Plan](page:b1) **done**\n"
+    );
+    assert_eq!(
+        paragraph_content(&from_markdown(&markdown)),
+        Inline::normalize(&content)
+    );
+}
+
+#[test]
+fn a_document_lists_its_mentions_with_their_blocks() {
+    let mut first = paragraph(vec![
+        mention(MentionKind::User, "a1", "Ada"),
+        styled(" and ", Styles::default()),
+        mention(MentionKind::Page, "b1", "Plan"),
+    ]);
+    first.id = Some("block-1".into());
+    let document = Document::new(vec![first, paragraph(text("none"))]);
+    let found: Vec<(Option<&str>, &str)> = document
+        .mentions()
+        .into_iter()
+        .map(|(block, mention)| (block, mention.props.target.as_str()))
+        .collect();
+    assert_eq!(found, [(Some("block-1"), "a1"), (Some("block-1"), "b1")]);
+    assert_eq!(document.plain_text(), "@Ada and @Plan\nnone");
+}
+
+#[test]
+fn comments_read_as_inline_content_alone() {
+    let plain = |text: &str| styled(text, Styles::default());
+    assert_eq!(
+        inline_from_markdown("**Done**, see @[Ada](user:a1)\n\n# not a heading\n- nor a list"),
+        vec![
+            styled("Done", bold()),
+            plain(", see "),
+            mention(MentionKind::User, "a1", "Ada"),
+            plain("\n\n# not a heading\n- nor a list"),
+        ]
+    );
+    for line in [
+        "> not a quote",
+        "1. not a list",
+        "2) nor this",
+        "* nor this",
+        "+ nor this",
+        "---",
+        "***",
+        "___",
+        "```rust",
+        "~~~",
+        ":::toggle no toggle",
+        "[ref]: https://example.com",
+        "<!-- block x -->",
+        "=",
+    ] {
+        assert_eq!(inline_from_markdown(line), text(line), "{line}");
+    }
+    assert_eq!(
+        inline_from_markdown("    indented, *italic* and `code`"),
+        vec![
+            plain("indented, "),
+            styled("italic", italic()),
+            plain(" and "),
+            styled(
+                "code",
+                Styles {
+                    code: true,
+                    ..Styles::default()
+                }
+            ),
+        ]
+    );
+    assert_eq!(
+        inline_from_markdown("an ![image](https://example.com/a.png) is a link"),
+        vec![
+            plain("an !"),
+            link("https://example.com/a.png", "image"),
+            plain(" is a link"),
+        ]
+    );
+    assert_eq!(
+        inline_from_markdown("[a link](https://example.com) first"),
+        vec![link("https://example.com", "a link"), plain(" first")]
+    );
+    assert!(inline_from_markdown("").is_empty());
 }

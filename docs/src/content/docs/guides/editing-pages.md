@@ -24,7 +24,8 @@ Under the workspace switcher, the sidebar lists a workspace's pages in sections:
 | **Private** | Your private pages, which nobody else sees. Not for guests, who have none. |
 | **Shared with you** | Pages shared with you from places you do not otherwise reach, with the pages under them. Shown while there are any. For a guest, it is everything. |
 
-**Trash**, at the top with **Home**, opens the [trash](#the-trash). On a phone the sidebar is
+**Inbox**, at the top with **Home**, opens your [inbox](/docs/guides/inbox/), with the number
+unread beside it, and **Trash** the [trash](#the-trash). On a phone the sidebar is
 a drawer, opened from the button at the top left.
 
 Each page is a row: the arrow before it opens and closes the pages under it, the title opens
@@ -87,8 +88,9 @@ their access from where they land.
 
 Above the page, the way down to it: its teamspace, or **Private**, then each page above it
 you can see. A guest's starts at the page shared with them. Beside it are the state of the
-[live connection](#the-live-connection), the favorite star, **Share**, the **Style** menu
-and the page's menu.
+[live connection](#the-live-connection), **Comments**, which opens the page's
+[comments](/docs/guides/comments-and-mentions/#in-the-web-app) beside it, the favorite
+star, **Share**, the **Style** menu and the page's menu.
 
 | Part | What it does |
 |---|---|
@@ -169,7 +171,7 @@ keeps of a page, and the limits.
 **Share**, in a page's header or its menu, opens the page's shares:
 
 - **Share with someone** picks a person in the workspace and what the share gives, **Can
-  view** or **Can edit**, and adds it.
+  view**, **Can comment** or **Can edit**, and adds it.
 - Each share on the page itself has its access, which changes on the spot, and **Remove**.
 - Shares set on a page above hold here too. They are listed after the page's own, with the
   page they come from, and change on that page.

@@ -91,13 +91,17 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`, and so is each delivery of an outgoing webhook, of kind `webhooks.deliver`.
+`mail.send`, and so is each delivery of an outgoing webhook, of kind `webhooks.deliver`, and
+the mail of each notification, of kind `notifications.mail`, due once it has waited
+`notifications.mail_delay`, which writes its mail as a `mail.send` job if it is still unread.
 Imports and exports are
 not jobs: the request that asks for one waits for it, within
 [their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
 answer. The hourly cleanup of expired sessions, links and invites, and of webhooks' rotated
 secrets once they stop holding, is not a job but a
-task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
+task of the server process: it needs no retries, since the next run catches up. So are the
+notification digests, every five minutes: each run takes the people whose digest is due
+with `FOR UPDATE SKIP LOCKED`, so two runs never write the same one. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
 The queue is a Postgres table, `jobs`. Each row has a kind, a JSON payload, a status
@@ -209,8 +213,26 @@ shares a person has down each branch.
 Trashing a page sets `trashed_at` on it and on every page under it that is not in the trash
 already, with `trashed_with` naming the page trashed. Restoring brings back the pages with
 the same `trashed_with` down from the restored one, so a subpage trashed on its own earlier
-stays where it is. `page_shares` holds each share, `favorites` each account's favorites with
-keys of their own; both go when their page goes, and when the person leaves the workspace.
+stays where it is. `page_shares` holds each share, `view`, `comment` or `edit`, `favorites`
+each account's favorites with keys of their own; both go when their page goes, and when the
+person leaves the workspace.
+
+## Comments and the inbox
+
+[Comments](/docs/guides/comments-and-mentions/) are rows, not part of the page's document:
+
+| Table | What it holds |
+|---|---|
+| `comment_threads` | Each thread, on its page: for an inline one, the two Yjs relative positions of its range, at most 256 bytes each, and the text it was made on; who resolved it and when. |
+| `comments` | Each comment of a thread, in order, its markdown, its author, and when it was last changed. |
+| `page_follows` | Who follows a page's comments, or chose not to, `follows` true or false, so a choice made by hand holds. |
+| `page_mentions` | Whom a page's text mentions now, each with the first block they are in, as its last snapshot has it. |
+| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
+| `notification_preferences` | How each person who chose wants mail of their inbox, and when their last digest went. |
+
+Each goes with its page, its thread or comment, or its person. A notification is never
+deleted for a page its person can no longer see: whether they may is asked again whenever it
+is listed or counted.
 
 ## Content
 

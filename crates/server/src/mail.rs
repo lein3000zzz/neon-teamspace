@@ -172,7 +172,8 @@ struct Config {
 
 /// The mail as SMTP carries it: plain text with an HTML alternative, a Message-ID on the
 /// From address's domain, which names no machine, and marked as sent by a program, so
-/// auto-responders leave it be (RFC 3834).
+/// auto-responders leave it be (RFC 3834). Mail people may stop carries the address that
+/// stops it, which mail clients post to in one click (RFC 2369, RFC 8058).
 fn message(config: &Config, mail: &Outgoing) -> Result<lettre::Message, SendError> {
     let to = Address::from_str(&mail.to.address).map_err(|_| {
         SendError::Rejected("the recipient is not an address mail servers take".to_owned())
@@ -182,13 +183,19 @@ fn message(config: &Config, mail: &Outgoing) -> Result<lettre::Message, SendErro
         Uuid::now_v7().simple(),
         config.from.email.domain()
     );
-    lettre::Message::builder()
+    let mut builder = lettre::Message::builder()
         .from(config.from.clone())
         .to(Mailbox::new(mail.to.name.clone(), to))
         .subject(mail.subject.as_str())
         .date_now()
         .message_id(Some(id))
-        .header(AutoSubmitted)
+        .header(AutoSubmitted);
+    if let Some(url) = &mail.unsubscribe {
+        builder = builder
+            .header(ListUnsubscribe(url.clone()))
+            .header(ListUnsubscribePost);
+    }
+    builder
         .multipart(MultiPart::alternative_plain_html(
             mail.text.clone(),
             mail.html.clone(),
@@ -275,6 +282,49 @@ impl Header for AutoSubmitted {
 
     fn display(&self) -> HeaderValue {
         HeaderValue::new(Self::name(), "auto-generated".to_owned())
+    }
+}
+
+/// `List-Unsubscribe: <url>`: where a mail client stops this kind of mail.
+#[derive(Clone)]
+struct ListUnsubscribe(String);
+
+impl Header for ListUnsubscribe {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe")
+    }
+
+    fn parse(value: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Ok(Self(
+            value
+                .trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_owned(),
+        ))
+    }
+
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), format!("<{}>", self.0))
+    }
+}
+
+/// `List-Unsubscribe-Post: List-Unsubscribe=One-Click`: the address takes a post, with no
+/// page to confirm on.
+#[derive(Clone)]
+struct ListUnsubscribePost;
+
+impl Header for ListUnsubscribePost {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe-Post")
+    }
+
+    fn parse(_: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Ok(Self)
+    }
+
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), "List-Unsubscribe=One-Click".to_owned())
     }
 }
 

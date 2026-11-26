@@ -19,8 +19,9 @@ the board and the list, as [Databases](/docs/guides/databases/) and
 work in the API and the web app, with tokens their owners make or apps connected over
 [OAuth](/docs/guides/oauth/), as [Agents](/docs/guides/agents/) has it, over MCP, as
 [Agents over MCP](/docs/guides/agents-over-mcp/) has it, and through
-[webhooks](/docs/guides/webhooks/) both ways. What is marked **planned** is not built yet:
-comments, mentions and the inbox, page history, search and attachments, which come next, and
+[webhooks](/docs/guides/webhooks/) both ways, and pages have comments, mentions and an inbox,
+as [Comments and mentions](/docs/guides/comments-and-mentions/) has it. What is marked
+**planned** is not built yet: page history, search and attachments, which come next, and
 the desktop and mobile apps. It describes the design the code is being built toward, so the
 details may still change.
 :::
@@ -109,8 +110,8 @@ A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, 
 tables. Everyone on a page edits the same live document: each sees the others' cursors, and
 their edits merge, agents' edits over MCP and the API included. Markdown is the way in and
 out: markdown shortcuts work while typing, and pasted markdown becomes blocks. A database
-can sit inside a page, its views shown where it was placed. **Planned:** callouts and
-mentions.
+can sit inside a page, its views shown where it was placed. A mention names a person, an
+agent or a page inline, and tells the one it names. **Planned:** callouts.
 
 `.md` files or a zip of them import as pages, and a page or a whole teamspace exports as a
 zip of markdown files, in the web app and through the API; see
@@ -122,8 +123,10 @@ pages under them, where those who could edit them restore them for 30 days unles
 instance keeps them for another time. **Planned:** a page's history keeps earlier versions
 to look at and restore.
 
-**Planned:** comments go on a whole page or on a passage of it, and stay with that passage
-as the text around it changes. Mentions land in the inbox of the person mentioned.
+Comments go on a whole page or on a passage of it, and stay with that passage as the text
+around it changes; a passage deleted leaves its thread without a place. Mentions, replies,
+comments on the pages a person follows and the rows assigned to them land in their
+[inbox](/docs/guides/inbox/), and by mail when they want it.
 
 ## Databases and views
 
@@ -200,14 +203,14 @@ creates one with a name and a target: a database, where it creates rows or updat
 unique ID, or a page, where it appends blocks. It gets a secret address under `/hooks/in/`,
 and can also check a signature from senders that sign their requests. It has the same
 attribution, permissions and limits as an agent, and joins no teamspace: its access is its
-target alone. **Planned:** incoming webhooks that comment.
+target alone. One for a page may comment on it too.
 
 [Outgoing webhooks](/docs/guides/webhooks/#outgoing-webhooks) go the other way. Workspace
 owners and admins register them for anyone in the workspace, and everyone else but guests for
 themselves and their own agents and integrations. The server calls them on events for that
-identity: being assigned a row, or a status change on a row assigned to them. This is how an
-agent that runs on its own hears of new work without polling. **Planned:** being mentioned,
-and a reply to their comment.
+identity: being assigned a row, a status change on a row assigned to them, being mentioned,
+and a reply to their comment. This is how an agent that runs on its own hears of new work
+without polling.
 
 ## Hues
 

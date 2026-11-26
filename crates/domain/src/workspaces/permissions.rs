@@ -13,7 +13,7 @@
 //!   teamspace they may see, the default, open and closed ones; a private teamspace's
 //!   pages are for its members alone, the workspace's owners and admins included.
 //! - A private page is its owner's alone.
-//! - A share, to view or to edit, holds for the page and every page under it.
+//! - A share, to view, to comment or to edit, holds for the page and every page under it.
 //! - Guests reach pages only through shares.
 //! - A page leaves its space, for another teamspace or someone's private pages, only by
 //!   those its space lets edit it: a teamspace's members, a private page's owner. A share
@@ -23,6 +23,10 @@
 //!
 //! A page in the trash shows only to those who could edit it, to restore it or delete it
 //! for good.
+//!
+//! Comments: whoever edits a page comments on it, and so does whoever it, or a page above
+//! it, is shared with to comment; those who only view it read its comments. Guests follow
+//! their shares as for everything else.
 //!
 //! An agent or an integration acts for its owner, a person in the same workspace, and may
 //! do only what both may: what its own role, teamspaces and shares allow it, and what its
@@ -259,6 +263,10 @@ pub enum Action {
     ChangePageSpace,
     /// Moving it to the trash, with its subpages.
     TrashPage,
+    /// Starting a thread of comments on it, replying in one, and resolving or reopening
+    /// one. Reading them is [`ViewPage`](Self::ViewPage); a comment is changed and deleted
+    /// by its author alone, who must still be allowed this.
+    CommentPage,
     RestorePage,
     /// Deleting it for good, from the trash.
     DeletePage,
@@ -809,6 +817,7 @@ fn on_page(
 
     let access = space_access(role, space).max(shared);
     let edits = access == Some(PageAccess::Edit);
+    let comments = access >= Some(PageAccess::Comment);
     // A page in the trash shows only to those who could edit it.
     if access.is_none() || (trashed && !edits) {
         return Err(Hidden);
@@ -821,6 +830,16 @@ fn on_page(
                 Err(IN_THE_TRASH)
             } else {
                 allow_if(edits, VIEW_ONLY)
+            }
+        }
+        Action::CommentPage => {
+            if trashed {
+                Err(IN_THE_TRASH)
+            } else {
+                allow_if(
+                    comments,
+                    Forbidden("you may view this page, not comment on it"),
+                )
             }
         }
         Action::ChangePageSpace => {

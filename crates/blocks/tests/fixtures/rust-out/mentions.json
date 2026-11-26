@@ -1,0 +1,265 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Ask ",
+        "styles": {}
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a1",
+          "label": "Ada"
+        }
+      },
+      {
+        "type": "text",
+        "text": " ",
+        "styles": {}
+      },
+      {
+        "type": "text",
+        "text": "about",
+        "styles": {
+          "bold": true
+        }
+      },
+      {
+        "type": "text",
+        "text": " ",
+        "styles": {}
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "page",
+          "target": "0193a5b2-0000-7000-8000-0000000000b1",
+          "label": "The [draft] *plan*"
+        }
+      },
+      {
+        "type": "text",
+        "text": ".",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a2",
+          "label": "Scout"
+        }
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a1",
+          "label": "Ada"
+        }
+      },
+      {
+        "type": "text",
+        "text": "\nafter a break, then a mention in a link's place: @",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "user:0193a5b2-0000-7000-8000-0000000000a3",
+        "content": [
+          {
+            "type": "text",
+            "text": "not a mention",
+            "styles": {}
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": " and ",
+        "styles": {}
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a3",
+          "label": "Bea"
+        }
+      },
+      {
+        "type": "text",
+        "text": "\n",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-3",
+    "type": "heading",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left",
+      "level": 2,
+      "isToggleable": false
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "For ",
+        "styles": {}
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a1",
+          "label": "Ada"
+        }
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-4",
+    "type": "bulletListItem",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "mention",
+        "props": {
+          "kind": "page",
+          "target": "0193a5b2-0000-7000-8000-0000000000b2",
+          "label": ""
+        }
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-5",
+    "type": "table",
+    "props": {
+      "textColor": "default"
+    },
+    "content": {
+      "type": "tableContent",
+      "columnWidths": [
+        null,
+        null
+      ],
+      "rows": [
+        {
+          "cells": [
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Owner",
+                  "styles": {}
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            },
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Page",
+                  "styles": {}
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "mention",
+                  "props": {
+                    "kind": "user",
+                    "target": "0193a5b2-0000-7000-8000-0000000000a1",
+                    "label": "Ada"
+                  }
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            },
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "mention",
+                  "props": {
+                    "kind": "page",
+                    "target": "0193a5b2-0000-7000-8000-0000000000b1",
+                    "label": "Plan"
+                  }
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "children": []
+  }
+]

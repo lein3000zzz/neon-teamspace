@@ -10,7 +10,7 @@ use crate::http::pages::PageKind;
 
 /// Each tool's routes of the API, which do what it does with the same tokens: method and
 /// path below `/api/v1`.
-const REST: [(&str, &[(&str, &str)]); 17] = [
+const REST: [(&str, &[(&str, &str)]); 21] = [
     ("whoami", &[("get", "/whoami")]),
     ("list_members", &[("get", "/workspaces/{id}/members")]),
     ("list_teamspaces", &[("get", "/workspaces/{id}/teamspaces")]),
@@ -46,10 +46,29 @@ const REST: [(&str, &[(&str, &str)]); 17] = [
             ("post", "/databases/{id}/rows/{unique_id}/claim"),
         ],
     ),
+    (
+        "list_comments",
+        &[
+            ("get", "/pages/{id}/comments"),
+            ("get", "/threads/{id}/comments"),
+        ],
+    ),
+    (
+        "add_comment",
+        &[
+            ("post", "/pages/{id}/comments"),
+            ("post", "/threads/{id}/comments"),
+        ],
+    ),
+    ("get_inbox", &[("get", "/inbox")]),
+    (
+        "mark_read",
+        &[("patch", "/notifications/{id}"), ("post", "/inbox/read")],
+    ),
 ];
 
 /// Each resource template's routes of the API, likewise.
-const RESOURCES: [(&str, &[(&str, &str)]); 4] = [
+const RESOURCES: [(&str, &[(&str, &str)]); 5] = [
     ("neon://page/{id}", &[("get", "/pages/{id}/markdown")]),
     ("neon://database/{id}", &[("get", "/databases/{id}")]),
     (
@@ -57,6 +76,7 @@ const RESOURCES: [(&str, &[(&str, &str)]); 4] = [
         &[("post", "/databases/{id}/query")],
     ),
     ("neon://me/tasks", &[("get", "/workspaces/{id}/tasks")]),
+    ("neon://me/inbox", &[("get", "/inbox")]),
 ];
 
 fn has(item: &PathItem, method: &str) -> bool {
@@ -150,6 +170,8 @@ fn tools_publish_their_schemas_and_what_they_change() {
             ("create_row", false),
             ("update_row", true),
             ("claim_task", true),
+            ("add_comment", false),
+            ("mark_read", false),
         ]
     );
     let required = |name: &str| -> Vec<String> {
@@ -170,6 +192,10 @@ fn tools_publish_their_schemas_and_what_they_change() {
     assert_eq!(required("update_row"), ["values"]);
     assert!(required("whoami").is_empty());
     assert!(required("claim_task").is_empty());
+    assert_eq!(required("list_comments"), ["page_id"]);
+    assert_eq!(required("add_comment"), ["page_id", "markdown"]);
+    assert!(required("get_inbox").is_empty());
+    assert!(required("mark_read").is_empty());
     // The edit operations are told apart by `op`.
     let edit = find("edit_page").expect("a tool").tool();
     let text = serde_json::to_string(&*edit.input_schema).expect("serializes");

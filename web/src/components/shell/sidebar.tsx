@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useId } from "react";
 import { useLogout } from "@/api/auth";
-import { myInvitationsQuery } from "@/api/workspaces";
+import { inboxCountQuery } from "@/api/inbox";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { Button } from "@/components/ui/button";
@@ -46,8 +46,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const settingsId = useId();
   const me = useMe();
   const { current } = useCurrentWorkspace();
-  const invitations = useQuery(myInvitationsQuery);
-  const waiting = invitations.data?.length ?? 0;
+  const unread = useQuery(inboxCountQuery).data ?? 0;
 
   return (
     <div className="flex min-h-full flex-col gap-6">
@@ -83,25 +82,25 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             )}
           </li>
-          {waiting > 0 && (
-            <li>
-              <Link
-                to="/account/invitations"
-                onClick={onNavigate}
-                aria-label={strings.nav.pending(waiting)}
-                className={navLink}
-              >
-                <Inbox aria-hidden className="size-4" />
-                <span className="flex-1">{strings.nav.invitations}</span>
+          <li>
+            <Link
+              to="/inbox"
+              onClick={onNavigate}
+              {...(unread > 0 ? { "aria-label": strings.nav.unread(unread) } : {})}
+              className={navLink}
+            >
+              <Inbox aria-hidden className="size-4" />
+              <span className="flex-1">{strings.nav.inbox}</span>
+              {unread > 0 && (
                 <span
                   aria-hidden
                   className="grid h-5 min-w-5 place-items-center rounded-full border border-primary px-1.5 font-mono text-[0.68rem] text-primary tabular-nums"
                 >
-                  {waiting}
+                  {unread > 99 ? "99+" : unread}
                 </span>
-              </Link>
-            </li>
-          )}
+              )}
+            </Link>
+          </li>
           {current !== undefined && (
             <li>
               <Link

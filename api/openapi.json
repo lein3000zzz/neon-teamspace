@@ -3618,6 +3618,191 @@
         }
       }
     },
+    "/api/v1/comments/{id}": {
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Delete a comment",
+        "description": "By its author, who must still be allowed to comment, or by those who edit the page, with the notifications of it. A thread left without comments goes too.",
+        "operationId": "delete_comment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Change a comment",
+        "description": "Its text, by its author, who must still be allowed to comment. It shows as edited. Those it mentions anew are told; nobody else is told again.",
+        "operationId": "edit_comment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The comment, with its thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostedComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: not its author, or may not comment; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/databases/{id}": {
       "get": {
         "tags": [
@@ -5244,6 +5429,410 @@
         ]
       }
     },
+    "/api/v1/inbox": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Read the inbox",
+        "description": "The caller's notifications, newest first, a part at a time: from every workspace they are in, or the one named, and their invitations into workspaces while those wait. A token bound to a workspace reads that workspace's alone, without invitations.",
+        "operationId": "list_inbox",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "One workspace's notifications, with every waiting invitation; every workspace's\nwhen absent.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "`all` when absent.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Which notifications a list holds.",
+              "enum": [
+                "all",
+                "unread",
+                "archived"
+              ]
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Notifications in the part, 1 to 200; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A part of the inbox.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found: a workspace the caller is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/inbox/count": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Count the unread notifications",
+        "operationId": "inbox_count",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "One workspace's, with every waiting invitation; every workspace's when absent.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The count.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxCount"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/inbox/read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Mark every notification read",
+        "operationId": "mark_all_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkAllRead"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "How many were marked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Marked"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Read how one wants mail of the inbox",
+        "operationId": "get_notification_settings",
+        "responses": {
+          "200": {
+            "description": "The preference.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Choose how one wants mail of the inbox",
+        "description": "For people; agents and integrations get no mail.",
+        "operationId": "put_notification_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The preference.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: an agent or integration; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/meta": {
       "get": {
         "tags": [
@@ -5274,6 +5863,91 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/notifications/{id}": {
+      "patch": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Mark a notification",
+        "description": "Read or unread, archived or not.",
+        "operationId": "change_notification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The notification's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Marked."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
       }
     },
     "/api/v1/oauth/authorize": {
@@ -6151,6 +6825,237 @@
         ]
       }
     },
+    "/api/v1/pages/{id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List a page's comments",
+        "description": "Its threads, oldest first, a part at a time, each with its first comment and its latest replies, how many it holds, and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.",
+        "operationId": "list_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "resolved",
+            "in": "query",
+            "description": "`true` for the resolved threads alone, `false` for the open ones alone; both when\nabsent.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Threads in the part, 1 to 100; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The threads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Start a thread of comments",
+        "description": "On the whole page, on a range of its text (`anchor`), or on one block's text (`block_id`), with its first comment. For those who edit the page or may comment on it. Those it mentions who may see the page, and the page's followers, are told in their inboxes; those it mentions who may not are told nothing, and come back in `unnotified`.",
+        "operationId": "start_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewThread"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostedComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input: an empty or long comment, a bad anchor, or a block without text.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller may only view the page, or it is in the trash; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too_many_threads, or too_many_comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many comments at once; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
     "/api/v1/pages/{id}/export": {
       "get": {
         "tags": [
@@ -6240,6 +7145,98 @@
           },
           "503": {
             "description": "busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/follow": {
+      "put": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Follow a page's comments, or stop",
+        "description": "Who follows a page hears of every comment on it in their inbox. Its maker, and whoever comments on it or is mentioned on it, follows it until they stop.",
+        "operationId": "follow_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Following"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Whether the caller follows it now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Following"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6472,6 +7469,97 @@
           },
           "503": {
             "description": "unavailable: the server is stopping.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pages/{id}/mentions": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Find what a mention may name",
+        "description": "The members and agents, and the pages, a mention on the page may name, whose names or titles hold `q`, each person with whether they may see the page. For everyone who may see it; a guest finds pages alone.",
+        "operationId": "mention_candidates",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The page's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "What their name or title holds, ignoring case; every one when empty.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What it may name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MentionCandidates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7805,6 +8893,532 @@
           {
             "api_token": []
           }
+        ]
+      }
+    },
+    "/api/v1/threads/{id}": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Get a thread",
+        "description": "With its first comment and its latest replies, as a page's list has it. For everyone who may see its page.",
+        "operationId": "get_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Delete a thread",
+        "description": "With every comment in it and their notifications, by those who edit its page.",
+        "operationId": "delete_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden: the caller does not edit the page; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Resolve or reopen a thread",
+        "description": "For those who may comment on its page. Reopening one needs room on the page for one more open thread.",
+        "operationId": "change_thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too_many_threads, to reopen one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/threads/{id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List a thread's comments",
+        "description": "Every comment of the thread, in order, a part at a time: what the page's list leaves out of a long thread. For everyone who may see its page.",
+        "operationId": "list_thread_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `next` of the part before.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Comments in the part, 1 to 100; 50 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Reply in a thread",
+        "description": "For those who may comment on its page. Those it mentions, those who wrote in the thread or were mentioned in it, and the page's followers are told, each once, while they may see the page.",
+        "operationId": "reply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The thread's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The reply, with its thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostedComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too_many_replies, or too_many_comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/unsubscribe": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Stop notification mail from its link",
+        "description": "Without signing in: the token in the mail's link names whom it is for, signed by the server. Their preference becomes `none`. Mail clients post here as RFC 8058 has it, `List-Unsubscribe=One-Click`, which any body does.",
+        "operationId": "unsubscribe",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "The token of the link in the mail.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Mail stopped."
+          },
+          "400": {
+            "description": "invalid_token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
         ]
       }
     },
@@ -14758,6 +16372,65 @@
           }
         }
       },
+      "AnchorIn": {
+        "type": "object",
+        "description": "An inline thread's range, as the editor makes it.",
+        "required": [
+          "start",
+          "end",
+          "quote"
+        ],
+        "properties": {
+          "end": {
+            "type": "string",
+            "description": "The Yjs relative position of its end, likewise."
+          },
+          "quote": {
+            "type": "string",
+            "description": "The text it is on, at most 1000 characters kept."
+          },
+          "start": {
+            "type": "string",
+            "description": "The Yjs relative position of its start, as Yjs encodes it, in base64."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnchorOut": {
+        "type": "object",
+        "description": "Where an inline thread is in the page.",
+        "required": [
+          "start",
+          "end",
+          "quote",
+          "detached"
+        ],
+        "properties": {
+          "block_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The block its text starts in now; absent once it is detached."
+          },
+          "detached": {
+            "type": "boolean",
+            "description": "Every character of its range was deleted: the thread stays, without a place."
+          },
+          "end": {
+            "type": "string",
+            "description": "The Yjs relative position of its end, likewise."
+          },
+          "quote": {
+            "type": "string",
+            "description": "The text it was made on."
+          },
+          "start": {
+            "type": "string",
+            "description": "The Yjs relative position of the start of its range, as Yjs encodes it, in base64."
+          }
+        }
+      },
       "ApiToken": {
         "type": "object",
         "description": "An API token, without its secret.",
@@ -15289,6 +16962,84 @@
           }
         },
         "additionalProperties": false
+      },
+      "CommentList": {
+        "type": "object",
+        "description": "A part of a thread's comments, in order.",
+        "required": [
+          "comments"
+        ],
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass as `after` for the next part; absent at the end."
+          }
+        }
+      },
+      "CommentOut": {
+        "type": "object",
+        "description": "A comment, its markdown and its inline content.",
+        "required": [
+          "id",
+          "thread_id",
+          "markdown",
+          "content",
+          "created_at"
+        ],
+        "properties": {
+          "author": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Person",
+                "description": "Who wrote it; absent once their account is gone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The same as BlockNote's inline content: text with its styles, links and mentions."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "edited_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When its author last changed it, which shows it as edited."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Its markdown: inline content alone, mentions written `@[Name](user:<id>)` and\n`@[Title](page:<id>)`."
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "Condition": {
         "type": "object",
@@ -16802,6 +18553,19 @@
         ],
         "description": "A filter: a group of filters that must all pass, `{\"and\": [...]}`, or of which one must,\n`{\"or\": [...]}`, or a condition. Groups nest at most three deep, with at most 50\nconditions in all. A filter that does not read says where and why, naming the fields a\ncondition has and the operators: see [`Filter::read`]."
       },
+      "Following": {
+        "type": "object",
+        "required": [
+          "following"
+        ],
+        "properties": {
+          "following": {
+            "type": "boolean",
+            "description": "Whether the caller hears of every comment on the page."
+          }
+        },
+        "additionalProperties": false
+      },
       "Font": {
         "type": "string",
         "description": "The font a page is set in.",
@@ -16916,6 +18680,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "InboxCount": {
+        "type": "object",
+        "required": [
+          "unread"
+        ],
+        "properties": {
+          "unread": {
+            "type": "integer",
+            "description": "How many notifications are unread, at most 999.",
+            "minimum": 0
+          }
+        }
       },
       "IncomingIntegration": {
         "type": "object",
@@ -17665,6 +19442,15 @@
           }
         }
       },
+      "MailPreference": {
+        "type": "string",
+        "description": "How someone wants mail of their inbox.",
+        "enum": [
+          "none",
+          "each",
+          "digest"
+        ]
+      },
       "MailStatus": {
         "type": "object",
         "description": "Whether mail can go, and how it went lately.",
@@ -17702,6 +19488,34 @@
             ],
             "description": "What is missing, while it cannot go.",
             "example": "mail.host is not set"
+          }
+        }
+      },
+      "MarkAllRead": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "One workspace's, with every invitation; every workspace's when absent."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Marked": {
+        "type": "object",
+        "required": [
+          "marked"
+        ],
+        "properties": {
+          "marked": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many were marked.",
+            "minimum": 0
           }
         }
       },
@@ -17771,6 +19585,47 @@
               "$ref": "#/components/schemas/Member"
             },
             "description": "Owners first, then admins, members and guests, each by name."
+          }
+        }
+      },
+      "MentionCandidates": {
+        "type": "object",
+        "description": "What a mention on a page may name.",
+        "required": [
+          "people",
+          "pages"
+        ],
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "description": "Pages the caller sees, at most 10, the most recently changed first."
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MentionPerson"
+            },
+            "description": "People and agents, at most 10; none for a guest."
+          }
+        }
+      },
+      "MentionPerson": {
+        "type": "object",
+        "description": "Someone a mention may name, and whether they may see the page.",
+        "required": [
+          "person",
+          "sees_page"
+        ],
+        "properties": {
+          "person": {
+            "$ref": "#/components/schemas/Person"
+          },
+          "sees_page": {
+            "type": "boolean",
+            "description": "Off, a mention of them tells them nothing: share the page with them first."
           }
         }
       },
@@ -17892,6 +19747,272 @@
           }
         },
         "additionalProperties": false
+      },
+      "NewComment": {
+        "type": "object",
+        "required": [
+          "markdown"
+        ],
+        "properties": {
+          "markdown": {
+            "type": "string",
+            "description": "Markdown limited to inline content, at most 10000 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewThread": {
+        "type": "object",
+        "required": [
+          "markdown"
+        ],
+        "properties": {
+          "anchor": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnchorIn",
+                "description": "For an inline thread, the range of text it is on."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "block_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a thread on one block's whole text, the block's id; not with `anchor`."
+          },
+          "markdown": {
+            "type": "string",
+            "description": "The first comment: markdown limited to inline content, at most 10000 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Notification": {
+        "type": "object",
+        "description": "A notification as its person reads it now.",
+        "required": [
+          "id",
+          "kind",
+          "workspace",
+          "created_at"
+        ],
+        "properties": {
+          "actor": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Person",
+                "description": "Who did what it tells of; absent once their account is gone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "block_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a mention in a page's text, the block it is in."
+          },
+          "comment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "excerpt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The start of the comment it is about."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invitation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NotifiedInvitation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NotificationKind"
+          },
+          "page": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Page",
+                "description": "The page it is about, as its person sees it now; absent for an invitation."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "property_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For an assignment, the person property."
+          },
+          "read_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "thread_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The thread and comment it is about, for a comment's notification."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/InvitingWorkspace",
+            "description": "The workspace it is in, or the one an invitation invites to."
+          }
+        }
+      },
+      "NotificationChange": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Archives it, or brings it back to the inbox."
+          },
+          "read": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Marks it read, or unread again."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationKind": {
+        "type": "string",
+        "description": "What a notification tells of.",
+        "enum": [
+          "mention",
+          "reply",
+          "comment",
+          "assigned",
+          "invitation"
+        ]
+      },
+      "NotificationList": {
+        "type": "object",
+        "description": "A part of an inbox, newest first.",
+        "required": [
+          "notifications"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass it back as `before` for the next part; absent at the end."
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            }
+          }
+        }
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "description": "How the caller wants mail of their inbox, and whether the instance sends it.",
+        "required": [
+          "mail",
+          "mail_available",
+          "digest_interval_secs"
+        ],
+        "properties": {
+          "digest_interval_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How often, at most, a digest goes, in seconds.",
+            "minimum": 0
+          },
+          "mail": {
+            "$ref": "#/components/schemas/MailPreference"
+          },
+          "mail_available": {
+            "type": "boolean",
+            "description": "The instance sends notification mail now; off, the preference waits until it does."
+          }
+        }
+      },
+      "NotificationSettingsChange": {
+        "type": "object",
+        "required": [
+          "mail"
+        ],
+        "properties": {
+          "mail": {
+            "$ref": "#/components/schemas/MailPreference"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotifiedInvitation": {
+        "type": "object",
+        "description": "An invitation a notification is, while it waits for an answer, which\n`POST /account/invitations/{id}/accept` and `/decline` answer.",
+        "required": [
+          "id",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          }
+        }
       },
       "NumberFormat": {
         "type": "string",
@@ -18168,6 +20289,7 @@
         "description": "What the caller may do with a page.",
         "enum": [
           "view",
+          "comment",
           "edit"
         ]
       },
@@ -18357,6 +20479,30 @@
           }
         ],
         "description": "Where a page goes among its siblings: `\"first\"`, `\"last\"`, `{\"after\": id}` or\n`{\"before\": id}`, the id being a sibling's."
+      },
+      "PostedComment": {
+        "type": "object",
+        "description": "A comment just made or changed, with its thread, and those it mentions who may not see\nthe page: they were told nothing, and sharing the page with them would let them.",
+        "required": [
+          "comment_id",
+          "thread",
+          "unnotified"
+        ],
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadOut"
+          },
+          "unnotified": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Person"
+            }
+          }
+        }
       },
       "Preferences": {
         "type": "object",
@@ -19339,6 +21485,7 @@
         "description": "What a share gives.",
         "enum": [
           "can_view",
+          "can_comment",
           "can_edit"
         ]
       },
@@ -19738,6 +21885,132 @@
             "type": "string",
             "description": "The admin's own address.",
             "example": "admin@example.com"
+          }
+        }
+      },
+      "ThreadChange": {
+        "type": "object",
+        "required": [
+          "resolved"
+        ],
+        "properties": {
+          "resolved": {
+            "type": "boolean",
+            "description": "Resolves the thread, or reopens it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ThreadList": {
+        "type": "object",
+        "description": "A part of a page's threads, oldest first, and what the caller may do with them.",
+        "required": [
+          "threads",
+          "open_threads",
+          "may_comment",
+          "may_moderate",
+          "following"
+        ],
+        "properties": {
+          "following": {
+            "type": "boolean",
+            "description": "The caller follows the page's comments."
+          },
+          "may_comment": {
+            "type": "boolean",
+            "description": "The caller may start threads, reply, resolve and reopen them."
+          },
+          "may_moderate": {
+            "type": "boolean",
+            "description": "The caller edits the page: they delete others' comments, and whole threads."
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass as `after` for the next part; absent at the end."
+          },
+          "open_threads": {
+            "type": "integer",
+            "description": "How many threads of the page are open, in every part.",
+            "minimum": 0
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadOut"
+            }
+          }
+        }
+      },
+      "ThreadOut": {
+        "type": "object",
+        "description": "A thread of comments: on the page as a whole, or on a range of its text.",
+        "required": [
+          "id",
+          "page_id",
+          "created_at",
+          "comments",
+          "comment_count"
+        ],
+        "properties": {
+          "anchor": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnchorOut",
+                "description": "Where it is, for an inline thread; absent for one on the whole page."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comment_count": {
+            "type": "integer",
+            "description": "How many comments it holds in all.",
+            "minimum": 0
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            },
+            "description": "Its first comment, which starts it, and its latest replies after it, in order, at\nmost 10 in all; `GET /threads/{id}/comments` reads the rest."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "page_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -20616,7 +22889,9 @@
         "description": "What an outgoing webhook may be told of. Receivers ignore types they do not know: more\ncome later.",
         "enum": [
           "row.assigned",
-          "row.status_changed"
+          "row.status_changed",
+          "page.mentioned",
+          "comment.replied"
         ]
       },
       "WebhookList": {
@@ -20946,6 +23221,14 @@
     {
       "name": "pages",
       "description": "Pages and their trees, sharing, and the trash."
+    },
+    {
+      "name": "comments",
+      "description": "Threads of comments on pages, on a page as a whole or on a range of its text, their replies, following a page's comments, and what a mention may name. Open pages' editors hear that a thread changed over `GET /ws/pages/{id}`, which the docs describe."
+    },
+    {
+      "name": "notifications",
+      "description": "The inbox: mentions, replies, comments on followed pages, assignments and invitations, each checked again against what its person may see; how one wants mail of it, and the link that stops that mail. The app follows it live at `GET /ws/inbox`, which the docs describe."
     },
     {
       "name": "databases",

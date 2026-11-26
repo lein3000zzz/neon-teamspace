@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO page_follows (page_id, workspace_id, user_id, follows, updated_at)\n         SELECT $1, $2, u.id, true, $4 FROM users u WHERE u.id = ANY($3)\n         ON CONFLICT (page_id, user_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "559ac2e756ce429c2e7e95d178e8eac9b49f642b41cc12b8550ba216fe94b982"
+}

@@ -18,6 +18,11 @@ export const keys = {
   /** A client's request on the consent page, as the person signed in may answer it. */
   consent: (request: object) => ["account", "consent", request],
   myInvitations: ["account", "invitations"],
+  /** The inbox, every part and the count, which a change to it reads again. */
+  inbox: ["account", "inbox"],
+  inboxList: (filter: string) => ["account", "inbox", "list", filter],
+  inboxCount: ["account", "inbox", "count"],
+  notificationSettings: ["account", "notification-settings"],
   users: ["admin", "users"],
   invites: ["admin", "invites"],
   inviteCheck: (code: string) => ["admin", "invites", "check", code],
@@ -70,6 +75,45 @@ export const keys = {
   page: (id: string, pageId: string) => ["workspaces", id, "pages", pageId],
   breadcrumbs: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "breadcrumbs"],
   shares: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "shares"],
+  comments: (id: string, pageId: string) => ["workspaces", id, "pages", pageId, "comments"],
+  /** A page's open threads, or its resolved ones, a part at a time. */
+  threads: (id: string, pageId: string, resolved: boolean) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "comments",
+    "threads",
+    resolved ? "resolved" : "open",
+  ],
+  /** One thread of a page; with what follows it, its comments a part at a time. */
+  thread: (id: string, pageId: string, threadId: string) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "comments",
+    "thread",
+    threadId,
+  ],
+  threadComments: (id: string, pageId: string, threadId: string) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "comments",
+    "thread",
+    threadId,
+    "comments",
+  ],
+  mentions: (id: string, pageId: string, q: string) => [
+    "workspaces",
+    id,
+    "pages",
+    pageId,
+    "mentions",
+    q,
+  ],
   /** Every tree of a workspace's pages: its teamspaces', the private and the shared one. */
   pageTrees: (id: string) => ["workspaces", id, "page-trees"],
   teamspacePages: (id: string, teamspaceId: string) => [

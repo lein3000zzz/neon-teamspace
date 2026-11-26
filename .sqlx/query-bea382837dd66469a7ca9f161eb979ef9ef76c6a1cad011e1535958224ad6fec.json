@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO comment_threads (id, workspace_id, page_id, anchor_start, anchor_end, quote,\n                                      resolved_at, resolved_by, created_by, created_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Text",
+        "Timestamptz",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bea382837dd66469a7ca9f161eb979ef9ef76c6a1cad011e1535958224ad6fec"
+}

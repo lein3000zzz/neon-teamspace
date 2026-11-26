@@ -20,8 +20,9 @@ A Yjs document can hold several shared types side by side, each under a name. Th
 blocks are the `XmlFragment` named **`document-store`**. The web app's editor passes that
 fragment to BlockNote's collaboration options, and the crate exports the name as
 `neon_blocks::FRAGMENT`.
-Nothing else in the document belongs to the editor, so other data, such as comments, can sit
-beside it under names of its own.
+Nothing else in the document belongs to the editor. Comments are not in it at all: they are
+rows of the database, and an inline thread points into the fragment with Yjs relative
+positions, as [Anchors](#anchors) has it.
 
 ## The structure
 
@@ -61,6 +62,8 @@ XmlFragment "document-store"
   `textColor` and `backgroundColor` to `{"stringValue": "red"}`, and `link` to
   `{"href": "https://..."}`.
 - A line break inside a block is a `hardBreak` element between two texts.
+- A mention is a `mention` element between texts, with its `kind`, `target` and `label`; see
+  [Mentions](#mentions).
 - A table is `table > tableRow > tableHeader | tableCell > tableParagraph`. Header cells are
   `tableHeader` elements; each cell carries its spans, colours, alignment and `colwidth`, the
   widths of the columns it spans.
@@ -147,7 +150,12 @@ The crate's functions:
 | `append(txn, fragment, blocks, ids)` | Adds blocks after the last top-level block. |
 | `markdown::to_markdown(document)` | The document as markdown. |
 | `markdown::from_markdown(text)` | The blocks of a markdown text, without ids. |
-| `Document::plain_text()` | The words of the document, for search. Database blocks are left out, as they hold no words of their own. |
+| `Document::plain_text()` | The words of the document, for search. Database blocks are left out, as they hold no words of their own; a mention counts as `@` and its label. |
+| `Document::mentions()` | Each mention in the document's text, with the block it is in. |
+| `mention_items(&txn, &fragment)` | The same mentions read from the Yjs document, each with the Yjs id of its element, which tells whose change wrote it. |
+| `markdown::inline_from_markdown(text)` | The inline content of a comment's markdown: text, styles, links and mentions, block syntax kept as text. |
+| `anchors::resolve(txn, fragment, anchors)` | Where each inline thread's relative positions are now: the block its range starts in, or that it is detached. |
+| `anchors::block_anchor(txn, fragment, id)` | Relative positions over the whole text of one block, for a thread on it. |
 
 Writing gives each block without an id one from the `IdSource` it is passed, parents before
 their children. The crate has no source of randomness of its own. The server passes one that
@@ -181,6 +189,7 @@ pulldown-cmark with GitHub's tables, strikethrough and task lists.
 | underline | `<u>underline</u>` |
 | inline code | `` `code` `` |
 | link | `[text](url)` |
+| mention | `@[Ada Lovelace](user:<id>)`, `@[Roadmap](page:<id>)` |
 
 Children nest under list items, by indentation, and under toggles. Where CommonMark would not
 read a style's delimiters as meant, as in `a**(b)**c`, the writer uses `<strong>`, `<em>` or
@@ -223,6 +232,31 @@ Its children: any markdown, other toggles too.
 
 A renderer that does not know the extension shows the lines as text, with the links still
 links.
+
+### Mentions
+
+A mention is inline content of the type `mention`, an atom the editor draws, with three
+props:
+
+| Prop | What it holds |
+|---|---|
+| `kind` | `user`, for a person, an agent or an integration, or `page`. |
+| `target` | The id of whom or what it names. |
+| `label` | The name or title it was written with, shown when the app knows no better. |
+
+```json
+{ "type": "mention", "props": { "kind": "user", "target": "0193a5b2-1c4d-7e8f-a1b2-c3d4e5f60718", "label": "Ada Lovelace" } }
+```
+
+In markdown it is a link with `@` before it and a target of its own scheme, `user:` or
+`page:`. The label is the link's text, escaped as any text is; a mention takes no styles.
+`\@` before a plain link to such a target keeps it a link, and the writer escapes an `@` that
+would otherwise read as a mention so. A renderer that does not know the extension shows a
+link with an `@` before it.
+
+Mentions are what [tells people](/docs/guides/comments-and-mentions/#whom-a-mention-tells):
+the server reads them from a page's blocks as it saves a snapshot, and from a comment's
+markdown as it is saved.
 
 ### Block ids
 
@@ -270,6 +304,22 @@ more than 33 quote or list markers reads the rest as text. An import reads such 
 way, while what callers send refuses it: a new page's markdown and the edits of the markdown
 API and [MCP](/docs/guides/agents-over-mcp/#editing-a-page) answer `invalid_input`, and an
 [incoming webhook](/docs/guides/webhooks/#the-payload) `invalid_payload`.
+
+## Anchors
+
+An inline thread of comments keeps two Yjs relative positions, the start and the end of its
+range, as `Y.encodeRelativePosition` writes them, and the text it was made on. A relative
+position names a character, the one at the start and the one after the end, by its Yjs id,
+so a range moves with its characters as text is typed or deleted around it, and two people's
+edits merge without moving it. y-prosemirror makes them from the editor's selection;
+`yrs`'s `StickyIndex`, Yjs's encoding, reads them in Rust.
+
+`anchors::resolve` reads where a range is now in the page's document, live or saved, as the
+comments are listed: the block its start is in, by the editor's own counting of positions,
+or `detached` when either end no longer resolves or the range holds no character, every one
+deleted. Detached threads keep their text and their comments. A test edits two copies of a
+document at once, merges them, and checks that every range covers the same characters as
+before.
 
 ## Edits in place
 

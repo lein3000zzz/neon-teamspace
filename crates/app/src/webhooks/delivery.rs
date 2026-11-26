@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `version` | `1` |
 //! | `id` | The event's id, the same on every attempt and for each of the identity's webhooks. |
-//! | `type` | `row.assigned`, `row.status_changed`, or `webhook.test` |
+//! | `type` | `row.assigned`, `row.status_changed`, `page.mentioned`, `comment.replied`, or `webhook.test` |
 //! | `occurred_at` | When the change was made, RFC 3339. |
 //! | `workspace` | `{"id"}` |
 //! | `identity` | Whose event it is: `{"id", "kind", "name"}`, `kind` being `human`, `agent` or `integration`. |
@@ -15,12 +15,21 @@
 //! | `property` | The property the event is about, `{"id", "name", "type"}`, `type` being `person` or `status`; null for a test event. |
 //! | `change` | For `row.status_changed` alone: `{"from", "to"}`, each `{"id", "name"}` or null. |
 //!
+//! The events of pages, `page.mentioned` and `comment.replied`, carry `version`, `id`,
+//! `type`, `occurred_at`, `workspace` and `identity` as those of rows do, and:
+//!
+//! | Field | What it holds |
+//! |---|---|
+//! | `actor` | Who mentioned or replied: `{"id", "kind", "name"}`, null once their account is gone. |
+//! | `page` | `{"id", "title", "kind"}` as it is when sent, `kind` being `page`, `database` or `row`. |
+//! | `comment` | The comment that mentions or replies, `{"id", "thread_id", "markdown"}` as it is when sent; null for a mention in the page's text. |
+//!
 //! Names that come from the database, its title, a property's and an option's, are null for
 //! an identity who sees the row only through its own share and not its database, as the row
 //! then shows them no database either; and so for whoever set the webhook's URL.
 //!
-//! A delivery is sent only while its identity may see the row, and so may whoever set the
-//! webhook's URL, as the rules say then. Otherwise it is skipped; and when whoever set the URL
+//! A delivery is sent only while its identity may see the row or page, and so may whoever
+//! set the webhook's URL, as the rules say then, and while the comment it is about is there. Otherwise it is skipped; and when whoever set the URL
 //! may no longer register webhooks for the identity, the webhook turns off, saying why.
 
 use std::time::{Duration, Instant};
@@ -36,7 +45,7 @@ use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::propagation::current_traceparent;
 use neon_store::jobs::Job;
 use neon_store::webhooks::{self as repo, Attempt, GaveUp, Listed, Webhook};
-use neon_store::{databases, pages, users};
+use neon_store::{comments, databases, pages, users};
 use serde_json::{Value as Json, json};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -45,7 +54,7 @@ use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::events::{Choice, Delivery, Event, status_property};
+use super::events::{Choice, Delivery, Event, PageEvent, Told, status_property};
 use super::outgoing::{DeliveryAttempt, url_setter};
 use super::signature::{self, SIGNATURE_HEADER, TIMESTAMP_HEADER};
 use super::transport::{Answer, Outgoing, SendError};
@@ -156,9 +165,9 @@ impl Failure {
 
 /// Whether a delivery may be sent, as the rules say when it is tried.
 enum Reach {
-    /// Yes: about the row, to the identity, as it works now.
-    Row(Box<(User, RowFacts)>),
-    /// No: the row is out of the identity's reach, or of whoever set the URL.
+    /// Yes, with this payload, written for the identity as it works now.
+    Send(Box<Json>),
+    /// No: the row or page is out of the identity's reach, or of whoever set the URL.
     Hidden,
     /// No, nor any other: whoever set the URL may no longer register it, saying why.
     Lapsed(String),
@@ -185,7 +194,7 @@ impl WebhookService {
             otel.name = "webhooks deliver",
             webhooks.operation = "deliver",
             webhook.id = %delivery.webhook_id,
-            webhook.event = %delivery.event.kind,
+            webhook.event = %delivery.event.kind(),
             webhook.attempt = job.attempt,
         );
         let guard = self.inner.red.start("deliver");
@@ -262,10 +271,10 @@ impl WebhookService {
                 .await?;
             return Ok(Ok(()));
         }
-        let (identity, facts) = match self.reach(&webhook, event).await? {
-            Reach::Row(found) => *found,
+        let body = match self.reach(&webhook, event).await? {
+            Reach::Send(body) => *body,
             Reach::Hidden => {
-                info!(webhook_id = %webhook.id, "webhook delivery skipped: the row is out of reach");
+                info!(webhook_id = %webhook.id, "webhook delivery skipped: what it tells of is out of reach");
                 self.log(&record(Outcome::Skipped, None, Some("no_access")))
                     .await?;
                 return Ok(Ok(()));
@@ -281,8 +290,7 @@ impl WebhookService {
                 return Ok(Ok(()));
             }
         };
-        let body = row_payload(event, &identity, &facts);
-        let sent = self.send(&webhook, &event.kind, job.id, &body).await?;
+        let sent = self.send(&webhook, event.kind(), job.id, &body).await?;
         // What the attempt did to the webhook is saved before the log tells of it, so the log
         // never shows an attempt whose effect is not there yet.
         match &sent.failure {
@@ -470,10 +478,10 @@ impl WebhookService {
         Ok(())
     }
 
-    /// Whether a delivery may be sent now, as the module docs say: the row an event is
-    /// about, out of the trash, when both the webhook's identity and whoever set its URL may
-    /// see it, with the identity as it works now.
-    async fn reach(&self, webhook: &Webhook, event: &Event) -> Result<Reach, WebhookError> {
+    /// Whether a delivery may be sent now, as the module docs say: the row or page an event
+    /// is about, out of the trash, when both the webhook's identity and whoever set its URL
+    /// may see it, with the identity as it works now.
+    async fn reach(&self, webhook: &Webhook, told: &Told) -> Result<Reach, WebhookError> {
         let mut conn = self.pool().acquire().await?;
         let Some((user, standing)) = users::identity(&mut *conn, webhook.user_id).await? else {
             return Ok(Reach::Hidden);
@@ -502,12 +510,39 @@ impl WebhookService {
                 workspace_id: Some(webhook.workspace_id),
             },
         };
-        let Some(seen) = self.sees(&mut conn, &principal, webhook, event).await? else {
+        match told {
+            Told::Row(event) => {
+                self.reach_row(&mut conn, webhook, &principal, &setter, event)
+                    .await
+            }
+            Told::Page(event) => {
+                self.reach_page(&mut conn, webhook, &principal, &setter, event)
+                    .await
+            }
+        }
+    }
+
+    /// The payload of a row's event, when the identity and whoever set the URL see the row.
+    async fn reach_row(
+        &self,
+        conn: &mut PgConnection,
+        webhook: &Webhook,
+        principal: &Principal,
+        setter: &Principal,
+        event: &Event,
+    ) -> Result<Reach, WebhookError> {
+        let Some(seen) = self
+            .sees(&mut *conn, principal, webhook, event.row_id, true)
+            .await?
+        else {
             return Ok(Reach::Hidden);
         };
         let mut parent_seen = seen.parent_seen();
         if setter.user.id != principal.user.id {
-            let Some(theirs) = self.sees(&mut conn, &setter, webhook, event).await? else {
+            let Some(theirs) = self
+                .sees(&mut *conn, setter, webhook, event.row_id, true)
+                .await?
+            else {
                 return Ok(Reach::Hidden);
             };
             parent_seen &= theirs.parent_seen();
@@ -540,22 +575,88 @@ impl WebhookService {
             schema: facts_schema,
             cells: data.cells,
         };
-        Ok(Reach::Row(Box::new((principal.user, facts))))
+        Ok(Reach::Send(Box::new(row_payload(
+            event,
+            &principal.user,
+            &facts,
+        ))))
     }
 
-    /// The row an event is about, as `principal` sees it, when they may: a row of the
-    /// webhook's workspace, out of the trash.
+    /// The payload of a page's event, when the identity and whoever set the URL see the
+    /// page, and the comment it is about is still there.
+    async fn reach_page(
+        &self,
+        conn: &mut PgConnection,
+        webhook: &Webhook,
+        principal: &Principal,
+        setter: &Principal,
+        event: &PageEvent,
+    ) -> Result<Reach, WebhookError> {
+        let Some(seen) = self
+            .sees(&mut *conn, principal, webhook, event.page_id, false)
+            .await?
+        else {
+            return Ok(Reach::Hidden);
+        };
+        if setter.user.id != principal.user.id
+            && self
+                .sees(&mut *conn, setter, webhook, event.page_id, false)
+                .await?
+                .is_none()
+        {
+            return Ok(Reach::Hidden);
+        }
+        let comment = match event.comment_id {
+            Some(id) => match comments::comment(&mut *conn, id).await? {
+                Some(comment) => Some(comment),
+                None => return Ok(Reach::Hidden),
+            },
+            None => None,
+        };
+        let actor = match event.actor_id {
+            Some(id) => users::by_id(&mut *conn, id).await?,
+            None => None,
+        };
+        let page = seen.page();
+        let mut payload = json!({
+            "version": PAYLOAD_VERSION,
+            "id": event.id.to_string(),
+            "type": event.kind,
+            "occurred_at": rfc3339(event.occurred_at()),
+            "workspace": {"id": event.workspace_id.to_string()},
+            "identity": person(&principal.user),
+            "actor": actor.as_ref().map(person),
+            "page": {
+                "id": page.id.to_string(),
+                "title": page.title,
+                "kind": page.kind.as_str(),
+            },
+            "comment": null,
+        });
+        if let Some(comment) = comment {
+            payload["comment"] = json!({
+                "id": comment.id.to_string(),
+                "thread_id": comment.thread_id.to_string(),
+                "markdown": comment.body,
+            });
+        }
+        Ok(Reach::Send(Box::new(payload)))
+    }
+
+    /// The page with `page_id` as `principal` sees it, when they may: one of the webhook's
+    /// workspace, out of the trash, and a row when `row` says so.
     async fn sees(
         &self,
         conn: &mut PgConnection,
         principal: &Principal,
         webhook: &Webhook,
-        event: &Event,
+        page_id: Uuid,
+        row: bool,
     ) -> Result<Option<Context>, WebhookError> {
         let context = match self
             .inner
             .pages
-            .context(&mut *conn, principal, event.row_id)
+            .context(&mut *conn, principal, page_id)
             .await
         {
             Ok(context) => context,
@@ -563,12 +664,21 @@ impl WebhookService {
             Err(error) => return Err(WebhookError::Internal(error.to_string())),
         };
         let page = context.page();
-        let seen = page.kind == PageKind::Row
+        let seen = (!row || page.kind == PageKind::Row)
             && page.workspace_id == webhook.workspace_id
             && !page.is_trashed()
             && context.check(Action::ViewPage).is_ok();
         Ok(seen.then_some(context))
     }
+}
+
+/// An identity as a payload names it.
+fn person(user: &User) -> Json {
+    json!({
+        "id": user.id.to_string(),
+        "kind": user.kind.as_str(),
+        "name": user.display_name,
+    })
 }
 
 /// An attempt at a delivery, as its webhook's log keeps it.
@@ -584,8 +694,8 @@ fn record(
         id: Uuid::now_v7(),
         webhook_id: delivery.webhook_id,
         delivery_id: Some(job.id),
-        event_id: delivery.event.id,
-        event_type: delivery.event.kind.clone(),
+        event_id: delivery.event.id(),
+        event_type: delivery.event.kind().to_owned(),
         attempt: job.attempt,
         outcome: outcome.as_str().to_owned(),
         status_code: sent.and_then(|sent| sent.status).map(i32::from),
@@ -622,11 +732,7 @@ fn row_payload(event: &Event, identity: &User, facts: &RowFacts) -> Json {
         "type": event.kind,
         "occurred_at": rfc3339(event.occurred_at()),
         "workspace": {"id": event.workspace_id.to_string()},
-        "identity": {
-            "id": identity.id.to_string(),
-            "kind": identity.kind.as_str(),
-            "name": identity.display_name,
-        },
+        "identity": person(identity),
         "row": {
             "id": event.row_id.to_string(),
             "unique_id": facts.unique_id,

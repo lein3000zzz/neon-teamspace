@@ -27,12 +27,15 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use neon_app::auth::{AuthService, CLEANUP_INTERVAL, Cleanup, NewAccount};
 use neon_app::clock::Clock;
+use neon_app::comments::CommentService;
 use neon_app::crypto::Envelope;
 use neon_app::databases::{DatabaseService, LiveDatabases};
 use neon_app::jobs::{self, LISTEN_CONNECTIONS, Worker, WorkerConfig};
 use neon_app::mail::{MailJob, MailQueue};
+use neon_app::notifications::{FeedLimits, InboxFeeds, InboxService, NotificationMailJob};
 use neon_app::oauth::{Cleanup as OAuthCleanup, OAuthService};
 use neon_app::pages::{AccessChanges, Fanout, PageService};
+use neon_app::periodic::Periodic;
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
@@ -81,6 +84,9 @@ const BACKGROUND_STOP: Duration = Duration::from_secs(60);
 
 /// How long stopping waits for the live documents to be saved.
 const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How often the server looks for digests that are due.
+const DIGEST_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// Runs the server until SIGINT or SIGTERM, then stops it.
 pub async fn serve(loaded: Loaded) -> anyhow::Result<()> {
@@ -246,10 +252,12 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     // connections of those who lost it.
     let (documents_listener, feed) = sync::access_feed();
     let (databases_listener, databases_feed) = sync::access_feed();
+    let (inbox_listener, inbox_feed) = sync::access_feed();
     let (mcp_listener, mcp_feed) = mcp::access_feed();
     let access: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![
         documents_listener,
         databases_listener,
+        inbox_listener,
         mcp_listener,
     ]));
     // One broadcaster for the live documents and the database feeds, in rooms of their own.
@@ -266,6 +274,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .envelope(envelope.clone())
         .limiter(Arc::clone(&limiter))
         .access_changes(Arc::clone(&access))
+        .broadcaster(Arc::clone(&broadcaster))
         .build();
     let agents = AgentService::new(workspaces.clone());
     let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
@@ -282,6 +291,14 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let feeds = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed).build();
+    let comments = CommentService::new(pages.clone(), live.clone());
+    let inbox = InboxService::new(pages.clone(), mail.clone(), envelope.clone());
+    let inbox_feeds = InboxFeeds::new(
+        auth.clone(),
+        Arc::clone(&broadcaster),
+        inbox_feed,
+        FeedLimits::default(),
+    );
     let transfer = TransferService::builder(pages.clone(), live.clone(), databases.clone())
         .limiter(Arc::clone(&limiter))
         .build();
@@ -294,6 +311,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             pages: pages.clone(),
             databases: databases.clone(),
             sync: live.clone(),
+            comments: comments.clone(),
         },
         Arc::new(HttpTransport::default()),
     )
@@ -308,6 +326,8 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             pages: pages.clone(),
             sync: live.clone(),
             databases: databases.clone(),
+            comments: comments.clone(),
+            inbox: inbox.clone(),
             broadcaster,
         },
         limiter,
@@ -317,8 +337,10 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages);
     start_oauth_upkeep(shutdown, &oauth);
+    start_notification_upkeep(shutdown, &inbox);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
+    close_inbox_feeds_on_shutdown(shutdown, &inbox_feeds);
     let listener = TcpListener::bind(config.server.listen)
         .await
         .with_context(|| format!("listening on {}", config.server.listen))?;
@@ -331,6 +353,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
     let worker = Worker::new(pool.clone(), jobs)
         .handler(MailJob::new(mail, Arc::new(mailer)))
         .handler(DeliveryJob::new(webhooks.clone()))
+        .handler(NotificationMailJob::new(inbox.clone()))
         .span(jobs::run_span)
         .hook(jobs::RedHook::new());
     let web = WebConfig::new(
@@ -348,6 +371,9 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             sync: live,
             databases,
             live: feeds,
+            comments,
+            inbox,
+            inbox_feeds,
             transfer,
             webhooks,
             web: Arc::new(web),
@@ -489,6 +515,31 @@ fn close_feeds_on_shutdown(shutdown: &Shutdown, feeds: &LiveDatabases) {
         DEFAULT_HOOK_TIMEOUT,
         async move { feeds.shutdown().await },
     );
+}
+
+/// Starts mailing the digests that are due, every few minutes, which stops before the pool
+/// closes.
+fn start_notification_upkeep(shutdown: &Shutdown, inbox: &InboxService) {
+    let inbox = inbox.clone();
+    let digests = Periodic::spawn("notification digests", DIGEST_CHECK_INTERVAL, move || {
+        let inbox = inbox.clone();
+        async move { inbox.send_digests().await.map(|_| ()) }
+    });
+    on_stop(
+        shutdown,
+        "notification digests",
+        DEFAULT_HOOK_TIMEOUT,
+        digests.stop(),
+    );
+}
+
+/// Closes the inbox feeds when stopping, after the HTTP server stopped taking new ones and
+/// before the pool closes, so their clients reconnect to the next server.
+fn close_inbox_feeds_on_shutdown(shutdown: &Shutdown, feeds: &InboxFeeds) {
+    let feeds = feeds.clone();
+    on_stop(shutdown, "inbox feeds", DEFAULT_HOOK_TIMEOUT, async move {
+        feeds.shutdown().await
+    });
 }
 
 /// Closes the pool when stopping, after every part registered later, which all use it.

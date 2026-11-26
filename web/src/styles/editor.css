@@ -260,3 +260,19 @@ html .bn-shadcn [data-database-embed] svg:not([class*="size-"]) {
 html .bn-root [data-database-embed] {
   font-family: var(--font-ui);
 }
+
+/*
+ * The text each inline thread is on, underlined and tinted, the open one
+ * stronger. The underline marks it where colours are forced too. Mentions
+ * are styled with the app's, in index.css, as comments show them as well.
+ */
+html .bn-root .comment-highlight {
+  background-color: color-mix(in oklch, var(--neon-soft), transparent 40%);
+  text-decoration: underline 2px var(--neon);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+html .bn-root .comment-highlight.is-active {
+  background-color: var(--neon-soft);
+  box-shadow: 0 0 0 1px var(--neon);
+}

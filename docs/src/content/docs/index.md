@@ -15,10 +15,10 @@ hero:
 
 :::note[Early development]
 Neon Teamspace is before its first release. Accounts, workspaces and teamspaces, pages
-edited together in real time, databases with their boards, agents over MCP and the API,
-OAuth for their clients, and webhooks both ways exist, in the API and the web app, with
-the Docker images that serve them. Comments, mentions, page history, search and
-attachments come next. Pages say what exists today and mark the rest of the design as
+edited together in real time, databases with their boards, comments, mentions and the
+inbox, agents over MCP and the API, OAuth for their clients, and webhooks both ways exist,
+in the API and the web app, with the Docker images that serve them. Page history, search
+and attachments come next. Pages say what exists today and mark the rest of the design as
 **Planned**.
 :::
 

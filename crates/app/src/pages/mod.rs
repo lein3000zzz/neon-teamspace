@@ -164,6 +164,10 @@ impl PageService {
         &self.inner.broadcaster
     }
 
+    pub(crate) fn settings(&self) -> &Arc<SettingsService> {
+        &self.inner.settings
+    }
+
     fn trash_retention(&self) -> Duration {
         *self.inner.settings.current().get(keys::TRASH_RETENTION)
     }
@@ -329,8 +333,8 @@ fn page_resource((space, shared): Seat, trashed: bool) -> Resource {
 }
 
 /// What a page gives the principal, standing to it as `mine` and its owner as `theirs`, as
-/// the rules say: edit, view or nothing. Asked as for a page out of the trash, so it is the
-/// same in the trash, where only editors see it.
+/// the rules say: edit, comment, view or nothing. Asked as for a page out of the trash, so
+/// it is the same in the trash, where only editors see it.
 pub(crate) fn access_of(standing: &Standing, mine: Seat, theirs: Seat) -> Option<PageAccess> {
     let allowed = |action| {
         standing
@@ -343,6 +347,8 @@ pub(crate) fn access_of(standing: &Standing, mine: Seat, theirs: Seat) -> Option
     };
     if allowed(Action::EditPage) {
         Some(PageAccess::Edit)
+    } else if allowed(Action::CommentPage) {
+        Some(PageAccess::Comment)
     } else if allowed(Action::ViewPage) {
         Some(PageAccess::View)
     } else {
@@ -528,7 +534,7 @@ impl Context {
         &self.chain[0].page
     }
 
-    /// What the page gives the principal: edit, view or nothing.
+    /// What the page gives the principal: edit, comment, view or nothing.
     pub(crate) fn access(&self) -> Option<PageAccess> {
         let link = &self.chain[0];
         access_of(
@@ -541,6 +547,12 @@ impl Context {
     /// The principal is a guest, or an agent of one, who knows no other member.
     pub(crate) fn members_hidden(&self) -> bool {
         self.standing.members_hidden()
+    }
+
+    /// The principal is a guest of the page's workspace themselves: no space gives them a
+    /// page, only shares.
+    pub(crate) fn is_guest(&self) -> bool {
+        self.standing.role() == Some(WorkspaceRole::Guest)
     }
 
     fn check_link(&self, action: Action, link: &Link) -> Result<(), PageError> {

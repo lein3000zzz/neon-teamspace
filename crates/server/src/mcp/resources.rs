@@ -6,14 +6,16 @@
 //! | `neon://database/{id}` | the database's page, properties and views, as JSON |
 //! | `neon://database/{id}/view/{view}` | the rows the view shows, as JSON, at most 1000 |
 //! | `neon://me/tasks` | the rows assigned to the caller, as JSON, at most 100 |
+//! | `neon://me/inbox` | the caller's notifications in the workspace, as JSON, the newest 50 |
 //!
-//! Listing gives `neon://me/tasks`, the caller's favorites, the pages changed last and each
-//! task, each once and bounded. Each resource can be subscribed to: see
+//! Listing gives `neon://me/tasks`, `neon://me/inbox`, the caller's favorites, the pages
+//! changed last and each task, each once and bounded. Each resource can be subscribed to: see
 //! [`watch`](super::watch).
 
 use std::collections::HashSet;
 
 use neon_app::databases::{MAX_PAGE, QueryInput};
+use neon_app::notifications::InboxQuery;
 use neon_domain::auth::Principal;
 use neon_domain::pages::PageKind;
 use rmcp::model::{Resource as Listed, ResourceContents, ResourceTemplate};
@@ -25,6 +27,7 @@ use super::tools::ToolError;
 use crate::http::content::page_markdown;
 use crate::http::database_rows::{QueryAnswer, Task, TaskList};
 use crate::http::databases::Database;
+use crate::http::inbox::NotificationList;
 
 const SCHEME: &str = "neon://";
 const MARKDOWN: &str = "text/markdown";
@@ -42,6 +45,7 @@ pub(crate) enum Resource {
     Database(Uuid),
     View { database: Uuid, view: Uuid },
     Tasks,
+    Inbox,
 }
 
 impl Resource {
@@ -61,6 +65,7 @@ impl Resource {
                 view: id(view)?,
             },
             ["me", "tasks"] => Self::Tasks,
+            ["me", "inbox"] => Self::Inbox,
             _ => return Err(unknown()),
         };
         if resource.uri() != uri {
@@ -75,6 +80,7 @@ impl Resource {
             Self::Database(id) => format!("{SCHEME}database/{id}"),
             Self::View { database, view } => format!("{SCHEME}database/{database}/view/{view}"),
             Self::Tasks => format!("{SCHEME}me/tasks"),
+            Self::Inbox => format!("{SCHEME}me/inbox"),
         }
     }
 
@@ -118,6 +124,13 @@ pub(crate) fn templates() -> Vec<ResourceTemplate> {
                  most recently changed first, at most 100.",
             )
             .with_mime_type(JSON),
+        ResourceTemplate::new("neon://me/inbox", "inbox")
+            .with_title("My inbox")
+            .with_description(
+                "Your notifications in the workspace, the newest first, at most 50: mentions, \
+                 replies, comments on pages you follow and assignments, read or not.",
+            )
+            .with_mime_type(JSON),
     ]
 }
 
@@ -134,7 +147,8 @@ fn refused(error: impl Into<crate::http::ApiError>) -> ToolError {
     ToolError::from(error.into())
 }
 
-/// The resources to list for the caller: their tasks, favorites and the pages changed last.
+/// The resources to list for the caller: their tasks and inbox, favorites and the pages
+/// changed last.
 pub(crate) async fn list(s: &Services, principal: &Principal) -> Result<Vec<Listed>, ToolError> {
     let ws = workspace(principal)?;
     let mut seen = HashSet::new();
@@ -154,6 +168,11 @@ pub(crate) async fn list(s: &Services, principal: &Principal) -> Result<Vec<List
         Resource::Tasks,
         "My tasks",
         "The rows assigned to you.".to_owned(),
+    );
+    add(
+        Resource::Inbox,
+        "My inbox",
+        "Your notifications: mentions, replies, comments and assignments.".to_owned(),
     );
     let favorites = s
         .pages
@@ -246,6 +265,14 @@ pub(crate) async fn read(
                 tasks: tasks.into_iter().map(Task::from).collect(),
             }))]
         }
+        Resource::Inbox => {
+            let query = InboxQuery {
+                workspace_id: Some(workspace(principal)?),
+                ..InboxQuery::default()
+            };
+            let page = s.inbox.inbox(principal, query).await.map_err(refused)?;
+            vec![json(json!(NotificationList::from(page)))]
+        }
     })
 }
 
@@ -278,7 +305,7 @@ pub(crate) async fn check(
                 return Err(ToolError::invalid("not_found", "no such view"));
             }
         }
-        Resource::Tasks => {
+        Resource::Tasks | Resource::Inbox => {
             s.workspaces
                 .admits(principal, workspace(principal)?)
                 .await
@@ -304,9 +331,11 @@ mod tests {
                 view,
             },
             Resource::Tasks,
+            Resource::Inbox,
         ] {
             assert_eq!(Resource::parse(&resource.uri()).ok(), Some(resource));
         }
+        assert_eq!(Resource::Inbox.uri(), "neon://me/inbox");
         assert_eq!(
             Resource::Page(page).uri(),
             "neon://page/00000000-0000-0000-0000-000000000001"
@@ -316,7 +345,7 @@ mod tests {
             "neon://page/nope",
             "neon://pages/00000000-0000-0000-0000-000000000001",
             "neon://database/00000000-0000-0000-0000-000000000001/view",
-            "neon://me/inbox",
+            "neon://me/notes",
             "https://example.com/page/00000000-0000-0000-0000-000000000001",
             "",
             // The ids written another way than the resource's own URI has them.

@@ -43,10 +43,12 @@ use uuid::Uuid;
 
 use crate::clock::Clock;
 use crate::crypto::Envelope;
+use crate::notifications::notify::Notifier;
 use crate::pages::{AccessChange, AccessChanges, NoListener};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
 use crate::settings::{SettingsService, mcp, workspaces as keys};
 use crate::standing::Standing;
+use crate::sync::{Broadcaster, LocalBroadcaster};
 
 pub use admin::{AdminWorkspace, AdminWorkspacePage, LimitsUpdate, Usage};
 pub use agents::{
@@ -77,19 +79,21 @@ struct Inner {
     limiter: Arc<dyn RateLimiter>,
     envelope: Envelope,
     access: Arc<dyn AccessChanges>,
+    broadcaster: Arc<dyn Broadcaster>,
     clock: Clock,
     red: Red,
 }
 
 /// Puts a [`WorkspaceService`] together. Without being told otherwise it limits rates in
-/// memory, seals no invite link, tells nobody of access changes and reads the system
-/// clock.
+/// memory, seals no invite link, tells nobody of access changes, tells the inboxes of a
+/// broadcaster of its own and reads the system clock.
 pub struct WorkspaceServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
     limiter: Option<Arc<dyn RateLimiter>>,
     envelope: Envelope,
     access: Arc<dyn AccessChanges>,
+    broadcaster: Arc<dyn Broadcaster>,
     clock: Clock,
 }
 
@@ -118,6 +122,13 @@ impl WorkspaceServiceBuilder {
         self
     }
 
+    /// Where the inboxes an invitation changes hear of it: the broadcaster their feeds
+    /// listen on.
+    pub fn broadcaster(mut self, broadcaster: Arc<dyn Broadcaster>) -> Self {
+        self.broadcaster = broadcaster;
+        self
+    }
+
     /// Call it after telemetry is installed, as it creates the RED metrics.
     pub fn build(self) -> WorkspaceService {
         WorkspaceService {
@@ -129,6 +140,7 @@ impl WorkspaceServiceBuilder {
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
                 envelope: self.envelope,
                 access: self.access,
+                broadcaster: self.broadcaster,
                 clock: self.clock,
                 red: Red::new(SUBSYSTEM),
             }),
@@ -144,8 +156,14 @@ impl WorkspaceService {
             limiter: None,
             envelope: Envelope::default(),
             access: Arc::new(NoListener),
+            broadcaster: Arc::new(LocalBroadcaster::new()),
             clock: Clock::system(),
         }
+    }
+
+    /// Makes notifications of invitations, and tells their inboxes once they commit.
+    pub(crate) fn notifier(&self) -> Notifier {
+        Notifier::new(&self.inner.settings, &self.inner.broadcaster)
     }
 
     fn settings(&self) -> Arc<Snapshot> {

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.user_id FROM notification_preferences p\n         WHERE p.mail = 'digest' AND (p.digest_sent_at IS NULL OR p.digest_sent_at <= $1)\n           AND EXISTS (SELECT 1 FROM notifications n\n                       WHERE n.user_id = p.user_id AND n.mailed_at IS NULL\n                         AND n.read_at IS NULL AND n.archived_at IS NULL)\n         ORDER BY p.user_id\n         LIMIT $2\n         FOR UPDATE OF p SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_preferences",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c69fdea8a4a447ee50b588fbcf8d3483b70ff006c18c5246b2faf597212373a1"
+}

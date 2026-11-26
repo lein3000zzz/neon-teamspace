@@ -1,6 +1,6 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, edits of pages' content from the API and MCP, requests to the MCP server, by
+//! pages, edits of pages' content from the API and MCP, comments, requests to the MCP server, by
 //! identity and by person, OAuth clients registering themselves, the exchanges of each
 //! OAuth grant, webhooks' test events, and the requests incoming webhooks take.
 //!
@@ -71,6 +71,13 @@ pub const EDITS: Quota = Quota {
     every: Duration::from_millis(500),
 };
 
+/// Thirty comments, then one every 2 seconds: one identity's comments, each of which may
+/// tell many inboxes and mailboxes.
+pub const COMMENTS: Quota = Quota {
+    burst: 30,
+    every: Duration::from_secs(2),
+};
+
 /// What is being limited. Each has its own buckets, keyed by an IP, an address or a user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bucket {
@@ -105,6 +112,8 @@ pub enum Bucket {
     /// Editing pages' content through their live documents, by user: each edit may go over
     /// the whole page, twice.
     PageEdit,
+    /// Writing comments, by identity: starting threads, replying and changing a comment.
+    Comment,
     /// Requests to the MCP server, by identity: a person or an agent.
     Mcp,
     /// Requests to the MCP server, by person: theirs and their agents' together.
@@ -124,7 +133,7 @@ pub enum Bucket {
 }
 
 impl Bucket {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -140,6 +149,7 @@ impl Bucket {
         Self::PageImport,
         Self::PageExport,
         Self::PageEdit,
+        Self::Comment,
         Self::Mcp,
         Self::McpPerson,
         Self::OAuthRegister,
@@ -167,6 +177,7 @@ impl Bucket {
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
             Self::PageEdit => "page-edit:user:",
+            Self::Comment => "comment:user:",
             Self::Mcp => "mcp:user:",
             Self::McpPerson => "mcp:person:",
             Self::OAuthRegister => "oauth-register:source:",
@@ -181,6 +192,7 @@ impl Bucket {
         match self {
             Self::LoginEmail => ACCOUNT,
             Self::PageEdit => EDITS,
+            Self::Comment => COMMENTS,
             Self::Mcp => MCP,
             Self::McpPerson => MCP_PERSON,
             Self::IncomingClient => HOOK_CLIENT,
@@ -218,11 +230,12 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_edit_mcp_and_incoming_webhook_buckets_are_looser() {
+    fn only_the_cross_ip_edit_comment_mcp_and_incoming_webhook_buckets_differ() {
         for bucket in Bucket::ALL {
             let want = match bucket {
                 Bucket::LoginEmail => ACCOUNT,
                 Bucket::PageEdit => EDITS,
+                Bucket::Comment => COMMENTS,
                 Bucket::Mcp => MCP,
                 Bucket::McpPerson => MCP_PERSON,
                 Bucket::IncomingClient => HOOK_CLIENT,

@@ -3,6 +3,7 @@
 
 use neon_domain::auth::{Principal, Scope};
 use neon_domain::databases::MAX_ROWS;
+use neon_domain::notifications::{TextMention, page_mentions};
 use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, Space, check_title,
 };
@@ -19,6 +20,8 @@ use super::{
     PageView, check_parent, check_space,
 };
 use crate::databases::events::{self, RowChange};
+use crate::notifications::mentions::{self, Mentions};
+use crate::notifications::notify::Notifier;
 use crate::standing::Standing;
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
@@ -56,7 +59,8 @@ pub struct PageUpdate {
 impl PageService {
     /// Makes a page under another page, at the top of a teamspace, or private to the
     /// caller, placed among its siblings. Under a page, it needs edit access to that page;
-    /// at the top of a teamspace, being in it.
+    /// at the top of a teamspace, being in it. Those its content mentions are told, as by
+    /// its maker, in its transaction.
     pub async fn create_page(
         &self,
         principal: &Principal,
@@ -109,10 +113,24 @@ impl PageService {
                 trashed_with: None,
             };
             repo::insert(&mut *tx, &page).await?;
+            let mut notifier = Notifier::of(self);
             if let Some(content) = &new.content {
                 save_content(&mut tx, page.id, content, now).await?;
+                // The page's maker wrote its first text: whom it mentions is told now, as
+                // from them.
+                let mentioned = page_mentions(content.mentions.iter().map(|mention| TextMention {
+                    writer: Some(user),
+                    ..mention.clone()
+                }));
+                let mentions = Mentions {
+                    page_id: page.id,
+                    mentioned: &mentioned,
+                    at: now,
+                };
+                mentions::page_text(&mut tx, self, &mut notifier, mentions).await?;
             }
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %user,
                 workspace_id = %workspace_id,

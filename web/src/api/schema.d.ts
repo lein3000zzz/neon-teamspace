@@ -841,6 +841,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a comment
+         * @description By its author, who must still be allowed to comment, or by those who edit the page, with the notifications of it. A thread left without comments goes too.
+         */
+        delete: operations["delete_comment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a comment
+         * @description Its text, by its author, who must still be allowed to comment. It shows as edited. Those it mentions anew are told; nobody else is told again.
+         */
+        patch: operations["edit_comment"];
+        trace?: never;
+    };
     "/api/v1/databases/{id}": {
         parameters: {
             query?: never;
@@ -1093,6 +1117,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the inbox
+         * @description The caller's notifications, newest first, a part at a time: from every workspace they are in, or the one named, and their invitations into workspaces while those wait. A token bound to a workspace reads that workspace's alone, without invitations.
+         */
+        get: operations["list_inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Count the unread notifications */
+        get: operations["inbox_count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark every notification read */
+        post: operations["mark_all_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read how one wants mail of the inbox */
+        get: operations["get_notification_settings"];
+        /**
+         * Choose how one wants mail of the inbox
+         * @description For people; agents and integrations get no mail.
+         */
+        put: operations["put_notification_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/meta": {
         parameters: {
             query?: never;
@@ -1111,6 +1210,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Mark a notification
+         * @description Read or unread, archived or not.
+         */
+        patch: operations["change_notification"];
         trace?: never;
     };
     "/api/v1/oauth/authorize": {
@@ -1301,6 +1420,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pages/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a page's comments
+         * @description Its threads, oldest first, a part at a time, each with its first comment and its latest replies, how many it holds, and, for an inline thread, where its anchor is in the page now: the block its text starts in, or detached once that text is gone. For everyone who may see the page.
+         */
+        get: operations["list_comments"];
+        put?: never;
+        /**
+         * Start a thread of comments
+         * @description On the whole page, on a range of its text (`anchor`), or on one block's text (`block_id`), with its first comment. For those who edit the page or may comment on it. Those it mentions who may see the page, and the page's followers, are told in their inboxes; those it mentions who may not are told nothing, and come back in `unnotified`.
+         */
+        post: operations["start_thread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pages/{id}/export": {
         parameters: {
             query?: never;
@@ -1314,6 +1457,26 @@ export interface paths {
          */
         get: operations["export_page"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Follow a page's comments, or stop
+         * @description Who follows a page hears of every comment on it in their inbox. Its maker, and whoever comments on it or is mentioned on it, follows it until they stop.
+         */
+        put: operations["follow_page"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1343,6 +1506,26 @@ export interface paths {
          * @description Makes the operations in order, all or none, through the page's live document: whoever has the page open sees the change at once, and what they type meanwhile merges with it. Operations name blocks by the ids reading the markdown shows. replace_range and replace_body need base, the revision the markdown they were made from was read at: once the page is at another, they are refused, as they would remove what was added or changed since. Editing needs edit access to the page, out of the trash. A page holds at most 16 MiB. Each user has 100 edits at once, through this route and MCP together, then two a second.
          */
         patch: operations["edit_markdown"];
+        trace?: never;
+    };
+    "/api/v1/pages/{id}/mentions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find what a mention may name
+         * @description The members and agents, and the pages, a mention on the page may name, whose names or titles hold `q`, each person with whether they may see the page. For everyone who may see it; a guest finds pages alone.
+         */
+        get: operations["mention_candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/pages/{id}/move": {
@@ -1551,6 +1734,78 @@ export interface paths {
         get: operations["teamspace_pages"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a thread
+         * @description With its first comment and its latest replies, as a page's list has it. For everyone who may see its page.
+         */
+        get: operations["get_thread"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a thread
+         * @description With every comment in it and their notifications, by those who edit its page.
+         */
+        delete: operations["delete_thread"];
+        options?: never;
+        head?: never;
+        /**
+         * Resolve or reopen a thread
+         * @description For those who may comment on its page. Reopening one needs room on the page for one more open thread.
+         */
+        patch: operations["change_thread"];
+        trace?: never;
+    };
+    "/api/v1/threads/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a thread's comments
+         * @description Every comment of the thread, in order, a part at a time: what the page's list leaves out of a long thread. For everyone who may see its page.
+         */
+        get: operations["list_thread_comments"];
+        put?: never;
+        /**
+         * Reply in a thread
+         * @description For those who may comment on its page. Those it mentions, those who wrote in the thread or were mentioned in it, and the page's followers are told, each once, while they may see the page.
+         */
+        post: operations["reply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop notification mail from its link
+         * @description Without signing in: the token in the mail's link names whom it is for, signed by the server. Their preference becomes `none`. Mail clients post here as RFC 8058 has it, `List-Unsubscribe=One-Click`, which any body does.
+         */
+        post: operations["unsubscribe"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2674,6 +2929,28 @@ export interface components {
             /** @description The default one first, then by name. */
             teamspaces: components["schemas"]["AgentTeamspace"][];
         };
+        /** @description An inline thread's range, as the editor makes it. */
+        AnchorIn: {
+            /** @description The Yjs relative position of its end, likewise. */
+            end: string;
+            /** @description The text it is on, at most 1000 characters kept. */
+            quote: string;
+            /** @description The Yjs relative position of its start, as Yjs encodes it, in base64. */
+            start: string;
+        };
+        /** @description Where an inline thread is in the page. */
+        AnchorOut: {
+            /** @description The block its text starts in now; absent once it is detached. */
+            block_id?: string | null;
+            /** @description Every character of its range was deleted: the thread stays, without a place. */
+            detached: boolean;
+            /** @description The Yjs relative position of its end, likewise. */
+            end: string;
+            /** @description The text it was made on. */
+            quote: string;
+            /** @description The Yjs relative position of the start of its range, as Yjs encodes it, in base64. */
+            start: string;
+        };
         /** @description An API token, without its secret. */
         ApiToken: {
             /** Format: date-time */
@@ -2861,6 +3138,37 @@ export interface components {
         CodeRequest: {
             /** @example inv_4yVd0q3oJ2... */
             code: string;
+        };
+        /** @description A part of a thread's comments, in order. */
+        CommentList: {
+            comments: components["schemas"]["CommentOut"][];
+            /**
+             * Format: uuid
+             * @description Pass as `after` for the next part; absent at the end.
+             */
+            next?: string | null;
+        };
+        /** @description A comment, its markdown and its inline content. */
+        CommentOut: {
+            author?: components["schemas"]["Person"] | null;
+            /** @description The same as BlockNote's inline content: text with its styles, links and mentions. */
+            content: Record<string, never>[];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When its author last changed it, which shows it as edited.
+             */
+            edited_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Its markdown: inline content alone, mentions written `@[Name](user:<id>)` and
+             *     `@[Title](page:<id>)`.
+             */
+            markdown: string;
+            /** Format: uuid */
+            thread_id: string;
         };
         /** @description A condition on one property. */
         Condition: {
@@ -3501,6 +3809,10 @@ export interface components {
         } | {
             or: components["schemas"]["Filter"][];
         } | components["schemas"]["Condition"];
+        Following: {
+            /** @description Whether the caller hears of every comment on the page. */
+            following: boolean;
+        };
         /**
          * @description The font a page is set in.
          * @enum {string}
@@ -3552,6 +3864,10 @@ export interface components {
             key?: string | null;
             /** Format: uuid */
             view_id: string;
+        };
+        InboxCount: {
+            /** @description How many notifications are unread, at most 999. */
+            unread: number;
         };
         /** @description The integration an incoming webhook acts as. */
         IncomingIntegration: {
@@ -3845,6 +4161,11 @@ export interface components {
             /** @description It will not be tried again: the server refused the address, or the link expired. */
             permanent: boolean;
         };
+        /**
+         * @description How someone wants mail of their inbox.
+         * @enum {string}
+         */
+        MailPreference: "none" | "each" | "digest";
         /** @description Whether mail can go, and how it went lately. */
         MailStatus: {
             /**
@@ -3863,6 +4184,20 @@ export interface components {
              * @example mail.host is not set
              */
             problem?: string | null;
+        };
+        MarkAllRead: {
+            /**
+             * Format: uuid
+             * @description One workspace's, with every invitation; every workspace's when absent.
+             */
+            workspace_id?: string | null;
+        };
+        Marked: {
+            /**
+             * Format: int64
+             * @description How many were marked.
+             */
+            marked: number;
         };
         /** @description The signed-in user, and what this request may do. */
         Me: components["schemas"]["User"] & {
@@ -3887,6 +4222,19 @@ export interface components {
         MemberList: {
             /** @description Owners first, then admins, members and guests, each by name. */
             members: components["schemas"]["Member"][];
+        };
+        /** @description What a mention on a page may name. */
+        MentionCandidates: {
+            /** @description Pages the caller sees, at most 10, the most recently changed first. */
+            pages: components["schemas"]["Page"][];
+            /** @description People and agents, at most 10; none for a guest. */
+            people: components["schemas"]["MentionPerson"][];
+        };
+        /** @description Someone a mention may name, and whether they may see the page. */
+        MentionPerson: {
+            person: components["schemas"]["Person"];
+            /** @description Off, a mention of them tells them nothing: share the page with them first. */
+            sees_page: boolean;
         };
         Meta: {
             /**
@@ -3932,6 +4280,95 @@ export interface components {
         /** @description Where something goes among its siblings. */
         MoveTo: {
             placement: components["schemas"]["Placement"];
+        };
+        NewComment: {
+            /** @description Markdown limited to inline content, at most 10000 characters. */
+            markdown: string;
+        };
+        NewThread: {
+            anchor?: components["schemas"]["AnchorIn"] | null;
+            /** @description For a thread on one block's whole text, the block's id; not with `anchor`. */
+            block_id?: string | null;
+            /** @description The first comment: markdown limited to inline content, at most 10000 characters. */
+            markdown: string;
+        };
+        /** @description A notification as its person reads it now. */
+        Notification: {
+            actor?: components["schemas"]["Person"] | null;
+            /** Format: date-time */
+            archived_at?: string | null;
+            /** @description For a mention in a page's text, the block it is in. */
+            block_id?: string | null;
+            /** Format: uuid */
+            comment_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** @description The start of the comment it is about. */
+            excerpt?: string | null;
+            /** Format: uuid */
+            id: string;
+            invitation?: components["schemas"]["NotifiedInvitation"] | null;
+            kind: components["schemas"]["NotificationKind"];
+            page?: components["schemas"]["Page"] | null;
+            /**
+             * Format: uuid
+             * @description For an assignment, the person property.
+             */
+            property_id?: string | null;
+            /** Format: date-time */
+            read_at?: string | null;
+            /**
+             * Format: uuid
+             * @description The thread and comment it is about, for a comment's notification.
+             */
+            thread_id?: string | null;
+            /** @description The workspace it is in, or the one an invitation invites to. */
+            workspace: components["schemas"]["InvitingWorkspace"];
+        };
+        NotificationChange: {
+            /** @description Archives it, or brings it back to the inbox. */
+            archived?: boolean | null;
+            /** @description Marks it read, or unread again. */
+            read?: boolean | null;
+        };
+        /**
+         * @description What a notification tells of.
+         * @enum {string}
+         */
+        NotificationKind: "mention" | "reply" | "comment" | "assigned" | "invitation";
+        /** @description A part of an inbox, newest first. */
+        NotificationList: {
+            /**
+             * Format: uuid
+             * @description Pass it back as `before` for the next part; absent at the end.
+             */
+            next?: string | null;
+            notifications: components["schemas"]["Notification"][];
+        };
+        /** @description How the caller wants mail of their inbox, and whether the instance sends it. */
+        NotificationSettings: {
+            /**
+             * Format: int64
+             * @description How often, at most, a digest goes, in seconds.
+             */
+            digest_interval_secs: number;
+            mail: components["schemas"]["MailPreference"];
+            /** @description The instance sends notification mail now; off, the preference waits until it does. */
+            mail_available: boolean;
+        };
+        NotificationSettingsChange: {
+            mail: components["schemas"]["MailPreference"];
+        };
+        /**
+         * @description An invitation a notification is, while it waits for an answer, which
+         *     `POST /account/invitations/{id}/accept` and `/decline` answer.
+         */
+        NotifiedInvitation: {
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            role: components["schemas"]["WorkspaceRole"];
         };
         /**
          * @description How a number shows; values are any finite number whatever the format.
@@ -4065,7 +4502,7 @@ export interface components {
          * @description What the caller may do with a page.
          * @enum {string}
          */
-        PageAccess: "view" | "edit";
+        PageAccess: "view" | "comment" | "edit";
         /**
          * @description What a page is.
          * @enum {string}
@@ -4146,6 +4583,16 @@ export interface components {
         } | {
             /** Format: uuid */
             before: string;
+        };
+        /**
+         * @description A comment just made or changed, with its thread, and those it mentions who may not see
+         *     the page: they were told nothing, and sharing the page with them would let them.
+         */
+        PostedComment: {
+            /** Format: uuid */
+            comment_id: string;
+            thread: components["schemas"]["ThreadOut"];
+            unnotified: components["schemas"]["Person"][];
         };
         /** @description The look of the web app, kept with the account. */
         Preferences: {
@@ -4552,7 +4999,7 @@ export interface components {
          * @description What a share gives.
          * @enum {string}
          */
-        ShareAccess: "can_view" | "can_edit";
+        ShareAccess: "can_view" | "can_comment" | "can_edit";
         ShareList: {
             /** @description The page's own first, then those of each page above it, each page's by name. */
             shares: components["schemas"]["Share"][];
@@ -4707,6 +5154,50 @@ export interface components {
              * @example admin@example.com
              */
             to: string;
+        };
+        ThreadChange: {
+            /** @description Resolves the thread, or reopens it. */
+            resolved: boolean;
+        };
+        /** @description A part of a page's threads, oldest first, and what the caller may do with them. */
+        ThreadList: {
+            /** @description The caller follows the page's comments. */
+            following: boolean;
+            /** @description The caller may start threads, reply, resolve and reopen them. */
+            may_comment: boolean;
+            /** @description The caller edits the page: they delete others' comments, and whole threads. */
+            may_moderate: boolean;
+            /**
+             * Format: uuid
+             * @description Pass as `after` for the next part; absent at the end.
+             */
+            next?: string | null;
+            /** @description How many threads of the page are open, in every part. */
+            open_threads: number;
+            threads: components["schemas"]["ThreadOut"][];
+        };
+        /** @description A thread of comments: on the page as a whole, or on a range of its text. */
+        ThreadOut: {
+            anchor?: components["schemas"]["AnchorOut"] | null;
+            /** @description How many comments it holds in all. */
+            comment_count: number;
+            /**
+             * @description Its first comment, which starts it, and its latest replies after it, in order, at
+             *     most 10 in all; `GET /threads/{id}/comments` reads the rest.
+             */
+            comments: components["schemas"]["CommentOut"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            page_id: string;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            /** Format: uuid */
+            resolved_by?: string | null;
         };
         /** @description A row moving between groups of a view. */
         ToGroup: {
@@ -5046,7 +5537,7 @@ export interface components {
          *     come later.
          * @enum {string}
          */
-        WebhookEvent: "row.assigned" | "row.status_changed";
+        WebhookEvent: "row.assigned" | "row.status_changed" | "page.mentioned" | "comment.replied";
         WebhookList: {
             /** @description Oldest first. */
             webhooks: components["schemas"]["Webhook"][];
@@ -7991,6 +8482,144 @@ export interface operations {
             };
         };
     };
+    delete_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The comment's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    edit_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The comment's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewComment"];
+            };
+        };
+        responses: {
+            /** @description The comment, with its thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostedComment"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: not its author, or may not comment; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_database: {
         parameters: {
             query?: never;
@@ -9127,6 +9756,291 @@ export interface operations {
             };
         };
     };
+    list_inbox: {
+        parameters: {
+            query?: {
+                /**
+                 * @description One workspace's notifications, with every waiting invitation; every workspace's
+                 *     when absent.
+                 */
+                workspace_id?: string;
+                /** @description `all` when absent. */
+                filter?: "all" | "unread" | "archived";
+                /** @description The `next` of the part before. */
+                before?: string;
+                /** @description Notifications in the part, 1 to 200; 50 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A part of the inbox. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found: a workspace the caller is not in. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    inbox_count: {
+        parameters: {
+            query?: {
+                /** @description One workspace's, with every waiting invitation; every workspace's when absent. */
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxCount"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    mark_all_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkAllRead"];
+            };
+        };
+        responses: {
+            /** @description How many were marked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Marked"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_notification_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preference. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_notification_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationSettingsChange"];
+            };
+        };
+        responses: {
+            /** @description The preference. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: an agent or integration; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_meta: {
         parameters: {
             query?: never;
@@ -9143,6 +10057,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Meta"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_notification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChange"];
+            };
+        };
+        responses: {
+            /** @description Marked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description An error. */
@@ -9807,6 +10782,165 @@ export interface operations {
             };
         };
     };
+    list_comments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `true` for the resolved threads alone, `false` for the open ones alone; both when
+                 *     absent.
+                 */
+                resolved?: boolean;
+                /** @description The `next` of the part before. */
+                after?: string;
+                /** @description Threads in the part, 1 to 100; 50 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The threads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    start_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewThread"];
+            };
+        };
+        responses: {
+            /** @description The thread. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostedComment"];
+                };
+            };
+            /** @description invalid_input: an empty or long comment, a bad anchor, or a block without text. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller may only view the page, or it is in the trash; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_threads, or too_many_comments. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited: too many comments at once; Retry-After says when to try again. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     export_page: {
         parameters: {
             query?: {
@@ -9882,6 +11016,69 @@ export interface operations {
             };
             /** @description busy: too many imports and exports are running, on the server or for the caller, with Retry-After; or timeout: the export took longer than 20 seconds. */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    follow_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Following"];
+            };
+        };
+        responses: {
+            /** @description Whether the caller follows it now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Following"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10058,6 +11255,68 @@ export interface operations {
             };
             /** @description unavailable: the server is stopping. */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    mention_candidates: {
+        parameters: {
+            query?: {
+                /** @description What their name or title holds, ignoring case; every one when empty. */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The page's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What it may name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MentionCandidates"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11002,6 +12261,387 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadOut"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden: the caller does not edit the page; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadChange"];
+            };
+        };
+        responses: {
+            /** @description The thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadOut"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_threads, to reopen one. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_thread_comments: {
+        parameters: {
+            query?: {
+                /** @description The `next` of the part before. */
+                after?: string;
+                /** @description Comments in the part, 1 to 100; 50 when absent. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentList"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The thread's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewComment"];
+            };
+        };
+        responses: {
+            /** @description The reply, with its thread. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostedComment"];
+                };
+            };
+            /** @description invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not_found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description too_many_replies, or too_many_comments. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description rate_limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    unsubscribe: {
+        parameters: {
+            query: {
+                /** @description The token of the link in the mail. */
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mail stopped. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_token. */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

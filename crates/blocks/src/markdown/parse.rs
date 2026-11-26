@@ -14,9 +14,9 @@ use super::write::{ID_CLOSE, ID_OPEN};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE,
-    DatabaseProps, Document, FileProps, HeadingProps, ImageProps, Inline, NoProps,
-    NumberedListItemProps, QuoteProps, TableCell, TableCellProps, TableContent, TableProps,
-    TableRow, TextAlignment, TextProps,
+    DatabaseProps, Document, FileProps, HeadingProps, ImageProps, Inline, Mention, MentionKind,
+    NoProps, NumberedListItemProps, QuoteProps, TableCell, TableCellProps, TableContent,
+    TableProps, TableRow, TextAlignment, TextProps,
 };
 
 /// The most levels blocks nest in a document read from markdown: a top-level block is at
@@ -46,6 +46,78 @@ pub fn try_from_markdown(markdown: &str) -> Result<Document, TooDeep> {
         (document, Nesting { lifted: false }) => Ok(document),
         _ => Err(TooDeep),
     }
+}
+
+/// Markdown read as inline content alone, as a comment holds it: each line's text with its
+/// styles, links and mentions, the lines joined by line breaks. Nothing starts a block: a
+/// line that would start one, such as `# x`, `- x`, `> x`, `1. x`, a fence or a thematic
+/// break, is that text, and an image is its `!` before a link to its file.
+pub fn inline_from_markdown(markdown: &str) -> Vec<Inline> {
+    let mut pieces = Vec::new();
+    for (index, line) in markdown.split('\n').enumerate() {
+        if index > 0 {
+            pieces.push(Piece::Break);
+        }
+        let line = line.trim_end_matches('\r').trim_start();
+        if line.is_empty() {
+            continue;
+        }
+        let (document, _) = read(&inline_line(line));
+        for (at, content) in document
+            .walk()
+            .filter_map(|block| block.kind.inline_content())
+            .enumerate()
+        {
+            if at > 0 {
+                pieces.push(Piece::Break);
+            }
+            pieces.extend(to_pieces(content));
+        }
+    }
+    to_inline(pieces)
+}
+
+/// One line of a comment, escaped where markdown would read it as the start of a block,
+/// and with each image's `!` escaped, so it reads as a paragraph of its text.
+fn inline_line(line: &str) -> String {
+    let mut escaped = String::with_capacity(line.len() + 1);
+    let mut backslashes = 0;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '!' && backslashes % 2 == 0 && chars.peek() == Some(&'[') {
+            escaped.push('\\');
+        }
+        backslashes = if c == '\\' { backslashes + 1 } else { 0 };
+        escaped.push(c);
+    }
+    let line = escaped;
+    let second = line.chars().nth(1);
+    let thematic = |marker: char| {
+        line.chars().filter(|c| *c == marker).count() >= 3
+            && line.chars().all(|c| c == marker || c == ' ' || c == '\t')
+    };
+    let escape = match line.chars().next() {
+        Some('#' | '>' | '-' | '+' | '=') => true,
+        Some(':') => line.starts_with(":::"),
+        Some('`') => line.starts_with("```"),
+        Some('~') => line.starts_with("~~~"),
+        Some('<') => line.starts_with("<!--"),
+        Some(marker @ ('*' | '_')) => second.is_none_or(char::is_whitespace) || thematic(marker),
+        Some('[') => line
+            .find("]:")
+            .is_some_and(|close| !line[1..close].contains(['[', ']'])),
+        _ => false,
+    };
+    if escape {
+        return format!("\\{line}");
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    if (1..=9).contains(&digits)
+        && let Some(punctuation @ ('.' | ')')) = line[digits..].chars().next()
+    {
+        return format!("{}\\{punctuation}{}", &line[..digits], &line[digits + 1..]);
+    }
+    line
 }
 
 fn read(markdown: &str) -> (Document, Nesting) {
@@ -574,6 +646,20 @@ fn parse_lines<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Line<'a>> {
             Event::Start(Tag::Strikethrough) => open.strike += 1,
             Event::End(TagEnd::Strikethrough) => open.strike = open.strike.saturating_sub(1),
             Event::Start(Tag::Link {
+                link_type: LinkType::Inline,
+                dest_url,
+                ..
+            }) if mention_target(&dest_url).is_some()
+                && at_sign_before(source, range.start)
+                && take_at_sign(&mut parts) =>
+            {
+                let (kind, target) = mention_target(&dest_url).unwrap_or_default();
+                let label = link_text(events);
+                parts.push(Part::Piece(Piece::Mention(Mention::new(
+                    kind, target, label,
+                ))));
+            }
+            Event::Start(Tag::Link {
                 link_type,
                 dest_url,
                 ..
@@ -615,6 +701,53 @@ fn parse_lines<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Line<'a>> {
         finish(&mut parts, &mut span, joint, task, &mut lines);
     }
     lines
+}
+
+/// What a link's target names when it is a mention's: `user:<id>` or `page:<id>`.
+pub(crate) fn mention_target(href: &str) -> Option<(MentionKind, &str)> {
+    let (kind, target) = href.split_once(':')?;
+    let kind = MentionKind::parse(kind)?;
+    (!target.is_empty() && !target.contains(char::is_whitespace)).then_some((kind, target))
+}
+
+/// Whether the markdown has an `@` right before `at`, not escaped with a backslash.
+fn at_sign_before(source: &str, at: usize) -> bool {
+    let Some(before) = source[..at].strip_suffix('@') else {
+        return false;
+    };
+    let backslashes = before.chars().rev().take_while(|c| *c == '\\').count();
+    backslashes % 2 == 0
+}
+
+/// Takes the `@` that ends the text read last, which a mention after it starts with.
+fn take_at_sign(parts: &mut Vec<Part>) -> bool {
+    let Some(Part::Piece(Piece::Text { text, .. })) = parts.last_mut() else {
+        return false;
+    };
+    if text.pop() != Some('@') {
+        return false;
+    }
+    if text.is_empty() {
+        parts.pop();
+    }
+    true
+}
+
+/// The text of a link, up to its end, without its styles.
+fn link_text(events: &mut Events<'_>) -> String {
+    let mut text = String::new();
+    let mut depth = 0;
+    for (event, _) in events.by_ref() {
+        match event {
+            Event::Text(part) | Event::Code(part) => text.push_str(&part),
+            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            Event::Start(_) => depth += 1,
+            Event::End(TagEnd::Link) if depth == 0 => break,
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
+    }
+    text
 }
 
 fn is_inline_end(tag: TagEnd) -> bool {
