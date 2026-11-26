@@ -20,6 +20,13 @@ export const PAGE_IDS = {
   blank: "0193a5b2-0000-7000-8000-0000000000a7",
 } as const;
 
+/** The ids of the files uploaded, in turn. */
+export const UPLOADED_IDS = [
+  "0193a5b2-0000-7000-8000-0000000000f1",
+  "0193a5b2-0000-7000-8000-0000000000f2",
+  "0193a5b2-0000-7000-8000-0000000000f3",
+] as const;
+
 const MADE_IDS = [
   "0193a5b2-0000-7000-8000-0000000000b1",
   "0193a5b2-0000-7000-8000-0000000000b2",
@@ -114,6 +121,8 @@ export function fakePages(options: Options = {}) {
   const imports: { query: Record<string, string>; text: string }[] = [];
   /** Each export asked for, by its path and query. */
   const exports: string[] = [];
+  /** Each file uploaded, with the page and kind it was for and its name. */
+  const uploads: { page: string; kind: string; name: string }[] = [];
   let made = 0;
 
   const record = (
@@ -298,7 +307,15 @@ export function fakePages(options: Options = {}) {
         const patch = body as Schemas["UpdatePage"];
         if (typeof patch.title === "string") found.title = patch.title.trim();
         if (patch.icon !== undefined) found.icon = patch.icon;
-        if (patch.cover !== undefined) found.cover = patch.cover;
+        // One cover at a time, as the server keeps them.
+        if (patch.cover !== undefined) {
+          found.cover = patch.cover;
+          if (patch.cover !== null) found.cover_image = null;
+        }
+        if (patch.cover_image !== undefined) {
+          found.cover_image = patch.cover_image;
+          if (patch.cover_image !== null) found.cover = null;
+        }
         if (patch.style) {
           found.style = {
             font: patch.style.font ?? found.style.font,
@@ -309,6 +326,31 @@ export function fakePages(options: Options = {}) {
         return HttpResponse.json(found);
       }),
     ),
+    // A file uploaded to a page, as the server answers it. jsdom's files lose their names on
+    // their way into Node's requests, so the name is the form's own.
+    http.post(`${base}/files`, async ({ request, params }) => {
+      const kind = (new URL(request.url).searchParams.get("kind") ?? "file") as Schemas["FileKind"];
+      const file = (await request.formData()).get("file");
+      const size = typeof file === "string" || file === null ? 0 : file.size;
+      const id = UPLOADED_IDS[uploads.length] ?? UPLOADED_IDS[0];
+      uploads.push({ page: String(params["id"]), kind, name: "upload" });
+      return HttpResponse.json(
+        {
+          id,
+          page_id: String(params["id"]),
+          url: `/api/v1/files/${id}`,
+          kind,
+          name: "upload",
+          content_type: "image/png",
+          size,
+          sha256: "0".repeat(64),
+          width: null,
+          height: null,
+          created_at: CREATED,
+        } satisfies Schemas["File"],
+        { status: 201 },
+      );
+    }),
     http.post(
       `${base}/move`,
       record((body, params) => {
@@ -450,5 +492,5 @@ export function fakePages(options: Options = {}) {
       }),
     ),
   );
-  return { state, changes, imports, exports, find };
+  return { state, changes, imports, exports, uploads, find };
 }

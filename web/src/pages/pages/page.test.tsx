@@ -3,7 +3,7 @@ import { http } from "msw";
 import { describe, expect, it } from "vitest";
 import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
-import { fakePages, page, PAGE_IDS, samplePages } from "@/test/pages";
+import { fakePages, page, PAGE_IDS, samplePages, UPLOADED_IDS } from "@/test/pages";
 import { server } from "@/test/server";
 import { fakeWorkspaces, scout, TEAMSPACE_IDS } from "@/test/workspaces";
 
@@ -171,7 +171,7 @@ describe("a page's header", () => {
 
     await user.click(await (await main()).findByRole("button", { name: "Add cover" }));
     const picker = within(await screen.findByRole("dialog", { name: "Cover" }));
-    expect(picker.getAllByRole("button")).toHaveLength(14);
+    expect(picker.getAllByRole("button")).toHaveLength(15);
     await user.click(picker.getByRole("button", { name: "Sunrise" }));
     await waitFor(() => expect(api.changes.at(-1)?.body).toEqual({ cover: "sunrise" }));
     await waitFor(() =>
@@ -182,7 +182,66 @@ describe("a page's header", () => {
     const again = within(await screen.findByRole("dialog", { name: "Cover" }));
     expect(again.getByRole("button", { name: "Sunrise" })).toHaveAttribute("aria-pressed", "true");
     await user.click(again.getByRole("button", { name: "Remove cover" }));
-    await waitFor(() => expect(api.changes.at(-1)?.body).toEqual({ cover: null }));
+    await waitFor(() =>
+      expect(api.changes.at(-1)?.body).toEqual({ cover: null, cover_image: null }),
+    );
+  });
+
+  it("uploads an image as the cover, which a preset then takes the place of", async () => {
+    fakeWorkspaces();
+    const api = fakePages();
+    const { user } = renderApp(goals);
+
+    await user.click(await (await main()).findByRole("button", { name: "Add cover" }));
+    const picker = within(await screen.findByRole("dialog", { name: "Cover" }));
+    expect(picker.getByLabelText("An image for the cover")).toHaveAttribute(
+      "accept",
+      "image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml",
+    );
+    await user.upload(
+      picker.getByLabelText("An image for the cover"),
+      new File([new Uint8Array([137, 80, 78, 71])], "beach.png", { type: "image/png" }),
+    );
+    await waitFor(() => expect(api.changes.at(-1)?.body).toEqual({ cover_image: UPLOADED_IDS[0] }));
+    expect(api.uploads).toEqual([{ page: PAGE_IDS.goals, kind: "image", name: "upload" }]);
+    await waitFor(() =>
+      expect(document.querySelector("[data-cover-image]")).toHaveAttribute(
+        "data-cover-image",
+        UPLOADED_IDS[0],
+      ),
+    );
+    expect(
+      (document.querySelector("[data-cover-image]") as HTMLElement).style.backgroundImage,
+    ).toContain(`/api/v1/files/${UPLOADED_IDS[0]}`);
+
+    await user.click((await main()).getByRole("button", { name: "Change cover" }));
+    const again = within(await screen.findByRole("dialog", { name: "Cover" }));
+    await user.click(again.getByRole("button", { name: "Dusk" }));
+    await waitFor(() => expect(api.changes.at(-1)?.body).toEqual({ cover: "dusk" }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-cover]")).toHaveAttribute("data-cover", "dusk"),
+    );
+  });
+
+  it("says why a cover was not uploaded", async () => {
+    fakeWorkspaces();
+    fakePages();
+    server.use(
+      http.post("/api/v1/pages/:id/files", () =>
+        apiError(409, "storage_limit", "this workspace has reached its storage limit of 10 bytes"),
+      ),
+    );
+    const { user } = renderApp(goals);
+
+    await user.click(await (await main()).findByRole("button", { name: "Add cover" }));
+    const picker = within(await screen.findByRole("dialog", { name: "Cover" }));
+    await user.upload(
+      picker.getByLabelText("An image for the cover"),
+      new File([new Uint8Array([1])], "big.png", { type: "image/png" }),
+    );
+    const alert = await (await main()).findByRole("alert");
+    expect(alert).toHaveTextContent("The cover could not be uploaded.");
+    expect(alert).toHaveTextContent("This workspace has reached its storage limit of 10 bytes.");
   });
 
   it("sets the page's font, small text and full width", async () => {

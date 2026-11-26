@@ -130,7 +130,6 @@ function WorkspaceCard({
                   {limits[kind].own === undefined || limits[kind].own === null
                     ? copy.byDefault
                     : copy.own}
-                  {kind !== "members" && ` · ${copy.notYet[kind]}`}
                 </span>
               </span>
             </KeyValueRow>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { ImagePlus, Maximize2, Smile, Star, UserPlus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { databaseQuery } from "@/api/databases";
+import { useUploadCover } from "@/api/files";
 import { hasCode } from "@/api/errors";
 import { keys } from "@/api/keys";
 import {
@@ -14,6 +15,7 @@ import {
   useRemoveFavorite,
   useRestorePage,
   useUpdatePage,
+  type Cover,
   type Page,
   type UpdatePage,
 } from "@/api/pages";
@@ -118,6 +120,11 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
   const trashed = (page.trashed_at ?? null) !== null;
   const editable = edits(page.access) && !trashed;
   const set = (body: UpdatePage) => update.mutate(body);
+  const coverUpload = useUploadCover(workspace.id, page.id);
+  const covered = Boolean(page.cover ?? page.cover_image);
+  // A preset takes an image's place, which the server takes off; none removes either.
+  const pickCover = (cover: Cover | null) =>
+    set(cover === null ? { cover: null, cover_image: null } : { cover });
 
   useEffect(() => {
     if (peek) {
@@ -178,10 +185,18 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
       <ConnectionClosed connection={connection} onReconnect={reconnect} />
 
       <header className="grid gap-3">
-        {page.cover && (
-          <CoverBand cover={page.cover}>
+        {coverUpload.isError && (
+          <ErrorNotice error={coverUpload.error} title={copy.coverNotUploaded} />
+        )}
+        {covered && (
+          <CoverBand cover={page.cover} image={page.cover_image}>
             {editable && (
-              <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
+              <CoverPicker
+                cover={page.cover}
+                covered={covered}
+                onPick={pickCover}
+                onUpload={(file) => coverUpload.mutate(file)}
+              >
                 <Button variant="outline" size="sm" className="bg-background">
                   {copy.changeCover}
                 </Button>
@@ -193,7 +208,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
           {page.icon && (
             <PageIcon page={page} editable={editable} onPick={(icon) => set({ icon })} />
           )}
-          {editable && (!page.icon || !page.cover) && (
+          {editable && (!page.icon || !covered) && (
             <div className="flex flex-wrap gap-1">
               {!page.icon && (
                 <IconPicker icon={page.icon} onPick={(icon) => set({ icon })}>
@@ -203,11 +218,16 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
                   </Button>
                 </IconPicker>
               )}
-              {!page.cover && (
-                <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
-                  <Button variant="ghost" size="sm">
+              {!covered && (
+                <CoverPicker
+                  cover={page.cover}
+                  covered={covered}
+                  onPick={pickCover}
+                  onUpload={(file) => coverUpload.mutate(file)}
+                >
+                  <Button variant="ghost" size="sm" disabled={coverUpload.isPending}>
                     <ImagePlus aria-hidden />
-                    {copy.addCover}
+                    {coverUpload.isPending ? copy.uploadingCover : copy.addCover}
                   </Button>
                 </CoverPicker>
               )}
