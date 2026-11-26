@@ -29,16 +29,19 @@ The new webhook's signing secret shows once, with a button to copy it. A server 
 ### Each webhook
 
 Each card shows whose it is, its URL, **On** or **Off**, its events, and who registered it.
-One that is off says why: turned off by someone, or after 5 deliveries in a row failed, with
-the last failure. One whose last deliveries failed says how many. After a rotation, the card
-says until when the previous secret signs too.
+One that is off says why: turned off by someone, after 5 deliveries in a row failed, with
+the last failure, or because whoever set its URL may no longer register it, after their role
+or membership changed, or an agent was handed on. One whose last deliveries failed says how
+many. After a rotation, the card says until when the previous secret signs too.
 
 - **Send test event** sends one now and says how it went: its status and time, or why it
   failed.
 - **Delivery log** shows its last attempts: how each went, its status, how long it took, why
   it failed or was skipped, and the start of the answer.
-- **Turn off** and **Turn on**; turning it on clears its failures.
-- **Edit** changes its URL, events and whether it hears the identity's own changes.
+- **Turn off** and **Turn on**; turning it on clears its failures. One turned off because
+  whoever set its URL may no longer register it turns on again only with its URL set again.
+- **Edit** changes its URL, events and whether it hears the identity's own changes. Setting
+  the URL binds it to you: it is told only of rows you may see too.
 - **Rotate secret**, after a question, shows the new secret once; the old one signs beside it
   for a day.
 - **Delete**, after a question.

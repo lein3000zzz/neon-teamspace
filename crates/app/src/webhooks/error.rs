@@ -32,6 +32,9 @@ pub enum WebhookError {
     NoSecretKey,
     #[error("this workspace has reached its limit of {limit} agents and integrations")]
     AgentLimit { limit: u64 },
+    /// Turning on a webhook whose URL was set by someone who may no longer register it.
+    #[error("{0}: set its URL again to turn it on")]
+    SetterLapsed(String),
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("{0}")]
@@ -49,6 +52,7 @@ impl WebhookError {
             Self::Forbidden(_) => "forbidden",
             Self::NoSecretKey => "no_secret_key",
             Self::AgentLimit { .. } => "agent_limit",
+            Self::SetterLapsed(_) => "url_setter_lapsed",
             Self::Database(_) | Self::Internal(_) => "internal",
         }
     }

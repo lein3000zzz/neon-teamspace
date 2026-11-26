@@ -6,10 +6,11 @@
 //! allow, and within its agent limit, which agents and integrations count against together.
 //! It is a member of the workspace from then on, in its default teamspace like everyone but
 //! guests, and joins others as people do. Handing it to another person revokes its tokens:
-//! they were made by, and acted for, its former owner. Deleting it ends its membership and
-//! revokes its tokens; its identity stays, for what it made. Once a change that ends tokens
-//! or access commits, the [`AccessChanges`](crate::pages::AccessChanges) port hears of it,
-//! and its open connections close.
+//! they were made by, and acted for, its former owner; and turns off its webhooks whose URL
+//! its former owner set, unless they may still register them. Deleting it ends its
+//! membership and revokes its tokens; its identity stays, for what it made. Once a change
+//! that ends tokens or access commits, the [`AccessChanges`](crate::pages::AccessChanges)
+//! port hears of it, and its open connections close.
 //!
 //! An integration is made with its incoming webhook, by the webhook's use case, on its
 //! transaction, within the same agent limit. It joins no teamspace, not even the default
@@ -44,6 +45,7 @@ use super::{
     membership,
 };
 use crate::auth::{TokenSpec, mint};
+use crate::webhooks;
 
 /// RED subsystem of the agent use cases.
 pub const SUBSYSTEM: &str = "agents";
@@ -265,7 +267,8 @@ impl AgentService {
     /// Hands an agent or integration to another person of the workspace, neither a guest
     /// nor disabled, for the workspace's owners and admins. It acts for them from then on,
     /// which resumes it when it was suspended; its tokens, made by its former owner, are
-    /// revoked.
+    /// revoked, and its webhooks whose URL they set turned off unless they may still
+    /// register them.
     pub async fn transfer_agent(
         &self,
         principal: &Principal,
@@ -310,6 +313,7 @@ impl AgentService {
             }
             repo::set_owner(&mut *tx, id, to, self.now()).await?;
             let revoked = api_tokens::delete_for_user(&mut *tx, id).await?;
+            webhooks::lapse(&mut tx, workspace_id, id, self.now()).await?;
             let stored = repo::get(&mut *tx, workspace_id, id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_AGENT))?;

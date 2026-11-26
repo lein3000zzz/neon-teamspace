@@ -230,7 +230,11 @@ reserved ranges never do.
 Deliveries are signed with HMAC-SHA256 over a timestamp and the body, with a secret per
 webhook that the server makes, shows once and keeps sealed; receivers refuse timestamps more
 than 5 minutes off, which stops replays. A delivery goes out only if its identity may still
-see the row, as the rules say when it is sent; otherwise nothing about the row is sent. No
+see the row, as the rules say when it is sent, and so may whoever set the webhook's URL, who
+must also still be allowed to register it; otherwise nothing about the row is sent. So
+registering a webhook for someone else, or pointing theirs elsewhere, reveals nothing its
+setter could not read, and nobody keeps hearing through a webhook after losing the right to
+it. No
 log line or span holds a secret, a URL, a payload or an answer's body; the delivery log
 keeps the first 256 bytes of an answer and nothing of what was sent.
 

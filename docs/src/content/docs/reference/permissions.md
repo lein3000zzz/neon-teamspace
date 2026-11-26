@@ -263,10 +263,14 @@ Incoming webhooks, which act as an integration on a database or page:
 
 Making one also needs edit access to its target, to share it with the webhook's
 integration; a row is no target. Agents and integrations register and manage no webhook,
-their own included: that answers `403 forbidden`. A delivery goes only to an identity that
-still sees the row then, as the page tables say; an incoming webhook's integration edits its
-target alone, through its share, and no more than its owner may. See
-[Webhooks](/docs/guides/webhooks/).
+their own included: that answers `403 forbidden`. Setting a webhook's URL, as it is
+registered or changed, is registering it: whoever sets it must be allowed to register
+webhooks for its identity. A delivery goes only to an identity that still sees the row then,
+as the page tables say, and only while whoever set the URL still may register it and sees
+the row too: an admin outside a private teamspace hears nothing of its rows through someone
+else's webhook. A webhook whose URL's setter may no longer register it turns off. An
+incoming webhook's integration edits its target alone, through its share, and no more than
+its owner may. See [Webhooks](/docs/guides/webhooks/#whose-events).
 
 ## Tokens bound to a workspace
 

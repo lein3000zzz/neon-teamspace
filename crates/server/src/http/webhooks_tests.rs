@@ -1,7 +1,8 @@
 //! Outgoing webhooks over HTTP: who registers and manages them, their URLs, secrets and
 //! logs, and their deliveries through the job queue to a receiver on loopback, signed, for
-//! each event, retried, given up on, turning themselves off, and skipped once their identity
-//! no longer sees the row.
+//! each event, retried, given up on, turning themselves off, skipped once their identity, or
+//! whoever set their URL, no longer sees the row, and turned off once whoever set it may no
+//! longer register it.
 
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -112,6 +113,45 @@ async fn tasks(by: &Browser<'_>, ws: &str) -> (String, Value) {
     assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
     let read = by.get(&format!("/api/v1/databases/{db}")).await.body;
     (db, read)
+}
+
+/// A private teamspace with `members` in it, besides its maker `by`, and a database there
+/// with an Assignee person property: the teamspace's members path and the database's id.
+async fn private_tasks(
+    by: &Browser<'_>,
+    ws: &str,
+    members: &[&str],
+    title: &str,
+) -> (String, String) {
+    let made = by
+        .post(
+            &format!("/api/v1/workspaces/{ws}/teamspaces"),
+            json!({"name": "Vault", "access": "private"}),
+        )
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let teamspace = id(&made);
+    let path = format!("/api/v1/workspaces/{ws}/teamspaces/{teamspace}/members");
+    for member in members {
+        let added = by.post(&path, json!({"user_id": member})).await;
+        assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
+    }
+    let db = by
+        .post(
+            &format!("/api/v1/workspaces/{ws}/databases"),
+            json!({"teamspace_id": teamspace, "title": title}),
+        )
+        .await;
+    assert_eq!(db.status, StatusCode::CREATED, "{}", db.body);
+    let db = database_id(&db.body);
+    let person = by
+        .post(
+            &format!("/api/v1/databases/{db}/properties"),
+            json!({"name": "Assignee", "type": "person"}),
+        )
+        .await;
+    assert_eq!(person.status, StatusCode::CREATED, "{}", person.body);
+    (path, db)
 }
 
 async fn row(by: &Browser<'_>, db: &str, values: Value) -> String {
@@ -684,35 +724,7 @@ async fn a_delivery_is_skipped_once_its_identity_no_longer_sees_the_row(pool: Pg
     let dee = me(&t.dee).await;
     let (hook, _) = webhook(&t.dee, ws, &dee, &receiver.url("/hook")).await;
     // A private teamspace with dee in it, and its database.
-    let made = t
-        .ada
-        .post(
-            &format!("/api/v1/workspaces/{ws}/teamspaces"),
-            json!({"name": "Launch", "access": "private"}),
-        )
-        .await;
-    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
-    let launch = id(&made);
-    let members = format!("/api/v1/workspaces/{ws}/teamspaces/{launch}/members");
-    let added = t.ada.post(&members, json!({"user_id": dee})).await;
-    assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
-    let db = t
-        .ada
-        .post(
-            &format!("/api/v1/workspaces/{ws}/databases"),
-            json!({"teamspace_id": launch, "title": "Secret plans"}),
-        )
-        .await;
-    assert_eq!(db.status, StatusCode::CREATED, "{}", db.body);
-    let db = database_id(&db.body);
-    let person = t
-        .ada
-        .post(
-            &format!("/api/v1/databases/{db}/properties"),
-            json!({"name": "Assignee", "type": "person"}),
-        )
-        .await;
-    assert_eq!(person.status, StatusCode::CREATED, "{}", person.body);
+    let (members, db) = private_tasks(&t.ada, ws, &[&dee], "Secret plans").await;
 
     // Assigned while in it; out of it before the delivery runs.
     row(
@@ -760,18 +772,29 @@ async fn an_agent_hears_of_its_work_while_its_owner_is_in_the_workspace(pool: Pg
         json!({"id": scout, "kind": "agent", "name": "Scout"})
     );
 
-    // Its owner leaves: it is suspended, and hears nothing more.
+    // Its owner leaves: it is suspended, and hears nothing more. Its webhook, whose URL
+    // they set, turns off; a delivery queued before they left is skipped.
+    worker.stop().await;
+    change(&t.ada, &task, json!({"Status": "In progress"})).await;
     let left = t
         .dee
         .post(&format!("/api/v1/workspaces/{ws}/leave"), json!({}))
         .await;
     assert_eq!(left.status, StatusCode::NO_CONTENT, "{}", left.body);
     change(&t.ada, &task, json!({"Status": "Done"})).await;
+    let again = self::worker(&pool, &state).await;
     let attempts = log_until(&t.ada, ws, &hook, |attempts| attempts.len() == 2).await;
+    again.stop().await;
     assert_eq!(outcomes(&attempts), ["skipped", "delivered"]);
-    assert_eq!(attempts[0]["error_kind"], "no_access");
+    assert_eq!(attempts[0]["error_kind"], "disabled");
     assert_eq!(receiver.received().len(), 1);
-    worker.stop().await;
+    let off = t
+        .ada
+        .get(&format!("/api/v1/workspaces/{ws}/webhooks/{hook}"))
+        .await
+        .body;
+    assert_eq!(off["enabled"], false, "{off}");
+    assert_eq!(queued(&pool).await, 0);
 }
 
 /// Resolves the receiver's name to a public address when the webhook is registered, then to
@@ -864,4 +887,261 @@ async fn a_test_event_is_sent_signed_and_logged_and_rotation_signs_with_both(poo
     );
     let read = t.dee.get(&one).await;
     assert_eq!(read.body["failures"], 0);
+}
+
+/// One webhook's log, read once.
+async fn log_of(by: &Browser<'_>, ws: &str, webhook: &str) -> Vec<Value> {
+    log_until(by, ws, webhook, |_| true).await
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_admin_hears_only_of_rows_they_may_see_too(pool: PgPool) {
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let receiver = Receiver::start().await;
+    let dee = me(&t.dee).await;
+    // bob, an admin outside the private teamspace, registers a webhook for dee, and points
+    // dee's own at a URL of his.
+    let (registered, _) = webhook(&t.bob, ws, &dee, &receiver.url("/bob")).await;
+    let (repointed, _) = webhook(&t.dee, ws, &dee, &receiver.url("/dee")).await;
+    let moved = t
+        .bob
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/workspaces/{ws}/webhooks/{repointed}"),
+            Some(json!({"url": receiver.url("/bob-repointed")})),
+        )
+        .await;
+    assert_eq!(moved.status, StatusCode::OK, "{}", moved.body);
+    let (_, vault) = private_tasks(&t.ada, ws, &[&dee], "Vault plans").await;
+    let hidden = t.bob.get(&format!("/api/v1/databases/{vault}")).await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND, "{}", hidden.body);
+    let worker = worker(&pool, &state).await;
+
+    // A row of the vault, assigned to dee, which bob may not read: skipped for both.
+    let secret = row(
+        &t.ada,
+        &vault,
+        json!({"Name": "Acquire Initech", "Assignee": [dee]}),
+    )
+    .await;
+    assert_eq!(
+        t.bob.get(&format!("/api/v1/rows/{secret}")).await.status,
+        StatusCode::NOT_FOUND
+    );
+    for hook in [&registered, &repointed] {
+        let attempts = log_until(&t.bob, ws, hook, |attempts| !attempts.is_empty()).await;
+        assert_eq!(outcomes(&attempts), ["skipped"]);
+        assert_eq!(attempts[0]["error_kind"], "no_access");
+    }
+    assert!(receiver.received().is_empty(), "{:?}", receiver.received());
+
+    // A row everyone may read reaches both of bob's URLs; they stay on.
+    let (db, _) = tasks(&t.ada, ws).await;
+    row(&t.ada, &db, json!({"Name": "Ship it", "Assignee": [dee]})).await;
+    let received = receiver.wait_for(2).await;
+    let mut paths: Vec<&str> = received.iter().map(|got| got.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["/bob", "/bob-repointed"]);
+    assert!(
+        received
+            .iter()
+            .all(|got| got.json()["row"]["title"] == "Ship it")
+    );
+    for hook in [&registered, &repointed] {
+        let read = t
+            .bob
+            .get(&format!("/api/v1/workspaces/{ws}/webhooks/{hook}"))
+            .await;
+        assert_eq!(read.body["enabled"], true, "{}", read.body);
+    }
+    worker.stop().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn webhooks_turn_off_once_whoever_set_their_url_may_no_longer_register_them(pool: PgPool) {
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let receiver = Receiver::start().await;
+    let (bob, dee) = (me(&t.bob).await, me(&t.dee).await);
+    let member = format!("/api/v1/workspaces/{ws}/members/{bob}");
+    let read = |hook: &str| format!("/api/v1/workspaces/{ws}/webhooks/{hook}");
+
+    // Demoted, bob may no longer register for dee: what he registered turns off at once.
+    let (demoted, _) = webhook(&t.bob, ws, &dee, &receiver.url("/bob")).await;
+    let changed = t
+        .ada
+        .send(Method::PATCH, &member, Some(json!({"role": "member"})))
+        .await;
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+    let off = t.ada.get(&read(&demoted)).await.body;
+    assert_eq!(off["enabled"], false, "{off}");
+    assert_eq!(
+        off["disabled_reason"],
+        "turned off: bob set its URL, and may no longer register webhooks for dee; setting its \
+         URL again turns it back on"
+    );
+    // Turned on again as it is, it is refused; with its URL set again, it is ada's.
+    let refused = t
+        .ada
+        .send(
+            Method::PATCH,
+            &read(&demoted),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+    assert_eq!(
+        (refused.status, refused.code()),
+        (StatusCode::CONFLICT, "url_setter_lapsed"),
+        "{}",
+        refused.body
+    );
+    let (db, _) = tasks(&t.ada, ws).await;
+    row(&t.ada, &db, json!({"Name": "While off", "Assignee": [dee]})).await;
+    assert_eq!(queued(&pool).await, 0);
+    let again = t
+        .ada
+        .send(
+            Method::PATCH,
+            &read(&demoted),
+            Some(json!({"enabled": true, "url": receiver.url("/ada")})),
+        )
+        .await;
+    assert_eq!(again.status, StatusCode::OK, "{}", again.body);
+    assert_eq!(again.body["enabled"], true);
+
+    // Removed, the same.
+    let promoted = t
+        .ada
+        .send(Method::PATCH, &member, Some(json!({"role": "admin"})))
+        .await;
+    assert_eq!(promoted.status, StatusCode::OK, "{}", promoted.body);
+    let (removed, _) = webhook(&t.bob, ws, &dee, &receiver.url("/bob")).await;
+    let gone = t.ada.send(Method::DELETE, &member, None).await;
+    assert_eq!(gone.status, StatusCode::NO_CONTENT, "{}", gone.body);
+    assert_eq!(t.ada.get(&read(&removed)).await.body["enabled"], false);
+    assert_eq!(t.ada.get(&read(&demoted)).await.body["enabled"], true);
+
+    // Only ada's URL hears of dee's next assignment.
+    let worker = worker(&pool, &state).await;
+    row(&t.ada, &db, json!({"Name": "After", "Assignee": [dee]})).await;
+    let received = receiver.wait_for(1).await;
+    assert_eq!(received[0].path, "/ada");
+    log_until(&t.ada, ws, &demoted, |attempts| !attempts.is_empty()).await;
+    assert!(log_of(&t.ada, ws, &removed).await.is_empty());
+    worker.stop().await;
+    assert_eq!(receiver.received().len(), 1);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_webhook_whose_setter_lost_the_right_unnoticed_turns_off_at_its_delivery(pool: PgPool) {
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let receiver = Receiver::start().await;
+    let (bob, dee) = (me(&t.bob).await, me(&t.dee).await);
+    let (hook, _) = webhook(&t.bob, ws, &dee, &receiver.url("/bob")).await;
+    let (db, _) = tasks(&t.ada, ws).await;
+    row(&t.ada, &db, json!({"Name": "Queued", "Assignee": [dee]})).await;
+    assert_eq!(queued(&pool).await, 1);
+    // bob's account is disabled after the delivery is queued, which no workspace hears of.
+    let uuid = uuid::Uuid::try_parse(&bob).expect("an id");
+    sqlx::query("UPDATE users SET disabled_at = now() WHERE id = $1")
+        .bind(uuid)
+        .execute(&pool)
+        .await
+        .expect("disabled");
+    let worker = worker(&pool, &state).await;
+
+    let attempts = log_until(&t.ada, ws, &hook, |attempts| !attempts.is_empty()).await;
+    worker.stop().await;
+    assert_eq!(outcomes(&attempts), ["skipped"]);
+    assert_eq!(attempts[0]["error_kind"], "lapsed");
+    let off = t
+        .ada
+        .get(&format!("/api/v1/workspaces/{ws}/webhooks/{hook}"))
+        .await
+        .body;
+    assert_eq!(off["enabled"], false, "{off}");
+    assert!(
+        off["disabled_reason"]
+            .as_str()
+            .is_some_and(|why| why.starts_with("turned off: bob, who set its URL, is disabled")),
+        "{off}"
+    );
+    assert!(receiver.received().is_empty());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_handed_on_tells_its_former_owner_nothing_more(pool: PgPool) {
+    let state = delivering(pool.clone()).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let receiver = Receiver::start().await;
+    let dee = me(&t.dee).await;
+    let scout = agent(&t.cy, ws, "Scout").await;
+    let (cy_hook, _) = webhook(&t.cy, ws, &scout, &receiver.url("/cy")).await;
+    let (bob_hook, _) = webhook(&t.bob, ws, &scout, &receiver.url("/bob")).await;
+
+    let handed = t
+        .bob
+        .post(
+            &format!("/api/v1/workspaces/{ws}/agents/{scout}/transfer"),
+            json!({"owner_id": dee}),
+        )
+        .await;
+    assert_eq!(handed.status, StatusCode::OK, "{}", handed.body);
+    assert_eq!(
+        t.cy.get(&format!("/api/v1/workspaces/{ws}/webhooks"))
+            .await
+            .body["webhooks"],
+        json!([])
+    );
+    // dee, its owner now, sees cy's off, saying why; the admin's stays on.
+    let listed = t
+        .dee
+        .get(&format!("/api/v1/workspaces/{ws}/webhooks"))
+        .await;
+    let webhooks = listed.body["webhooks"].as_array().expect("a list");
+    let of = |id: &str| {
+        webhooks
+            .iter()
+            .find(|webhook| webhook["id"] == id)
+            .unwrap_or_else(|| panic!("{id} in {webhooks:?}"))
+    };
+    assert_eq!(of(&cy_hook)["enabled"], false);
+    assert_eq!(
+        of(&cy_hook)["disabled_reason"],
+        "turned off: cy set its URL, and may no longer register webhooks for Scout; setting \
+         its URL again turns it back on"
+    );
+    assert_eq!(of(&bob_hook)["enabled"], true);
+
+    // A row in a teamspace cy is not in, assigned to Scout, reaches the admin's URL alone.
+    let (members, vault) = private_tasks(&t.ada, ws, &[&dee], "Vault plans").await;
+    let added = t.ada.post(&members, json!({"user_id": scout})).await;
+    assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
+    let bob_in = t
+        .ada
+        .post(&members, json!({"user_id": me(&t.bob).await}))
+        .await;
+    assert_eq!(bob_in.status, StatusCode::CREATED, "{}", bob_in.body);
+    let worker = worker(&pool, &state).await;
+    row(
+        &t.ada,
+        &vault,
+        json!({"Name": "Board seat", "Assignee": [scout]}),
+    )
+    .await;
+    let received = receiver.wait_for(1).await;
+    worker.stop().await;
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].path, "/bob");
+    assert!(log_of(&t.dee, ws, &cy_hook).await.is_empty());
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, user_id, url, events, include_own, secret, previous_secret,\n                previous_expires_at, disabled_at, disabled_reason, failures, created_by,\n                created_at, updated_at\n         FROM webhooks WHERE id = $1",
+  "query": "SELECT id, workspace_id, user_id, url, events, include_own, secret, previous_secret,\n                previous_expires_at, disabled_at, disabled_reason, failures, created_by,\n                url_set_by, created_at, updated_at\n         FROM webhooks WHERE workspace_id = $1 AND id = $2\n         FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -148,6 +148,17 @@
       },
       {
         "ordinal": 13,
+        "name": "url_set_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhooks",
+            "name": "url_set_by"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -171,6 +182,7 @@
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid"
       ]
     },
@@ -188,9 +200,10 @@
       true,
       false,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "99589c510e9fe8588cd03a05d63b1f4dd9063561f359e99832d90ec32e96f196"
+  "hash": "3936aed4b5b7002bb99c82e3e0aa75bdf43a0170f636dcac56ad2f1b39e82704"
 }

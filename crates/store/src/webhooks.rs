@@ -27,6 +27,8 @@ pub struct Webhook {
     pub disabled_reason: Option<String>,
     pub failures: i32,
     pub created_by: Option<Uuid>,
+    /// Who set its URL last.
+    pub url_set_by: Option<Uuid>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -44,8 +46,9 @@ pub async fn insert(executor: impl PgExecutor<'_>, webhook: &Webhook) -> sqlx::R
     sqlx::query!(
         "INSERT INTO webhooks (id, workspace_id, user_id, url, events, include_own, secret,
                                previous_secret, previous_expires_at, disabled_at,
-                               disabled_reason, failures, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+                               disabled_reason, failures, created_by, url_set_by, created_at,
+                               updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
         webhook.id,
         webhook.workspace_id,
         webhook.user_id,
@@ -59,6 +62,7 @@ pub async fn insert(executor: impl PgExecutor<'_>, webhook: &Webhook) -> sqlx::R
         webhook.disabled_reason,
         webhook.failures,
         webhook.created_by,
+        webhook.url_set_by,
         webhook.created_at,
         webhook.updated_at,
     )
@@ -67,14 +71,14 @@ pub async fn insert(executor: impl PgExecutor<'_>, webhook: &Webhook) -> sqlx::R
     Ok(())
 }
 
-/// Saves what may change of a webhook: its URL, events, secrets, whether it is off and why,
-/// and its count of failures.
+/// Saves what may change of a webhook: its URL and who set it, its events, secrets, whether
+/// it is off and why, and its count of failures.
 pub async fn update(executor: impl PgExecutor<'_>, webhook: &Webhook) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         "UPDATE webhooks
          SET url = $2, events = $3, include_own = $4, secret = $5, previous_secret = $6,
              previous_expires_at = $7, disabled_at = $8, disabled_reason = $9, failures = $10,
-             updated_at = $11
+             url_set_by = $11, updated_at = $12
          WHERE id = $1",
         webhook.id,
         webhook.url,
@@ -86,6 +90,7 @@ pub async fn update(executor: impl PgExecutor<'_>, webhook: &Webhook) -> sqlx::R
         webhook.disabled_at,
         webhook.disabled_reason,
         webhook.failures,
+        webhook.url_set_by,
         webhook.updated_at,
     )
     .execute(executor)
@@ -114,7 +119,7 @@ pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Opti
         Webhook,
         "SELECT id, workspace_id, user_id, url, events, include_own, secret, previous_secret,
                 previous_expires_at, disabled_at, disabled_reason, failures, created_by,
-                created_at, updated_at
+                url_set_by, created_at, updated_at
          FROM webhooks WHERE id = $1",
         id,
     )
@@ -132,7 +137,7 @@ pub async fn lock(
         Webhook,
         "SELECT id, workspace_id, user_id, url, events, include_own, secret, previous_secret,
                 previous_expires_at, disabled_at, disabled_reason, failures, created_by,
-                created_at, updated_at
+                url_set_by, created_at, updated_at
          FROM webhooks WHERE workspace_id = $1 AND id = $2
          FOR UPDATE",
         workspace_id,
@@ -148,7 +153,7 @@ pub async fn list(executor: impl PgExecutor<'_>, workspace_id: Uuid) -> sqlx::Re
         ListedRow,
         r#"SELECT w.id, w.workspace_id, w.user_id, w.url, w.events, w.include_own, w.secret,
                   w.previous_secret, w.previous_expires_at, w.disabled_at, w.disabled_reason,
-                  w.failures, w.created_by, w.created_at, w.updated_at,
+                  w.failures, w.created_by, w.url_set_by, w.created_at, w.updated_at,
                   u.kind, u.display_name, u.hue,
                   o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
                   c.display_name AS "creator_name?"
@@ -177,7 +182,7 @@ pub async fn get(
         ListedRow,
         r#"SELECT w.id, w.workspace_id, w.user_id, w.url, w.events, w.include_own, w.secret,
                   w.previous_secret, w.previous_expires_at, w.disabled_at, w.disabled_reason,
-                  w.failures, w.created_by, w.created_at, w.updated_at,
+                  w.failures, w.created_by, w.url_set_by, w.created_at, w.updated_at,
                   u.kind, u.display_name, u.hue,
                   o.id AS "owner_id?", o.display_name AS "owner_name?", o.hue AS owner_hue,
                   c.display_name AS "creator_name?"
@@ -220,6 +225,53 @@ pub async fn subscribers(
         workspace_id,
         users,
         event,
+    )
+    .fetch_all(executor)
+    .await
+}
+
+/// Turns a webhook off, saying why, unless it is off already. False when it was.
+pub async fn turn_off(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    reason: &str,
+    at: OffsetDateTime,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query!(
+        "UPDATE webhooks SET disabled_at = $3, disabled_reason = $2, updated_at = $3
+         WHERE id = $1 AND disabled_at IS NULL",
+        id,
+        reason,
+        at,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// A webhook that is on: whose events it delivers, and who set its URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Registration {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub url_set_by: Option<Uuid>,
+}
+
+/// The webhooks of a workspace that are on, whose URL `user_id` set or whose events are
+/// theirs.
+pub async fn registrations_of(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<Vec<Registration>> {
+    sqlx::query_as!(
+        Registration,
+        "SELECT id, user_id, url_set_by FROM webhooks
+         WHERE workspace_id = $1 AND disabled_at IS NULL
+           AND (url_set_by = $2 OR user_id = $2)
+         ORDER BY id",
+        workspace_id,
+        user_id,
     )
     .fetch_all(executor)
     .await
@@ -366,6 +418,7 @@ struct ListedRow {
     disabled_reason: Option<String>,
     failures: i32,
     created_by: Option<Uuid>,
+    url_set_by: Option<Uuid>,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
     kind: String,
@@ -407,6 +460,7 @@ impl TryFrom<ListedRow> for Listed {
                 disabled_reason: row.disabled_reason,
                 failures: row.failures,
                 created_by: row.created_by,
+                url_set_by: row.url_set_by,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
             },

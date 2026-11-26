@@ -2120,7 +2120,7 @@ export interface paths {
         head?: never;
         /**
          * Change an outgoing webhook
-         * @description Changes what the body names: its URL, checked as when it was registered, its events, whether it hears the identity's own changes, and whether it is on. Turning it on clears its failures and why it was off.
+         * @description Changes what the body names: its URL, checked as when it was registered, its events, whether it hears the identity's own changes, and whether it is on. Turning it on clears its failures and why it was off. Setting its URL binds it to the caller: it is told only of rows both they and its identity may see, while they may register webhooks for its identity.
          */
         patch: operations["update_webhook"];
         trace?: never;
@@ -13257,7 +13257,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description forbidden: may not set its URL for this identity; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -13268,6 +13268,15 @@ export interface operations {
             };
             /** @description not_found. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description url_setter_lapsed: turning it on, but whoever set its URL may no longer register it; set its URL again. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

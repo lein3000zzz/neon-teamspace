@@ -313,7 +313,9 @@ impl From<WebhookError> for ApiError {
             | WebhookError::AddressRefused(_) => StatusCode::BAD_REQUEST,
             WebhookError::Forbidden(_) => StatusCode::FORBIDDEN,
             WebhookError::NotFound(_) => StatusCode::NOT_FOUND,
-            WebhookError::NoSecretKey | WebhookError::AgentLimit { .. } => StatusCode::CONFLICT,
+            WebhookError::NoSecretKey
+            | WebhookError::AgentLimit { .. }
+            | WebhookError::SetterLapsed(_) => StatusCode::CONFLICT,
             WebhookError::Database(_) | WebhookError::Internal(_) => {
                 tracing::error!(error = %error, "a webhook use case failed");
                 return Self::internal();

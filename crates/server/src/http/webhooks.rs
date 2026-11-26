@@ -368,7 +368,9 @@ pub struct UpdateWebhook {
     summary = "Change an outgoing webhook",
     description = "Changes what the body names: its URL, checked as when it was registered, \
                    its events, whether it hears the identity's own changes, and whether it is \
-                   on. Turning it on clears its failures and why it was off.",
+                   on. Turning it on clears its failures and why it was off. Setting its URL \
+                   binds it to the caller: it is told only of rows both they and its identity \
+                   may see, while they may register webhooks for its identity.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("webhook_id" = Uuid, Path, description = "The webhook's id."),
@@ -378,8 +380,9 @@ pub struct UpdateWebhook {
         (status = OK, description = "The webhook.", body = Webhook),
         (status = BAD_REQUEST, description = "invalid_input, invalid_url or address_refused.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: may not set its URL for this identity; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "url_setter_lapsed: turning it on, but whoever set its URL may no longer register it; set its URL again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

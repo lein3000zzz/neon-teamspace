@@ -17,7 +17,11 @@
 //!
 //! Names that come from the database, its title, a property's and an option's, are null for
 //! an identity who sees the row only through its own share and not its database, as the row
-//! then shows them no database either.
+//! then shows them no database either; and so for whoever set the webhook's URL.
+//!
+//! A delivery is sent only while its identity may see the row, and so may whoever set the
+//! webhook's URL, as the rules say then. Otherwise it is skipped; and when whoever set the URL
+//! may no longer register webhooks for the identity, the webhook turns off, saying why.
 
 use std::time::{Duration, Instant};
 
@@ -34,6 +38,7 @@ use neon_store::jobs::Job;
 use neon_store::webhooks::{self as repo, Attempt, GaveUp, Listed, Webhook};
 use neon_store::{databases, pages, users};
 use serde_json::{Value as Json, json};
+use sqlx::PgConnection;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tracing::{Instrument as _, info, info_span, warn};
@@ -41,12 +46,12 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::events::{Choice, Delivery, Event, status_property};
-use super::outgoing::DeliveryAttempt;
+use super::outgoing::{DeliveryAttempt, url_setter};
 use super::signature::{self, SIGNATURE_HEADER, TIMESTAMP_HEADER};
 use super::transport::{Answer, Outgoing, SendError};
-use super::{DELIVERY_KIND, DISABLE_AFTER, WebhookError, WebhookService, aad};
+use super::{DELIVERY_KIND, DISABLE_AFTER, WebhookError, WebhookService, Whose, aad};
 use crate::jobs::{Handler, JobError};
-use crate::pages::PageError;
+use crate::pages::{Context, PageError};
 
 /// The header with the event's type.
 pub const EVENT_HEADER: &str = "Neon-Webhook-Event";
@@ -138,6 +143,16 @@ impl Failure {
     }
 }
 
+/// Whether a delivery may be sent, as the rules say when it is tried.
+enum Reach {
+    /// Yes: about the row, to the identity, as it works now.
+    Row(Box<(User, RowFacts)>),
+    /// No: the row is out of the identity's reach, or of whoever set the URL.
+    Hidden,
+    /// No, nor any other: whoever set the URL may no longer register it, saying why.
+    Lapsed(String),
+}
+
 /// What of a row a payload shows, as it is when sent.
 struct RowFacts {
     title: String,
@@ -212,11 +227,24 @@ impl WebhookService {
                 .await?;
             return Ok(Ok(()));
         }
-        let Some((identity, facts)) = self.visible_row(&webhook, event).await? else {
-            info!(webhook_id = %webhook.id, "webhook delivery skipped: the row is out of reach");
-            self.log(&record(Outcome::Skipped, None, Some("no_access")))
-                .await?;
-            return Ok(Ok(()));
+        let (identity, facts) = match self.reach(&webhook, event).await? {
+            Reach::Row(found) => *found,
+            Reach::Hidden => {
+                info!(webhook_id = %webhook.id, "webhook delivery skipped: the row is out of reach");
+                self.log(&record(Outcome::Skipped, None, Some("no_access")))
+                    .await?;
+                return Ok(Ok(()));
+            }
+            Reach::Lapsed(reason) => {
+                repo::turn_off(self.pool(), webhook.id, &reason, self.now()).await?;
+                warn!(
+                    webhook_id = %webhook.id,
+                    "webhook turned off: whoever set its URL may no longer register it"
+                );
+                self.log(&record(Outcome::Skipped, None, Some("lapsed")))
+                    .await?;
+                return Ok(Ok(()));
+            }
         };
         let body = row_payload(event, &identity, &facts);
         let sent = self.send(&webhook, &event.kind, job.id, &body).await?;
@@ -407,16 +435,13 @@ impl WebhookService {
         Ok(())
     }
 
-    /// The row an event is about, when the webhook's identity may still see it, as the
-    /// rules say now, out of the trash: with the identity, as it works now.
-    async fn visible_row(
-        &self,
-        webhook: &Webhook,
-        event: &Event,
-    ) -> Result<Option<(User, RowFacts)>, WebhookError> {
+    /// Whether a delivery may be sent now, as the module docs say: the row an event is
+    /// about, out of the trash, when both the webhook's identity and whoever set its URL may
+    /// see it, with the identity as it works now.
+    async fn reach(&self, webhook: &Webhook, event: &Event) -> Result<Reach, WebhookError> {
         let mut conn = self.pool().acquire().await?;
         let Some((user, standing)) = users::identity(&mut *conn, webhook.user_id).await? else {
-            return Ok(None);
+            return Ok(Reach::Hidden);
         };
         let agents_on = self.inner.workspaces.agents_on();
         let works = if user.kind.is_human() {
@@ -426,8 +451,13 @@ impl WebhookService {
                 && standing.status(user.kind, agents_on).works()
         };
         if !works {
-            return Ok(None);
+            return Ok(Reach::Hidden);
         }
+        let setter = url_setter(&mut conn, webhook, Whose::from(&user), &user.display_name);
+        let setter = match setter.await? {
+            Ok(setter) => setter,
+            Err(lapsed) => return Ok(Reach::Lapsed(lapsed.reason())),
+        };
         let principal = Principal {
             user,
             credential: Credential::Token {
@@ -437,26 +467,19 @@ impl WebhookService {
                 workspace_id: Some(webhook.workspace_id),
             },
         };
-        let context = match self
-            .inner
-            .pages
-            .context(&mut conn, &principal, event.row_id)
-            .await
-        {
-            Ok(context) => context,
-            Err(PageError::NotFound(_)) => return Ok(None),
-            Err(error) => return Err(WebhookError::Internal(error.to_string())),
+        let Some(seen) = self.sees(&mut conn, &principal, webhook, event).await? else {
+            return Ok(Reach::Hidden);
         };
-        let page = context.page();
-        if page.kind != PageKind::Row
-            || page.workspace_id != webhook.workspace_id
-            || page.is_trashed()
-            || context.check(Action::ViewPage).is_err()
-        {
-            return Ok(None);
+        let mut parent_seen = seen.parent_seen();
+        if setter.user.id != principal.user.id {
+            let Some(theirs) = self.sees(&mut conn, &setter, webhook, event).await? else {
+                return Ok(Reach::Hidden);
+            };
+            parent_seen &= theirs.parent_seen();
         }
+        let page = seen.page();
         let Some(data) = databases::row(&mut *conn, page.id).await? else {
-            return Ok(None);
+            return Ok(Reach::Hidden);
         };
         let schema = Schema {
             properties: databases::properties(&mut *conn, data.database_id)
@@ -466,7 +489,7 @@ impl WebhookService {
                 .collect(),
         };
         let prefix = schema.unique_id().and_then(|property| property.ty.prefix());
-        let facts_schema = if context.parent_seen() {
+        let facts_schema = if parent_seen {
             let title = pages::get(&mut *conn, data.database_id)
                 .await?
                 .map(|database| database.title)
@@ -482,7 +505,34 @@ impl WebhookService {
             schema: facts_schema,
             cells: data.cells,
         };
-        Ok(Some((principal.user, facts)))
+        Ok(Reach::Row(Box::new((principal.user, facts))))
+    }
+
+    /// The row an event is about, as `principal` sees it, when they may: a row of the
+    /// webhook's workspace, out of the trash.
+    async fn sees(
+        &self,
+        conn: &mut PgConnection,
+        principal: &Principal,
+        webhook: &Webhook,
+        event: &Event,
+    ) -> Result<Option<Context>, WebhookError> {
+        let context = match self
+            .inner
+            .pages
+            .context(&mut *conn, principal, event.row_id)
+            .await
+        {
+            Ok(context) => context,
+            Err(PageError::NotFound(_)) => return Ok(None),
+            Err(error) => return Err(WebhookError::Internal(error.to_string())),
+        };
+        let page = context.page();
+        let seen = page.kind == PageKind::Row
+            && page.workspace_id == webhook.workspace_id
+            && !page.is_trashed()
+            && context.check(Action::ViewPage).is_ok();
+        Ok(seen.then_some(context))
     }
 }
 

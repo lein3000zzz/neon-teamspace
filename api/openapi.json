@@ -12216,7 +12216,7 @@
           "webhooks"
         ],
         "summary": "Change an outgoing webhook",
-        "description": "Changes what the body names: its URL, checked as when it was registered, its events, whether it hears the identity's own changes, and whether it is on. Turning it on clears its failures and why it was off.",
+        "description": "Changes what the body names: its URL, checked as when it was registered, its events, whether it hears the identity's own changes, and whether it is on. Turning it on clears its failures and why it was off. Setting its URL binds it to the caller: it is told only of rows both they and its identity may see, while they may register webhooks for its identity.",
         "operationId": "update_webhook",
         "parameters": [
           {
@@ -12282,7 +12282,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "forbidden: may not set its URL for this identity; or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12293,6 +12293,16 @@
           },
           "404": {
             "description": "not_found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "url_setter_lapsed: turning it on, but whoever set its URL may no longer register it; set its URL again.",
             "content": {
               "application/json": {
                 "schema": {

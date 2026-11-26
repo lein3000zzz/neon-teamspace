@@ -1,7 +1,8 @@
 -- Outgoing webhooks. Each belongs to one identity of a workspace, a person, an agent or an
 -- integration, and is told of the events it names about the rows that identity is assigned
 -- to, signed with a secret of its own. It goes with the identity's membership: once they
--- are out of the workspace, it is gone.
+-- are out of the workspace, it is gone. Its URL is also bound to whoever set it last: it is
+-- told only of rows they may see too, and only while they may still register it.
 CREATE TABLE webhooks (
     id                  uuid PRIMARY KEY, -- UUIDv7
     workspace_id        uuid        NOT NULL,
@@ -25,6 +26,9 @@ CREATE TABLE webhooks (
     -- Deliveries given up on since the last one that went through.
     failures            integer     NOT NULL DEFAULT 0 CHECK (failures >= 0),
     created_by          uuid REFERENCES users (id) ON DELETE SET NULL,
+    -- Who set its URL last, when it was made or since. Once their account is gone, it is
+    -- turned off at its next delivery.
+    url_set_by          uuid REFERENCES users (id) ON DELETE SET NULL,
     created_at          timestamptz NOT NULL,
     updated_at          timestamptz NOT NULL,
     FOREIGN KEY (workspace_id, user_id)
@@ -35,6 +39,9 @@ CREATE TABLE webhooks (
 
 -- The webhooks a change to a row is told to, by whom it concerns.
 CREATE INDEX webhooks_subscribers ON webhooks (workspace_id, user_id) WHERE disabled_at IS NULL;
+-- The webhooks whose URL someone set, to check again when their place in the workspace
+-- changes.
+CREATE INDEX webhooks_url_set_by ON webhooks (workspace_id, url_set_by) WHERE disabled_at IS NULL;
 -- A workspace's webhooks, as its settings list them.
 CREATE INDEX webhooks_workspace ON webhooks (workspace_id, created_at, id);
 

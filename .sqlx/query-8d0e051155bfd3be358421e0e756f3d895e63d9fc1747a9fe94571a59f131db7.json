@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, user_id, url, events, include_own, secret, previous_secret,\n                previous_expires_at, disabled_at, disabled_reason, failures, created_by,\n                created_at, updated_at\n         FROM webhooks WHERE workspace_id = $1 AND id = $2\n         FOR UPDATE",
+  "query": "SELECT w.id, w.workspace_id, w.user_id, w.url, w.events, w.include_own, w.secret,\n                  w.previous_secret, w.previous_expires_at, w.disabled_at, w.disabled_reason,\n                  w.failures, w.created_by, w.url_set_by, w.created_at, w.updated_at,\n                  u.kind, u.display_name, u.hue,\n                  o.id AS \"owner_id?\", o.display_name AS \"owner_name?\", o.hue AS owner_hue,\n                  c.display_name AS \"creator_name?\"\n           FROM webhooks w\n           JOIN users u ON u.id = w.user_id\n           LEFT JOIN users o ON o.id = u.owner_id\n           LEFT JOIN users c ON c.id = w.created_by\n           WHERE w.workspace_id = $1\n           ORDER BY w.created_at, w.id",
   "describe": {
     "columns": [
       {
@@ -148,6 +148,17 @@
       },
       {
         "ordinal": 13,
+        "name": "url_set_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "webhooks",
+            "name": "url_set_by"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -167,11 +178,87 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 16,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "owner_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "owner_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "owner_hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "creator_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Uuid"
       ]
     },
@@ -189,9 +276,17 @@
       true,
       false,
       true,
+      true,
       false,
-      false
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "50937219746966e7c014ea51e2d5d8c0f9b2e679e11057b07470cb730b8b8bf3"
+  "hash": "8d0e051155bfd3be358421e0e756f3d895e63d9fc1747a9fe94571a59f131db7"
 }

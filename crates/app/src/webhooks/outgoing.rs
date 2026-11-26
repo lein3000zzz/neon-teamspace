@@ -1,12 +1,13 @@
 //! Registering outgoing webhooks, changing, rotating and deleting them, their logs, and
 //! test events.
 
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Credential, Principal, Scope};
 use neon_domain::settings::Secret;
 use neon_domain::webhooks::{EventType, check_events, check_url};
 use neon_domain::workspaces::{Action, Person};
 use neon_store::webhooks::{self as repo, Attempt, Listed, Webhook};
-use neon_store::workspaces;
+use neon_store::{users, workspaces};
+use sqlx::PgConnection;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
@@ -14,8 +15,11 @@ use uuid::Uuid;
 
 use super::signature::SECRET_PREFIX;
 use super::transport::SendError;
-use super::{NO_WEBHOOK, ROTATION_OVERLAP, WebhookError, WebhookService, aad, check, known_events};
+use super::{
+    NO_WEBHOOK, ROTATION_OVERLAP, WebhookError, WebhookService, Whose, aad, check, known_events,
+};
 use crate::crypto::new_secret;
+use crate::standing::Standing;
 
 const NO_MEMBER: &str = "no such member";
 
@@ -106,6 +110,104 @@ impl From<Attempt> for DeliveryAttempt {
             at: attempt.at,
         }
     }
+}
+
+/// Why a webhook's URL may no longer be delivered to: whoever set it may no longer register
+/// webhooks for its identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Lapsed(String);
+
+impl Lapsed {
+    /// Why the webhook turns off.
+    pub(super) fn reason(&self) -> String {
+        format!(
+            "turned off: {}; setting its URL again turns it back on",
+            self.0
+        )
+    }
+}
+
+/// Whoever set a webhook's URL, as they act in its workspace, while the rules still let them
+/// register webhooks for its identity, `name`; otherwise why not.
+pub(super) async fn url_setter(
+    conn: &mut PgConnection,
+    webhook: &Webhook,
+    identity: Whose,
+    name: &str,
+) -> sqlx::Result<Result<Principal, Lapsed>> {
+    let found = match webhook.url_set_by {
+        Some(id) => users::identity(&mut *conn, id).await?,
+        None => None,
+    };
+    let Some((user, _)) = found else {
+        return Ok(Err(Lapsed(
+            "the account that set its URL is gone".to_owned(),
+        )));
+    };
+    if user.is_disabled() {
+        return Ok(Err(Lapsed(format!(
+            "{}, who set its URL, is disabled",
+            user.display_name
+        ))));
+    }
+    let principal = Principal {
+        user,
+        credential: Credential::Token {
+            id: webhook.id,
+            name: "webhook".to_owned(),
+            scopes: Scope::ALL.to_vec(),
+            workspace_id: Some(webhook.workspace_id),
+        },
+    };
+    let standing = Standing::read(&mut *conn, &principal, webhook.workspace_id).await?;
+    if check(&standing, &principal, identity, Action::RegisterWebhook).is_err() {
+        return Ok(Err(Lapsed(format!(
+            "{} set its URL, and may no longer register webhooks for {name}",
+            principal.user.display_name
+        ))));
+    }
+    Ok(Ok(principal))
+}
+
+/// Turns off the webhooks of a workspace, whose URL `user_id` set or whose events are
+/// theirs, that whoever set their URL may no longer register: after `user_id`'s place in the
+/// workspace changed, on the transaction that changed it. A delivery would find them so
+/// anyway; this says so at once.
+pub(crate) async fn lapse(
+    conn: &mut PgConnection,
+    workspace_id: Uuid,
+    user_id: Uuid,
+    at: OffsetDateTime,
+) -> sqlx::Result<()> {
+    let mut turned_off = 0;
+    for registration in repo::registrations_of(&mut *conn, workspace_id, user_id).await? {
+        let Some(webhook) = repo::by_id(&mut *conn, registration.id).await? else {
+            continue;
+        };
+        let Some((identity, _)) = users::identity(&mut *conn, webhook.user_id).await? else {
+            continue;
+        };
+        let setter = url_setter(
+            conn,
+            &webhook,
+            Whose::from(&identity),
+            &identity.display_name,
+        );
+        if let Err(lapsed) = setter.await?
+            && repo::turn_off(&mut *conn, webhook.id, &lapsed.reason(), at).await?
+        {
+            turned_off += 1;
+        }
+    }
+    if turned_off > 0 {
+        info!(
+            workspace_id = %workspace_id,
+            user_id = %user_id,
+            webhooks = turned_off,
+            "webhooks turned off: whoever set their URL may no longer register them"
+        );
+    }
+    Ok(())
 }
 
 fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
@@ -252,6 +354,7 @@ impl WebhookService {
                 disabled_reason: None,
                 failures: 0,
                 created_by: Some(principal.user.id),
+                url_set_by: Some(principal.user.id),
                 created_at: now,
                 updated_at: now,
             };
@@ -282,7 +385,9 @@ impl WebhookService {
     }
 
     /// Changes a webhook's URL, events or whether it hears the identity's own changes, or
-    /// turns it on or off. Turning it on clears its failures and why it was off.
+    /// turns it on or off. Turning it on clears its failures and why it was off. Its URL is
+    /// then bound to the principal, who must be allowed to register webhooks for its
+    /// identity; turning it on without setting it needs whoever set it to be allowed still.
     pub async fn update_webhook(
         &self,
         principal: &Principal,
@@ -315,10 +420,30 @@ impl WebhookService {
             let mut webhook = repo::lock(&mut *tx, workspace_id, id)
                 .await?
                 .ok_or(WebhookError::NotFound(NO_WEBHOOK))?;
-            self.manageable(&mut tx, principal, workspace_id, id)
+            let listed = self
+                .manageable(&mut tx, principal, workspace_id, id)
                 .await?;
             if let Some(url) = url {
+                let standing = self.standing(&mut tx, principal, workspace_id).await?;
+                check(
+                    &standing,
+                    principal,
+                    &listed.identity,
+                    Action::RegisterWebhook,
+                )?;
                 webhook.url = url.to_string();
+                webhook.url_set_by = Some(principal.user.id);
+            } else if update.enabled == Some(true) {
+                let identity = &listed.identity;
+                let setter = url_setter(
+                    &mut tx,
+                    &webhook,
+                    Whose::from(identity),
+                    &identity.display_name,
+                );
+                if let Err(Lapsed(why)) = setter.await? {
+                    return Err(WebhookError::SetterLapsed(why));
+                }
             }
             if let Some(events) = events {
                 webhook.events = events

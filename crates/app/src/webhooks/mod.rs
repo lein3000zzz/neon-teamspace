@@ -8,15 +8,20 @@
 //!   themselves and for their own agents and integrations, as the rules say. Its URL is
 //!   checked when it is registered or changed, and again at every delivery, through the
 //!   [`WebhookTransport`] port, which refuses addresses of the server's network unless
-//!   `webhooks.allow_private` allows them.
+//!   `webhooks.allow_private` allows them. It is bound to whoever set it last: a delivery
+//!   goes to it only while they may still register webhooks for the identity, and only
+//!   about a row they may see too, so an admin who registers one for someone else hears of
+//!   nothing they could not read themselves. Once they may not, it turns off, at once when
+//!   their role, their membership or an agent's owner changes, and otherwise at its next
+//!   delivery.
 //! - **Secrets.** The server makes each webhook's signing secret, shows it once, and keeps
 //!   it sealed with the instance's key. Rotating it makes a new one; the old one signs
 //!   deliveries beside it for [`ROTATION_OVERLAP`], so receivers can move over.
 //! - **Events** are queued with the change that makes them, on its transaction: see
 //!   [`events`]. Each delivery is a job of [`DELIVERY_KIND`], tried up to [`MAX_ATTEMPTS`]
-//!   times with the job queue's backoff. Before each attempt, the identity must still see
-//!   the row, as the rules say then; a delivery whose identity no longer does, or whose
-//!   webhook is off, is skipped. After [`DISABLE_AFTER`] deliveries in a row are given up
+//!   times with the job queue's backoff. Before each attempt, the identity and whoever set
+//!   the URL must still see the row, as the rules say then; a delivery that either no longer
+//!   does, or whose webhook is off, is skipped. After [`DISABLE_AFTER`] deliveries in a row are given up
 //!   on, the webhook turns itself off, saying why.
 //! - **The log** keeps each webhook's last attempts: how each went, the answer's status, how
 //!   long it took and a short excerpt of the answer, never what was sent.
@@ -38,7 +43,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, User};
 use neon_domain::webhooks::EventType;
 use neon_domain::workspaces::{Action, Person, Resource, WebhookSubject};
 use neon_observability::errors::{mark_expected, record_unexpected};
@@ -64,6 +69,7 @@ pub use incoming::{
     Accepted, BodyError, CreatedIncoming, IncomingRequest, IncomingUpdate, IncomingWebhook,
     Integration, LoggedRequest, NewIncomingWebhook, Target,
 };
+pub(crate) use outgoing::lapse;
 pub use outgoing::{Creator, DeliveryAttempt, NewWebhook, OutgoingWebhook, WebhookUpdate};
 pub use payload::TargetKind;
 pub use transport::WebhookTransport;
@@ -268,11 +274,36 @@ impl WebhookService {
     }
 }
 
+/// The identity whose webhooks are asked about, and its owner for an agent or integration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Whose {
+    id: Uuid,
+    owner: Option<Uuid>,
+}
+
+impl From<&Person> for Whose {
+    fn from(person: &Person) -> Self {
+        Self {
+            id: person.id,
+            owner: person.owner.as_ref().map(|owner| owner.id),
+        }
+    }
+}
+
+impl From<&User> for Whose {
+    fn from(user: &User) -> Self {
+        Self {
+            id: user.id,
+            owner: user.owner_id,
+        }
+    }
+}
+
 /// How `who` stands to `identity`, whose webhooks are asked about.
-fn subject_of(who: Uuid, identity: &Person) -> WebhookSubject {
+fn subject_of(who: Uuid, identity: Whose) -> WebhookSubject {
     if identity.id == who {
         WebhookSubject::Itself
-    } else if identity.owner.as_ref().is_some_and(|owner| owner.id == who) {
+    } else if identity.owner == Some(who) {
         WebhookSubject::OwnDelegate
     } else {
         WebhookSubject::Other
@@ -284,9 +315,10 @@ fn subject_of(who: Uuid, identity: &Person) -> WebhookSubject {
 fn check(
     standing: &Standing,
     principal: &Principal,
-    identity: &Person,
+    identity: impl Into<Whose>,
     action: Action,
 ) -> Result<(), WebhookError> {
+    let identity = identity.into();
     let mine = subject_of(principal.user.id, identity);
     let theirs = standing
         .owner_id()
@@ -346,13 +378,11 @@ mod tests {
     #[test]
     fn whose_webhooks_they_are_follows_identity_and_ownership() {
         let me = Uuid::from_u128(1);
-        assert_eq!(subject_of(me, &person(1, None)), WebhookSubject::Itself);
-        assert_eq!(
-            subject_of(me, &person(2, Some(1))),
-            WebhookSubject::OwnDelegate
-        );
-        assert_eq!(subject_of(me, &person(3, Some(4))), WebhookSubject::Other);
-        assert_eq!(subject_of(me, &person(5, None)), WebhookSubject::Other);
+        let of = |id, owner| subject_of(me, Whose::from(&person(id, owner)));
+        assert_eq!(of(1, None), WebhookSubject::Itself);
+        assert_eq!(of(2, Some(1)), WebhookSubject::OwnDelegate);
+        assert_eq!(of(3, Some(4)), WebhookSubject::Other);
+        assert_eq!(of(5, None), WebhookSubject::Other);
     }
 
     #[test]

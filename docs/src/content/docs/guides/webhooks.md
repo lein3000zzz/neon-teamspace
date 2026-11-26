@@ -34,6 +34,15 @@ delivery, and the URL is held to the same rules as anyone's. A webhook goes with
 identity's membership: once they are out of the workspace, or an agent is deleted, its
 webhooks are gone.
 
+A webhook's URL is bound to whoever set it last, as it was registered or changed since. It
+is told only of rows they may see too, so an admin who registers one for someone else, or
+points someone's at a URL of their own, learns nothing they could not read in the
+workspace themselves. And it is told of nothing once they may no longer register webhooks
+for its identity: an admin made a member, someone out of the workspace or disabled, the
+former owner of an agent handed to someone else. It then turns off, saying why: at once
+when their role or membership changes or the agent is handed on, otherwise at its next
+delivery. Turning it back on needs its URL set again, by someone who may register it.
+
 ### Events
 
 A row's assignees are the identities in its person properties. A webhook names the events
@@ -61,13 +70,16 @@ that fails, or rolls back, tells nobody.
 ### Access
 
 A delivery goes out only if the identity may still see the row when it is sent, as the
-permission rules say then, out of the trash; for an agent, as both it and its owner may. A
-person who left the teamspace the row is in, an agent whose owner is suspended or out of the
-workspace, a row trashed or deleted since: the delivery is **skipped**, nothing about the row
-is sent, and the log says `no_access`. Its title and the database's are read as they are
-when it is sent. For an identity who sees the row only through a share of the row itself,
-the database's title and the names of its properties and options are left out, as the row
-shows them no database either.
+permission rules say then, out of the trash; for an agent, as both it and its owner may; and
+whoever set the webhook's URL may see it too. A person who left the teamspace the row is in,
+an agent whose owner is suspended or out of the workspace, a row trashed or deleted since, an
+admin's URL for a row of a private teamspace they are not in: the delivery is **skipped**,
+nothing about the row is sent, and the log says `no_access`. When whoever set the URL may no
+longer register it, the delivery is skipped too, the log says `lapsed`, and the webhook
+turns off. Its title and the database's are read as they are when it is sent. For an
+identity, or a URL's setter, who sees the row only through a share of the row itself, the
+database's title and the names of its properties and options are left out, as the row shows
+them no database either.
 
 ### The payload
 
