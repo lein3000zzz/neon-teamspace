@@ -76,6 +76,14 @@ describe("the server's names", () => {
 
     expect([...names].toSorted()).toEqual(["holders", "row_id"]);
   });
+
+  it("reads code below a test-only item, stopping only at the test module", () => {
+    const names = codeNames(
+      '#[cfg(test)]\npub(crate) fn in_use() -> usize { 0 }\nconst CODE: &str = "rate_limited";\n#[cfg(test)]\nmod tests { const T: &str = "search"; }',
+    );
+
+    expect([...names].toSorted()).toEqual(["rate_limited"]);
+  });
 });
 
 const plugin: Plugin = {

@@ -129,12 +129,13 @@ export function apiNames(openapi: unknown): Set<string> {
 }
 
 /**
- * The names a Rust file of the MCP server uses, its tests left out: its string literals, such
- * as error codes and the keys of what tools answer, and its structs' fields, such as the
- * tools' arguments.
+ * The names a Rust file of the MCP server uses, its test module left out: its string
+ * literals, such as error codes and the keys of what tools answer, and its structs' fields,
+ * such as the tools' arguments. Only a `#[cfg(test)]` module ends the code read; a single
+ * test-only item, such as a helper method, may sit above code that still counts.
  */
 export function codeNames(rustSource: string): Set<string> {
-  const code = rustSource.split("#[cfg(test)]", 1)[0] ?? "";
+  const code = rustSource.split(/#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s/, 1)[0] ?? "";
   const names = new Set<string>();
   for (const match of code.matchAll(/"([^"\\\n]*)"/g)) {
     if (IDENTIFIER.test(group(match, 1))) {
