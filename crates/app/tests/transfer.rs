@@ -1341,6 +1341,81 @@ async fn files_go_out_in_the_zip_and_come_back_with_their_pages(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_file_the_text_links_to_goes_out_and_comes_back_with_its_page(pool: PgPool) {
+    let t = team(pool).await;
+    let plan =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".to_owned(),
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("made")
+            .page
+            .id;
+    let notes = t
+        .upload(plan, FileKind::File, "notes.txt", b"the notes".to_vec())
+        .await;
+    let markdown = format!(
+        "See [the notes]({}) first.\n\n| File |\n|---|\n| [again]({}) |\n",
+        neon_domain::attachments::path(notes.id),
+        neon_domain::attachments::path(notes.id),
+    );
+    let blocks = neon_blocks::markdown::from_markdown(&markdown).blocks;
+    t.sync
+        .edit(&t.ada, plan, vec![Edit::Append { blocks }], None)
+        .await
+        .expect("edited");
+
+    let export = t.export(plan, true).await;
+    let files = entries(&export.bytes);
+    assert_eq!(
+        files.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["Plan.md", "Plan/notes.txt"]
+    );
+    assert_eq!(files["Plan/notes.txt"], b"the notes");
+    let written = String::from_utf8(files["Plan.md"].clone()).expect("text");
+    assert!(
+        written.contains("See [the notes](Plan/notes.txt) first.")
+            && written.contains("[again](Plan/notes.txt)"),
+        "{written}"
+    );
+
+    let copy = teamspace(&t.h, &t.ada, t.workspace, "Copy", TeamspaceAccess::Open).await;
+    let report = t
+        .import(
+            &t.ada,
+            Location::Teamspace(copy),
+            &export.name,
+            Bytes::from(export.bytes.clone()),
+        )
+        .await
+        .expect("imported");
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let copied = report.pages[0].page.id;
+    let made = t.files_of(copied).await;
+    let (new_notes, _) = &made["notes.txt"];
+    assert_eq!(t.bytes_of(*new_notes).await, b"the notes");
+    let document = t.sync.content(copied).await.expect("read");
+    let path = neon_domain::attachments::path(*new_notes);
+    assert_eq!(
+        document.links().collect::<Vec<_>>(),
+        [path.as_str(), path.as_str()]
+    );
+    assert_eq!(
+        page_refs(&t.h.pool, copied).await.expect("read"),
+        [*new_notes],
+        "its first snapshot names it"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_import_takes_the_files_its_pages_show_within_their_rules(pool: PgPool) {
     let t = team(pool).await;
     let archive = zipped_bytes(&[

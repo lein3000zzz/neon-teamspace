@@ -185,7 +185,7 @@ with `GET` on that path of the server it connected to, with the same token, as f
 see the page the file belongs to. MCP carries no file's bytes but as text inside a tool's
 arguments, held whole in memory, so there is no tool to upload one: the agent uploads it with
 `POST /api/v1/pages/{id}/files`, as [Attachments](/docs/guides/attachments/#the-api) has it,
-and puts the answer's `url` in the markdown it writes.
+and puts the answer's `url` in the markdown it writes, in a block or as a link of the text.
 
 A page shows an inline database where a line `:::database <id>`, or
 `:::database <id> view=<view id>` for one of its views, stands in its markdown. `create_database`

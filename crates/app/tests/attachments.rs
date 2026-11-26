@@ -414,6 +414,28 @@ async fn files_shown_by_any_page_or_a_cover_are_kept(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_file_the_text_links_to_is_kept(pool: PgPool) {
+    let t = files(pool).await;
+    let page = t.page("Plan", None).await;
+    let file = t
+        .upload(page, FileKind::File, "report.pdf", b"%PDF-1.7", 1024)
+        .await
+        .expect("uploaded");
+    let linked = neon_blocks::markdown::from_markdown(&format!(
+        "A link to [the report]({}) in a paragraph.\n",
+        path(file.id)
+    ));
+    t.set_blocks(page, linked.blocks).await;
+    t.snapshot_shows(page, &[file.id]).await;
+
+    assert_eq!(t.cleanup().await, CleanupReport::default());
+    t.h.time.advance(Duration::from_secs(365 * 24 * 3600));
+    assert_eq!(t.cleanup().await, CleanupReport::default());
+    assert!(t.exists(&file).await);
+    assert!(t.kept(&file).await);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn files_follow_their_page_into_the_trash_and_out_of_it(pool: PgPool) {
     let t = files(pool).await;
     let dee_sees = t.page("Plan", None).await;

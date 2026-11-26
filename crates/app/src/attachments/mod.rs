@@ -14,7 +14,8 @@
 //! - **Reading** a file asks the rules about its page on every request: a file follows the
 //!   page it was uploaded to, its shares, guests, its trash and agents' bounds, and one the
 //!   caller may not see is not found, as one that does not exist.
-//! - **Cleaning up** keeps every file a page's document or cover shows. A file none shows
+//! - **Cleaning up** keeps every file a page's document or cover shows, in a block or as a
+//!   link of its text. A file none shows
 //!   is marked, and deleted once it stayed so for `attachments.orphan_grace`; being shown
 //!   again unmarks it. Files go with their page and their workspace too, and the blob of
 //!   every file deleted, however it went, is deleted from the store afterwards.
@@ -72,11 +73,14 @@ const UPLOAD_WINDOW: Duration = Duration::from_secs(2 * 15 * 60);
 /// The folder of the data directory local files are kept in.
 pub const LOCAL_FOLDER: &str = "attachments";
 
-/// The ids of the files a document shows, by their paths, in order and once each.
+/// The ids of the files a document shows, by their paths, in order and once each: those of
+/// its image, video, audio and file blocks, and those its text links to.
 pub fn shown_files(document: &neon_blocks::Document) -> Vec<Uuid> {
     document
         .files()
-        .filter_map(|(_, url)| file_id(url))
+        .map(|(_, url)| url)
+        .chain(document.links())
+        .filter_map(file_id)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -664,6 +668,16 @@ mod tests {
             }),
         ]);
         assert_eq!(shown_files(&document), [a, b]);
+        let c = Uuid::from_u128(0x0193_a5b2_0000_7000_8000_0000_0000_00f3);
+        let linked = neon_blocks::markdown::from_markdown(&format!(
+            "A [report]({}) and [elsewhere](https://example.com/{c}).\n",
+            neon_domain::attachments::path(c)
+        ));
+        assert_eq!(
+            shown_files(&linked),
+            [c],
+            "a link of the text shows its file"
+        );
         assert!(shown_files(&Document::default()).is_empty());
     }
 }

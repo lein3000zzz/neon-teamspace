@@ -140,7 +140,8 @@ The answers carry `Content-Disposition: attachment` with the file's name, and
 
 ## Files
 
-A zip holds the [attachments](/docs/guides/attachments/) its pages show. Each file sits in the
+A zip holds the [attachments](/docs/guides/attachments/) its pages show, in their blocks or
+as links of their text. Each file sits in the
 folder of the page that shows it first, beside the files of the pages under it, under the name
 it was uploaded with. The page links to it by a path relative to the page's file, each part
 percent-encoded. A page Roadmap with an image, a PDF and a subpage Hiring comes out as:
@@ -169,9 +170,11 @@ files by their paths on the server.
 
 An import does the reverse. When an image, video, audio or file block links to a file of the
 zip by a path relative to its markdown file, the import uploads that file as the block's kind
-and rewrites the link to the file's path on the server. The file belongs to the first page
-that shows it, and other pages that link to it show it too. A file, video or audio block's
-name becomes the file's name; an image keeps the name its file has in the zip.
+and rewrites the link to the file's path on the server. A link in the text, such as
+`[the notes](Roadmap/notes.txt)`, brings its file in the same way, as a file to download. The
+file belongs to the first page that shows it, and other pages that link to it show it too. A
+file, video or audio block's name becomes the file's name; an image, and a link of the text,
+keep the name the file has in the zip.
 
 A file the block's kind does not take, or one larger than an upload may be, stays out and is
 listed, and its link stays as it was. Files no page links to are listed as `attachment`. The

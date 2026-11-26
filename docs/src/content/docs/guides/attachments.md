@@ -107,6 +107,9 @@ Markdown writes an image block as `![name](url)` and the others as links in the
 :::file [Quarterly report.pdf](/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3)
 ```
 
+A link in the text to a file's path, `[the report](/api/v1/files/{id})`, shows the file too:
+it keeps the file from the cleanup, and an export takes the file along, as a block would.
+
 An agent's [`read_page`](/docs/guides/agents-over-mcp/#pages) shows files the same way, and
 the agent reads one with `GET` on the server it connected to, with the same token. MCP could
 carry a file's bytes only as text inside a tool's arguments, held whole in memory, so there
@@ -167,7 +170,7 @@ cover, and `null` takes it off. `GET /api/v1/files/{id}` reads a file, with `Ran
   or once [`pages.trash_retention`](/docs/reference/settings/) is over, its files go with it.
 - **With their workspace.** Deleting a workspace deletes all its files.
 - **Once nothing shows them.** The hourly cleanup keeps every file that any page's document or
-  cover shows. It marks a file nothing shows, and deletes it once it has stayed that way for
+  cover shows, in a block or as a link of its text. It marks a file nothing shows, and deletes it once it has stayed that way for
   [`attachments.orphan_grace`](/docs/reference/settings/), 30 days unless set. A file shown
   again within that time, after an undo, a paste of its block or a restored older version of
   a page, stays and starts over. An older version than that may show a file deleted since, and

@@ -9,17 +9,18 @@
 //!   markdown file of its name beside it being the same page. A file's first heading, or
 //!   else its name, is the title. The pages are made in one transaction, each with its
 //!   markdown, as blocks, for the first snapshot of its document. Other files of a zip that
-//!   a page's blocks link to by a relative path become files of the first page that shows
-//!   them, as uploads do, their links the files' paths; the rest are left out, and the
-//!   answer lists them.
+//!   a page's blocks or the links of its text lead to by a relative path become files of
+//!   the first page that shows them, as uploads do, their links the files' paths; the rest
+//!   are left out, and the answer lists them.
 //! - **Exporting** writes a page's markdown file, its title as its first heading; a zip of a
 //!   page's file and those of the pages under it, each page's in the folder of the page it
 //!   is under; or a zip of a teamspace's pages. Content comes from the live document when
 //!   the page is open, else from what is saved. A database's file ends with a table of its
 //!   rows, their titles and the properties its first view shows; in a zip, each row is a
 //!   file of its own in the database's folder, its properties listed under its title, the
-//!   rows read whole a batch at a time. In a zip, the files a page's blocks show that the
-//!   caller may read go in the page's folder, its links to them made relative.
+//!   rows read whole a batch at a time. In a zip, the files a page's blocks show, or its
+//!   text links to, that the caller may read go in the page's folder, its links to them
+//!   made relative.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
 //!   deep they go, the pages one import makes and the pages and rows one export holds, the
 //!   time each takes, and how many run at once, on the server and for each person; see
@@ -617,11 +618,13 @@ impl TransferService {
                 }
                 let mut document = document;
                 let folder: Vec<&str> = placed.folder.iter().map(String::as_str).collect();
-                document.map_files(|_, url| {
+                let in_zip = |url: &str| {
                     neon_domain::attachments::file_id(url)
                         .and_then(|id| paths.get(&id))
                         .map(|path| convert::relative(&folder, path))
-                });
+                };
+                document.map_files(|_, url| in_zip(url));
+                document.map_links(in_zip);
                 let markdown = convert::markdown(&page.title, document, &extra);
                 zip.write(&placed, &markdown)?;
                 Ok((zip, paths))

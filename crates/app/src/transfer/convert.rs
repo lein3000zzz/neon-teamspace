@@ -71,24 +71,29 @@ fn parse_entry(entry: Entry, deadline: Deadline) -> Result<Parsed, TransferError
 pub(super) struct Link {
     /// Its path in the zip.
     pub(super) path: String,
-    /// The kind of the first block that shows it.
+    /// The kind of the first block that shows it, or a file's, when a link of the text does.
     pub(super) kind: FileKind,
     /// The name a file, video or audio block gives it, or else the file's own: an image's
-    /// is its alternative text.
+    /// is its alternative text, and a link's text may be anything.
     pub(super) name: String,
     /// The page that shows it first, which it belongs to: by its place among the pages,
     /// parents before their children.
     pub(super) owner: usize,
 }
 
-/// The files of `files`, paths in the zip, that the pages' blocks link to by a path
-/// relative to their markdown file, once each, in the order the pages show them.
+/// The files of `files`, paths in the zip, that the pages' blocks, or the links of their
+/// text, lead to by a path relative to their markdown file, once each, in the order the
+/// pages show them: a page's blocks before its text's links.
 pub(super) fn links(pages: &[Parsed], files: &HashMap<String, usize>) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut index = 0;
     preorder(pages, &mut |page| {
         if let Some(document) = &page.document {
-            for (block, url) in document.files() {
+            let blocks = document
+                .files()
+                .map(|(block, url)| (Some(&block.kind), url));
+            let text = document.links().map(|url| (None, url));
+            for (block, url) in blocks.chain(text) {
                 let Some(path) = resolve(&page.folder, url).filter(|path| files.contains_key(path))
                 else {
                     continue;
@@ -97,10 +102,12 @@ pub(super) fn links(pages: &[Parsed], files: &HashMap<String, usize>) -> Vec<Lin
                     continue;
                 }
                 let own = path.rsplit('/').next().unwrap_or_default().to_owned();
-                let named = block_name(&block.kind).filter(|name| !name.trim().is_empty());
+                let named = block
+                    .and_then(block_name)
+                    .filter(|name| !name.trim().is_empty());
                 links.push(Link {
                     name: named.map_or(own, str::to_owned),
-                    kind: kind_of(&block.kind),
+                    kind: block.map_or(FileKind::File, kind_of),
                     owner: index,
                     path,
                 });
@@ -140,7 +147,8 @@ fn block_name(kind: &BlockKind) -> Option<&str> {
 }
 
 /// The pages to import, each with its document encoded and the pages under it: each link
-/// to a file of `made`, by its path in the zip, becomes the path of the file made of it,
+/// to a file of `made`, a block's or one of the text, by its path in the zip, becomes the
+/// path of the file made of it,
 /// which goes with the page that showed it first, by its place among the pages. A document
 /// that would be larger than `max_document` bytes refuses the import. Past `deadline`, it
 /// stops.
@@ -169,11 +177,13 @@ fn finish_page(
     *index += 1;
     let content = match page.document {
         Some(mut document) => {
-            document.map_files(|_, url| {
+            let made_of = |url: &str| {
                 resolve(&page.folder, url)
                     .and_then(|path| made.get(&path))
                     .map(|(_, file)| file.path())
-            });
+            };
+            document.map_files(|_, url| made_of(url));
+            document.map_links(made_of);
             encode(&document, max_document, &page.path)?
         }
         None => None,
