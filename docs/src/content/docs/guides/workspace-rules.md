@@ -11,7 +11,8 @@ list in [Workspaces](/docs/admin/workspaces/). Who may do what is listed in one 
 [permissions](/docs/reference/permissions/) page.
 
 Every route below needs a browser session or an API token, with the `read` scope for `GET`
-and `write` for the rest. Deleting a workspace and transferring its ownership need a browser
+and `write` for the rest. A token bound to one workspace, an agent's included, works on that
+workspace's routes alone; see [Agents](/docs/guides/agents/). Deleting a workspace and transferring its ownership need a browser
 session, so a token that leaked cannot take a team's work away. A workspace someone is not
 in answers `404 not_found` to them, as one that does not exist would, instance admins
 included.
@@ -162,11 +163,12 @@ take; and its agents. Each instance-wide default is a setting, `workspaces.limit
 limit. Instance admins can set any of them for one workspace, which then wins over the
 default.
 
-The member limit holds now. A workspace at it refuses new invitations and invite links, and
+The member limit holds. A workspace at it refuses new invitations and invite links, and
 accepting an invitation or joining by link answers `member_limit`; the invitation stays, to
-accept once there is room. Nobody in the workspace is ever removed by a limit, however low it
-is set. The storage and agent limits are kept for attachments and agents, which are
-**planned**.
+accept once there is room. The agent limit holds too: agents and integrations count against
+it together, deleted ones left out, and a workspace at it makes no more agents or incoming
+webhooks, answering `409 agent_limit`. Nobody in the workspace is ever removed by a limit,
+however low it is set. The storage limit is kept for attachments, which are **planned**.
 
 ## For instance admins
 

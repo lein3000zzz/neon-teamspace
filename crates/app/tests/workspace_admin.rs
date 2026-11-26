@@ -21,6 +21,7 @@ fn admin_token(principal: &Principal) -> Principal {
             id: Uuid::now_v7(),
             name: "ops".into(),
             scopes: vec![Scope::Admin],
+            workspace_id: None,
         },
     }
 }
@@ -54,7 +55,11 @@ async fn instance_admins_list_names_owners_counts_and_limits(pool: PgPool) {
         .collect();
     assert_eq!(ids, [design, ops], "in the order they were made");
     let first = &page.workspaces[0];
-    let owners: Vec<&str> = first.owners.iter().map(|p| p.email.as_str()).collect();
+    let owners: Vec<&str> = first
+        .owners
+        .iter()
+        .filter_map(|p| p.email.as_deref())
+        .collect();
     assert_eq!(owners, ["ada@example.com", "bob@example.com"]);
     assert_eq!(first.usage.members, 2);
     assert_eq!(first.usage.storage_bytes, 0);
@@ -184,6 +189,7 @@ async fn people_who_are_not_instance_admins_do_none_of_it(pool: PgPool) {
             id: Uuid::now_v7(),
             name: "old".into(),
             scopes: vec![Scope::Read, Scope::Write],
+            workspace_id: None,
         },
     };
 

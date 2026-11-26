@@ -1,11 +1,11 @@
 //! Browser sessions, found by the hash of their token.
 
-use neon_domain::auth::{Email, Session, User};
+use neon_domain::auth::{Session, User};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::users::{parse_hue, parse_role};
+use crate::users::Row as UserRow;
 
 /// Saves a new session, if its account still has the password hash `password_hash` and
 /// is not disabled, and says whether it did. The account's row is locked for share while
@@ -49,10 +49,11 @@ pub async fn by_token_hash(
         Found,
         "SELECT s.id, s.user_id, s.user_agent, s.ip, s.created_at, s.last_seen_at, s.expires_at,
                 s.absolute_expires_at,
-                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
-                u.created_at AS user_created_at, u.updated_at AS user_updated_at
+                u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,
+                u.disabled_at, u.created_at AS user_created_at, u.updated_at AS user_updated_at,
+                u.workspace_id, u.owner_id
          FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = $1",
+         WHERE s.token_hash = $1 AND u.kind = 'human'",
         token_hash,
     )
     .fetch_optional(executor)
@@ -70,10 +71,11 @@ pub async fn by_id(
         Found,
         "SELECT s.id, s.user_id, s.user_agent, s.ip, s.created_at, s.last_seen_at, s.expires_at,
                 s.absolute_expires_at,
-                u.email, u.display_name, u.role, u.hue, u.email_verified_at, u.disabled_at,
-                u.created_at AS user_created_at, u.updated_at AS user_updated_at
+                u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,
+                u.disabled_at, u.created_at AS user_created_at, u.updated_at AS user_updated_at,
+                u.workspace_id, u.owner_id
          FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.id = $1",
+         WHERE s.id = $1 AND u.kind = 'human'",
         id,
     )
     .fetch_optional(executor)
@@ -92,7 +94,8 @@ struct Found {
     last_seen_at: OffsetDateTime,
     expires_at: OffsetDateTime,
     absolute_expires_at: OffsetDateTime,
-    email: String,
+    kind: String,
+    email: Option<String>,
     display_name: String,
     role: String,
     hue: Option<i16>,
@@ -100,21 +103,26 @@ struct Found {
     disabled_at: Option<OffsetDateTime>,
     user_created_at: OffsetDateTime,
     user_updated_at: OffsetDateTime,
+    workspace_id: Option<Uuid>,
+    owner_id: Option<Uuid>,
 }
 
 impl Found {
     fn split(self) -> sqlx::Result<(Session, User)> {
-        let user = User {
+        let user = User::try_from(UserRow {
             id: self.user_id,
-            email: Email::from_stored(self.email),
+            kind: self.kind,
+            email: self.email,
             display_name: self.display_name,
-            role: parse_role(&self.role)?,
-            hue_override: parse_hue(self.hue)?,
+            role: self.role,
+            hue: self.hue,
             email_verified_at: self.email_verified_at,
             disabled_at: self.disabled_at,
             created_at: self.user_created_at,
             updated_at: self.user_updated_at,
-        };
+            workspace_id: self.workspace_id,
+            owner_id: self.owner_id,
+        })?;
         let session = Session {
             id: self.id,
             user_id: self.user_id,

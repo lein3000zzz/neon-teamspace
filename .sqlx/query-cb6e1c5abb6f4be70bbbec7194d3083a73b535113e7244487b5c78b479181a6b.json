@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, hook_id, at, status_code, outcome, action, client_ip, latency_ms\n         FROM incoming_webhook_requests WHERE hook_id = $1\n         ORDER BY at DESC, id DESC\n         LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "hook_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "hook_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status_code",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "status_code"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "outcome",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "outcome"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "action",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "client_ip",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "client_ip"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "latency_ms",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhook_requests",
+            "name": "latency_ms"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "cb6e1c5abb6f4be70bbbec7194d3083a73b535113e7244487b5c78b479181a6b"
+}

@@ -1,0 +1,392 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id AS token_id, t.kind AS token_kind, t.scopes AS token_scopes,\n                  t.created_at AS token_created_at, t.expires_at AS token_expires_at,\n                  t.used_at AS token_used_at,\n                  g.id, g.client_id, g.person_id, g.user_id, g.workspace_id, g.scopes,\n                  g.audience, g.created_at, g.updated_at, g.last_used_at,\n                  c.name AS client_name,\n                  u.kind, u.email, u.display_name, u.role, u.hue, u.email_verified_at,\n                  u.disabled_at, u.created_at AS user_created_at,\n                  u.updated_at AS user_updated_at, u.workspace_id AS user_workspace_id,\n                  u.owner_id, u.deleted_at IS NOT NULL AS \"deleted!\",\n                  EXISTS (\n                      SELECT 1 FROM workspace_members m JOIN users o ON o.id = m.user_id\n                      WHERE m.workspace_id = u.workspace_id AND m.user_id = u.owner_id\n                        AND m.role <> 'guest' AND o.disabled_at IS NULL\n                  ) AS \"owner_active!\",\n                  COALESCE(w.agents_enabled, false) AS \"workspace_agents_on!\",\n                  p.disabled_at IS NOT NULL AS \"person_disabled!\",\n                  pm.role AS \"person_role?\"\n           FROM oauth_tokens t\n           JOIN oauth_grants g ON g.id = t.grant_id\n           JOIN oauth_clients c ON c.id = g.client_id\n           JOIN users u ON u.id = g.user_id\n           JOIN users p ON p.id = g.person_id\n           LEFT JOIN workspaces w ON w.id = u.workspace_id\n           LEFT JOIN workspace_members pm\n                  ON pm.workspace_id = g.workspace_id AND pm.user_id = g.person_id\n           WHERE t.hash = $1 AND t.kind = 'access'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "token_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "token_scopes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "scopes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "token_created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "token_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_tokens",
+            "name": "used_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "person_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "person_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "scopes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "scopes"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "audience",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "audience"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "oauth_grants",
+            "name": "last_used_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "client_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "oauth_clients",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "email_verified_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email_verified_at"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "disabled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "user_created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "user_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 26,
+        "name": "user_workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 27,
+        "name": "owner_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "owner_id"
+          }
+        }
+      },
+      {
+        "ordinal": 28,
+        "name": "deleted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 29,
+        "name": "owner_active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 30,
+        "name": "workspace_agents_on!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 31,
+        "name": "person_disabled!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 32,
+        "name": "person_role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_members",
+            "name": "role"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "7efef838c87e9a0e973b615267450e93de8bdfbf98378630e183a418145deb58"
+}

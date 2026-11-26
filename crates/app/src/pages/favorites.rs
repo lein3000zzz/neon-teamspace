@@ -1,6 +1,8 @@
 //! Each account's favorite pages, in the order it keeps them. A favorite the account may
 //! no longer see, or one in the trash, stays saved but is left out of the list, so it
-//! comes back with the access.
+//! comes back with the access. A token bound to one workspace keeps to that workspace's
+//! favorites: it lists, places, moves and removes those alone, and the others are not
+//! there for it.
 
 use std::collections::HashMap;
 
@@ -9,12 +11,11 @@ use neon_domain::pages::Placement;
 use neon_domain::workspaces::Action;
 use neon_store::favorites::{self as repo, ALREADY_FAVORITE};
 use neon_store::is_unique_violation;
-use neon_store::pages;
 use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{PageError, PageService, PageView, hide_parents, key_in, renumbered, seen};
+use super::{Facts, PageError, PageService, PageView, hide_parents, key_in, renumbered};
 
 const NOT_FAVORITE: &str = "this page is not among your favorites";
 
@@ -28,20 +29,19 @@ impl PageService {
     ) -> Result<Vec<PageView>, PageError> {
         self.observe("list_favorites", async {
             let user = principal.user.id;
+            if workspace_id.is_some_and(|asked| !principal.reaches(asked)) {
+                return Ok(Vec::new());
+            }
             let mut conn = self.pool().acquire().await?;
-            let order = repo::positions(&mut *conn, user, workspace_id, None).await?;
+            let scope = workspace_id.or(principal.workspace());
+            let order = repo::positions(&mut *conn, user, scope, None).await?;
             let ids: Vec<Uuid> = order.iter().map(|(id, _)| *id).collect();
-            let facts: HashMap<_, _> = pages::facts(&mut *conn, &ids, user)
+            let mut seen: HashMap<Uuid, Option<PageView>> = Facts::read(&mut conn, principal, &ids)
                 .await?
-                .into_iter()
-                .map(|facts| (facts.page.id, facts))
-                .collect();
+                .seen(principal)?;
             let mut list = Vec::new();
             for id in ids {
-                let Some(facts) = facts.get(&id) else {
-                    continue;
-                };
-                if let Some(view) = seen(principal, facts)?
+                if let Some(view) = seen.remove(&id).flatten()
                     && !view.page.is_trashed()
                 {
                     list.push(view);
@@ -72,7 +72,7 @@ impl PageService {
             }
             repo::lock(&mut *tx, user).await?;
             let position = self
-                .favorite_position(&mut tx, user, None, placement)
+                .favorite_position(&mut tx, principal, None, placement)
                 .await?;
             let workspace_id = context.page().workspace_id;
             repo::insert(&mut *tx, user, page_id, workspace_id, &position, self.now())
@@ -102,12 +102,12 @@ impl PageService {
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
             repo::lock(&mut *tx, user).await?;
-            let all = repo::positions(&mut *tx, user, None, None).await?;
+            let all = repo::positions(&mut *tx, user, principal.workspace(), None).await?;
             if !all.iter().any(|(id, _)| *id == page_id) {
                 return Err(PageError::NotFound(NOT_FAVORITE));
             }
             let position = self
-                .favorite_position(&mut tx, user, Some(page_id), placement)
+                .favorite_position(&mut tx, principal, Some(page_id), placement)
                 .await?;
             repo::set_positions(&mut *tx, user, &[page_id], &[position]).await?;
             tx.commit().await?;
@@ -117,6 +117,7 @@ impl PageService {
         .await
     }
 
+    /// Takes a page off the caller's favorites.
     pub async fn remove_favorite(
         &self,
         principal: &Principal,
@@ -124,7 +125,7 @@ impl PageService {
     ) -> Result<(), PageError> {
         self.observe("remove_favorite", async {
             let user = principal.user.id;
-            if !repo::delete(self.pool(), user, page_id).await? {
+            if !repo::delete(self.pool(), user, page_id, principal.workspace()).await? {
                 return Err(PageError::NotFound(NOT_FAVORITE));
             }
             info!(user_id = %user, page_id = %page_id, "favorite removed");
@@ -134,16 +135,17 @@ impl PageService {
     }
 
     /// The position for a favorite placed among the account's others but for `except`,
-    /// after fresh keys for them all when the key would grow too long. Run it holding the
-    /// account's favorites lock.
+    /// those of its token's workspace alone for a bound token, after fresh keys for them
+    /// all when the key would grow too long. Run it holding the account's favorites lock.
     async fn favorite_position(
         &self,
         conn: &mut PgConnection,
-        user: Uuid,
+        principal: &Principal,
         except: Option<Uuid>,
         placement: Placement,
     ) -> Result<String, PageError> {
-        let list = repo::positions(&mut *conn, user, None, except).await?;
+        let user = principal.user.id;
+        let list = repo::positions(&mut *conn, user, principal.workspace(), except).await?;
         if let Some(key) = key_in(&list, placement)? {
             return Ok(key);
         }

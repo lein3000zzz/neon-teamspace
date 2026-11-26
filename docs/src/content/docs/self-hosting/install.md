@@ -17,7 +17,7 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | Image | What it holds |
 |---|---|
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
-| `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/oauth-*` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
+| `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
 
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
 `deployments/` directory, which holds the Compose files: a clone, to build both images from
@@ -130,7 +130,8 @@ and set `NEON_WEB_TRUSTED_PROXIES` to the proxy's addresses, such as `10.0.0.0/8
 takes the client's address from the proxy's `X-Forwarded-For`. The server only ever sees the
 client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
 set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
-do by default.
+do by default, and pass the server-sent events of `/mcp` on as they come, without buffering
+them, for the notifications of MCP clients.
 
 `NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
 change something, and WebSocket upgrades, whose `Origin` is another.
@@ -222,7 +223,9 @@ made for the run, and a secret key; the tests sign in as that admin, make an inv
 with it in a second browser and sign out, and read the settings. It removes the stack, its data included,
 however the run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs
 Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the tests'
-packages and the browser.
+packages and the browser. The server image it tests is built with Cargo's `e2e` profile, the
+release profile without link-time optimisation, so it compiles in a fraction of the time; the
+published images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 
@@ -312,18 +315,18 @@ server reads is in [Configuration](/docs/self-hosting/configuration/).
 |---|---|
 | `neon serve` | Runs the server. It is what `neon` does when given no command. |
 | `neon migrate` | Updates the database schema, then exits. |
+| `neon admin create --email ADDRESS [--display-name NAME]` | Creates an instance admin, whatever the registration mode. It asks for the password at a terminal, or reads it from the first line of standard input. |
 | `neon openapi [--out PATH]` | Prints the API's OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the [settings reference](/docs/reference/settings/) as markdown, from the server's settings registry. |
 | `neon config check` | Loads and checks the configuration from the config file and the environment, then prints it with secrets redacted. |
 | `neon health [--live]` | Asks the admin listener's `/readyz`, or `/livez` with `--live`, within three seconds. It prints nothing and exits with status 0 when the answer is `200`; otherwise it prints why to standard error and exits with status 1. Container health checks run it, as the server image has no shell or `curl`. |
 
 With cargo, the arguments go after `--`, as in `cargo run --bin neon -- migrate`. Like
-`neon serve`, `neon migrate`, `neon config check` and `neon health` read the configuration,
-so run them with `.env` exported (`set -a; . ./.env; set +a`) or next to a `neon.yaml`. In
+`neon serve`, `neon migrate`, `neon admin create`, `neon config check` and `neon health`
+read the configuration, so run them with `.env` exported (`set -a; . ./.env; set +a`) or
+next to a `neon.yaml`. In
 the stack, `docker compose -f deployments/docker-compose.yml exec server neon health` runs
 one in the server's container, with its configuration.
-
-**Planned.** `neon admin create`, to create an instance admin from the command line.
 
 ### The web app
 

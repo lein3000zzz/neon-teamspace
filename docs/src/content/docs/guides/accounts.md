@@ -160,7 +160,15 @@ Each token has scopes:
 |---|---|
 | `read` | `GET` requests. Every scope brings it. |
 | `write` | Every other method on the routes the user may use. |
-| `admin` | The `/api/v1/admin` routes. Only an admin's token may have it. |
+| `admin` | The `/api/v1/admin` routes. Only an admin's token may have it. For a token bound to a workspace, that workspace's admin work instead. |
+
+A token works across the instance unless it is bound to one workspace the user is in, with
+`workspace_id` when it is made: then it works on that workspace's routes and sockets alone,
+and is refused on another workspace, the account's routes but its own workspace's
+favorites, and the admin routes. Its `admin` scope is for the workspace's owners and admins;
+see
+[tokens bound to one workspace](/docs/guides/agents/#tokens-bound-to-one-workspace). An
+agent's tokens, which its owner makes, are always bound to the agent's workspace.
 
 A token never does more than its owner's role allows. When an admin stops being one, their
 tokens lose the `admin` scope at once. Tokens cannot change passwords, end sessions, or make
@@ -173,6 +181,11 @@ addresses instead. A token that leaked therefore cannot give its holder an accou
 in with at a browser, nor lock an admin out.
 
 Revoking a token with `DELETE /api/v1/account/tokens/{id}` stops it at once.
+
+Programs that connect over OAuth, such as MCP clients, need no token copied by hand: the
+person allows them on a consent page, in one workspace, as themselves or as one of their
+agents. They are listed under **Connected apps**, where each is disconnected; see
+[Connecting apps over OAuth](/docs/guides/oauth/).
 
 ## Managing accounts
 

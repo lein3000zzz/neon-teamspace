@@ -2,17 +2,19 @@
 //! its document, under a page, at the top of a teamspace or among the caller's private
 //! pages.
 
+use neon_blocks::Document;
 use neon_domain::auth::Principal;
 use neon_domain::pages::{
     MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, check_title, position,
 };
-use neon_store::documents::{self, NewSnapshot};
 use neon_store::pages::{self as repo, Siblings};
 use tracing::info;
 use uuid::Uuid;
+use yrs::updates::encoder::Encode as _;
+use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
-use super::operations::{Target, in_workspace};
-use super::{Location, PageError, PageService, PageView, actor, is_guest};
+use super::operations::{Target, in_workspace, save_content};
+use super::{Location, PageError, PageService, PageView};
 
 /// A page to import, with the pages to import under it.
 #[derive(Debug, Clone, Default)]
@@ -51,6 +53,26 @@ pub struct ImportedContent {
     pub text: String,
 }
 
+impl ImportedContent {
+    /// The blocks written into a Yjs document as the editor would, each given a fresh id;
+    /// `None` for no blocks, which a page without a snapshot has already.
+    pub fn of(document: &Document) -> Option<Self> {
+        if document.is_empty() {
+            return None;
+        }
+        let doc = Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        let mut txn = doc.transact_mut();
+        let mut ids = || Uuid::now_v7().to_string();
+        neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
+        Some(Self {
+            state: txn.encode_state_as_update_v1(&StateVector::default()),
+            state_vector: txn.state_vector().encode_v1(),
+            text: document.plain_text(),
+        })
+    }
+}
+
 /// What an import made.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Imported {
@@ -72,8 +94,8 @@ impl PageService {
     ) -> Result<(), PageError> {
         self.observe("check_place", async {
             let mut conn = self.pool().acquire().await?;
-            let role = in_workspace(&mut conn, principal, workspace_id).await?;
-            self.target(&mut conn, principal, workspace_id, role, location)
+            let standing = in_workspace(&mut conn, principal, workspace_id).await?;
+            self.target(&mut conn, principal, workspace_id, &standing, location)
                 .await?;
             Ok(())
         })
@@ -97,15 +119,15 @@ impl PageService {
             let height = pages.iter().map(ImportedPage::height).max().unwrap_or(1);
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
-            let role = in_workspace(&mut tx, principal, workspace_id).await?;
-            let members_hidden = is_guest(actor(principal, role));
+            let standing = in_workspace(&mut tx, principal, workspace_id).await?;
+            let members_hidden = standing.members_hidden();
             repo::lock_tree(&mut *tx, workspace_id).await?;
             let Target {
                 space,
                 parent_id,
                 depth,
             } = self
-                .target(&mut tx, principal, workspace_id, role, location)
+                .target(&mut tx, principal, workspace_id, &standing, location)
                 .await?;
             if depth + height > MAX_DEPTH {
                 return Err(PageError::TooDeep);
@@ -155,18 +177,7 @@ impl PageService {
                 };
                 repo::insert(&mut *tx, &page).await?;
                 if let Some(content) = &imported.content {
-                    documents::save_snapshot(
-                        &mut *tx,
-                        page.id,
-                        NewSnapshot {
-                            state: &content.state,
-                            state_vector: &content.state_vector,
-                            last_seq: 0,
-                            at: now,
-                        },
-                    )
-                    .await?;
-                    documents::set_content(&mut *tx, page.id, Some(&content.text), None).await?;
+                    save_content(&mut tx, page.id, content, now).await?;
                 }
                 count += 1;
                 let keys = position::sequence(imported.children.len());

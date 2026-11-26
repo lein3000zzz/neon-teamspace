@@ -109,6 +109,16 @@ settings:
     # session_absolute_ttl: 30d
     # How long a new invite works, unless its admin sets its end.
     # invite_ttl: 7d
+    # Admins can mail an invite to an address, while mail is set up.
+    # invite_email: true
+    # Forgotten passwords can be reset by a mailed link, while mail is set up.
+    # password_reset: true
+    # People who sign up themselves confirm their address by a mailed link first.
+    # verify_email: false
+    # While registration is by invite, people without one can ask for one with a note.
+    # requests: false
+    # Mail people whose request to join was denied.
+    # request_denied_mail: true
   mail:
     # Send mail through an SMTP server, once host and from are set too. Mail also needs
     # server.public_url, which its links point to, and secrets.keys, which seals it while
@@ -128,6 +138,44 @@ settings:
     # from_name:
     # Mail admins about each confirmed request to join.
     # notifications: true
+  mcp:
+    # Whom MCP clients may act as: the person who connects them (user), one of their
+    # agents (agent), or both, with a token or over OAuth. Without agent, nobody makes
+    # agents and agents' tokens are refused.
+    # identities: [user, agent]
+    # The most sessions the server holds at once, one person or agent may, and one person
+    # may with their agents together.
+    # max_sessions: 1000
+    # max_sessions_per_identity: 10
+    # max_sessions_per_person: 20
+    # How long a session without requests or open streams lasts.
+    # session_idle_timeout: 30m
+    # How often, at most, a session hears that one resource it subscribes to changed.
+    # notification_interval: 2s
+  oauth:
+    # Whether MCP clients and other programs may register themselves with the OAuth server.
+    # registration: true
+    # How long an access token works, and a refresh token if not exchanged first.
+    # access_token_ttl: 1h
+    # refresh_token_ttl: 30d
+    # The most clients nobody connected there may be at once, from everywhere and from one
+    # IPv4 address or IPv6 /64, and how long such a client is kept.
+    # max_unused_clients: 1000
+    # max_unused_clients_per_source: 20
+    # unused_client_ttl: 1d
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d
+  webhooks:
+    # Let outgoing webhooks reach a private network's addresses, such as a service beside
+    # the server. Cloud metadata, multicast and reserved addresses stay refused.
+    # allow_private: false
+  workspaces:
+    # Who may create a workspace: anyone or admins.
+    # creation: anyone
+    # What a workspace may hold unless an instance admin sets its own limits; 0 is no
+    # limit. Agents and integrations count against agents together, people against members.
+    # limits:
+      # members: 0
+      # agents: 0
+      # storage_bytes: 0

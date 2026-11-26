@@ -18,9 +18,9 @@ flowchart LR
     app[The web app]
     docs[These docs]
   end
-  caddy -- "/api, /ws, /mcp, /hooks, /.well-known/oauth-*" --> server[neon]
+  caddy -- "/api, /ws, /mcp, /hooks, /.well-known" --> server[neon]
   server --> pg[(Postgres 18)]
-  server --> files[(Attachments: local disk or S3)]
+  server -. "planned" .-> files[(Attachments: local disk or S3)]
   server --> mail[Mail server]
   ops((Operator)) -- "127.0.0.1:9090" --> server
 ```
@@ -37,7 +37,8 @@ flowchart LR
 - **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
 - **The mail server** is an SMTP relay of the operator's choice, which the server hands its
   mail to; see [Mail](/docs/self-hosting/mail/).
-- **Attachments** and the agents' endpoint are **planned**.
+- **Agents** reach the server's MCP endpoint, `/mcp`, on the same origin; see
+  [Agents over MCP](/docs/guides/agents-over-mcp/). Attachments are **planned**.
 
 ## The crates
 
@@ -50,7 +51,7 @@ The server is a cargo workspace of six crates:
 | `neon-store` | The Postgres repositories, with sqlx. |
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
-| `neon-server` | The `neon` binary: the HTTP API and the WebSocket of real-time sync, and later MCP and webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
+| `neon-server` | The `neon` binary: the HTTP API, the WebSocket of real-time sync and the MCP server, and later webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
 
 Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
 further in, never one further out:
@@ -80,10 +81,12 @@ A use case calls the store's repositories directly, with the transaction passed 
 `&mut Transaction`, so the use case decides what commits together. There is no trait over
 the repositories: tests run them against a real Postgres, a fresh database for each test.
 
-Traits are kept for side effects outside the database, the **ports**: `Mailer`, `BlobStore`,
-`Broadcaster`, `RateLimiter` and `WebhookSender`. `neon-app` declares them, `neon-server`
-provides the adapters, such as SMTP and object storage, and tests use fakes. They are held as
-`Arc<dyn Trait>`. Each port arrives with the feature that needs it, from accounts on.
+Traits are kept for side effects outside the database, the **ports**: `Mailer`,
+`Broadcaster`, `AccessChanges`, which tells the live documents, the database feeds and the
+MCP sessions whose access changed, `RateLimiter` and `WebhookTransport`, and `BlobStore` for
+attachments, **planned**. `neon-app` declares them, `neon-server` provides the adapters, such
+as SMTP and HTTP for webhooks, and tests use fakes. They are held as `Arc<dyn Trait>`. Each
+port arrives with the feature that needs it, from accounts on.
 
 ## A request's way
 
@@ -136,9 +139,9 @@ configure. Under it:
 |---|---|
 | `/api/v1` | The JSON API. Its description is at `/api/v1/openapi.json`. |
 | `/ws` | Real-time editing; see [Real-time sync](/docs/architecture/realtime/). |
-| `/mcp` | Agents, **planned**. |
-| `/hooks/*` | Incoming webhooks, **planned**. |
-| `/.well-known/oauth-*` | OAuth metadata for agents, **planned**. |
+| `/mcp` | Agents and the people they act for, over MCP; see [Agents over MCP](/docs/guides/agents-over-mcp/). |
+| `/hooks/*` | Incoming webhooks, each at `/hooks/in/{token}`; see [Webhooks](/docs/guides/webhooks/#incoming-webhooks). |
+| `/.well-known/*` | The OAuth server's metadata, for MCP clients and other programs; see [Connecting apps over OAuth](/docs/guides/oauth/). Any other well-known path gets the server's JSON `404`, so a client that looks for a document the server lacks, such as an OpenID configuration, is told it is not there. |
 | `/docs` | These docs. |
 | Anything else | The web app. |
 

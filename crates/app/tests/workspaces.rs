@@ -28,6 +28,7 @@ fn as_token(principal: &Principal) -> Principal {
             id: Uuid::now_v7(),
             name: "ci".into(),
             scopes: vec![neon_domain::auth::Scope::Write],
+            workspace_id: None,
         },
     }
 }
@@ -321,7 +322,7 @@ async fn only_an_owner_deletes_a_workspace_typing_its_name_at_a_browser(pool: Pg
     let id = h.workspace(&ada, "Design").await.workspace.id;
     h.bring_in(&ada, id, &bob, WorkspaceRole::Admin).await;
     h.workspaces
-        .invite(&ada, id, cy.user.email.as_str(), WorkspaceRole::Member)
+        .invite(&ada, id, cy.user.address(), WorkspaceRole::Member)
         .await
         .expect("a pending invitation");
     h.workspaces

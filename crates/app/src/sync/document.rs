@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_blocks::edit::{self, Applied, Edit, EditError};
+use neon_domain::auth::UserKind;
 use neon_domain::pages::PageAccess;
 use neon_store::documents::{self, Edited, LoggedUpdate, NewSnapshot, NewUpdate, Snapshot};
 use tokio::sync::{mpsc, oneshot};
@@ -23,7 +25,10 @@ use yrs::block::ClientID;
 use yrs::sync::{Awareness, AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update, WriteTxn as _, XmlFragmentRef};
+use yrs::{
+    Doc, Options, ReadTxn, StateVector, Transact, TransactionMut, Update, WriteTxn as _,
+    XmlFragmentRef,
+};
 
 use super::broadcast::{ClientId, Outbox, Queued, Room};
 use super::limits::Bucket;
@@ -63,6 +68,58 @@ pub(crate) enum Command {
     Read {
         done: oneshot::Sender<neon_blocks::Lenient>,
     },
+    /// Blocks to add after the last one, as `author`, told to every connection and logged
+    /// at once, or kept to log later when the database fails. The answer is dropped, rather
+    /// than sent, when the document is unloading, as for a join.
+    Append {
+        author: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+        done: oneshot::Sender<Result<(), AppendError>>,
+    },
+    /// Edits of the document's blocks, made by `author` from the server, all or none, on
+    /// the document as it was at the revision `base`, when one is given; see
+    /// [`revision`](super::revision).
+    Edit {
+        author: Uuid,
+        edits: Vec<Edit>,
+        base: Option<String>,
+        done: oneshot::Sender<Result<Made, Unedited>>,
+    },
+}
+
+/// Why blocks were not added to a live document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AppendError {
+    #[error("the page is gone")]
+    Gone,
+    #[error("the page's content would be larger than it may be")]
+    TooLarge,
+    #[error("the page's content is not a document of blocks")]
+    NotADocument,
+}
+
+/// What a live document made of an edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Made {
+    /// What each part did, in order.
+    pub(crate) applied: Vec<Applied>,
+    /// The document's revision once they were made, when they were made on the revision
+    /// the edit was based on: then it is that one and these parts alone.
+    pub(crate) revision: Option<String>,
+}
+
+/// Why a live document made none of an edit's parts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unedited {
+    /// The document changed since the revision the edit was based on, and the edit may
+    /// remove blocks: it would remove what was added or changed since.
+    Conflict,
+    /// The part at this index, counted from 0, cannot be made.
+    Refused(usize, EditError),
+    /// The document would grow larger than the server keeps.
+    TooLarge,
+    /// The page was deleted.
+    Gone,
 }
 
 /// A connection opening the document.
@@ -76,14 +133,19 @@ pub(crate) struct Joining {
 }
 
 /// Who a connection is, as the server writes it into the `user` field of every awareness
-/// state it sends: the account's id, display name and hue. Whatever the client put there
-/// is replaced, so nobody shows under another person's name, and nothing but these three
-/// reaches the others' editors, which draw cursors from them.
+/// state it sends: the account's id, display name, hue and kind and, for an agent or
+/// integration, the name of the person it acts for. Whatever the client put there is
+/// replaced, so nobody shows under another person's name, nor an agent as a person, and
+/// nothing but these reaches the others' editors, which draw cursors from them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Presence {
     pub(crate) id: Uuid,
     pub(crate) name: String,
     pub(crate) hue: u16,
+    pub(crate) kind: UserKind,
+    /// The owner's display name, for an agent or integration whose owner's account is
+    /// still there.
+    pub(crate) owner: Option<String>,
 }
 
 impl Presence {
@@ -95,10 +157,16 @@ impl Presence {
         let Some(fields) = state.as_object_mut() else {
             return Ok(json.into());
         };
-        fields.insert(
-            "user".to_owned(),
-            serde_json::json!({"id": self.id.to_string(), "name": self.name, "hue": self.hue}),
-        );
+        let mut user = serde_json::json!({
+            "id": self.id.to_string(),
+            "name": self.name,
+            "hue": self.hue,
+            "kind": self.kind.as_str(),
+        });
+        if let Some(owner) = &self.owner {
+            user["owner"] = serde_json::Value::from(owner.as_str());
+        }
+        fields.insert("user".to_owned(), user);
         Ok(state.to_string().into())
     }
 }
@@ -369,7 +437,192 @@ impl Document {
                 let txn = self.awareness.doc().transact();
                 let _ = done.send(neon_blocks::read_lenient(&txn, &self.fragment));
             }
+            Command::Append {
+                author,
+                blocks,
+                done,
+            } => {
+                let appended = self.append(author, &blocks).await;
+                let _ = done.send(appended);
+            }
+            Command::Edit {
+                author,
+                edits,
+                base,
+                done,
+            } => {
+                let edited = self.edit(author, &edits, base.as_deref()).await;
+                let _ = done.send(edited);
+            }
         }
+    }
+
+    /// Adds blocks after the document's last one, as `author`: every connection gets the
+    /// update, and it is logged at once rather than after the usual pause, so it is kept
+    /// once the caller hears it was added; when the database fails then, it stays in memory
+    /// and is logged again later, as every edit is. Refused when it would take the document
+    /// past its size limit, which is told before anything changes, and when the page turns
+    /// out to be gone as it is logged.
+    async fn append(
+        &mut self,
+        author: Uuid,
+        blocks: &[neon_blocks::Block],
+    ) -> Result<(), AppendError> {
+        if self.gone {
+            return Err(AppendError::Gone);
+        }
+        let max = self.inner.limits.max_document;
+        let estimate = {
+            let scratch = Doc::new();
+            let fragment = neon_blocks::fragment(&scratch);
+            let mut txn = scratch.transact_mut();
+            let mut ids = || Uuid::now_v7().to_string();
+            neon_blocks::append(&mut txn, &fragment, blocks, &mut ids)
+                .map_err(|_| AppendError::NotADocument)?;
+            txn.encode_update_v1().len()
+        };
+        if self.storage.size() + estimate > max {
+            if self.storage.needs_snapshot() {
+                self.compact().await;
+            }
+            if self.gone {
+                return Err(AppendError::Gone);
+            }
+            if self.storage.size() + estimate > max {
+                return Err(AppendError::TooLarge);
+            }
+        }
+        let changed = {
+            let mut txn = self.awareness.doc().transact_mut();
+            let mut ids = || Uuid::now_v7().to_string();
+            neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)
+                .map_err(|_| AppendError::NotADocument)?;
+            txn.encode_update_v1()
+        };
+        if changed.as_slice() != Update::EMPTY_V1 {
+            let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
+            self.inner
+                .broadcaster
+                .broadcast(Room::Page(self.page_id), message, None);
+            self.queue(changed, author);
+            self.flush().await;
+            if self.gone {
+                return Err(AppendError::Gone);
+            }
+        }
+        debug!(%author, blocks = blocks.len(), "blocks appended");
+        Ok(())
+    }
+
+    /// Makes edits of the server's, as one change everyone connected gets at once and the
+    /// log keeps as `author`'s. They are tried on a copy first, so that either every part
+    /// is made or none, and the document's growth is known before it grows. With `base`,
+    /// the revision the edit's author read, an edit that may remove blocks is refused once
+    /// the document is at another revision, and one made on that revision tells the one it
+    /// leaves.
+    async fn edit(
+        &mut self,
+        author: Uuid,
+        edits: &[Edit],
+        base: Option<&str>,
+    ) -> Result<Made, Unedited> {
+        if self.gone {
+            return Err(Unedited::Gone);
+        }
+        let max = self.inner.limits.max_document;
+        let mut tried = self.trial(edits);
+        let too_large = |tried: &Result<usize, Unedited>, size: usize| match tried {
+            Ok(growth) => size + growth > max,
+            Err(refused) => *refused == Unedited::TooLarge,
+        };
+        if too_large(&tried, self.storage.size()) && self.storage.needs_snapshot() {
+            // The estimate errs large; a snapshot tells the size for sure.
+            self.compact().await;
+            if self.gone {
+                return Err(Unedited::Gone);
+            }
+            tried = self.trial(edits);
+        }
+        if too_large(&tried, self.storage.size()) {
+            return Err(Unedited::TooLarge);
+        }
+        tried?;
+        let on_base = base.is_some_and(|base| base == self.revision());
+        if base.is_some() && !on_base && edits.iter().any(Edit::removes) {
+            return Err(Unedited::Conflict);
+        }
+        let room = self.room();
+        let (made, changed) = {
+            let mut txn = self.awareness.doc().transact_mut();
+            let made = make(&mut txn, &self.fragment, edits, room);
+            (made, txn.encode_update_v1())
+        };
+        // A part the trial made and this did not still leaves the parts before it, which
+        // the others and the log must have too.
+        if changed.as_slice() != Update::EMPTY_V1 {
+            let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
+            self.inner
+                .broadcaster
+                .broadcast(Room::Page(self.page_id), message, None);
+            self.queue(changed, author);
+        }
+        if let Err(refused) = &made {
+            error!(
+                ?refused,
+                "an edit refused on the document after its trial passed"
+            );
+        }
+        if self.clients.is_empty() {
+            // Opened for the edit alone: it stays a while for the next.
+            self.idle_since = Some(Instant::now());
+        }
+        let applied = made?;
+        Ok(Made {
+            revision: on_base.then(|| self.revision()),
+            applied,
+        })
+    }
+
+    /// The document's revision now, as reading it gives it.
+    fn revision(&self) -> String {
+        let txn = self.awareness.doc().transact();
+        super::revision(&neon_blocks::read_lenient(&txn, &self.fragment).document)
+    }
+
+    /// How many bytes the document may grow by before it is larger than the server keeps.
+    fn room(&self) -> usize {
+        self.inner
+            .limits
+            .max_document
+            .saturating_sub(self.storage.size())
+    }
+
+    /// Makes the edits on a copy of the document, and says how large their update is.
+    fn trial(&self, edits: &[Edit]) -> Result<usize, Unedited> {
+        let doc = self.awareness.doc();
+        let (state, before) = {
+            let txn = doc.transact();
+            (
+                txn.encode_state_as_update_v1(&StateVector::default()),
+                txn.state_vector(),
+            )
+        };
+        let copy = Doc::with_options(Options {
+            offset_kind: doc.offset_kind(),
+            ..Options::default()
+        });
+        let fragment = neon_blocks::fragment(&copy);
+        let mut txn = copy.transact_mut();
+        let loaded = Update::decode_v1(&state)
+            .ok()
+            .and_then(|update| txn.apply_update(update).ok());
+        if loaded.is_none() {
+            // The document's own state always loads; should it not, the edit is made on the
+            // document itself, whose size check then counts the rest.
+            return Ok(0);
+        }
+        make(&mut txn, &fragment, edits, self.room())?;
+        Ok(txn.encode_state_as_update_v1(&before).len())
     }
 
     /// Takes a connection in, and starts the sync: the server's state vector, which the
@@ -872,6 +1125,36 @@ impl Document {
     }
 }
 
+/// Makes `edits` in `txn`, in order, until one is refused. What find and replace would add
+/// is weighed, before it is added, against the `room` the document has, less what the parts
+/// before added by replacing: so no part grows the document far past what it keeps, nor
+/// takes the time that would, before its size is checked.
+fn make(
+    txn: &mut TransactionMut,
+    fragment: &XmlFragmentRef,
+    edits: &[Edit],
+    mut room: usize,
+) -> Result<Vec<Applied>, Unedited> {
+    let mut ids = new_block_id;
+    let mut made = Vec::with_capacity(edits.len());
+    for (index, part) in edits.iter().enumerate() {
+        match edit::apply(txn, fragment, part, &mut ids, room) {
+            Ok(applied) => {
+                room = room.saturating_sub(part.replaced_bytes(&applied));
+                made.push(applied);
+            }
+            Err(EditError::TooLarge) => return Err(Unedited::TooLarge),
+            Err(error) => return Err(Unedited::Refused(index, error)),
+        }
+    }
+    Ok(made)
+}
+
+/// The id of a block the server adds.
+fn new_block_id() -> String {
+    Uuid::now_v7().to_string()
+}
+
 /// A page's document from its snapshot and the updates logged after it. What of them needs
 /// changes they do not hold is left out, as a live document leaves it out, so a document
 /// never holds what does not show.
@@ -904,4 +1187,59 @@ pub enum LoadError {
     Decode(#[from] yrs::encoding::read::Error),
     #[error("a saved update does not apply: {0}")]
     Apply(#[from] yrs::error::UpdateError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn doc_of(text: &str) -> (Doc, XmlFragmentRef) {
+        let doc = Doc::new();
+        let fragment = neon_blocks::fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            neon_blocks::append(
+                &mut txn,
+                &fragment,
+                &[neon_blocks::Block::paragraph(text)],
+                &mut neon_blocks::SequentialIds::new("b"),
+            )
+            .expect("a document");
+        }
+        (doc, fragment)
+    }
+
+    fn find(find: &str, replace: &str) -> Edit {
+        Edit::FindReplace {
+            find: find.to_owned(),
+            replace: replace.to_owned(),
+            all: true,
+        }
+    }
+
+    #[test]
+    fn what_each_part_adds_by_replacing_leaves_less_room_for_the_next() {
+        let (doc, fragment) = doc_of("a b");
+        let edits = [find("a", "1234"), find("b", "5678")];
+        let mut txn = doc.transact_mut();
+        assert_eq!(
+            make(&mut txn, &fragment, &edits, 7),
+            Err(Unedited::TooLarge)
+        );
+        drop(txn);
+        let (doc, fragment) = doc_of("a b");
+        let mut txn = doc.transact_mut();
+        let made = make(&mut txn, &fragment, &edits, 8).expect("room for both");
+        assert_eq!(made.len(), 2);
+        // A refusal of another kind names its part.
+        assert_eq!(
+            make(
+                &mut txn,
+                &fragment,
+                &[find("1", "one"), find("absent", "")],
+                8
+            ),
+            Err(Unedited::Refused(1, EditError::NotFound))
+        );
+    }
 }

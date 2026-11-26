@@ -15,6 +15,7 @@
 //! server count as `error`.
 
 mod admin;
+mod agents;
 mod cleanup;
 mod error;
 mod invitations;
@@ -26,11 +27,12 @@ mod teamspaces;
 use std::future::Future;
 use std::sync::Arc;
 
+use neon_domain::agents::IdentityMode;
 use neon_domain::auth::Principal;
 use neon_domain::settings::Snapshot;
 use neon_domain::workspaces::{
-    Action, Actor, LimitOverrides, LimitValues, Limits, Resource, Workspace, WorkspaceCreation,
-    WorkspaceRole, authorize,
+    Action, LimitOverrides, LimitValues, Limits, Resource, Workspace, WorkspaceCreation,
+    WorkspaceRole,
 };
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
@@ -43,9 +45,11 @@ use crate::clock::Clock;
 use crate::crypto::Envelope;
 use crate::pages::{AccessChange, AccessChanges, NoListener};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
-use crate::settings::{SettingsService, workspaces as keys};
+use crate::settings::{SettingsService, mcp, workspaces as keys};
+use crate::standing::Standing;
 
 pub use admin::{AdminWorkspace, AdminWorkspacePage, LimitsUpdate, Usage};
+pub use agents::{AgentService, AgentUpdate, NewAgent, SUBSYSTEM as AGENTS_SUBSYSTEM};
 pub use cleanup::{Cleanup, CleanupReport};
 pub use error::WorkspaceError;
 pub use invitations::{ReceivedInvitation, SentInvitation};
@@ -53,6 +57,7 @@ pub use lifecycle::{
     DEFAULT_TEAMSPACE_NAME, Joined, NewWorkspace, WorkspaceDetails, WorkspaceUpdate,
 };
 pub use links::{CreatedLink, LinkPreview, LinkSpec};
+pub use members::Identity;
 pub use teamspaces::{NewTeamspace, TeamspaceEntry, TeamspaceList, TeamspaceUpdate};
 
 /// RED subsystem of the workspace use cases.
@@ -92,7 +97,8 @@ impl WorkspaceServiceBuilder {
         self
     }
 
-    /// Seals invite links' tokens, so they can be copied again.
+    /// Seals invite links' tokens, so they can be copied again, and the secret an
+    /// integration's incoming webhook gets when it is handed over.
     pub fn envelope(mut self, envelope: Envelope) -> Self {
         self.envelope = envelope;
         self
@@ -152,6 +158,11 @@ impl WorkspaceService {
         &self.inner.pool
     }
 
+    /// What seals the secrets these use cases make.
+    pub(crate) fn envelope(&self) -> &Envelope {
+        &self.inner.envelope
+    }
+
     /// Tells the port, once the change committed.
     fn changed(&self, change: AccessChange) {
         self.inner.access.access_changed(change);
@@ -160,6 +171,11 @@ impl WorkspaceService {
     fn creation(&self) -> WorkspaceCreation {
         WorkspaceCreation::parse(self.settings().get(keys::CREATION))
             .unwrap_or(WorkspaceCreation::DEFAULT)
+    }
+
+    /// Whether agents exist on the instance, as `mcp.identities` says now.
+    pub fn agents_on(&self) -> bool {
+        IdentityMode::Agent.among(self.settings().get(mcp::IDENTITIES))
     }
 
     /// The instance's limits, for workspaces that set none of their own.
@@ -246,19 +262,11 @@ impl WorkspaceService {
     }
 }
 
-/// The principal as the rules see them in a workspace where their role is `role`.
-fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
-    Actor {
-        instance_admin: principal.is_admin(),
-        via_session: principal.via_session(),
-        role,
-    }
-}
-
-/// A workspace and the principal's role in it, read on `conn`, which may hold its lock.
+/// A workspace and where the principal stands in it, read on `conn`, which may hold its
+/// lock.
 struct Membership {
     workspace: Workspace,
-    role: Option<WorkspaceRole>,
+    standing: Standing,
 }
 
 impl Membership {
@@ -269,20 +277,23 @@ impl Membership {
     }
 
     /// Asks the rules about an action on the workspace as a whole.
-    fn check(&self, principal: &Principal, action: Action) -> Result<(), WorkspaceError> {
-        authorize(actor(principal, self.role), action, self.resource())
+    fn check(&self, action: Action) -> Result<(), WorkspaceError> {
+        self.standing
+            .authorize_same(action, self.resource())
             .map_err(|denied| WorkspaceError::denied(denied, NO_WORKSPACE))
     }
 
     /// The principal's role, once the rules let them act in the workspace.
     fn role(&self) -> Result<WorkspaceRole, WorkspaceError> {
-        self.role.ok_or(WorkspaceError::NotFound(NO_WORKSPACE))
+        self.standing
+            .role()
+            .ok_or(WorkspaceError::NotFound(NO_WORKSPACE))
     }
 }
 
 const NO_WORKSPACE: &str = "no such workspace";
 
-/// Reads a workspace and the principal's role in it, without a lock.
+/// Reads a workspace and where the principal stands in it, without a lock.
 async fn membership(
     conn: &mut PgConnection,
     principal: &Principal,
@@ -291,11 +302,14 @@ async fn membership(
     let workspace = repo::get(&mut *conn, id)
         .await?
         .ok_or(WorkspaceError::NotFound(NO_WORKSPACE))?;
-    let role = repo::member_role(&mut *conn, id, principal.user.id).await?;
-    Ok(Membership { workspace, role })
+    let standing = Standing::read(&mut *conn, principal, id).await?;
+    Ok(Membership {
+        workspace,
+        standing,
+    })
 }
 
-/// Locks a workspace, then reads the principal's role in it as the lock leaves it.
+/// Locks a workspace, then reads where the principal stands in it as the lock leaves it.
 async fn locked_membership(
     conn: &mut PgConnection,
     principal: &Principal,
@@ -304,6 +318,21 @@ async fn locked_membership(
     let workspace = repo::lock(&mut *conn, id)
         .await?
         .ok_or(WorkspaceError::NotFound(NO_WORKSPACE))?;
-    let role = repo::member_role(&mut *conn, id, principal.user.id).await?;
-    Ok(Membership { workspace, role })
+    let standing = Standing::read(&mut *conn, principal, id).await?;
+    Ok(Membership {
+        workspace,
+        standing,
+    })
+}
+
+/// Refuses an agent or integration what only people do: join or leave workspaces, answer
+/// invitations. Each belongs to the workspace it was made in, for good.
+fn require_person(principal: &Principal) -> Result<(), WorkspaceError> {
+    if principal.user.kind.is_human() {
+        Ok(())
+    } else {
+        Err(WorkspaceError::Forbidden(
+            "an agent or integration belongs to its own workspace alone",
+        ))
+    }
 }

@@ -6,7 +6,8 @@ use neon_domain::databases::MAX_ROWS;
 use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, Space, check_title,
 };
-use neon_domain::workspaces::{Action, PageSpace, Resource, WorkspaceRole, authorize, check_icon};
+use neon_domain::workspaces::{Action, PageSpace, Resource, check_icon};
+use neon_store::documents::{self, NewSnapshot};
 use neon_store::pages::{self as repo, Move, Restore, Siblings};
 use neon_store::{teamspaces, workspaces};
 use sqlx::PgConnection;
@@ -14,10 +15,11 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    AccessChange, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService, PageView, actor,
-    check_parent, check_space, is_guest,
+    AccessChange, ImportedContent, NO_PAGE, NO_TEAMSPACE, NO_WORKSPACE, PageError, PageService,
+    PageView, check_parent, check_space,
 };
 use crate::databases::events::{self, RowChange};
+use crate::standing::Standing;
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
 /// caller's own private pages.
@@ -35,6 +37,8 @@ pub struct NewPage {
     pub icon: Option<String>,
     pub cover: Option<Cover>,
     pub style: PageStyle,
+    /// Its document's first snapshot; `None` for an empty page.
+    pub content: Option<ImportedContent>,
 }
 
 /// What a change to a page sets. Each part left out stays as it is; for the icon and the
@@ -69,14 +73,14 @@ impl PageService {
             };
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
-            let role = in_workspace(&mut tx, principal, workspace_id).await?;
+            let standing = in_workspace(&mut tx, principal, workspace_id).await?;
             repo::lock_tree(&mut *tx, workspace_id).await?;
             let Target {
                 space,
                 parent_id,
                 depth,
             } = self
-                .target(&mut tx, principal, workspace_id, role, location)
+                .target(&mut tx, principal, workspace_id, &standing, location)
                 .await?;
             if depth >= MAX_DEPTH {
                 return Err(PageError::TooDeep);
@@ -105,18 +109,22 @@ impl PageService {
                 trashed_with: None,
             };
             repo::insert(&mut *tx, &page).await?;
+            if let Some(content) = &new.content {
+                save_content(&mut tx, page.id, content, now).await?;
+            }
             tx.commit().await?;
             info!(
                 user_id = %user,
                 workspace_id = %workspace_id,
                 page_id = %page.id,
+                content = new.content.is_some(),
                 "page created"
             );
             // Whoever may add a page somewhere edits what is there, and sees it.
             Ok(PageView {
                 page,
                 access: PageAccess::Edit,
-                members_hidden: is_guest(actor(principal, role)),
+                members_hidden: standing.members_hidden(),
             })
         })
         .await
@@ -151,7 +159,7 @@ impl PageService {
             } else {
                 PageAccess::View
             };
-            let members_hidden = is_guest(context.actor);
+            let members_hidden = context.members_hidden();
             let page = context.page().clone();
             Ok(PageView {
                 page,
@@ -254,12 +262,34 @@ impl PageService {
                 }
                 Location::Teamspace(teamspace) => {
                     let space = teamspace_space(&mut tx, workspace_id, teamspace, user).await?;
-                    check_space(source.actor, space, Action::CreatePage, NO_TEAMSPACE)?;
+                    let theirs = match source.standing.owner_id() {
+                        Some(owner) => {
+                            teamspace_space(&mut tx, workspace_id, teamspace, owner).await?
+                        }
+                        None => space,
+                    };
+                    check_space(
+                        &source.standing,
+                        space,
+                        theirs,
+                        Action::CreatePage,
+                        NO_TEAMSPACE,
+                    )?;
                     (Space::Teamspace(teamspace), None)
                 }
                 Location::Private => {
                     let space = PageSpace::Private { own: true };
-                    check_space(source.actor, space, Action::CreatePage, NO_WORKSPACE)?;
+                    // An agent's owner may not see its private pages, so it moves none there.
+                    let theirs = PageSpace::Private {
+                        own: source.standing.owner_id().is_none(),
+                    };
+                    check_space(
+                        &source.standing,
+                        space,
+                        theirs,
+                        Action::CreatePage,
+                        NO_WORKSPACE,
+                    )?;
                     (Space::Private { owner: user }, None)
                 }
             };
@@ -348,6 +378,12 @@ impl PageService {
         self.observe("restore_page", async {
             let mut tx = self.pool().begin().await?;
             let context = self.locked_context(&mut tx, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            if !context.page().is_trashed() {
+                return Err(PageError::InvalidInput(
+                    "this page is not in the trash: there is nothing to restore".to_owned(),
+                ));
+            }
             context.check(Action::RestorePage)?;
             let page = context.page().clone();
             let trashed_with = page
@@ -365,14 +401,7 @@ impl PageService {
                 restorable_row(&mut tx, parent_id).await?;
             }
             if parent_id.is_none() && page.parent_id.is_some() {
-                authorize(
-                    context.actor,
-                    Action::CreatePage,
-                    Resource::Pages {
-                        space: context.space,
-                    },
-                )
-                .map_err(|_| {
+                context.check_space(Action::CreatePage).map_err(|_| {
                     PageError::Forbidden(
                         "the page it was under is in the trash, and you may not add pages at \
                          the top of its space: restore that page first",
@@ -428,6 +457,12 @@ impl PageService {
         self.observe("delete_page", async {
             let mut tx = self.pool().begin().await?;
             let context = self.locked_context(&mut tx, principal, id).await?;
+            context.check(Action::ViewPage)?;
+            if !context.page().is_trashed() {
+                return Err(PageError::InvalidInput(
+                    "only a page in the trash is deleted for good: trash it first".to_owned(),
+                ));
+            }
             context.check(Action::DeletePage)?;
             let workspace_id = context.page().workspace_id;
             repo::delete(&mut *tx, id).await?;
@@ -467,7 +502,7 @@ impl PageService {
         conn: &mut PgConnection,
         principal: &Principal,
         workspace_id: Uuid,
-        role: Option<WorkspaceRole>,
+        standing: &Standing,
         location: Location,
     ) -> Result<Target, PageError> {
         let user = principal.user.id;
@@ -487,12 +522,11 @@ impl PageService {
             }
             Location::Teamspace(id) => {
                 let space = teamspace_space(&mut *conn, workspace_id, id, user).await?;
-                check_space(
-                    actor(principal, role),
-                    space,
-                    Action::CreatePage,
-                    NO_TEAMSPACE,
-                )?;
+                let theirs = match standing.owner_id() {
+                    Some(owner) => teamspace_space(&mut *conn, workspace_id, id, owner).await?,
+                    None => space,
+                };
+                check_space(standing, space, theirs, Action::CreatePage, NO_TEAMSPACE)?;
                 Ok(Target {
                     space: Space::Teamspace(id),
                     parent_id: None,
@@ -501,12 +535,11 @@ impl PageService {
             }
             Location::Private => {
                 let space = PageSpace::Private { own: true };
-                check_space(
-                    actor(principal, role),
-                    space,
-                    Action::CreatePage,
-                    NO_WORKSPACE,
-                )?;
+                // An agent's owner may not see its private pages, so it makes none.
+                let theirs = PageSpace::Private {
+                    own: standing.owner_id().is_none(),
+                };
+                check_space(standing, space, theirs, Action::CreatePage, NO_WORKSPACE)?;
                 Ok(Target {
                     space: Space::Private { owner: user },
                     parent_id: None,
@@ -554,25 +587,25 @@ async fn restorable_row(conn: &mut PgConnection, parent_id: Option<Uuid>) -> Res
     Ok(())
 }
 
-/// The principal's role in a workspace, once the rules let them know of it.
+/// Where the principal stands in a workspace, once the rules let them know of it.
 pub(crate) async fn in_workspace(
     conn: &mut PgConnection,
     principal: &Principal,
     workspace_id: Uuid,
-) -> Result<Option<WorkspaceRole>, PageError> {
+) -> Result<Standing, PageError> {
     let workspace = workspaces::get(&mut *conn, workspace_id)
         .await?
         .ok_or(PageError::NotFound(NO_WORKSPACE))?;
-    let role = workspaces::member_role(&mut *conn, workspace_id, principal.user.id).await?;
-    authorize(
-        actor(principal, role),
-        Action::ViewWorkspace,
-        Resource::Workspace {
-            members_can_create_teamspaces: workspace.members_can_create_teamspaces,
-        },
-    )
-    .map_err(|denied| PageError::denied(denied, NO_WORKSPACE))?;
-    Ok(role)
+    let standing = Standing::read(&mut *conn, principal, workspace_id).await?;
+    standing
+        .authorize_same(
+            Action::ViewWorkspace,
+            Resource::Workspace {
+                members_can_create_teamspaces: workspace.members_can_create_teamspaces,
+            },
+        )
+        .map_err(|denied| PageError::denied(denied, NO_WORKSPACE))?;
+    Ok(standing)
 }
 
 /// A teamspace of a workspace as the rules see it for `user`.
@@ -589,4 +622,27 @@ pub(super) async fn teamspace_space(
         access: teamspace.access,
         membership: teamspaces::member_role(&mut *conn, teamspace_id, user).await?,
     })
+}
+
+/// Saves a new page's content as its document's first snapshot, and its text as the
+/// page's search text, on the transaction that makes the page.
+pub(crate) async fn save_content(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+    content: &ImportedContent,
+    at: time::OffsetDateTime,
+) -> Result<(), PageError> {
+    documents::save_snapshot(
+        &mut *conn,
+        page_id,
+        NewSnapshot {
+            state: &content.state,
+            state_vector: &content.state_vector,
+            last_seq: 0,
+            at,
+        },
+    )
+    .await?;
+    documents::set_content(&mut *conn, page_id, Some(&content.text), None).await?;
+    Ok(())
 }

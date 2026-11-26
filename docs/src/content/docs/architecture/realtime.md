@@ -85,13 +85,16 @@ at most 8 KiB of JSON, a cursor and a name; a larger one closes the connection w
 and one that is not JSON with `1007`.
 
 The server writes who the connection is into the `user` field of each state it passes on,
-whatever the client put there: the account's `id`, its display name as `name`, and its
-`hue`, as the API gives them. Nobody shows under another person's name, and no colour or
-other field a client makes up reaches the others' editors, which draw each cursor from its
-hue. A state that is not an object, such as `null` for a cursor that left, passes as it is.
+whatever the client put there: the account's `id`, its display name as `name`, its `hue`
+and its `kind`, `human`, `agent` or `integration`, as the API gives them, and for an agent
+or integration `owner`, the display name of the person it acts for. Nobody shows under
+another person's name, no agent shows as a person, and no colour or other field a client
+makes up reaches the others' editors, which draw each cursor from its hue and name an
+agent's `Scout · via Ada`. A state that is not an object, such as `null` for a cursor that
+left, passes as it is.
 
 ```json
-{ "user": { "id": "0193a5b2-0000-7000-8000-0000000000a1", "name": "Ada", "hue": 212 }, "cursor": null }
+{ "user": { "id": "0193a5b2-0000-7000-8000-0000000000a1", "name": "Ada", "hue": 212, "kind": "human" }, "cursor": null }
 ```
 
 A connection may send 20 awareness messages a second, with bursts of 100; past that, the
@@ -113,24 +116,29 @@ closes the connection with `4403`.
 
 ## When access changes
 
-The page, workspace and auth services tell the sync service whose access may have changed,
-once each change commits: a page moved to another place, trashed, restored, deleted or
-purged from the trash, a share added, changed or removed, someone joining or leaving a
-teamspace or getting another role there, a teamspace's new access or its deletion, a
-member's new role, leaving or removal, a workspace's deletion, and a person signing out,
-having a session or API token revoked, changing or resetting their password, or having
-their account disabled or given another role. A page placed elsewhere among the same
-siblings changes nobody's access, and tells nothing.
+The page, workspace, agent, auth and OAuth services tell the sync service whose access may
+have changed, once each change commits: a page moved to another place, trashed, restored,
+deleted or purged from the trash, a share added, changed or removed, someone joining or
+leaving a teamspace or getting another role there, a teamspace's new access or its
+deletion, a member's new role, leaving or removal, a workspace's deletion or its agents
+turned off or on, the setting `mcp.identities` changing, an agent handed to someone else or
+deleted, a person signing out, having a session or API token revoked, changing or resetting
+their password, or having their account disabled or given another role, an agent's token
+revoked, and an OAuth grant revoked or allowed again with other scopes. A page placed
+elsewhere among the same siblings changes nobody's access, and tells nothing.
 
 The sync service then looks again, at once, at every open connection the change may
-concern: the person's, or everyone's, in the change's workspace, and for a change to a page,
-those on that page, a page under it, or a page that is gone. It looks at 8 at a time. For
-each, it reads the session or API token the connection opened with again, then asks the
-rules what its person may do now:
+concern: the person's and their agents' and integrations', whose access theirs bounds, or
+everyone's, in the change's workspace; for the setting, every agent's and integration's,
+and every one opened with a token bound to a workspace, as OAuth's acting as people are; and
+for a change to a page, those on that page, a page under it, or a page that is gone. It
+looks at 8 at a time. For each, it reads the session, API token or OAuth access token the
+connection opened with again, then asks the rules what its person may do now, an agent's with its owner's
+access:
 
 | The person may now | The connection |
 |---|---|
-| Not use the session or token any more: it ended or expired, or the account was disabled | Closes with `4401`. |
+| Not use the session or token any more: it ended or expired, the account was disabled, the token is an agent's that is suspended, deleted or turned off, or an OAuth grant it came from is revoked or no longer works | Closes with `4401`. |
 | Not see the page | Closes with `4404`. |
 | Only view it, having edited it | Stays open, read-only. The server sends an auth message, permission denied with the reason `read-only`. |
 | Edit it, having only viewed it | Stays open and may edit. The server sends an auth message, permission granted. |
@@ -161,6 +169,19 @@ An [export](/docs/guides/import-export/#exporting) of an open page reads its liv
 through the same queue, so it holds every update applied before it, saved or not. An export
 of a page nobody has open reads the snapshot and the updates logged after it, and loads no
 live document.
+
+### Edits from the server
+
+The server edits a page's document itself for the [markdown API](/docs/guides/pages/#content-as-markdown)
+and the [MCP tools](/docs/guides/agents-over-mcp/#editing-a-page). Such an edit goes through
+the page's live document, which opens for it if nobody has the page open, and through the
+same queue as clients' messages. The document task first makes the edit on a copy, so an
+edit of several parts makes all or none, and the size limit applies before the document
+grows. Each part's find and replace is given the room the limit leaves, less what the parts
+before it added, so none grows even the copy far past the limit. Then it makes the edit on the document in one transaction. The update goes to every
+connection at once and the log records it as the editor's, like a client's. A document
+opened for an edit alone stays open its while, as one whose last connection left does, then
+saves and unloads.
 
 ## Saving
 
@@ -219,7 +240,7 @@ awareness echo keeps that from happening while the page is open.
 | `1011` | The server could not load or save the document. |
 | `1012` | The server is restarting. Reconnect. |
 | `1013` | The person or the page has as many connections open as the server takes. |
-| `4401` | The session or API token the connection opened with ended, or its account was disabled. |
+| `4401` | The session or API token the connection opened with ended, or its account was disabled; for an agent's token, also the agent suspended, deleted, or agents turned off. |
 | `4403` | A change from a connection that may only view the page. |
 | `4404` | The person may no longer see the page. |
 | `4408` | The client fell behind on what the server sent. |
@@ -322,6 +343,17 @@ when the server stops, `1013`, `4401`, `4404`, `4408` and `4429`. A client shoul
 Its metrics are `neon_databases_open_connections`, a gauge of the open feeds,
 `neon_databases_disconnects_total`, a counter by `cause` as for documents, and
 `neon_databases_events_total`, the changes told, by `type`.
+
+## Following on the server
+
+The broadcaster's rooms have listeners on the server too. The MCP server's
+[subscriptions](/docs/guides/agents-over-mcp/#resources) join a page's room, which hears
+every update, and a database's guests' room, which leaves people's details out. Every change
+to the rows and schema of a workspace's databases also goes to the workspace's own room, as
+members read it. No client joins that room. A subscription to someone's tasks hears there of
+the rows that name them, of every database, those they cannot see too. So such a change has
+it read their tasks again, at most once an interval, and it tells them only when what they
+see changed. None of it asks the database again until a change comes.
 
 ## One process
 

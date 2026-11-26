@@ -14,6 +14,10 @@
 //! database or a row. Rows are left out of trees, and once a row is trashed, restored or
 //! renamed, those following its database hear of it.
 //!
+//! An agent or integration sees and changes a page only as far as its owner may too: every
+//! check here asks the rules with the page as both stand to it, the owner's role,
+//! teamspace and shares beside the agent's own.
+//!
 //! Every public use case runs in a span named `pages <operation>` and is measured as RED
 //! metrics of [`SUBSYSTEM`]. An expected error, such as a refusal of the rules, is recorded
 //! on the span without failing it and counts as `ok`; only failures of the server count as
@@ -32,19 +36,22 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::collections::HashMap;
+
 use neon_domain::auth::Principal;
-use neon_domain::pages::{Page, PageAccess, PageKind, Placement, position};
-use neon_domain::workspaces::{Action, Actor, PageSpace, Resource, WorkspaceRole, authorize};
+use neon_domain::pages::{Page, PageAccess, PageKind, Placement, Space, position};
+use neon_domain::workspaces::{Action, Denied, PageSpace, Resource, WorkspaceRole};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::pages::{self as repo, PageFacts, Siblings};
-use neon_store::{teamspaces, workspaces};
+use neon_store::teamspaces;
 use sqlx::{PgConnection, PgPool};
 use tracing::{Instrument as _, info, info_span};
 use uuid::Uuid;
 
 use crate::clock::Clock;
 use crate::settings::{SettingsService, pages as keys};
+use crate::standing::{Standing, owner_of};
 use crate::sync::{Broadcaster, LocalBroadcaster};
 
 pub use access::{AccessChange, AccessChanges, Fanout, NoListener};
@@ -54,7 +61,7 @@ pub use operations::{Location, NewPage, PageUpdate};
 pub(crate) use operations::{Target, in_workspace};
 pub use outlines::{OutlinePage, TeamspaceOutline};
 pub use shares::ListedShare;
-pub use trees::{MAX_LIST, TrashList, Tree, TreePage};
+pub use trees::{MAX_LIST, MAX_RECENT, TrashList, Tree, TreePage};
 
 /// RED subsystem of the page use cases.
 pub const SUBSYSTEM: &str = "pages";
@@ -215,8 +222,8 @@ impl PageService {
     }
 
     /// Reads a page, the pages above it and what the rules need to know of them for the
-    /// principal. Answers [`NO_PAGE`] when there is no such page; whether the principal may
-    /// know of it is for the caller to ask.
+    /// principal, and for an agent's owner. Answers [`NO_PAGE`] when there is no such page;
+    /// whether the principal may know of it is for the caller to ask.
     pub(crate) async fn context(
         &self,
         conn: &mut PgConnection,
@@ -228,23 +235,40 @@ impl PageService {
         let Some((page, _)) = found.first() else {
             return Err(PageError::NotFound(NO_PAGE));
         };
-        let role = workspaces::member_role(&mut *conn, page.workspace_id, user).await?;
+        let standing = Standing::read(&mut *conn, principal, page.workspace_id).await?;
         let space = page_space(&mut *conn, page, user).await?;
+        let (owner_space, owner_shares) = match standing.owner_id() {
+            Some(owner) => {
+                let shares: HashMap<Uuid, Option<PageAccess>> = repo::chain(&mut *conn, id, owner)
+                    .await?
+                    .into_iter()
+                    .map(|(page, shared)| (page.id, shared))
+                    .collect();
+                (page_space(&mut *conn, page, owner).await?, Some(shares))
+            }
+            None => (space, None),
+        };
         // What a share gives holds for every page under it: each page gets the most of
         // its own share and those above it.
         let mut chain: Vec<Link> = Vec::with_capacity(found.len());
-        let mut above = None;
+        let (mut above, mut owner_above) = (None, None);
         for (page, shared) in found.into_iter().rev() {
             above = above.max(shared);
+            owner_above = match &owner_shares {
+                Some(shares) => owner_above.max(shares.get(&page.id).copied().flatten()),
+                None => above,
+            };
             chain.push(Link {
                 page,
                 shared: above,
+                owner_shared: owner_above,
             });
         }
         chain.reverse();
         Ok(Context {
-            actor: actor(principal, role),
+            standing,
             space,
+            owner_space,
             chain,
         })
     }
@@ -270,28 +294,12 @@ impl PageService {
     }
 }
 
-/// Whether an actor is a guest, who knows no other member.
-pub(crate) fn is_guest(actor: Actor) -> bool {
-    actor.role.is_some_and(|role| !role.joins_teamspaces())
-}
-
-/// The principal as the rules see them in a workspace where their role is `role`.
-pub(crate) fn actor(principal: &Principal, role: Option<WorkspaceRole>) -> Actor {
-    Actor {
-        instance_admin: principal.is_admin(),
-        via_session: principal.via_session(),
-        role,
-    }
-}
-
 /// Where a page is, as the rules see it for `user`.
 async fn page_space(
     conn: &mut PgConnection,
     page: &Page,
     user: Uuid,
 ) -> Result<PageSpace, PageError> {
-    use neon_domain::pages::Space;
-
     Ok(match page.space {
         Space::Teamspace(id) => {
             let teamspace = teamspaces::get(&mut *conn, page.workspace_id, id)
@@ -306,20 +314,32 @@ async fn page_space(
     })
 }
 
-/// What a page gives an actor, as the rules say: edit, view or nothing. Asked as for a page
-/// out of the trash, so it is the same in the trash, where only editors see it.
-pub(crate) fn access_of(
-    actor: Actor,
-    space: PageSpace,
-    shared: Option<PageAccess>,
-) -> Option<PageAccess> {
+/// A page's space and what it or a page above it is shared for, as one stands to it.
+pub(crate) type Seat = (PageSpace, Option<PageAccess>);
+
+/// Where nobody stands: what an agent's owner sees of a page they cannot know of.
+const NOWHERE: Seat = (PageSpace::Private { own: false }, None);
+
+fn page_resource((space, shared): Seat, trashed: bool) -> Resource {
+    Resource::Page {
+        space,
+        shared,
+        trashed,
+    }
+}
+
+/// What a page gives the principal, standing to it as `mine` and its owner as `theirs`, as
+/// the rules say: edit, view or nothing. Asked as for a page out of the trash, so it is the
+/// same in the trash, where only editors see it.
+pub(crate) fn access_of(standing: &Standing, mine: Seat, theirs: Seat) -> Option<PageAccess> {
     let allowed = |action| {
-        let page = Resource::Page {
-            space,
-            shared,
-            trashed: false,
-        };
-        authorize(actor, action, page).is_ok()
+        standing
+            .authorize(
+                action,
+                page_resource(mine, false),
+                page_resource(theirs, false),
+            )
+            .is_ok()
     };
     if allowed(Action::EditPage) {
         Some(PageAccess::Edit)
@@ -330,37 +350,108 @@ pub(crate) fn access_of(
     }
 }
 
-/// The page of `facts` as the principal sees it, or `None` when they may not see it.
-fn seen(principal: &Principal, facts: &PageFacts) -> Result<Option<PageView>, PageError> {
-    use neon_domain::pages::Space;
-
-    let actor = actor(principal, facts.workspace_role);
-    let space = match facts.page.space {
+/// The space of the page of `facts` as `user` stands to it.
+fn space_of(facts: &PageFacts, user: Uuid) -> Result<PageSpace, PageError> {
+    Ok(match facts.page.space {
         Space::Teamspace(_) => PageSpace::Teamspace {
             access: facts.teamspace_access.ok_or_else(|| {
                 PageError::Internal(format!("page {} has no teamspace", facts.page.id))
             })?,
             membership: facts.teamspace_role,
         },
-        Space::Private { owner } => PageSpace::Private {
-            own: owner == principal.user.id,
-        },
-    };
-    let page = Resource::Page {
-        space,
-        shared: facts.shared,
-        trashed: facts.page.is_trashed(),
-    };
-    if authorize(actor, Action::ViewPage, page).is_err() {
-        return Ok(None);
+        Space::Private { owner } => PageSpace::Private { own: owner == user },
+    })
+}
+
+/// What the rules need to know of pages for the principal, and for an agent's owner: each
+/// page's facts as the principal stands to it, with the owner's, by page id.
+pub(crate) struct Facts {
+    mine: Vec<PageFacts>,
+    owner: Option<(Uuid, HashMap<Uuid, PageFacts>)>,
+}
+
+impl Facts {
+    /// The facts of each of `ids` that exists.
+    pub(crate) async fn read(
+        conn: &mut PgConnection,
+        principal: &Principal,
+        ids: &[Uuid],
+    ) -> Result<Self, PageError> {
+        let mine = repo::facts(&mut *conn, ids, principal.user.id).await?;
+        let owner = match owner_of(principal) {
+            Some(owner) => Some((
+                owner,
+                repo::facts(&mut *conn, ids, owner)
+                    .await?
+                    .into_iter()
+                    .map(|facts| (facts.page.id, facts))
+                    .collect(),
+            )),
+            None => None,
+        };
+        Ok(Self { mine, owner })
     }
-    Ok(
-        access_of(actor, space, facts.shared).map(|access| PageView {
+
+    /// Each page, as the principal sees it, or `None` when they may not.
+    pub(crate) fn seen(
+        &self,
+        principal: &Principal,
+    ) -> Result<HashMap<Uuid, Option<PageView>>, PageError> {
+        self.mine
+            .iter()
+            .map(|facts| Ok((facts.page.id, self.view(principal, facts)?)))
+            .collect()
+    }
+
+    /// For an agent or integration: its owner's role in the page's workspace and where
+    /// they stand to the page.
+    fn owners(
+        &self,
+        facts: &PageFacts,
+    ) -> Result<Option<(Option<WorkspaceRole>, Seat)>, PageError> {
+        let Some((owner, by_page)) = &self.owner else {
+            return Ok(None);
+        };
+        Ok(Some(match by_page.get(&facts.page.id) {
+            Some(theirs) => (
+                theirs.workspace_role,
+                (space_of(theirs, *owner)?, theirs.shared),
+            ),
+            None => (None, NOWHERE),
+        }))
+    }
+
+    fn view(
+        &self,
+        principal: &Principal,
+        facts: &PageFacts,
+    ) -> Result<Option<PageView>, PageError> {
+        let owner = self.owners(facts)?;
+        let standing = Standing::new(
+            principal,
+            facts.page.workspace_id,
+            facts.workspace_role,
+            owner.and_then(|(role, _)| role),
+        );
+        let mine = (space_of(facts, principal.user.id)?, facts.shared);
+        let theirs = owner.map_or(mine, |(_, seat)| seat);
+        let trashed = facts.page.is_trashed();
+        if standing
+            .authorize(
+                Action::ViewPage,
+                page_resource(mine, trashed),
+                page_resource(theirs, trashed),
+            )
+            .is_err()
+        {
+            return Ok(None);
+        }
+        Ok(access_of(&standing, mine, theirs).map(|access| PageView {
             page: facts.page.clone(),
             access,
-            members_hidden: is_guest(actor),
-        }),
-    )
+            members_hidden: standing.members_hidden(),
+        }))
+    }
 }
 
 /// Leaves out of each view the page it is under, when the principal may not see that page.
@@ -378,12 +469,12 @@ async fn hide_parents(
     if parents.is_empty() {
         return Ok(());
     }
-    let mut seen_parents = std::collections::HashSet::new();
-    for facts in repo::facts(&mut *conn, &parents, principal.user.id).await? {
-        if seen(principal, &facts)?.is_some() {
-            seen_parents.insert(facts.page.id);
-        }
-    }
+    let seen_parents: std::collections::HashSet<Uuid> = Facts::read(conn, principal, &parents)
+        .await?
+        .seen(principal)?
+        .into_iter()
+        .filter_map(|(id, view)| view.map(|_| id))
+        .collect();
     for view in views {
         if view
             .page
@@ -396,28 +487,38 @@ async fn hide_parents(
     Ok(())
 }
 
-/// Asks the rules about an action on a space's pages.
+/// Asks the rules about an action on a space's pages, as the principal and its owner
+/// stand to them.
 fn check_space(
-    actor: Actor,
-    space: PageSpace,
+    standing: &Standing,
+    mine: PageSpace,
+    theirs: PageSpace,
     action: Action,
     missing: &'static str,
 ) -> Result<(), PageError> {
-    authorize(actor, action, Resource::Pages { space })
+    standing
+        .authorize(
+            action,
+            Resource::Pages { space: mine },
+            Resource::Pages { space: theirs },
+        )
         .map_err(|denied| PageError::denied(denied, missing))
 }
 
 /// A page above or at the one a context is for, with the most it or a page above it is
-/// shared with the principal for.
+/// shared with the principal for, and with an agent's owner.
 pub(crate) struct Link {
     pub(crate) page: Page,
     pub(crate) shared: Option<PageAccess>,
+    pub(crate) owner_shared: Option<PageAccess>,
 }
 
 /// A page, the pages above it, and what the rules need to know of them.
 pub(crate) struct Context {
-    pub(crate) actor: Actor,
+    pub(crate) standing: Standing,
     pub(crate) space: PageSpace,
+    /// The space as an agent's owner stands to it; the principal's own for a person.
+    pub(crate) owner_space: PageSpace,
     /// The page first, then each page above it.
     pub(crate) chain: Vec<Link>,
 }
@@ -429,26 +530,44 @@ impl Context {
 
     /// What the page gives the principal: edit, view or nothing.
     pub(crate) fn access(&self) -> Option<PageAccess> {
-        access_of(self.actor, self.space, self.chain[0].shared)
+        let link = &self.chain[0];
+        access_of(
+            &self.standing,
+            (self.space, link.shared),
+            (self.owner_space, link.owner_shared),
+        )
     }
 
-    /// The principal is a guest, who knows no other member.
+    /// The principal is a guest, or an agent of one, who knows no other member.
     pub(crate) fn members_hidden(&self) -> bool {
-        is_guest(self.actor)
+        self.standing.members_hidden()
     }
 
-    fn resource(&self, link: &Link) -> Resource {
-        Resource::Page {
-            space: self.space,
-            shared: link.shared,
-            trashed: link.page.is_trashed(),
-        }
+    fn check_link(&self, action: Action, link: &Link) -> Result<(), PageError> {
+        let trashed = link.page.is_trashed();
+        self.standing
+            .authorize(
+                action,
+                page_resource((self.space, link.shared), trashed),
+                page_resource((self.owner_space, link.owner_shared), trashed),
+            )
+            .map_err(|denied| PageError::denied(denied, NO_PAGE))
     }
 
     /// Asks the rules about an action on the page.
     pub(crate) fn check(&self, action: Action) -> Result<(), PageError> {
-        authorize(self.actor, action, self.resource(&self.chain[0]))
-            .map_err(|denied| PageError::denied(denied, NO_PAGE))
+        self.check_link(action, &self.chain[0])
+    }
+
+    /// Asks the rules about an action on the top of the page's space.
+    pub(crate) fn check_space(&self, action: Action) -> Result<(), Denied> {
+        self.standing.authorize(
+            action,
+            Resource::Pages { space: self.space },
+            Resource::Pages {
+                space: self.owner_space,
+            },
+        )
     }
 
     /// How deep the page is: 1 at the top of its space.
@@ -459,10 +578,9 @@ impl Context {
     /// The page as the principal sees it, without the page above it when they may not see
     /// that one. Ask the rules first.
     pub(crate) fn view(self) -> Result<PageView, PageError> {
-        let access = access_of(self.actor, self.space, self.chain[0].shared)
-            .ok_or(PageError::NotFound(NO_PAGE))?;
+        let access = self.access().ok_or(PageError::NotFound(NO_PAGE))?;
         let parent_seen = self.parent_seen();
-        let members_hidden = is_guest(self.actor);
+        let members_hidden = self.members_hidden();
         let mut page = self
             .chain
             .into_iter()
@@ -487,7 +605,7 @@ impl Context {
 
     /// Whether the principal may see a page of the chain.
     fn sees(&self, link: &Link) -> bool {
-        authorize(self.actor, Action::ViewPage, self.resource(link)).is_ok()
+        self.check_link(Action::ViewPage, link).is_ok()
     }
 
     /// The pages from the highest one the principal sees down to the page.

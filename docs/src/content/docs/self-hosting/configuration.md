@@ -196,9 +196,8 @@ So an operator can fix any value with the deployment, and admins change the rest
 server runs.
 
 Admins read every setting, with its value, its default and where the value comes from, at
-`GET /api/v1/admin/settings`, and change them with `PATCH /api/v1/admin/settings`.
-
-**Planned.** The admin page in the web app, on top of these routes.
+`GET /api/v1/admin/settings`, and change them with `PATCH /api/v1/admin/settings`. The
+[admin page](/docs/admin/settings/) in the web app works on these routes.
 
 ## Pinned settings
 

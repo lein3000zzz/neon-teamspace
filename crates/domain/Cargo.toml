@@ -14,6 +14,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 # Dates of database properties, read and written as ISO 8601 and RFC 3339.
 time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+# Webhooks' URLs, and OAuth's redirect URIs and resource indicators, parsed as browsers do,
+# numeric hosts in every form included.
+url.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 
 [lints]

@@ -3,7 +3,8 @@
 //! The page, workspace and auth services tell an [`AccessListener`] whose access may have
 //! changed, once each change commits. It hands the change to the sync service's watcher
 //! and returns at once. The watcher finds the open connections the change may concern: of
-//! the person it names, or everyone's, in its workspace, and for a change to a page, on
+//! the person it names and of their agents and integrations, whose access theirs bounds,
+//! or everyone's, in its workspace, and for a change to a page, on
 //! that page, a page under it, or a page that is gone. For each, at most
 //! [`RECHECKS_AT_ONCE`] at a time, it checks again that the session or token holds and
 //! asks the rules what its person may do with the page now, and the connection's document
@@ -23,9 +24,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use neon_domain::auth::Principal;
+
 use super::broadcast::ClientId;
 use super::{Inner, Recheck};
 use crate::pages::{AccessChange, AccessChanges};
+use crate::standing::owner_of;
 
 /// How many connections the watcher looks at again at once.
 pub(crate) const RECHECKS_AT_ONCE: usize = 8;
@@ -70,11 +74,17 @@ impl AccessChanges for AccessListener {
 }
 
 impl AccessChange {
-    /// Whether the change may concern `user_id`'s access in `workspace_id`. Which pages a
-    /// change to a teamspace reaches is the rules' to say again, so every page of the
-    /// workspace counts; a change to a page is narrowed further by [`subtree`](Self::subtree).
-    pub(crate) fn concerns(&self, workspace_id: Uuid, user_id: Uuid) -> bool {
+    /// Whether the change may concern what `principal` may do in `workspace_id`: a change
+    /// for them, or for the owner of an agent or integration, whose access bounds its own.
+    /// Which pages a change to a teamspace reaches is the rules' to say again, so every
+    /// page of the workspace counts; a change to a page is narrowed further by
+    /// [`subtree`](Self::subtree). A change to whom tokens act as concerns every agent and
+    /// integration, and every token bound to a workspace, as OAuth's acting as people are.
+    pub fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
         let (workspace, user) = match *self {
+            Self::Agents => {
+                return owner_of(principal).is_some() || principal.workspace().is_some();
+            }
             Self::Pages {
                 workspace_id,
                 user_id,
@@ -92,14 +102,18 @@ impl AccessChange {
             Self::Account { user_id } => (None, Some(user_id)),
         };
         workspace.is_none_or(|workspace| workspace == workspace_id)
-            && user.is_none_or(|user| user == user_id)
+            && user
+                .is_none_or(|user| user == principal.user.id || owner_of(principal) == Some(user))
     }
 
     /// The page whose subtree the change is to, if it is to one.
     pub(crate) fn subtree(&self) -> Option<Uuid> {
         match *self {
             Self::Pages { page_id, .. } => Some(page_id),
-            Self::Teamspace { .. } | Self::Workspace { .. } | Self::Account { .. } => None,
+            Self::Teamspace { .. }
+            | Self::Workspace { .. }
+            | Self::Account { .. }
+            | Self::Agents => None,
         }
     }
 }
@@ -162,8 +176,8 @@ impl Inner {
     async fn concerned(&self, changes: &[AccessChange]) -> Vec<Recheck> {
         let mut found: HashMap<ClientId, Recheck> = HashMap::new();
         for change in changes {
-            let candidates = self
-                .connections(|workspace, principal| change.concerns(workspace, principal.user.id));
+            let candidates =
+                self.connections(|workspace, principal| change.concerns(workspace, principal));
             let candidates = match change.subtree() {
                 Some(root) if !candidates.is_empty() => self.within(root, candidates).await,
                 _ => candidates,
@@ -197,5 +211,70 @@ impl Inner {
                 connections
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use neon_domain::auth::{Credential, Role, Scope, User, UserKind};
+    use time::OffsetDateTime;
+
+    use super::*;
+
+    const WORKSPACE: Uuid = Uuid::from_u128(1);
+    const OWNER: Uuid = Uuid::from_u128(2);
+
+    fn principal(kind: UserKind, workspace_id: Option<Uuid>, token: bool) -> Principal {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let human = kind.is_human();
+        Principal {
+            user: User {
+                id: Uuid::from_u128(3),
+                kind,
+                email: None,
+                display_name: "Someone".into(),
+                role: Role::User,
+                hue_override: None,
+                email_verified_at: None,
+                disabled_at: None,
+                created_at: now,
+                updated_at: now,
+                workspace_id: (!human).then_some(WORKSPACE),
+                owner_id: (!human).then_some(OWNER),
+            },
+            credential: if token {
+                Credential::Token {
+                    id: Uuid::from_u128(4),
+                    name: "a token".into(),
+                    scopes: vec![Scope::Read, Scope::Write],
+                    workspace_id,
+                }
+            } else {
+                Credential::Session {
+                    id: Uuid::from_u128(4),
+                }
+            },
+        }
+    }
+
+    #[test]
+    fn whom_tokens_act_as_concerns_agents_and_tokens_bound_to_a_workspace() {
+        let change = AccessChange::Agents;
+
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Agent, Some(WORKSPACE), true)
+        ));
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Integration, Some(WORKSPACE), true)
+        ));
+        // A person's token bound to the workspace, as an OAuth token acting as them is.
+        assert!(change.concerns(
+            WORKSPACE,
+            &principal(UserKind::Human, Some(WORKSPACE), true)
+        ));
+        assert!(!change.concerns(WORKSPACE, &principal(UserKind::Human, None, true)));
+        assert!(!change.concerns(WORKSPACE, &principal(UserKind::Human, None, false)));
     }
 }

@@ -3,13 +3,14 @@
 
 use neon_domain::auth::Principal;
 use neon_domain::workspaces::{
-    Action, LimitOverrides, LimitValue, Limits, Person, Resource, Workspace, authorize, check_limit,
+    Action, LimitOverrides, LimitValue, Limits, Person, Resource, Workspace, check_limit,
 };
 use neon_store::workspaces as repo;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{AccessChange, NO_WORKSPACE, WorkspaceError, WorkspaceService, actor};
+use super::{AccessChange, NO_WORKSPACE, WorkspaceError, WorkspaceService};
+use crate::standing::Standing;
 
 /// The most workspaces one page lists, and how many it lists unless told.
 pub const MAX_PAGE: i64 = 200;
@@ -18,21 +19,12 @@ pub const DEFAULT_PAGE: i64 = 50;
 /// What a workspace holds, against its limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
+    /// People, guests included.
     pub members: i64,
     /// Bytes of attachments, which do not exist yet: always 0 for now.
     pub storage_bytes: i64,
-    /// Agents, which do not exist yet: always 0 for now.
+    /// Agents and integrations, deleted ones left out.
     pub agents: i64,
-}
-
-impl Usage {
-    fn of(members: i64) -> Self {
-        Self {
-            members,
-            storage_bytes: 0,
-            agents: 0,
-        }
-    }
 }
 
 /// A workspace as instance admins see it.
@@ -87,24 +79,25 @@ impl WorkspaceService {
             let page = usize::try_from(limit).unwrap_or(usize::MAX);
             let more = listed.len() > page;
             listed.truncate(page);
-            let ids: Vec<Uuid> = listed
-                .iter()
-                .map(|(workspace, _, _)| workspace.id)
-                .collect();
+            let ids: Vec<Uuid> = listed.iter().map(|listed| listed.workspace.id).collect();
             let mut owners = repo::owners_of(&mut *conn, &ids).await?;
             let workspaces: Vec<AdminWorkspace> = listed
                 .into_iter()
-                .map(|(workspace, overrides, members)| {
+                .map(|listed| {
                     let (theirs, rest) = owners
                         .drain(..)
-                        .partition(|(workspace_id, _)| *workspace_id == workspace.id);
+                        .partition(|(workspace_id, _)| *workspace_id == listed.workspace.id);
                     owners = rest;
                     AdminWorkspace {
                         owners: theirs.into_iter().map(|(_, person)| person).collect(),
-                        limits: self.limits(overrides),
-                        overrides,
-                        usage: Usage::of(members),
-                        workspace,
+                        limits: self.limits(listed.limits),
+                        overrides: listed.limits,
+                        usage: Usage {
+                            members: listed.people,
+                            storage_bytes: 0,
+                            agents: listed.agents,
+                        },
+                        workspace: listed.workspace,
                     }
                 })
                 .collect();
@@ -152,7 +145,11 @@ impl WorkspaceService {
                 overrides.agents = value;
             }
             repo::set_limits(&mut *tx, id, overrides, self.now()).await?;
-            let members = repo::count_members(&mut *tx, id).await?;
+            let usage = Usage {
+                members: repo::count_members(&mut *tx, id).await?,
+                storage_bytes: 0,
+                agents: neon_store::agents::count_live(&mut *tx, id).await?,
+            };
             let owners = repo::owners_of(&mut *tx, &[id])
                 .await?
                 .into_iter()
@@ -172,7 +169,7 @@ impl WorkspaceService {
                 owners,
                 limits: self.limits(overrides),
                 overrides,
-                usage: Usage::of(members),
+                usage,
             })
         })
         .await
@@ -204,7 +201,8 @@ impl WorkspaceService {
         let instance = Resource::Instance {
             creation: self.creation(),
         };
-        authorize(actor(principal, None), action, instance)
+        Standing::instance(principal)
+            .authorize_same(action, instance)
             .map_err(|denied| WorkspaceError::denied(denied, NO_WORKSPACE))
     }
 }

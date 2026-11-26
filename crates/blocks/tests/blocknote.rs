@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use neon_blocks::markdown::{from_markdown, to_markdown};
+use neon_blocks::markdown::{from_markdown, to_markdown, to_markdown_with_ids};
 use neon_blocks::{
     Block, BlockKind, Document, FileProps, ImageProps, Inline, Link, SequentialIds, StyledText,
     TableCell, TableCellProps, TextAlignment, fragment, read_doc, replace,
@@ -111,6 +111,58 @@ fn markdown_keeps_what_it_can_and_is_stable_after_one_pass() {
             "{name}: stable after one pass"
         );
     }
+}
+
+#[test]
+fn markdown_with_ids_names_every_block_and_reads_as_without_them_but_its_empty_paragraphs() {
+    for (name, document) in every_fixture() {
+        let named = to_markdown_with_ids(&document);
+        for block in document.walk() {
+            let id = block.id.as_deref().expect("fixture blocks have ids");
+            assert!(
+                named.contains(&format!("<!-- block {id} -->")),
+                "{name}: {id} unnamed"
+            );
+        }
+        // Every empty paragraph stays, where the others are gone.
+        let read = from_markdown(&named);
+        assert_eq!(
+            empty_paragraphs(&read),
+            empty_paragraphs(&document),
+            "{name}"
+        );
+        assert_eq!(
+            without_empty_paragraphs(read),
+            from_markdown(&to_markdown(&document)),
+            "{name}"
+        );
+    }
+}
+
+fn is_empty_paragraph(block: &Block) -> bool {
+    matches!(&block.kind, BlockKind::Paragraph { content, .. } if content.is_empty())
+        && block.children.is_empty()
+}
+
+fn empty_paragraphs(document: &Document) -> usize {
+    document
+        .walk()
+        .filter(|block| is_empty_paragraph(block))
+        .count()
+}
+
+fn without_empty_paragraphs(document: Document) -> Document {
+    fn keep(blocks: Vec<Block>) -> Vec<Block> {
+        blocks
+            .into_iter()
+            .filter(|block| !is_empty_paragraph(block))
+            .map(|block| Block {
+                children: keep(block.children),
+                ..block
+            })
+            .collect()
+    }
+    Document::new(keep(document.blocks))
 }
 
 #[test]

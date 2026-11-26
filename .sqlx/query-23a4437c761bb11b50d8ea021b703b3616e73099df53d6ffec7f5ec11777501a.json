@@ -1,0 +1,199 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT w.id, w.name, w.slug, w.icon, w.hue, w.members_can_create_teamspaces,\n                  w.agents_enabled, w.agent_creation, w.created_by, w.created_at,\n                  w.updated_at, w.limit_members, w.limit_storage_bytes, w.limit_agents,\n                  (SELECT count(*) FROM workspace_members m\n                   WHERE m.workspace_id = w.id AND m.kind = 'human') AS \"people!\",\n                  (SELECT count(*) FROM users a\n                   WHERE a.workspace_id = w.id AND a.deleted_at IS NULL) AS \"agents!\"\n           FROM workspaces w\n           WHERE $1::uuid IS NULL OR w.id > $1\n           ORDER BY w.id LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "icon",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "members_can_create_teamspaces",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "members_can_create_teamspaces"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "agents_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "agents_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "agent_creation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "agent_creation"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "limit_members",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "limit_members"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "limit_storage_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "limit_storage_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "limit_agents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "limit_agents"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "people!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "agents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "23a4437c761bb11b50d8ea021b703b3616e73099df53d6ffec7f5ec11777501a"
+}

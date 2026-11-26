@@ -1,5 +1,6 @@
 //! The one error shape of the API: `{"error": {"code": string, "message": string}}`, with
-//! the problems of each field when there were several.
+//! the problems of each field when there were several, and who holds a row a claim was
+//! refused for.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -11,9 +12,12 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use neon_app::auth::AuthError;
 use neon_app::databases::DatabaseError;
+use neon_app::oauth::OAuthError;
 use neon_app::pages::PageError;
 use neon_app::settings::UpdateError;
+use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
+use neon_app::webhooks::{IncomingError, WebhookError};
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
 use serde::{Deserialize, Serialize};
@@ -37,6 +41,18 @@ pub struct ErrorDetail {
     /// Each field that is wrong and why, when a request had several, such as settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<ProblemDetail>,
+    /// For `already_claimed`: whom the row's person property names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holders: Vec<HolderDetail>,
+}
+
+/// Someone who holds a row: a person or an agent the row's person property names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct HolderDetail {
+    pub id: uuid::Uuid,
+    /// As the workspace names them: an agent with its owner's name.
+    #[schema(example = "Scout · via Ada Lovelace")]
+    pub name: String,
 }
 
 /// One field that is wrong.
@@ -56,6 +72,7 @@ pub struct ApiError {
     code: &'static str,
     message: Cow<'static, str>,
     problems: Vec<Problem>,
+    holders: Vec<HolderDetail>,
     /// Sent as `Retry-After`, in whole seconds rounded up.
     retry_after: Option<Duration>,
 }
@@ -71,6 +88,7 @@ impl ApiError {
             code,
             message: message.into(),
             problems: Vec::new(),
+            holders: Vec::new(),
             retry_after: None,
         }
     }
@@ -85,6 +103,13 @@ impl ApiError {
 
     pub fn forbidden(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    /// The same answer, telling the client how long to wait before it tries again.
+    #[must_use]
+    pub fn with_retry_after(mut self, wait: Duration) -> Self {
+        self.retry_after = Some(wait);
+        self
     }
 
     /// The same answer, naming each field it refuses.
@@ -116,6 +141,16 @@ impl ApiError {
         &self.message
     }
 
+    /// For `already_claimed`: who holds the row.
+    pub fn holders(&self) -> &[HolderDetail] {
+        &self.holders
+    }
+
+    /// How long the client should wait before it tries again, as `Retry-After` says.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
     /// An extractor's rejection. Server-side ones are bugs in a route, not the client's
     /// doing, so they are logged and answered as internal errors.
     fn rejected(status: StatusCode, code: &'static str, message: String) -> Self {
@@ -142,6 +177,7 @@ impl IntoResponse for ApiError {
                         message: problem.message,
                     })
                     .collect(),
+                holders: self.holders,
             },
         };
         let mut response = (self.status, axum::Json(body)).into_response();
@@ -168,6 +204,9 @@ impl From<AuthError> for ApiError {
             | AuthError::InvalidLink => StatusCode::BAD_REQUEST,
             AuthError::InvalidCredentials | AuthError::Unauthenticated => StatusCode::UNAUTHORIZED,
             AuthError::UserDisabled
+            | AuthError::AgentSuspended
+            | AuthError::AgentsOff
+            | AuthError::AgentDeleted
             | AuthError::EmailNotVerified
             | AuthError::RegistrationClosed
             | AuthError::Forbidden(_)
@@ -207,6 +246,7 @@ impl From<WorkspaceError> for ApiError {
             WorkspaceError::AlreadyMember
             | WorkspaceError::AlreadyInvited
             | WorkspaceError::MemberLimit { .. }
+            | WorkspaceError::AgentLimit { .. }
             | WorkspaceError::LastOwner(_)
             | WorkspaceError::LastTeamspaceOwner(_)
             | WorkspaceError::SlugTaken
@@ -263,10 +303,51 @@ impl From<DatabaseError> for ApiError {
                     DatabaseError::NotFound(_) => StatusCode::NOT_FOUND,
                     DatabaseError::NameTaken(_)
                     | DatabaseError::LossyChange { .. }
-                    | DatabaseError::TooMany(_) => StatusCode::CONFLICT,
+                    | DatabaseError::TooMany(_)
+                    | DatabaseError::AlreadyClaimed(_) => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
-                Self::new(status, expected.code(), expected.to_string())
+                let mut api = Self::new(status, expected.code(), expected.to_string());
+                if let DatabaseError::AlreadyClaimed(holders) = expected {
+                    api.holders = holders
+                        .into_iter()
+                        .map(|holder| HolderDetail {
+                            id: holder.id,
+                            name: holder.name,
+                        })
+                        .collect();
+                }
+                api
+            }
+        }
+    }
+}
+
+impl From<ContentError> for ApiError {
+    /// Expected errors answer with their message, which never quotes the page. Others are
+    /// logged with their cause, and answer as internal errors, or as unavailable while the
+    /// server stops.
+    fn from(error: ContentError) -> Self {
+        match error {
+            ContentError::Page(error) => error.into(),
+            failed @ ContentError::Load(_) => {
+                tracing::error!(error = %failed, "a page's content use case failed");
+                Self::internal()
+            }
+            ContentError::RateLimited { retry_after } => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                "too many edits of pages' content: slow down",
+            )
+            .with_retry_after(retry_after),
+            other => {
+                let status = match &other {
+                    ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::Conflict => StatusCode::CONFLICT,
+                    ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                Self::new(status, other.code(), other.to_string())
             }
         }
     }
@@ -301,6 +382,82 @@ impl From<TransferError> for ApiError {
     }
 }
 
+impl From<OAuthError> for ApiError {
+    /// The consent page's and connected apps' errors, in the API's shape. Expected errors
+    /// answer with their message, which never holds a code or token. Others are logged with
+    /// their cause, and answer as internal errors.
+    fn from(error: OAuthError) -> Self {
+        let status = match &error {
+            OAuthError::Request(_) | OAuthError::Protocol(_) | OAuthError::Scopes(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            OAuthError::IdentityUnavailable(_)
+            | OAuthError::Forbidden(_)
+            | OAuthError::RegistrationOff => StatusCode::FORBIDDEN,
+            OAuthError::NotFound(_) => StatusCode::NOT_FOUND,
+            OAuthError::ClientLimit => StatusCode::SERVICE_UNAVAILABLE,
+            OAuthError::RateLimited { .. } | OAuthError::SourceLimit => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+            OAuthError::Database(_) | OAuthError::Internal(_) => {
+                tracing::error!(error = %error, "an OAuth use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let OAuthError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<WebhookError> for ApiError {
+    /// Expected errors answer with their message, which never holds a secret or a URL.
+    /// Others are logged with their cause, and answer as internal errors.
+    fn from(error: WebhookError) -> Self {
+        let status = match &error {
+            WebhookError::InvalidInput(_)
+            | WebhookError::InvalidUrl(_)
+            | WebhookError::AddressRefused(_) => StatusCode::BAD_REQUEST,
+            WebhookError::Forbidden(_) => StatusCode::FORBIDDEN,
+            WebhookError::NotFound(_) => StatusCode::NOT_FOUND,
+            WebhookError::NoSecretKey
+            | WebhookError::AgentLimit { .. }
+            | WebhookError::WebhookLimit { .. }
+            | WebhookError::SetterLapsed(_) => StatusCode::CONFLICT,
+            WebhookError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WebhookError::Database(_) | WebhookError::Internal(_) => {
+                tracing::error!(error = %error, "a webhook use case failed");
+                return Self::internal();
+            }
+        };
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let WebhookError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
+impl From<IncomingError> for ApiError {
+    /// Expected errors answer with their message, which never holds the URL's token, a
+    /// secret or the body. Others are logged with their cause, and answer as internal
+    /// errors.
+    fn from(error: IncomingError) -> Self {
+        if !error.is_expected() {
+            tracing::error!(error = %error, "an incoming webhook's request failed");
+            return Self::internal();
+        }
+        let status = StatusCode::from_u16(error.status()).unwrap_or(StatusCode::BAD_REQUEST);
+        let mut api = Self::new(status, error.code(), error.to_string());
+        if let IncomingError::RateLimited { retry_after } = error {
+            api.retry_after = Some(retry_after);
+        }
+        api
+    }
+}
+
 impl From<UpdateError> for ApiError {
     fn from(error: UpdateError) -> Self {
         match error {
@@ -321,10 +478,23 @@ impl From<UpdateError> for ApiError {
 }
 
 impl From<JsonRejection> for ApiError {
+    /// A body that is not JSON is `invalid_json`; JSON that is not what the route takes, a
+    /// field missing, unknown or of the wrong type, is `400 invalid_input`, as any other
+    /// input the route refuses, its message naming the field.
     fn from(rejection: JsonRejection) -> Self {
         let status = rejection.status();
+        if let JsonRejection::JsonDataError(error) = &rejection {
+            const PREFIX: &str = "Failed to deserialize the JSON body into the target type: ";
+            let text = error.body_text();
+            let why = text.strip_prefix(PREFIX).unwrap_or(&text);
+            return Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_input",
+                format!("the body does not fit the route: {why}"),
+            );
+        }
         let code = match &rejection {
-            JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_) => "invalid_json",
+            JsonRejection::JsonSyntaxError(_) => "invalid_json",
             JsonRejection::MissingJsonContentType(_) => "unsupported_media_type",
             _ if status == StatusCode::PAYLOAD_TOO_LARGE => "payload_too_large",
             _ => "invalid_body",

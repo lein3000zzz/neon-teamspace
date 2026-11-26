@@ -569,7 +569,7 @@ async fn sign_ups_follow_the_registration_mode(pool: PgPool) {
         Some(json!({"email": "bob@example.com", "password": PASSWORD, "admin": true})),
     )
     .await;
-    assert_eq!(unknown_field.code(), "invalid_json");
+    assert_eq!(unknown_field.code(), "invalid_input");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -643,7 +643,7 @@ async fn preferences_are_kept_and_checked(pool: PgPool) {
         Some(json!({"palette": "sepia", "mode": "dark", "accent_hue": 1, "ui_font": "mono"})),
     )
     .await;
-    assert_eq!(palette.code(), "invalid_json");
+    assert_eq!(palette.code(), "invalid_input");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
@@ -808,7 +808,7 @@ async fn admins_make_invites_and_copy_their_codes(pool: PgPool) {
     );
 }
 
-fn keyed() -> Envelope {
+pub(super) fn keyed() -> Envelope {
     let key = format!("k1:{}", STANDARD.encode([9u8; 32]));
     Envelope::new(Keyring::parse(&[key]).expect("a key"))
 }

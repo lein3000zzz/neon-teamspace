@@ -1,21 +1,75 @@
 //! Who is in a workspace: listing them, changing their roles, removing them, leaving, and
 //! handing ownership over.
 
-use neon_domain::auth::Principal;
+use neon_domain::agents::AgentOwner;
+use neon_domain::auth::{Principal, UserKind};
 use neon_domain::workspaces::permissions::{check_owner_remains, check_teamspace_owner_remains};
-use neon_domain::workspaces::{Action, Member, Resource, TeamspaceRole, WorkspaceRole, authorize};
+use neon_domain::workspaces::{
+    Action, Member, Person, Resource, TeamspaceRole, Workspace, WorkspaceRole,
+};
 use neon_store::{teamspaces, workspace_invites, workspaces as repo};
 use sqlx::PgConnection;
 use tracing::info;
 use uuid::Uuid;
 
-use super::{AccessChange, WorkspaceError, WorkspaceService, actor, locked_membership, membership};
+use super::{
+    AccessChange, Membership, WorkspaceError, WorkspaceService, locked_membership, membership,
+};
+use crate::webhooks;
 
 const NO_MEMBER: &str = "no such member";
 
+/// Whom a request acts as: its identity as the people it works with see it, and the one
+/// workspace its token is bound to, while the identity is in it.
+#[derive(Debug, Clone)]
+pub struct Identity {
+    pub person: Person,
+    /// The workspace, and the role the rules see the identity in there: for a bound token
+    /// without the admin scope, member at most.
+    pub workspace: Option<(Workspace, WorkspaceRole)>,
+}
+
 impl WorkspaceService {
+    /// Whom the principal acts as: a person, or an agent or integration with its owner.
+    pub async fn identity(&self, principal: &Principal) -> Result<Identity, WorkspaceError> {
+        self.observe("identity", async {
+            let mut conn = self.pool().acquire().await?;
+            let user = &principal.user;
+            let owner = match user.owner_id.filter(|_| !user.kind.is_human()) {
+                Some(owner) => neon_store::users::by_id(&mut *conn, owner)
+                    .await?
+                    .map(|owner| AgentOwner {
+                        id: owner.id,
+                        display_name: owner.display_name,
+                        hue_override: owner.hue_override,
+                    }),
+                None => None,
+            };
+            let person = Person {
+                id: user.id,
+                kind: user.kind,
+                display_name: user.display_name.clone(),
+                email: user.email.as_ref().map(|email| email.as_str().to_owned()),
+                hue_override: user.hue_override,
+                owner,
+            };
+            let workspace = match principal.workspace() {
+                Some(id) => {
+                    let membership = membership(&mut conn, principal, id).await?;
+                    membership
+                        .standing
+                        .role()
+                        .map(|role| (membership.workspace, role))
+                }
+                None => None,
+            };
+            Ok(Identity { person, workspace })
+        })
+        .await
+    }
+
     /// A workspace's members that the principal may know of, owners first: everyone, or
-    /// for a guest only themselves.
+    /// for a guest only themselves. Agents and integrations are members too.
     pub async fn list_members(
         &self,
         principal: &Principal,
@@ -24,17 +78,17 @@ impl WorkspaceService {
         self.observe("list_members", async {
             let mut conn = self.pool().acquire().await?;
             let membership = membership(&mut conn, principal, workspace_id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            let actor = actor(principal, membership.role);
+            membership.check(Action::ViewWorkspace)?;
             Ok(repo::list_members(&mut *conn, workspace_id)
                 .await?
                 .into_iter()
                 .filter(|member| {
-                    let resource = Resource::Member {
+                    let target = Target {
+                        id: member.person.id,
                         role: member.role,
-                        is_actor: member.person.id == principal.user.id,
+                        kind: member.person.kind,
                     };
-                    authorize(actor, Action::ViewMember, resource).is_ok()
+                    check_member(principal, &membership, &target, Action::ViewMember).is_ok()
                 })
                 .collect())
         })
@@ -43,7 +97,8 @@ impl WorkspaceService {
 
     /// Changes a member's role. Owners change anyone's; admins anyone's but an owner's,
     /// and make no owners. The last owner keeps the role. A member who becomes a guest
-    /// leaves every teamspace; a guest who becomes more joins the default one.
+    /// leaves every teamspace; a guest who becomes more joins the default one. The webhooks
+    /// whose URL they set that their new role may not register turn off.
     pub async fn change_member_role(
         &self,
         principal: &Principal,
@@ -54,18 +109,15 @@ impl WorkspaceService {
         self.observe("change_member_role", async {
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, workspace_id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            let current = target_role(&mut tx, workspace_id, user_id).await?;
-            let target = Resource::Member {
-                role: current,
-                is_actor: user_id == principal.user.id,
-            };
-            authorize(
-                actor(principal, membership.role),
+            membership.check(Action::ViewWorkspace)?;
+            let target = target(&mut tx, workspace_id, user_id).await?;
+            let current = target.role;
+            check_member(
+                principal,
+                &membership,
+                &target,
                 Action::ChangeRole { to: role },
-                target,
-            )
-            .map_err(|denied| WorkspaceError::denied(denied, NO_MEMBER))?;
+            )?;
             if current != role {
                 let owners = repo::count_owners(&mut *tx, workspace_id).await?;
                 check_owner_remains(
@@ -95,7 +147,8 @@ impl WorkspaceService {
     }
 
     /// Takes a member out of the workspace and its teamspaces. Owners remove anyone;
-    /// admins anyone but an owner. Nobody removes themselves: they leave.
+    /// admins anyone but an owner. Nobody removes themselves: they leave. Their webhooks
+    /// go, and those whose URL they set for others turn off.
     pub async fn remove_member(
         &self,
         principal: &Principal,
@@ -105,21 +158,13 @@ impl WorkspaceService {
         self.observe("remove_member", async {
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, workspace_id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            let current = target_role(&mut tx, workspace_id, user_id).await?;
-            let target = Resource::Member {
-                role: current,
-                is_actor: user_id == principal.user.id,
-            };
-            authorize(
-                actor(principal, membership.role),
-                Action::RemoveMember,
-                target,
-            )
-            .map_err(|denied| WorkspaceError::denied(denied, NO_MEMBER))?;
+            membership.check(Action::ViewWorkspace)?;
+            let target = target(&mut tx, workspace_id, user_id).await?;
+            check_member(principal, &membership, &target, Action::RemoveMember)?;
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
-            check_owner_remains(owners, current == WorkspaceRole::Owner, false)?;
+            check_owner_remains(owners, target.role == WorkspaceRole::Owner, false)?;
             repo::remove_member(&mut *tx, workspace_id, user_id).await?;
+            webhooks::lapse(&mut tx, workspace_id, user_id, self.now()).await?;
             tx.commit().await?;
             info!(
                 actor_id = %principal.user.id,
@@ -133,10 +178,10 @@ impl WorkspaceService {
         .await
     }
 
-    /// Leaves a workspace and its teamspaces. The last owner cannot: they make another
-    /// owner first, or delete the workspace. Nor can the last owner of one of its
-    /// teamspaces, unless they own or administer the workspace, as leaving it would leave
-    /// the teamspace without an owner.
+    /// Leaves a workspace and its teamspaces, as removing a member does, webhooks included.
+    /// The last owner cannot: they make another owner first, or delete the workspace. Nor
+    /// can the last owner of one of its teamspaces, unless they own or administer the
+    /// workspace, as leaving it would leave the teamspace without an owner.
     pub async fn leave_workspace(
         &self,
         principal: &Principal,
@@ -145,7 +190,7 @@ impl WorkspaceService {
         self.observe("leave_workspace", async {
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, workspace_id).await?;
-            membership.check(principal, Action::Leave)?;
+            membership.check(Action::Leave)?;
             let role = membership.role()?;
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
             check_owner_remains(owners, role == WorkspaceRole::Owner, false)?;
@@ -156,6 +201,7 @@ impl WorkspaceService {
                 check_teamspace_owner_remains(owners, true, false, role.manages())?;
             }
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
+            webhooks::lapse(&mut tx, workspace_id, principal.user.id, self.now()).await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %workspace_id, "workspace left");
             self.member_changed(workspace_id, principal.user.id);
@@ -175,19 +221,10 @@ impl WorkspaceService {
         self.observe("transfer_ownership", async {
             let mut tx = self.pool().begin().await?;
             let membership = locked_membership(&mut tx, principal, workspace_id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            let current = target_role(&mut tx, workspace_id, to).await?;
-            let target = Resource::Member {
-                role: current,
-                is_actor: to == principal.user.id,
-            };
-            authorize(
-                actor(principal, membership.role),
-                Action::TransferOwnership,
-                target,
-            )
-            .map_err(|denied| WorkspaceError::denied(denied, NO_MEMBER))?;
-            self.set_role(&mut tx, workspace_id, to, current, WorkspaceRole::Owner)
+            membership.check(Action::ViewWorkspace)?;
+            let target = target(&mut tx, workspace_id, to).await?;
+            check_member(principal, &membership, &target, Action::TransferOwnership)?;
+            self.set_role(&mut tx, workspace_id, to, target.role, WorkspaceRole::Owner)
                 .await?;
             repo::set_member_role(
                 &mut *tx,
@@ -210,7 +247,8 @@ impl WorkspaceService {
         .await
     }
 
-    /// Tells the port that a member's role changed, or that they left or were removed.
+    /// Tells the port that a member's role changed, or that they left or were removed. Their
+    /// agents' connections are looked at again with theirs, as theirs bound them.
     fn member_changed(&self, workspace_id: Uuid, user_id: Uuid) {
         self.changed(AccessChange::Workspace {
             workspace_id,
@@ -229,6 +267,7 @@ impl WorkspaceService {
         to: WorkspaceRole,
     ) -> Result<(), WorkspaceError> {
         repo::set_member_role(&mut *conn, workspace_id, user_id, to).await?;
+        webhooks::lapse(&mut *conn, workspace_id, user_id, self.now()).await?;
         if from.joins_teamspaces() && !to.joins_teamspaces() {
             teamspaces::leave_all(&mut *conn, workspace_id, user_id).await?;
         } else if !from.joins_teamspaces() && to.joins_teamspaces() {
@@ -280,14 +319,49 @@ impl WorkspaceService {
     }
 }
 
-/// The role of the member an action is aimed at. Whether the principal may know of them is
-/// the rules' to say, as they would of anyone else.
-async fn target_role(
+/// The member an action is aimed at: who, with what role, and what they are.
+pub(super) struct Target {
+    pub(super) id: Uuid,
+    pub(super) role: WorkspaceRole,
+    pub(super) kind: UserKind,
+}
+
+/// The member an action is aimed at. Whether the principal may know of them is the rules'
+/// to say, as they would of anyone else.
+pub(super) async fn target(
     conn: &mut PgConnection,
     workspace_id: Uuid,
     user_id: Uuid,
-) -> Result<WorkspaceRole, WorkspaceError> {
-    repo::member_role(&mut *conn, workspace_id, user_id)
+) -> Result<Target, WorkspaceError> {
+    let member = repo::member(&mut *conn, workspace_id, user_id)
         .await?
-        .ok_or(WorkspaceError::NotFound(NO_MEMBER))
+        .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
+    Ok(Target {
+        id: user_id,
+        role: member.role,
+        kind: member.person.kind,
+    })
+}
+
+/// Asks the rules about an action on a member, as the principal and, for an agent, its
+/// owner stand to them.
+pub(super) fn check_member(
+    principal: &Principal,
+    membership: &Membership,
+    target: &Target,
+    action: Action,
+) -> Result<(), WorkspaceError> {
+    let seen_by = |id: Option<Uuid>| Resource::Member {
+        role: target.role,
+        kind: target.kind,
+        is_actor: id == Some(target.id),
+    };
+    membership
+        .standing
+        .authorize(
+            action,
+            seen_by(Some(principal.user.id)),
+            seen_by(membership.standing.owner_id()),
+        )
+        .map_err(|denied| WorkspaceError::denied(denied, NO_MEMBER))
 }

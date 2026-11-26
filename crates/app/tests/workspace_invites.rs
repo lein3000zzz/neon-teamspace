@@ -724,7 +724,7 @@ async fn the_member_limit_holds_against_many_joining_at_once(pool: PgPool) {
         let who = h.person(&format!("invited{n}@example.com")).await;
         let sent = h
             .workspaces
-            .invite(&ada, id, who.user.email.as_str(), WorkspaceRole::Member)
+            .invite(&ada, id, who.user.address(), WorkspaceRole::Member)
             .await
             .expect("invited");
         invited.push((who, sent.invitation.id));

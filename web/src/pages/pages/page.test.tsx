@@ -5,7 +5,7 @@ import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { fakePages, page, PAGE_IDS, samplePages } from "@/test/pages";
 import { server } from "@/test/server";
-import { fakeWorkspaces, TEAMSPACE_IDS } from "@/test/workspaces";
+import { fakeWorkspaces, scout, TEAMSPACE_IDS } from "@/test/workspaces";
 
 const goals = `/w/design/p/${PAGE_IDS.goals}`;
 
@@ -15,6 +15,28 @@ async function main() {
 }
 
 describe("a page's header", () => {
+  it("names who made the page and who changed it, an agent with whom it acts for", async () => {
+    fakeWorkspaces({ agents: [scout] });
+    fakePages({
+      pages: samplePages().map((entry) =>
+        entry.id === PAGE_IDS.goals ? Object.assign(entry, { created_by: scout.id }) : entry,
+      ),
+    });
+    renderApp(goals);
+
+    const byline = within(
+      await (await main()).findByRole("region", { name: "Who made and last changed this page" }),
+    );
+    await waitFor(() =>
+      expect(byline.getAllByRole("definition").map((item) => item.textContent)).toEqual([
+        "ScoutAgent· via Ada",
+        "Ada",
+      ]),
+    );
+    expect(byline.getByText("Created by")).toBeInTheDocument();
+    expect(byline.getByText("Last edited by")).toBeInTheDocument();
+  });
+
   it("shows the way down to the page, from its teamspace", async () => {
     fakeWorkspaces();
     fakePages();

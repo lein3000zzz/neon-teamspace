@@ -6,7 +6,7 @@ import type { InviteLink, SentInvitation } from "@/api/workspaces";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
-import { design, fakeWorkspaces, LINK_TOKEN, people, summaryOf } from "@/test/workspaces";
+import { design, fakeWorkspaces, LINK_TOKEN, people, scout, summaryOf } from "@/test/workspaces";
 
 const ID = design().id;
 const base = `/api/v1/workspaces/${ID}`;
@@ -25,6 +25,7 @@ const pending: SentInvitation = {
   id: "0193a5b2-0000-7000-8000-00000000d001",
   invitee: {
     id: "0193a5b2-0000-7000-8000-00000000c00d",
+    kind: "human",
     display_name: "Dee",
     email: "dee@example.com",
     hue: 40,
@@ -381,5 +382,21 @@ describe("a role taken away while the page is open", () => {
     await delay(300);
     expect(counts.refused).toBeLessThanOrEqual(4);
     expect(counts.lists).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("agents among the members", () => {
+  it("shows an agent with whom it acts for, suspended, and no role to change", async () => {
+    fakeWorkspaces({ agents: [{ ...scout, status: "suspended" }] });
+    renderApp("/w/design/settings/members");
+
+    const region = within(await screen.findByRole("region", { name: "Members" }));
+    const card = within((await region.findByText("Scout")).closest("li") as HTMLElement);
+    expect(card.getByText("Agent")).toBeInTheDocument();
+    expect(card.getByText("· via Ada")).toBeInTheDocument();
+    expect(card.getByText("Suspended")).toBeInTheDocument();
+    expect(card.queryByRole("combobox")).toBeNull();
+    expect(card.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(card.queryByRole("button", { name: /Transfer/ })).toBeNull();
   });
 });

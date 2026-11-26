@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET owner_id = $2, updated_at = $3 WHERE id = $1 AND kind <> 'human'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5688dd19a239f60d66fb1f527184ee286363c78098f60d43b99e2de5329a688a"
+}

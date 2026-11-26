@@ -102,7 +102,7 @@ async fn admin_tokens_invite_and_verify_but_change_no_one_s_access(pool: PgPool)
     let bob = h.account("bob@example.com", Role::User).await;
     let (token, _) = h
         .auth
-        .create_api_token(&admin, "ops", None, &["read", "write", "admin"])
+        .create_api_token(&admin, "ops", None, &["read", "write", "admin"], None)
         .await
         .expect("a token");
     let by_token = h
@@ -267,7 +267,7 @@ async fn renaming_in_a_loop_with_a_token_does_not_undo_a_disable(pool: PgPool) {
     let (session, _) = h.sign_in("bob@example.com").await;
     let (token, _) = h
         .auth
-        .create_api_token(&session, "loop", None, &["read", "write"])
+        .create_api_token(&session, "loop", None, &["read", "write"], None)
         .await
         .expect("a token");
     let token = token.expose().to_owned();
@@ -405,7 +405,7 @@ async fn admins_make_accounts_in_any_mode_and_list_them_in_pages(pool: PgPool) {
         .await
         .expect("lists");
     assert_eq!(first.users.len(), 3);
-    assert_eq!(first.users[0].email.as_str(), "admin@example.com");
+    assert_eq!(first.users[0].address(), "admin@example.com");
     let next = first.next.expect("more");
     let second = h
         .auth
@@ -413,7 +413,7 @@ async fn admins_make_accounts_in_any_mode_and_list_them_in_pages(pool: PgPool) {
         .await
         .expect("lists");
     assert_eq!(second.users.len(), 2);
-    assert_eq!(second.users[1].email.as_str(), "user3@example.com");
+    assert_eq!(second.users[1].address(), "user3@example.com");
     assert_eq!(second.next, None);
     assert!(matches!(
         h.auth.list_users(&admin, None, Some(0)).await,

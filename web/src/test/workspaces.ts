@@ -11,32 +11,62 @@ import type {
   WorkspaceRole,
   WorkspaceSummary,
 } from "@/api/workspaces";
+import type { Agent } from "@/api/agents";
+import type { ApiToken } from "@/api/account";
+import type { ConnectedApp } from "@/api/oauth";
 import { hueFor } from "@/lib/hue";
 import { ada, apiError } from "./fixtures";
 import { server } from "./server";
 
 /** People in the workspaces of the tests, Ada, who is signed in by default, first. */
 export const people = {
-  ada: { id: ada.id, display_name: "Ada", email: "ada@example.com", hue: ada.hue },
+  ada: { id: ada.id, kind: "human", display_name: "Ada", email: "ada@example.com", hue: ada.hue },
   bob: {
     id: "0193a5b2-0000-7000-8000-00000000c001",
+    kind: "human",
     display_name: "Bob",
     email: "bob@example.com",
     hue: 177,
   },
   cy: {
     id: "0193a5b2-0000-7000-8000-00000000c002",
+    kind: "human",
     display_name: "Cy",
     email: "cy@example.com",
     hue: 0,
   },
   gus: {
     id: "0193a5b2-0000-7000-8000-00000000c003",
+    kind: "human",
     display_name: "Gus",
     email: "gus@example.com",
     hue: 179,
   },
 } as const satisfies Record<string, Person>;
+
+/** Scout, Ada's agent in Design. */
+export const scout: Agent = {
+  id: "0193a5b2-0000-7000-8000-00000000c0a1",
+  kind: "agent",
+  workspace_id: "0193a5b2-0000-7000-8000-00000000a001",
+  name: "Scout",
+  hue: 160,
+  owner: { id: ada.id, display_name: "Ada", hue: ada.hue },
+  status: "active",
+  created_at: "2026-11-20T09:00:00Z",
+  updated_at: "2026-11-20T09:00:00Z",
+};
+
+/** An agent as the members list has it. */
+export function asPerson(agent: Agent): Person {
+  return {
+    id: agent.id,
+    kind: agent.kind,
+    display_name: agent.name,
+    hue: agent.hue,
+    ...(agent.owner ? { owner: agent.owner } : {}),
+  };
+}
 
 const WORKSPACE_ID = "0193a5b2-0000-7000-8000-00000000a001";
 const OTHER_ID = "0193a5b2-0000-7000-8000-00000000a002";
@@ -49,6 +79,9 @@ export const TEAMSPACE_IDS = {
 
 /** A stand-in link token: real ones are "wsl_" plus 43 random base64url characters. */
 export const LINK_TOKEN = `wsl_${"x".repeat(43)}`;
+
+/** A stand-in API token: real ones are "nw_" plus 43 random base64url characters. */
+export const AGENT_TOKEN = `nw_${"a".repeat(43)}`;
 
 const CREATED = "2026-11-20T09:00:00Z";
 
@@ -72,6 +105,12 @@ export function design(role: WorkspaceRole = "owner"): Workspace {
     updated_at: CREATED,
     members_can_create_teamspaces: true,
     ...(role === "guest" ? {} : { member_count: 4 }),
+    agents: {
+      available: true,
+      enabled: true,
+      creation: "members",
+      ...(role === "guest" ? {} : { count: 0 }),
+    },
     limits: {},
   };
 }
@@ -118,6 +157,7 @@ const member = (person: Person, role: WorkspaceRole): Member => ({
   user: person,
   role,
   joined_at: CREATED,
+  suspended: false,
 });
 
 const inTeamspace = (person: Person, role: Teamspace["role"]): TeamspaceMember => ({
@@ -137,6 +177,10 @@ type Options = {
   invitations?: SentInvitation[];
   links?: InviteLink[];
   received?: ReceivedInvitation[];
+  /** The workspace's agents; none unless given. */
+  agents?: Agent[];
+  /** The apps connected over OAuth that act as its agents; none unless given. */
+  apps?: ConnectedApp[];
 };
 
 /** A request a test may look at: what was asked, and with what body. */
@@ -176,7 +220,18 @@ export function fakeWorkspaces(options: Options = {}) {
     invitations: options.invitations ?? [],
     links: options.links ?? [],
     received: options.received ?? [],
+    agents: options.agents ?? [],
+    agentTokens: {} as Record<string, ApiToken[]>,
+    apps: options.apps ?? [],
   };
+  for (const agent of state.agents) {
+    if (agent.status !== "deleted") {
+      state.members.push({
+        ...member(asPerson(agent), "member"),
+        suspended: agent.status === "suspended",
+      });
+    }
+  }
   const changes: Recorded[] = [];
 
   const record = (
@@ -309,6 +364,7 @@ export function fakeWorkspaces(options: Options = {}) {
           Object.values(people).find((person) => person.email === input.email) ??
           ({
             id: "0193a5b2-0000-7000-8000-00000000c009",
+            kind: "human",
             display_name: "Dee",
             email: input.email,
             hue: 10,
@@ -462,7 +518,9 @@ export function fakeWorkspaces(options: Options = {}) {
           return noTeamspace();
         }
         const input = body as Schemas["AddTeamspaceMember"];
-        const person = Object.values(people).find((entry) => entry.id === input.user_id);
+        const person = [...Object.values(people), ...state.agents.map(asPerson)].find(
+          (entry) => entry.id === input.user_id,
+        );
         if (person === undefined) {
           return apiError(404, "not_found", "no such member");
         }
@@ -491,6 +549,113 @@ export function fakeWorkspaces(options: Options = {}) {
         state.teamspaceMembers[id] = (state.teamspaceMembers[id] ?? []).filter(
           (entry) => entry.user.id !== params["user_id"],
         );
+        return noContent();
+      }),
+    ),
+    http.get(`${base}/agents`, () =>
+      HttpResponse.json({ agents: role === "guest" ? [] : state.agents }),
+    ),
+    http.post(
+      `${base}/agents`,
+      record((body) => {
+        const input = body as Schemas["CreateAgent"];
+        const made: Agent = {
+          ...scout,
+          id: "0193a5b2-0000-7000-8000-00000000c0a9",
+          name: input.name,
+          hue: input.hue_override ?? hueFor("0193a5b2-0000-7000-8000-00000000c0a9"),
+        };
+        state.agents = [...state.agents, made];
+        state.members.push(member(asPerson(made), "member"));
+        return HttpResponse.json(made, { status: 201 });
+      }),
+    ),
+    http.patch(
+      `${base}/agents/:agent_id`,
+      record((body, params) => {
+        const patch = body as Schemas["UpdateAgent"];
+        const found = state.agents.find((entry) => entry.id === params["agent_id"]);
+        if (found === undefined) {
+          return apiError(404, "not_found", "no such agent");
+        }
+        const next: Agent = {
+          ...found,
+          ...(patch.name ? { name: patch.name } : {}),
+          ...(patch.hue_override === undefined
+            ? {}
+            : { hue_override: patch.hue_override, hue: patch.hue_override ?? hueFor(found.id) }),
+        };
+        state.agents = state.agents.map((entry) => (entry.id === found.id ? next : entry));
+        return HttpResponse.json(next);
+      }),
+    ),
+    http.post(
+      `${base}/agents/:agent_id/transfer`,
+      record((body, params) => {
+        const to = Object.values(people).find(
+          (person) => person.id === (body as Schemas["TransferAgent"]).owner_id,
+        );
+        const found = state.agents.find((entry) => entry.id === params["agent_id"]);
+        if (found === undefined || to === undefined) {
+          return apiError(404, "not_found", "no such agent");
+        }
+        const next: Agent = {
+          ...found,
+          owner: { id: to.id, display_name: to.display_name, hue: to.hue },
+          status: "active",
+        };
+        state.agents = state.agents.map((entry) => (entry.id === found.id ? next : entry));
+        state.agentTokens[found.id] = [];
+        return HttpResponse.json(next);
+      }),
+    ),
+    http.delete(
+      `${base}/agents/:agent_id`,
+      record((_, params) => {
+        state.agents = state.agents.map((entry) =>
+          entry.id === params["agent_id"]
+            ? { ...entry, status: "deleted", deleted_at: CREATED }
+            : entry,
+        );
+        state.members = state.members.filter((entry) => entry.user.id !== params["agent_id"]);
+        return noContent();
+      }),
+    ),
+    http.get(`${base}/agents/:agent_id/tokens`, ({ params }) =>
+      HttpResponse.json({ tokens: state.agentTokens[String(params["agent_id"])] ?? [] }),
+    ),
+    http.post(
+      `${base}/agents/:agent_id/tokens`,
+      record((body, params) => {
+        const input = body as Schemas["CreateAgentToken"];
+        const id = String(params["agent_id"]);
+        const token: ApiToken = {
+          id: "0193a5b2-0000-7000-8000-00000000c0b1",
+          name: input.name,
+          prefix: AGENT_TOKEN.slice(0, 10),
+          scopes: input.scopes,
+          workspace_id: WORKSPACE_ID,
+          created_at: CREATED,
+        };
+        state.agentTokens[id] = [...(state.agentTokens[id] ?? []), token];
+        return HttpResponse.json({ token: AGENT_TOKEN, api_token: token }, { status: 201 });
+      }),
+    ),
+    http.delete(
+      `${base}/agents/:agent_id/tokens/:token_id`,
+      record((_, params) => {
+        const id = String(params["agent_id"]);
+        state.agentTokens[id] = (state.agentTokens[id] ?? []).filter(
+          (entry) => entry.id !== params["token_id"],
+        );
+        return noContent();
+      }),
+    ),
+    http.get(`${base}/connected-apps`, () => HttpResponse.json({ apps: state.apps })),
+    http.delete(
+      `${base}/connected-apps/:app_id`,
+      record((_, params) => {
+        state.apps = state.apps.filter((entry) => entry.id !== params["app_id"]);
         return noContent();
       }),
     ),
@@ -530,6 +695,7 @@ export function summaryOf(workspace: Workspace): WorkspaceSummary {
   const {
     members_can_create_teamspaces: _members,
     member_count: _count,
+    agents: _agents,
     limits: _limits,
     updated_at: _updated,
     ...summary

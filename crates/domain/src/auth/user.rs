@@ -40,13 +40,42 @@ impl fmt::Display for Role {
     }
 }
 
-/// An account. Its password hash stays with the repository and the use cases that check
-/// it, so it never travels with the user.
+text_enum! {
+    /// What an identity is: a person, or an agent or an integration that acts for one.
+    UserKind {
+        /// Has an address and a password, signs in, and may own agents.
+        Human => "human",
+        /// Works through API tokens its owner makes, later over MCP too.
+        Agent => "agent",
+        /// Delivers what an incoming webhook's sender posts.
+        Integration => "integration",
+    }
+}
+
+impl UserKind {
+    pub fn is_human(self) -> bool {
+        self == Self::Human
+    }
+
+    /// Whether person properties may name it, to give it work: people and agents, which
+    /// do work; never integrations, which only deliver what their webhook's sender posts.
+    pub fn assignable(self) -> bool {
+        self != Self::Integration
+    }
+}
+
+/// An identity: a person's account, or an agent or integration of one workspace, which
+/// acts for a person there, its owner. Only people sign in; the others have no address and
+/// no password, and work only through tokens. Its password hash stays with the repository
+/// and the use cases that check it, so it never travels with the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct User {
     /// UUIDv7, so ids sort by when accounts were made.
     pub id: Uuid,
-    pub email: Email,
+    pub kind: UserKind,
+    /// A person's address. Agents and integrations have none.
+    pub email: Option<Email>,
+    /// A person's name, or an agent's or integration's.
     pub display_name: String,
     pub role: Role,
     /// The hue they pinned for themselves, if any; see [`hue`](Self::hue).
@@ -59,6 +88,11 @@ pub struct User {
     pub disabled_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    /// The workspace an agent or integration belongs to; unset for a person.
+    pub workspace_id: Option<Uuid>,
+    /// The person an agent or integration acts for; unset for a person, and once the
+    /// owner's account is gone.
+    pub owner_id: Option<Uuid>,
 }
 
 impl User {
@@ -82,6 +116,11 @@ impl User {
     /// The hue they are drawn in: the one they pinned, or else their id's.
     pub fn hue(&self) -> u16 {
         hue_or_hashed(self.hue_override, self.id)
+    }
+
+    /// A person's address as typed; empty for an agent or integration, which has none.
+    pub fn address(&self) -> &str {
+        self.email.as_ref().map_or("", Email::as_str)
     }
 }
 
@@ -120,7 +159,8 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         User {
             id: Uuid::now_v7(),
-            email: email(),
+            kind: UserKind::Human,
+            email: Some(email()),
             display_name: "Ada".into(),
             role,
             hue_override: None,
@@ -128,6 +168,8 @@ mod tests {
             disabled_at: disabled.then_some(now),
             created_at: now,
             updated_at: now,
+            workspace_id: None,
+            owner_id: None,
         }
     }
 
@@ -138,6 +180,30 @@ mod tests {
         }
         assert_eq!(Role::parse("Admin"), None);
         assert_eq!(Role::parse("owner"), None);
+    }
+
+    #[test]
+    fn kinds_round_trip_through_text() {
+        for kind in UserKind::ALL {
+            assert_eq!(UserKind::parse(kind.as_str()), Some(*kind));
+        }
+        let human: Vec<UserKind> = UserKind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| kind.is_human())
+            .collect();
+        assert_eq!(human, [UserKind::Human]);
+        assert!(UserKind::Human.assignable() && UserKind::Agent.assignable());
+        assert!(!UserKind::Integration.assignable());
+        assert_eq!(UserKind::parse("bot"), None);
+    }
+
+    #[test]
+    fn only_people_have_an_address() {
+        let mut ada = user(Role::User, false);
+        assert_eq!(ada.address(), "ada@example.com");
+        ada.email = None;
+        assert_eq!(ada.address(), "");
     }
 
     #[test]

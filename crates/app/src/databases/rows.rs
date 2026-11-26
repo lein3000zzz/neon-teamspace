@@ -27,6 +27,7 @@ use super::{
     domain_row, fitted_views, names_people, not_found, row_view,
 };
 use crate::pages::{Context, PageError, access_of};
+use crate::webhooks::events::{self as webhooks, RowChange};
 
 /// The most rows a query answers with at once, and how many unless told fewer.
 pub const MAX_PAGE: usize = 1000;
@@ -95,18 +96,18 @@ pub struct GroupMove {
 }
 
 /// What a change to a row's values sets.
-struct Changes {
+pub(super) struct Changes {
     title: Option<String>,
     set: Map<String, Json>,
     remove: Vec<String>,
     /// Every property the change names, the title included.
-    properties: Vec<Uuid>,
+    pub(super) properties: Vec<Uuid>,
     /// The person properties the change sets or clears, each with the people it names.
     people: Vec<(Uuid, Vec<Uuid>)>,
 }
 
 impl Changes {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             title: None,
             set: Map::new(),
@@ -117,7 +118,7 @@ impl Changes {
     }
 
     /// Sets, or clears, a stored property's value.
-    fn put(&mut self, property: &Property, value: Option<Value>) {
+    pub(super) fn put(&mut self, property: &Property, value: Option<Value>) {
         let key = property.id.to_string();
         self.set.remove(&key);
         self.remove.retain(|removed| *removed != key);
@@ -283,15 +284,27 @@ impl DatabaseService {
                 .await?
                 .into_iter()
                 .collect();
-            let shared = opened.context.chain[0].shared;
+            let context = &opened.context;
+            let owner_shares: HashMap<Uuid, PageAccess> = match context.standing.owner_id() {
+                Some(owner) => neon_store::page_shares::of_pages(&mut *conn, &ids, owner)
+                    .await?
+                    .into_iter()
+                    .collect(),
+                None => HashMap::new(),
+            };
+            let (shared, owner_shared) = (context.chain[0].shared, context.chain[0].owner_shared);
             let rows = part
                 .iter()
                 .map(|entry| {
                     let listed = &listed[entry.row];
+                    let theirs = match context.standing.owner_id() {
+                        Some(_) => owner_shared.max(owner_shares.get(&listed.page.id).copied()),
+                        None => shared.max(listed.shared),
+                    };
                     let access = access_of(
-                        opened.context.actor,
-                        opened.context.space,
-                        shared.max(listed.shared),
+                        &context.standing,
+                        (context.space, shared.max(listed.shared)),
+                        (context.owner_space, theirs),
                     )
                     .unwrap_or(PageAccess::View);
                     let stored = StoredRow {
@@ -382,6 +395,20 @@ impl DatabaseService {
             let cells = Json::Object(changes.set);
             let bytes = repo::insert_row(&mut *tx, page.id, database_id, number, &cells).await?;
             check_size(bytes)?;
+            webhooks::queue(
+                &mut tx,
+                RowChange {
+                    workspace_id: page.workspace_id,
+                    database_id,
+                    row_id: page.id,
+                    actor: user,
+                    schema: &opened.schema,
+                    before: None,
+                    after: &cells,
+                    at: now,
+                },
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %user,
@@ -479,7 +506,18 @@ impl DatabaseService {
                     repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
                 }
             }
-            let cells = patch(&mut tx, row_id, &changes).await?;
+            let cells = patch(
+                &mut tx,
+                Written {
+                    page: &page,
+                    database_id: data.database_id,
+                    actor: principal.user.id,
+                    schema: &schema,
+                    before: &data.cells,
+                },
+                &changes,
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -564,7 +602,18 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            let cells = patch(&mut tx, row_id, &changes).await?;
+            let cells = patch(
+                &mut tx,
+                Written {
+                    page: &page,
+                    database_id,
+                    actor: principal.user.id,
+                    schema: &schema,
+                    before: &data.cells,
+                },
+                &changes,
+            )
+            .await?;
             tx.commit().await?;
             info!(
                 user_id = %principal.user.id,
@@ -619,7 +668,7 @@ impl DatabaseService {
 
 /// A row as the principal of `context`, the row's, sees it: without its database's id when
 /// they see the row only through its own share, as its page leaves out the page above it.
-fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> RowView {
+pub(super) fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> RowView {
     row_view(
         &snapshot.schema,
         context.parent_seen().then_some(database_id),
@@ -631,7 +680,7 @@ fn snapshot_view(snapshot: &Snapshot, database_id: Uuid, context: &Context) -> R
 
 /// A row's page and what the rules need to know of it; a page that is not a row is not
 /// found as one.
-async fn row_context(
+pub(super) async fn row_context(
     service: &DatabaseService,
     conn: &mut PgConnection,
     principal: &Principal,
@@ -651,14 +700,17 @@ async fn row_context(
     Ok(context)
 }
 
-fn row_check(context: &Context, action: Action) -> Result<(), DatabaseError> {
+pub(super) fn row_check(context: &Context, action: Action) -> Result<(), DatabaseError> {
     context.check(action).map_err(|error| match error {
         PageError::NotFound(_) => DatabaseError::NotFound(NO_ROW),
         other => other.into(),
     })
 }
 
-async fn schema_of(conn: &mut PgConnection, database_id: Uuid) -> Result<Schema, DatabaseError> {
+pub(super) async fn schema_of(
+    conn: &mut PgConnection,
+    database_id: Uuid,
+) -> Result<Schema, DatabaseError> {
     Ok(Schema {
         properties: repo::properties(&mut *conn, database_id)
             .await?
@@ -730,7 +782,10 @@ fn group_value(
 /// The data of the row of `context`, locked until the transaction ends, once the schema of
 /// its database is held as it is: a change to the row's values reads the schema and the
 /// values as they are when it writes, and changes to the schema wait for it.
-async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData, DatabaseError> {
+pub(super) async fn lock_row(
+    conn: &mut PgConnection,
+    context: &Context,
+) -> Result<RowData, DatabaseError> {
     let row_id = context.page().id;
     let no_data = || DatabaseError::Internal(format!("row {row_id} has no data"));
     // A row's page is under its database's, which it never leaves.
@@ -749,13 +804,26 @@ async fn lock_row(conn: &mut PgConnection, context: &Context) -> Result<RowData,
     Ok(data)
 }
 
-/// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], and answers them as they are
-/// then.
-async fn patch(
+/// A row whose values a change writes, as it was before the change, and who makes it.
+pub(super) struct Written<'a> {
+    /// The row's page, as the change leaves it.
+    pub(super) page: &'a Page,
+    pub(super) database_id: Uuid,
+    pub(super) actor: Uuid,
+    pub(super) schema: &'a Schema,
+    pub(super) before: &'a Json,
+}
+
+/// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], queues on the same
+/// transaction the webhook deliveries it makes, and answers the cells as they are then.
+/// Every change to the values of a row that exists goes through here, claims included, so
+/// every writer's changes reach webhooks.
+pub(super) async fn patch(
     conn: &mut PgConnection,
-    row_id: Uuid,
+    row: Written<'_>,
     changes: &Changes,
 ) -> Result<Json, DatabaseError> {
+    let row_id = row.page.id;
     let patched = repo::patch_cells(
         &mut *conn,
         row_id,
@@ -765,6 +833,20 @@ async fn patch(
     .await?
     .ok_or_else(|| DatabaseError::Internal(format!("row {row_id} has no data")))?;
     check_size(patched.bytes)?;
+    webhooks::queue(
+        &mut *conn,
+        RowChange {
+            workspace_id: row.page.workspace_id,
+            database_id: row.database_id,
+            row_id,
+            actor: row.actor,
+            schema: row.schema,
+            before: Some(row.before),
+            after: &patched.cells,
+            at: row.page.updated_at,
+        },
+    )
+    .await?;
     Ok(patched.cells)
 }
 
@@ -783,7 +865,7 @@ pub(crate) fn check_size(bytes: i64) -> Result<(), DatabaseError> {
 /// and any person they name on a new one; and people a change adds to a value who are not
 /// members of the workspace. `current` is the row's cells, `None` for a new row: those its
 /// values name already stay, members or not.
-async fn check_people(
+pub(super) async fn check_people(
     conn: &mut PgConnection,
     context: &Context,
     changes: &Changes,
@@ -813,10 +895,15 @@ async fn check_people(
         return Ok(());
     }
     let ids: Vec<Uuid> = added.iter().copied().collect();
-    let members: HashSet<Uuid> = repo::members_among(&mut *conn, context.page().workspace_id, &ids)
-        .await?
-        .into_iter()
-        .collect();
+    let members = repo::members_among(&mut *conn, context.page().workspace_id, &ids).await?;
+    if members.iter().any(|(_, kind)| !kind.assignable()) {
+        return Err(DatabaseError::InvalidInput(
+            "a person property names people and agents: an integration only delivers what \
+             its webhook's sender posts"
+                .to_owned(),
+        ));
+    }
+    let members: HashSet<Uuid> = members.into_iter().map(|(id, _)| id).collect();
     if members != added {
         return Err(DatabaseError::InvalidInput(
             "a person property names members of the workspace".to_owned(),
@@ -826,7 +913,7 @@ async fn check_people(
 }
 
 /// The people a stored person value names.
-fn people_in(cell: &Json) -> HashSet<Uuid> {
+pub(super) fn people_in(cell: &Json) -> HashSet<Uuid> {
     cell.as_array()
         .into_iter()
         .flatten()

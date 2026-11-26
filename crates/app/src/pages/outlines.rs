@@ -5,13 +5,14 @@ use neon_domain::auth::Principal;
 use neon_domain::pages::PageKind;
 use neon_domain::workspaces::{Action, Teamspace};
 use neon_store::pages::{self as repo, OutlineNode};
-use neon_store::{teamspaces, workspaces};
+use neon_store::teamspaces;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::operations::teamspace_space;
-use super::{NO_TEAMSPACE, PageError, PageService, actor, check_space};
+use super::{NO_TEAMSPACE, PageError, PageService, check_space};
+use crate::standing::Standing;
 
 /// A page as an export writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,13 +141,12 @@ async fn listed_teamspace(
         .await?
         .ok_or(PageError::NotFound(NO_TEAMSPACE))?;
     let workspace_id = teamspace.workspace_id;
-    let role = workspaces::member_role(&mut *conn, workspace_id, user).await?;
-    let space = teamspace_space(conn, workspace_id, teamspace_id, user).await?;
-    check_space(
-        actor(principal, role),
-        space,
-        Action::ListPages,
-        NO_TEAMSPACE,
-    )?;
+    let standing = Standing::read(&mut *conn, principal, workspace_id).await?;
+    let space = teamspace_space(&mut *conn, workspace_id, teamspace_id, user).await?;
+    let theirs = match standing.owner_id() {
+        Some(owner) => teamspace_space(&mut *conn, workspace_id, teamspace_id, owner).await?,
+        None => space,
+    };
+    check_space(&standing, space, theirs, Action::ListPages, NO_TEAMSPACE)?;
     Ok(teamspace)
 }

@@ -74,7 +74,7 @@ instead, so the admin listener has to listen there too, for example with
 
 ## The dashboard
 
-The dashboard, **Neon Teamspace server** in the **Neon Teamspace** folder, has three rows.
+The dashboard, **Neon Teamspace server** in the **Neon Teamspace** folder, has five rows.
 Its **Instance** menu picks the server: `stack` for the one in the Docker stack, `host` for
 `make run`.
 
@@ -82,18 +82,24 @@ Its **Instance** menu picks the server: `stack` for the one in the Docker stack,
 |---|---|
 | HTTP API | **Rate**, the requests answered per second for each route; **Errors**, the share of each route's requests that failed; **Duration**, the 50th, 95th and 99th percentiles of how long requests took; **In flight**, the requests open at each moment. |
 | Jobs | The same four for the job queue's runs, by the job's kind. |
+| MCP | **Rate**, **Errors** and the 95th percentile of **Duration** for each [tool](/docs/guides/agents-over-mcp/#tools), and for `list_resources`, `read_resource` and `subscribe`; **Sessions and subscriptions**, how many are open. |
+| Webhooks | **Rate**, **Errors** and the 95th percentile of **Duration** for each operation, `deliver` and `receive` among them, beside registering, rotating and testing; **In flight**, the operations under way. |
 | Database and queue | **Pool connections**, idle and in use, against the most the pool opens; **Job queue**, the jobs in the queue table by status. |
 
 The panels read the [RED metrics and the gauges](/docs/architecture/observability/#metrics):
-`neon_http_*` and `neon_jobs_*` for the first two rows, `neon_db_pool_*` and
-`neon_jobs_queue_depth` for the last. A 4xx answer counts as a success, so **Errors** shows
-the server's own failures. A few requests are enough to see the HTTP row move, for example:
+`neon_http_*` and `neon_jobs_*` for the first two rows, `neon_mcp_*` with the gauges
+`neon_mcp_sessions` and `neon_mcp_subscriptions` for the third, `neon_webhooks_*` for the
+fourth, and `neon_db_pool_*` and `neon_jobs_queue_depth` for the last. A 4xx answer counts as
+a success, so **Errors** shows the server's own failures. So do MCP's and webhooks': a tool
+call refused, a request an incoming webhook refuses and a receiver that answers an error all
+count as `ok`. A few requests are enough to see the HTTP row move, for example:
 
 ```sh
 for i in $(seq 20); do curl -s http://127.0.0.1:3000/api/v1/meta > /dev/null; done
 ```
 
-The job rows stay empty until the server has jobs to run.
+The job rows stay empty until the server has jobs to run, the MCP row until a client
+connects, and the webhooks row until one is registered or posted to.
 
 ## Traces and profiles
 

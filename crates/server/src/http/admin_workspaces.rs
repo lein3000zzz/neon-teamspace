@@ -40,7 +40,8 @@ pub struct WorkspaceUsage {
     pub members: i64,
     /// Always 0 until attachments exist.
     pub storage_bytes: i64,
-    /// Always 0 until agents exist.
+    /// Its agents and integrations together, deleted ones left out, as its agent limit
+    /// counts them.
     pub agents: i64,
 }
 

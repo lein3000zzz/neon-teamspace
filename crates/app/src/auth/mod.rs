@@ -59,6 +59,7 @@ pub use cleanup::{CLEANUP_INTERVAL, Cleanup, CleanupReport};
 pub use error::AuthError;
 pub use invites::{CreatedInvite, InviteEntry, InviteSpec};
 pub use sessions::{LoginInput, LoginOutcome};
+pub(crate) use tokens::{TokenSpec, mint};
 
 /// RED subsystem of the auth use cases.
 pub const SUBSYSTEM: &str = "auth";

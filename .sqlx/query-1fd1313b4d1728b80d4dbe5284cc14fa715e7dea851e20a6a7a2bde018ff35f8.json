@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT h.id, h.workspace_id, h.integration_id, u.display_name AS name, h.target_id,\n                h.target_kind, h.signing_secret, h.previous_signing_secret,\n                h.previous_expires_at, h.disabled_at, h.created_by, h.created_at, h.updated_at\n         FROM incoming_webhooks h\n         JOIN users u ON u.id = h.integration_id\n         WHERE h.workspace_id = $1 AND h.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "integration_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "integration_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "target_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "target_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "target_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "signing_secret",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "signing_secret"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "previous_signing_secret",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "previous_signing_secret"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "previous_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "previous_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "disabled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "incoming_webhooks",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1fd1313b4d1728b80d4dbe5284cc14fa715e7dea851e20a6a7a2bde018ff35f8"
+}

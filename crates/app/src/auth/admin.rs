@@ -151,7 +151,7 @@ impl AuthService {
             let mail = Mail {
                 to: recipient(&actor.user),
                 message: Message::Test {
-                    sent_by: actor.user.email.as_str().to_owned(),
+                    sent_by: actor.user.address().to_owned(),
                 },
             };
             let mut conn = self.pool().acquire().await?;

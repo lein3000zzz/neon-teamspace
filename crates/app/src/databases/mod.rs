@@ -17,9 +17,11 @@
 //! [`MAX_ROW_BYTES`](neon_domain::databases::MAX_ROW_BYTES). Values are plain data: each
 //! change sets the properties it names, and of two changes to one property, the last wins.
 //! A change to a row's values holds its database's schema and locks the row while it is
-//! checked and written, so changes to the schema wait for it, and it for them. Once a change
-//! commits it goes to everyone following the database, through the
-//! [`Broadcaster`](crate::sync::Broadcaster): see [`LiveDatabases`].
+//! checked and written, so changes to the schema wait for it, and it for them. The webhook
+//! deliveries a change to a row's values makes are queued on its transaction, whoever
+//! writes it: see [`webhooks`](crate::webhooks). Once a change commits it goes to everyone
+//! following the database, through the [`Broadcaster`](crate::sync::Broadcaster): see
+//! [`LiveDatabases`].
 //!
 //! Every public use case runs in a span named `databases <operation>` and is measured as
 //! RED metrics of [`SUBSYSTEM`], counted as the page use cases are: a refusal is `ok`. No
@@ -31,6 +33,7 @@ mod export;
 mod live;
 mod rows;
 mod schema;
+mod tasks;
 mod views;
 
 use std::collections::HashMap;
@@ -57,8 +60,9 @@ use crate::pages::{Context, PageError, PageService, PageView, key_among, renumbe
 pub use error::DatabaseError;
 pub use export::{ExportRow, ExportTable};
 pub use live::{Admission, Follow, LiveDatabases, LiveDatabasesBuilder, LiveLimits};
-pub use rows::{GroupMove, NewRow, QueryInput, QueryResult, RowMove};
+pub use rows::{DEFAULT_PAGE, GroupMove, MAX_PAGE, NewRow, QueryInput, QueryResult, RowMove};
 pub use schema::{NewDatabase, NewProperty, PropertyChange, PropertySpec};
+pub use tasks::{Holder, MAX_TASKS, RowDetails, Task, TaskStatus};
 pub use views::{NewView, ViewChange};
 
 /// RED subsystem of the database use cases.

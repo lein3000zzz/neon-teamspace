@@ -12,13 +12,16 @@ use neon_app::clock::Clock;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
 use neon_app::mail::MailQueue;
+use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
+use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
 };
 use neon_app::transfer::TransferService;
-use neon_app::workspaces::WorkspaceService;
+use neon_app::webhooks::{Services, WebhookService, WebhookTransport};
+use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::settings::Pinned;
 use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
@@ -48,6 +51,23 @@ pub(super) async fn state_with(pool: PgPool, envelope: Envelope, web: WebConfig)
     state_for(pool, envelope, web, SyncLimits::default()).await
 }
 
+/// The state with a secret key, whose webhooks go through `transport`.
+pub(super) async fn state_for_webhooks(
+    pool: PgPool,
+    transport: Arc<dyn WebhookTransport>,
+) -> AppState {
+    build_state(
+        pool,
+        super::auth_tests::keyed(),
+        WebConfig::new(None, Vec::new()),
+        Setup {
+            transport,
+            ..Setup::default()
+        },
+    )
+    .await
+}
+
 /// The state, with live documents that keep to `limits`.
 pub(super) async fn state_for(
     pool: PgPool,
@@ -55,28 +75,84 @@ pub(super) async fn state_for(
     web: WebConfig,
     limits: SyncLimits,
 ) -> AppState {
-    build_state(pool, envelope, web, limits, LiveLimits::default()).await
+    let setup = Setup {
+        sync: limits,
+        ..Setup::default()
+    };
+    build_state(pool, envelope, web, setup).await
+}
+
+/// The state with `web`, its sessions, tokens and OAuth reading the time from `clock`.
+pub(super) async fn state_at(pool: PgPool, web: WebConfig, clock: Clock) -> AppState {
+    let setup = Setup {
+        clock,
+        ..Setup::default()
+    };
+    build_state(pool, Envelope::default(), web, setup).await
 }
 
 /// The state, with database feeds that keep to `limits`.
 pub(super) async fn state_with_feeds(pool: PgPool, limits: LiveLimits) -> AppState {
+    let setup = Setup {
+        feeds: limits,
+        ..Setup::default()
+    };
     build_state(
         pool,
         Envelope::default(),
         WebConfig::new(None, Vec::new()),
-        SyncLimits::default(),
-        limits,
+        setup,
     )
     .await
 }
 
-async fn build_state(
+/// The state, with the MCP server counting requests, and the content routes edits, in
+/// `limiter`, on `web`.
+pub(crate) async fn state_with_mcp(
     pool: PgPool,
-    envelope: Envelope,
     web: WebConfig,
     limits: SyncLimits,
-    feeds: LiveLimits,
+    limiter: Arc<dyn RateLimiter>,
 ) -> AppState {
+    let setup = Setup {
+        sync: limits,
+        limiter,
+        ..Setup::default()
+    };
+    build_state(pool, Envelope::default(), web, setup).await
+}
+
+/// What a test's state is built with, beside its database, key and web configuration.
+struct Setup {
+    sync: SyncLimits,
+    feeds: LiveLimits,
+    transport: Arc<dyn WebhookTransport>,
+    /// Where every use case's attempts are counted.
+    limiter: Arc<dyn RateLimiter>,
+    /// The time sessions, tokens, OAuth and webhooks read.
+    clock: Clock,
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Self {
+            sync: SyncLimits::default(),
+            feeds: LiveLimits::default(),
+            transport: Arc::new(crate::webhooks::HttpTransport::default()),
+            limiter: Arc::new(MemoryLimiter::new()),
+            clock: Clock::system(),
+        }
+    }
+}
+
+async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Setup) -> AppState {
+    let Setup {
+        sync: limits,
+        feeds,
+        transport,
+        limiter,
+        clock,
+    } = setup;
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
         registry(),
@@ -95,43 +171,85 @@ async fn build_state(
     );
     let (documents, feed) = access_feed();
     let (followers, databases_feed) = access_feed();
-    let listener: Arc<dyn AccessChanges> = Arc::new(Fanout::new(vec![documents, followers]));
+    let (sessions, mcp_feed) = crate::mcp::access_feed();
+    let listener: Arc<dyn AccessChanges> =
+        Arc::new(Fanout::new(vec![documents, followers, sessions]));
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope.clone())
+        .clock(clock.clone())
         .mail(mail)
         .access_changes(Arc::clone(&listener))
         .build()
         .await
         .expect("the auth service starts");
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
-        .envelope(envelope)
+        .envelope(envelope.clone())
+        .access_changes(Arc::clone(&listener))
+        .build();
+    let agents = AgentService::new(workspaces.clone());
+    let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
+        .clock(clock.clone())
         .access_changes(Arc::clone(&listener))
         .build();
     let pages = PageService::builder(pool.clone(), Arc::clone(&settings))
         .access_changes(listener)
         .broadcaster(Arc::clone(&broadcaster))
         .build();
-    let sync = SyncService::builder(pool, pages.clone(), auth.clone(), feed)
+    let sync = SyncService::builder(pool.clone(), pages.clone(), auth.clone(), feed)
         .limits(limits)
-        .broadcaster(broadcaster)
+        .broadcaster(Arc::clone(&broadcaster))
+        .limiter(Arc::clone(&limiter))
         .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
         .build();
     let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
+    let webhooks = WebhookService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        Services {
+            workspaces: workspaces.clone(),
+            agents: agents.clone(),
+            pages: pages.clone(),
+            databases: databases.clone(),
+            sync: sync.clone(),
+        },
+        transport,
+    )
+    .envelope(envelope)
+    .limiter(Arc::clone(&limiter))
+    .clock(clock)
+    .build();
+    let mcp = crate::mcp::Mcp::new(
+        crate::mcp::Services {
+            settings: Arc::clone(&settings),
+            auth: auth.clone(),
+            workspaces: workspaces.clone(),
+            pages: pages.clone(),
+            sync: sync.clone(),
+            databases: databases.clone(),
+            broadcaster,
+        },
+        limiter,
+        mcp_feed,
+    );
     AppState {
         settings,
         auth,
         workspaces,
+        agents,
+        oauth,
         pages,
         sync,
         databases,
         live,
         transfer,
+        webhooks,
         web: Arc::new(web),
+        mcp,
     }
 }
 
@@ -317,8 +435,15 @@ async fn bad_bodies_answer_in_the_error_shape(pool: PgPool) {
         json_request("/api/v1/test/item", json, r#"{"name": 1}"#),
     )
     .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(error_code(&body), "invalid_json");
+    // JSON that is not what the route takes is input it refuses, naming the field.
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error_code(&body), "invalid_input");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("the body does not fit the route: name")),
+        "{body}"
+    );
 
     let (status, body) = send(app.clone(), json_request("/api/v1/test/echo", None, "{}")).await;
     assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);

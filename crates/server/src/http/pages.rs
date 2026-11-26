@@ -7,10 +7,11 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::pages::{
-    Location, NewPage, PageUpdate, PageView, TrashList as AppTrashList, Tree,
+    Location, MAX_RECENT, NewPage, PageUpdate, PageView, TrashList as AppTrashList, Tree,
     TreePage as AppTreePage,
 };
 use neon_domain::pages as domain;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use utoipa::{IntoParams, ToSchema};
@@ -183,7 +184,7 @@ pub struct PageStyle {
 
 /// Where a page goes among its siblings: `"first"`, `"last"`, `{"after": id}` or
 /// `{"before": id}`, the id being a sibling's.
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
     First,
@@ -295,7 +296,7 @@ impl From<PageView> for Page {
 }
 
 /// The one place a page is made in, moved to or imported to.
-pub(super) fn location(
+pub(crate) fn location(
     parent_id: Option<Uuid>,
     teamspace_id: Option<Uuid>,
     private: bool,
@@ -338,6 +339,10 @@ pub struct CreatePage {
     pub cover: Option<Cover>,
     #[serde(default)]
     pub style: StyleChange,
+    /// Its content, as markdown; an empty page when absent.
+    #[serde(default)]
+    #[schema(example = "## Goals\n\n- Ship it")]
+    pub markdown: Option<String>,
 }
 
 #[utoipa::path(
@@ -347,17 +352,19 @@ pub struct CreatePage {
     summary = "Create a page",
     description = "Under a page the caller edits, at the top of a teamspace they are in, or as \
                    one of their private pages, which guests have none of. The caller edits it. \
-                   Nothing goes under a database or a row: a database's subpages are its rows, \
-                   added at `/databases/{id}/rows`.",
+                   It starts with the content of `markdown`, if any. Nothing goes under a \
+                   database or a row: a database's subpages are its rows, added at \
+                   `/databases/{id}/rows`.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     request_body = CreatePage,
     responses(
         (status = CREATED, description = "The page.", body = Page),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, or a placement beside a page that is not a sibling.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, a placement beside a page that is not a sibling, or markdown nesting blocks more than 32 levels deep.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace, teamspace or parent, or none the caller may see.", body = ErrorBody),
         (status = CONFLICT, description = "too_deep: pages nest at most 100 levels.", body = ErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the markdown makes a page larger than one holds.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -369,6 +376,12 @@ pub(super) async fn create_page(
     Json(body): Json<CreatePage>,
 ) -> Result<(StatusCode, Json<Page>), ApiError> {
     let location = location(body.parent_id, body.teamspace_id, body.private)?;
+    let content = match &body.markdown {
+        Some(markdown) => state
+            .sync
+            .first_snapshot(&super::content::read_markdown(markdown)?)?,
+        None => None,
+    };
     let defaults = domain::PageStyle::default();
     let new = NewPage {
         title: body.title,
@@ -379,6 +392,7 @@ pub(super) async fn create_page(
             small_text: body.style.small_text.unwrap_or(defaults.small_text),
             full_width: body.style.full_width.unwrap_or(defaults.full_width),
         },
+        content,
     };
     let placement = body.placement.map(Into::into).unwrap_or_default();
     let created = state
@@ -569,7 +583,8 @@ pub(super) async fn trash_page(
     responses(
         (status = OK, description = "The page.", body = Page),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: it is not in the trash, or its parent is and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: it is not in the trash.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: its parent is in the trash and the caller may not add pages at the top of its space, or it is a row whose database is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = CONFLICT, description = "too_many_rows: a row whose database holds as many rows as it may.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
@@ -595,7 +610,8 @@ pub(super) async fn restore_page(
     responses(
         (status = NO_CONTENT, description = "Deleted."),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: it is not in the trash; or insufficient_scope.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: it is not in the trash.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller could not edit it; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -867,4 +883,58 @@ pub(super) async fn workspace_trash(
         .trash(&principal, id, query.after.as_deref(), query.limit)
         .await?;
     Ok(Json(list.into()))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct RecentPages {
+    /// Pages in the list, 1 to 50; 50 when absent.
+    pub limit: Option<usize>,
+}
+
+/// The pages last changed.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RecentList {
+    /// The most recently changed first.
+    pub pages: Vec<Page>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/recent-pages",
+    tag = "pages",
+    summary = "List the pages changed last",
+    description = "The workspace's pages and databases the caller sees, out of the trash, rows \
+                   left out, the most recently changed first: their title, icon, cover, style or \
+                   place, or their content.",
+    params(("id" = Uuid, Path, description = "The workspace's id."), RecentPages),
+    responses(
+        (status = OK, description = "The pages.", body = RecentList),
+        (status = BAD_REQUEST, description = "invalid_input: a limit out of bounds.", body = ErrorBody),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: no such workspace, or one the caller is not in.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn recent_pages(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+    Query(query): Query<RecentPages>,
+) -> Result<Json<RecentList>, ApiError> {
+    let limit = query.limit.unwrap_or(MAX_RECENT);
+    if !(1..=MAX_RECENT).contains(&limit) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            format!("a list of recent pages holds 1 to {MAX_RECENT}"),
+        ));
+    }
+    let pages = state.pages.recent_pages(&principal, id, limit).await?;
+    Ok(Json(RecentList {
+        pages: pages.into_iter().map(Page::from).collect(),
+    }))
 }

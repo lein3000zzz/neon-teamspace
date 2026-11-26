@@ -8,17 +8,19 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use neon_app::databases::{GroupMove, NewRow, QueryInput, QueryResult, RowMove, RowView};
+use neon_app::databases::{
+    GroupMove, NewRow, QueryInput, QueryResult, RowMove, RowView, Task as AppTask,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};
 use time::OffsetDateTime;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::AppState;
-use super::databases::{Filter, Sort};
+use super::databases::{Filter, Sort, StatusGroup};
 use super::error::{ApiError, ErrorBody};
-use super::extract::{Json as Body, Path};
+use super::extract::{Json as Body, Path, Query};
 use super::pages::{PageAccess, Placement};
 use super::principal::{Authenticated, Reader};
 
@@ -431,4 +433,199 @@ pub(super) async fn move_row(
     Ok(Body(
         state.databases.move_row(&principal, id, to).await?.into(),
     ))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/databases/{id}/rows/{unique_id}",
+    tag = "databases",
+    summary = "Change a row's values by its unique id",
+    description = "As `PATCH /rows/{id}`, for the row whose unique id is `NW-42`, its prefix in \
+                   any case, or `42` alone.",
+    params(
+        ("id" = Uuid, Path, description = "The database's id."),
+        ("unique_id" = String, Path, description = "The row's unique id, such as NW-42."),
+    ),
+    request_body = ChangeRow,
+    responses(
+        (status = OK, description = "The row.", body = Row),
+        (status = BAD_REQUEST, description = "invalid_input: not a unique id of this database, or the values as for `PATCH /rows/{id}`.", body = ErrorBody),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, as for `PATCH /rows/{id}`; or insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: the database, or no row of it has the id.", body = ErrorBody),
+        (status = CONFLICT, description = "limit_reached: the row's values would take more than 64 KiB.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn change_row_by_unique_id(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path((id, unique_id)): Path<(Uuid, String)>,
+    Body(body): Body<ChangeRow>,
+) -> Result<Body<Row>, ApiError> {
+    let row = state
+        .databases
+        .row_by_unique_id(&principal, id, &unique_id)
+        .await?;
+    let row = state
+        .databases
+        .update_row(&principal, row.id, body.values)
+        .await?;
+    Ok(Body(row.into()))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct Claim {
+    /// The person property to name the caller in, by id or name; the database's first
+    /// person property when absent.
+    #[serde(default)]
+    pub person_property: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/rows/{id}/claim",
+    tag = "databases",
+    summary = "Claim a row",
+    description = "Names the caller in the person property, the database's first unless one is \
+                   named, and moves the row to the first option in progress of its status \
+                   property, the database's first: in one transaction, and only while that \
+                   person property names nobody. Of claims of one row at once, exactly one wins; \
+                   the others answer `already_claimed`, naming who holds it. Needs edit access \
+                   to the row.",
+    params(("id" = Uuid, Path, description = "The row's id."), Claim),
+    responses(
+        (status = OK, description = "The row, claimed.", body = Row),
+        (status = BAD_REQUEST, description = "invalid_input: the database has no person property, or none of that name, or no status property with an option in progress.", body = ErrorBody),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views the row and does not edit it, it is in the trash, or the caller is a guest; or insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
+        (status = CONFLICT, description = "already_claimed: the person property names someone already, whom the message names with their ids and the error's holders list.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn claim_row(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+    Query(claim): Query<Claim>,
+) -> Result<Body<Row>, ApiError> {
+    let row = state
+        .databases
+        .claim_row(&principal, id, claim.person_property.as_deref())
+        .await?;
+    Ok(Body(row.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/databases/{id}/rows/{unique_id}/claim",
+    tag = "databases",
+    summary = "Claim a row by its unique id",
+    description = "As `POST /rows/{id}/claim`, for the row whose unique id is `NW-42`, its \
+                   prefix in any case, or `42` alone.",
+    params(
+        ("id" = Uuid, Path, description = "The database's id."),
+        ("unique_id" = String, Path, description = "The row's unique id, such as NW-42."),
+        Claim,
+    ),
+    responses(
+        (status = OK, description = "The row, claimed.", body = Row),
+        (status = BAD_REQUEST, description = "invalid_input: not a unique id of this database, or as for `POST /rows/{id}/claim`.", body = ErrorBody),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden, as for `POST /rows/{id}/claim`; or insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: the database, or no row of it has the id.", body = ErrorBody),
+        (status = CONFLICT, description = "already_claimed, naming who holds it in its message and holders.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn claim_row_by_unique_id(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path((id, unique_id)): Path<(Uuid, String)>,
+    Query(claim): Query<Claim>,
+) -> Result<Body<Row>, ApiError> {
+    let row = state
+        .databases
+        .row_by_unique_id(&principal, id, &unique_id)
+        .await?;
+    let row = state
+        .databases
+        .claim_row(&principal, row.id, claim.person_property.as_deref())
+        .await?;
+    Ok(Body(row.into()))
+}
+
+/// A row assigned to the caller.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Task {
+    pub row: Row,
+    /// Its database's title, absent when the caller sees the row alone.
+    pub database_title: Option<String>,
+    /// Its value of its database's status property.
+    pub status: Option<TaskStatus>,
+}
+
+/// A status option, as a task holds it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TaskStatus {
+    pub id: Uuid,
+    #[schema(example = "In progress")]
+    pub name: String,
+    pub group: Option<StatusGroup>,
+}
+
+impl From<AppTask> for Task {
+    fn from(task: AppTask) -> Self {
+        Self {
+            row: task.row.into(),
+            database_title: task.database_title,
+            status: task.status.map(|status| TaskStatus {
+                id: status.id,
+                name: status.name,
+                group: status.group.map(Into::into),
+            }),
+        }
+    }
+}
+
+/// The rows assigned to the caller.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TaskList {
+    /// The most recently changed first, at most 100.
+    pub tasks: Vec<Task>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/tasks",
+    tag = "databases",
+    summary = "The rows assigned to the caller",
+    description = "The rows of the workspace's databases that a person property names the caller \
+                   in, out of the trash, that the caller sees: the most recently changed first, \
+                   at most 100, each with its status.",
+    params(("id" = Uuid, Path, description = "The workspace's id.")),
+    responses(
+        (status = OK, description = "The tasks.", body = TaskList),
+        (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = NOT_FOUND, description = "not_found: no such workspace, or one the caller is not in.", body = ErrorBody),
+        (status = "default", description = "An error.", body = ErrorBody),
+    ),
+    security(("session_cookie" = []), ("api_token" = []))
+)]
+pub(super) async fn list_tasks(
+    State(state): State<AppState>,
+    Authenticated(principal): Authenticated,
+    Path(id): Path<Uuid>,
+) -> Result<Body<TaskList>, ApiError> {
+    let tasks = state.databases.tasks(&principal, id).await?;
+    Ok(Body(TaskList {
+        tasks: tasks.into_iter().map(Into::into).collect(),
+    }))
 }

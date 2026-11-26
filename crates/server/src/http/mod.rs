@@ -1,27 +1,34 @@
 //! The HTTP API under `/api/v1`, its description, and the middleware every request
 //! passes.
 
-mod account;
+pub(crate) mod account;
 mod admin;
 mod admin_workspaces;
+mod agents;
 mod auth;
+pub(crate) mod content;
 mod database_live;
-mod database_rows;
-mod databases;
-mod dto;
+pub(crate) mod database_rows;
+pub(crate) mod databases;
+pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+mod hooks;
+mod incoming_webhooks;
 mod meta;
+mod oauth;
 mod openapi;
 mod page_shares;
-mod pages;
-mod principal;
+pub(crate) mod pages;
+pub(crate) mod principal;
 mod sync;
-mod teamspaces;
+pub(crate) mod teamspaces;
 mod transfer;
-mod web;
-mod workspaces;
+pub(crate) mod web;
+mod webhooks;
+pub(crate) mod whoami;
+pub(crate) mod workspaces;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -33,15 +40,21 @@ use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{any, get, post};
 use neon_app::auth::AuthService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
-use neon_app::workspaces::WorkspaceService;
+use neon_app::webhooks::WebhookService;
+use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
+use neon_domain::oauth::{
+    API_RESOURCE_METADATA_PATH, MCP_RESOURCE_METADATA_PATH, RESOURCE_METADATA_PATH,
+    SERVER_METADATA_PATH,
+};
 use neon_observability::http::HttpLayer;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -64,12 +77,16 @@ pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub auth: AuthService,
     pub workspaces: WorkspaceService,
+    pub agents: AgentService,
+    pub oauth: OAuthService,
     pub pages: PageService,
     pub sync: SyncService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
     pub transfer: TransferService,
+    pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
+    pub mcp: crate::mcp::Mcp,
 }
 
 /// Every API route, each registered together with its entry in the description.
@@ -87,6 +104,7 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(auth::check_invite))
         .routes(routes!(auth::request_to_join))
         .routes(routes!(auth::confirm_join))
+        .routes(routes!(whoami::whoami))
         .routes(routes!(account::get_me, account::update_me))
         .routes(routes!(account::change_password))
         .routes(routes!(
@@ -144,6 +162,50 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(workspaces::revoke_invite_link))
         .routes(routes!(workspaces::preview_invite_link))
         .routes(routes!(workspaces::join_with_link))
+        .routes(routes!(agents::list_agents, agents::create_agent))
+        .routes(routes!(
+            agents::get_agent,
+            agents::update_agent,
+            agents::delete_agent
+        ))
+        .routes(routes!(agents::transfer_agent))
+        .routes(routes!(
+            agents::list_agent_tokens,
+            agents::create_agent_token
+        ))
+        .routes(routes!(agents::revoke_agent_token))
+        .routes(routes!(oauth::authorize))
+        .routes(routes!(oauth::read_consent))
+        .routes(routes!(oauth::approve_consent))
+        .routes(routes!(oauth::deny_consent))
+        .routes(routes!(oauth::list_connected_apps))
+        .routes(routes!(oauth::disconnect_app))
+        .routes(routes!(oauth::list_workspace_apps))
+        .routes(routes!(oauth::disconnect_workspace_app))
+        .routes(routes!(webhooks::list_webhooks, webhooks::create_webhook))
+        .routes(routes!(
+            webhooks::get_webhook,
+            webhooks::update_webhook,
+            webhooks::delete_webhook
+        ))
+        .routes(routes!(webhooks::rotate_webhook_secret))
+        .routes(routes!(webhooks::webhook_deliveries))
+        .routes(routes!(webhooks::test_webhook))
+        .routes(routes!(
+            incoming_webhooks::list_incoming_webhooks,
+            incoming_webhooks::create_incoming_webhook
+        ))
+        .routes(routes!(
+            incoming_webhooks::get_incoming_webhook,
+            incoming_webhooks::update_incoming_webhook,
+            incoming_webhooks::delete_incoming_webhook
+        ))
+        .routes(routes!(incoming_webhooks::rotate_incoming_token))
+        .routes(routes!(
+            incoming_webhooks::rotate_incoming_secret,
+            incoming_webhooks::remove_incoming_secret
+        ))
+        .routes(routes!(incoming_webhooks::incoming_webhook_requests))
         .routes(routes!(
             teamspaces::list_teamspaces,
             teamspaces::create_teamspace
@@ -173,6 +235,8 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::trash_page))
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
+        .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(pages::recent_pages))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -202,9 +266,15 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(databases::duplicate_view))
         .routes(routes!(database_rows::query_rows))
         .routes(routes!(database_rows::create_row))
-        .routes(routes!(database_rows::row_by_unique_id))
+        .routes(routes!(
+            database_rows::row_by_unique_id,
+            database_rows::change_row_by_unique_id
+        ))
+        .routes(routes!(database_rows::claim_row_by_unique_id))
         .routes(routes!(database_rows::get_row, database_rows::change_row))
         .routes(routes!(database_rows::move_row))
+        .routes(routes!(database_rows::claim_row))
+        .routes(routes!(database_rows::list_tasks))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
         // Uploads are larger than the bodies of other routes.
@@ -212,16 +282,42 @@ fn api() -> OpenApiRouter<AppState> {
             OpenApiRouter::new()
                 .routes(routes!(transfer::import_pages))
                 .layer(transfer::import_body_limit()),
+        )
+        // OAuth's endpoints for clients take anyone's requests, so they read no more than
+        // a request of theirs needs.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::register_client))
+                .layer(oauth::registration_body_limit()),
+        )
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(oauth::issue_tokens))
+                .routes(routes!(oauth::revoke_oauth_token))
+                .layer(oauth::form_body_limit()),
         );
-    // Real-time sync speaks WebSocket, which the API's description has no words for; the
-    // docs describe it.
+    // Where clients find the OAuth server, at the root (RFC 8414, RFC 9728). The protected
+    // resources' are below it too, after the well-known path, as RFC 9728 places them.
+    let discovery = OpenApiRouter::new()
+        .route(SERVER_METADATA_PATH, get(oauth::server_metadata))
+        .route(RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
+        .route(MCP_RESOURCE_METADATA_PATH, get(oauth::mcp_metadata))
+        .route(API_RESOURCE_METADATA_PATH, get(oauth::api_metadata));
+    // Real-time sync speaks WebSocket, which the API's description has no words for, and
+    // incoming webhooks take what their senders post, outside the API; the docs describe
+    // both.
     OpenApiRouter::with_openapi(openapi::base())
         .nest("/api/v1", routes)
+        .merge(discovery)
         .route("/ws/pages/{page_id}", get(sync::open_page))
         .route(
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        .route("/hooks/in/{token}", post(hooks::receive_hook))
+        // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
+        // resources.
+        .route(crate::mcp::PATH, any(crate::mcp::serve))
 }
 
 /// The server's HTTP service. `trust_incoming` is `observability.tracing.trust_incoming`:
@@ -254,7 +350,8 @@ impl Default for Limits {
 /// The routes plus the description route, the fallbacks and the middleware.
 ///
 /// Requests that change something from another origin are refused before any handler
-/// runs; see [`web`].
+/// runs; see [`web`]. OAuth's endpoints for clients allow CORS from any origin; see
+/// [`oauth`].
 ///
 /// `Router::layer` wraps each route, after routing, so `telemetry` sees the route template.
 /// It sits outside the layers that answer for the handler, the panic catcher and the time
@@ -291,6 +388,9 @@ fn app(
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
                     time_limit(limits.timeout, request, next)
                 }))
+                // Around the routes' methods and the fallback that refuses the others, so
+                // that it answers the preflights of OAuth's endpoints for clients.
+                .layer(middleware::from_fn(oauth::cors))
                 .layer(middleware::from_fn_with_state(web, web::same_origin_only))
                 .layer(DefaultBodyLimit::max(limits.body)),
         )
@@ -330,9 +430,19 @@ async fn time_limit(timeout: Duration, request: Request, next: Next) -> Response
 }
 
 #[cfg(test)]
+mod agents_tests;
+#[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod content_tests;
+#[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod incoming_tests;
+#[cfg(test)]
+mod mcp_tests;
+#[cfg(test)]
+mod oauth_tests;
 #[cfg(test)]
 mod pages_tests;
 #[cfg(test)]
@@ -341,5 +451,7 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(test)]
+mod webhooks_tests;
 #[cfg(test)]
 mod workspaces_tests;

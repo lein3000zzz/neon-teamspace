@@ -1,9 +1,12 @@
-use super::{from_markdown, to_markdown};
+use super::parse::bound_markers;
+use super::{
+    MAX_DEPTH, TooDeep, from_markdown, to_markdown, to_markdown_with_ids, try_from_markdown,
+};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     Block, BlockKind, CheckListItemProps, CodeBlockProps, DatabaseProps, Document, FileProps,
-    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, StyledText, Styles, TableCell,
-    TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
+    HeadingProps, ImageProps, Inline, Link, NumberedListItemProps, QuoteProps, StyledText, Styles,
+    TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment, TextProps,
 };
 
 fn text(text: &str) -> Vec<Inline> {
@@ -673,4 +676,317 @@ fn a_toggle_title_that_is_another_block_is_text() {
         from_markdown(":::toggle - not a list\n:::"),
         doc(vec![toggle(text("- not a list"))])
     );
+}
+
+/// How many levels a document's blocks nest.
+fn depth(document: &Document) -> usize {
+    let mut deepest = 0;
+    let mut stack: Vec<(&Block, usize)> = document.blocks.iter().map(|block| (block, 1)).collect();
+    while let Some((block, level)) = stack.pop() {
+        deepest = deepest.max(level);
+        stack.extend(block.children.iter().map(|child| (child, level + 1)));
+    }
+    deepest
+}
+
+/// The texts of a document's blocks, parents before their children.
+fn texts(document: &Document) -> Vec<String> {
+    document
+        .walk()
+        .map(|block| match &block.kind {
+            BlockKind::Paragraph { content, .. }
+            | BlockKind::Quote { content, .. }
+            | BlockKind::BulletListItem { content, .. }
+            | BlockKind::ToggleListItem { content, .. } => content
+                .iter()
+                .map(|inline| match inline {
+                    Inline::Text(text) => text.text.clone(),
+                    Inline::Link(link) => format!("{link:?}"),
+                })
+                .collect(),
+            other => format!("{other:?}"),
+        })
+        .collect()
+}
+
+/// Markdown nesting `levels` blocks of one shape, the innermost one saying `inner`.
+fn nested(shape: &str, levels: usize) -> String {
+    match shape {
+        "quote" => format!("{}inner", "> ".repeat(levels)),
+        "list" => (0..levels)
+            .map(|level| format!("{}- item {level}\n", "  ".repeat(level)))
+            .collect::<String>()
+            .replace(&format!("item {}", levels - 1), "inner"),
+        "toggle" => format!(
+            "{}inner\n\n{}",
+            ":::toggle t\n\n".repeat(levels - 1),
+            ":::\n\n".repeat(levels - 1)
+        ),
+        // Toggles holding quotes: half of each.
+        _ => format!(
+            "{}{}inner\n\n{}",
+            ":::toggle t\n\n".repeat(levels / 2),
+            "> ".repeat(levels - levels / 2),
+            ":::\n\n".repeat(levels / 2)
+        ),
+    }
+}
+
+#[test]
+fn blocks_nest_up_to_the_limit() {
+    for shape in ["quote", "list", "toggle", "toggled quotes"] {
+        let markdown = nested(shape, MAX_DEPTH);
+        let read = try_from_markdown(&markdown).unwrap_or_else(|_| panic!("{shape}: refused"));
+        assert_eq!(depth(&read), MAX_DEPTH, "{shape}");
+        assert_eq!(from_markdown(&markdown), read, "{shape}");
+        assert!(texts(&read).iter().any(|text| text == "inner"), "{shape}");
+    }
+}
+
+#[test]
+fn deeper_blocks_are_read_at_the_last_level_or_refused() {
+    for shape in ["quote", "list", "toggle", "toggled quotes"] {
+        let markdown = nested(shape, MAX_DEPTH + 1);
+        assert_eq!(try_from_markdown(&markdown), Err(TooDeep), "{shape}");
+        let read = from_markdown(&markdown);
+        assert_eq!(depth(&read), MAX_DEPTH, "{shape}");
+        assert!(
+            texts(&read).iter().any(|text| text.contains("inner")),
+            "{shape}: {:?}",
+            texts(&read)
+        );
+    }
+    assert_eq!(
+        TooDeep.to_string(),
+        format!("blocks nest at most {MAX_DEPTH} levels deep")
+    );
+}
+
+#[test]
+fn a_childless_toggle_at_the_last_level_is_not_too_deep() {
+    let markdown = format!(
+        "{}:::toggle last\n\n:::\n\n{}",
+        ":::toggle t\n\n".repeat(MAX_DEPTH - 1),
+        ":::\n\n".repeat(MAX_DEPTH - 1)
+    );
+    let read = try_from_markdown(&markdown).expect("within the limit");
+    assert_eq!(depth(&read), MAX_DEPTH);
+}
+
+#[test]
+fn markdown_nested_thousands_deep_reads_on_a_workers_stack() {
+    let inputs = [
+        "> ".repeat(5000),
+        "- ".repeat(5000) + "x",
+        "1. ".repeat(5000) + "x",
+        "> - ".repeat(2500) + "x",
+        ":::toggle t\n\n".repeat(20_000),
+        ":::toggle t\n\n".repeat(20) + &"> ".repeat(5000),
+    ];
+    // Two MiB, as each of an async runtime's worker threads has.
+    let read = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || {
+            inputs
+                .iter()
+                .map(|markdown| {
+                    let read = from_markdown(markdown);
+                    (depth(&read), try_from_markdown(markdown).is_err())
+                })
+                .collect::<Vec<_>>()
+        })
+        .expect("a thread")
+        .join()
+        .expect("read without overflowing the stack");
+    for (index, (depth, refused)) in read.into_iter().enumerate() {
+        assert_eq!(depth, MAX_DEPTH, "input {index}");
+        assert!(refused, "input {index}");
+    }
+}
+
+#[test]
+fn a_line_opens_a_bounded_number_of_containers() {
+    let markers = MAX_DEPTH + 1;
+    for marker in ["> ", ">", "- ", "* ", "+\t", "1. ", "12) "] {
+        let line = format!("{}text\n", marker.repeat(markers + 5));
+        let (bounded, escaped) = bound_markers(&line);
+        assert!(escaped, "{marker:?}");
+        let cut = marker.len() * markers;
+        let at = if marker.starts_with(char::is_numeric) {
+            cut + marker.find(['.', ')']).expect("a delimiter")
+        } else {
+            cut
+        };
+        assert_eq!(&bounded[..at], &line[..at], "{marker:?}");
+        assert_eq!(&bounded[at..at + 1], "\\", "{marker:?}");
+        assert_eq!(&bounded[at + 1..], &line[at..], "{marker:?}");
+    }
+
+    let within = format!("{}text\n", "> ".repeat(markers));
+    assert_eq!(bound_markers(&within), (within.as_str().into(), false));
+    // A long thematic break, text that only looks like markers, and every other line, stay.
+    for kept in [
+        "- ".repeat(100),
+        "* ".repeat(100),
+        format!("{}x", "-".repeat(100)),
+        format!("{}x", "1.".repeat(100)),
+        "plain text".to_owned(),
+    ] {
+        assert_eq!(
+            bound_markers(&kept),
+            (kept.as_str().into(), false),
+            "{kept}"
+        );
+    }
+
+    // Each line is bounded on its own, and the lines that continue one are kept.
+    let lines = format!("{}a\nb\n{}c\n", "> ".repeat(100), "- ".repeat(100));
+    let (bounded, escaped) = bound_markers(&lines);
+    assert!(escaped);
+    assert_eq!(bounded.matches('\\').count(), 2);
+    assert!(bounded.contains("\nb\n"));
+    let read = from_markdown(&lines);
+    assert_eq!(depth(&read), MAX_DEPTH);
+    assert!(texts(&read).iter().any(|text| text.ends_with("> > a b")));
+}
+
+#[test]
+fn ids_are_written_before_their_blocks_at_their_level() {
+    let document = doc(vec![
+        heading(1, "Plan", false).with_id("h"),
+        paragraph(vec![]).with_id("empty"),
+        bullet("First")
+            .with_id("b1")
+            .with_children(vec![bullet("Under it").with_id("b2")]),
+        bullet("Second").with_id("b3"),
+        Block::new(BlockKind::Quote {
+            props: QuoteProps::default(),
+            content: text("Said"),
+        })
+        .with_id("q")
+        .with_children(vec![bullet("Inside").with_id("qb")]),
+        toggle(text("Fold"))
+            .with_id("t")
+            .with_children(vec![paragraph(text("Hidden")).with_id("tp")]),
+        Block::new(BlockKind::CodeBlock {
+            props: CodeBlockProps::default(),
+            code: "<!-- block not-one -->".into(),
+        })
+        .with_id("c"),
+        paragraph(text("an id: of / course")).with_id("odd id/1"),
+    ]);
+    let named = to_markdown_with_ids(&document);
+    assert_eq!(
+        named,
+        "<!-- block h -->\n# Plan\n\n<!-- block empty -->\n\n<!-- block b1 -->\n- First\n  \
+         <!-- block b2 -->\n  - Under it\n<!-- block b3 -->\n- Second\n\n<!-- block q -->\n\
+         > Said\n>\n> <!-- block qb -->\n> - Inside\n\n<!-- block t -->\n:::toggle Fold\n\n\
+         <!-- block tp -->\nHidden\n\n:::\n\n<!-- block c -->\n```\n<!-- block not-one -->\n\
+         ```\n\n<!-- block odd%20id%2F1 -->\nan id: of / course\n"
+    );
+    // Read back, the lines naming blocks are gone, but for what code holds, and the empty
+    // paragraph a line names alone stays.
+    let mut read = from_markdown(&named);
+    assert_eq!(read.blocks.remove(1), paragraph(vec![]));
+    assert_eq!(read, from_markdown(&to_markdown(&document)));
+    assert!(read.blocks.iter().any(|block| matches!(
+        &block.kind,
+        BlockKind::CodeBlock { code, .. } if code == "<!-- block not-one -->"
+    )));
+}
+
+#[test]
+fn only_lines_that_name_a_block_alone_are_left_out() {
+    assert_eq!(
+        from_markdown(
+            "<!-- block a -->\nKept\n\n<!-- block two words -->\n\ntext <!-- block b -->"
+        ),
+        doc(vec![
+            paragraph(text("Kept")),
+            paragraph(text("<!-- block two words -->")),
+            paragraph(text("text <!-- block b -->")),
+        ])
+    );
+    // Numbered lists named item by item read as one list.
+    assert_eq!(
+        from_markdown("<!-- block a -->\n1. one\n<!-- block b -->\n2. two\n"),
+        from_markdown("1. one\n2. two\n")
+    );
+    assert_eq!(
+        from_markdown("> <!-- block a -->\n> quoted"),
+        from_markdown("> quoted")
+    );
+}
+
+#[test]
+fn a_line_naming_a_block_with_no_lines_of_its_own_is_an_empty_paragraph() {
+    let empty = || paragraph(vec![]);
+    // At the end, before a blank line, and before another such line.
+    assert_eq!(
+        from_markdown("<!-- block a -->\nA\n\n<!-- block e -->\n"),
+        doc(vec![paragraph(text("A")), empty()])
+    );
+    assert_eq!(
+        from_markdown("<!-- block e -->\n\n<!-- block a -->\nA\n"),
+        doc(vec![empty(), paragraph(text("A"))])
+    );
+    assert_eq!(
+        from_markdown("<!-- block e -->\n<!-- block f -->\n<!-- block a -->\nA"),
+        doc(vec![empty(), empty(), paragraph(text("A"))])
+    );
+    // At the end of a list item, a toggle and a quote.
+    assert_eq!(
+        from_markdown("- a\n\n  <!-- block e -->\n- b\n"),
+        doc(vec![bullet("a").with_children(vec![empty()]), bullet("b")])
+    );
+    assert_eq!(
+        from_markdown("-\n  <!-- block e -->\n"),
+        doc(vec![bullet("").with_children(vec![empty()])])
+    );
+    assert_eq!(
+        from_markdown(":::toggle T\n\n<!-- block e -->\n\n:::\n"),
+        doc(vec![toggle(text("T")).with_children(vec![empty()])])
+    );
+    assert_eq!(
+        from_markdown("> said\n>\n> - a\n>\n> <!-- block e -->\n"),
+        doc(vec![
+            Block::new(BlockKind::Quote {
+                props: QuoteProps::default(),
+                content: text("said"),
+            })
+            .with_children(vec![bullet("a"), empty()])
+        ])
+    );
+    // A line right before a block's lines names that block.
+    assert_eq!(
+        from_markdown("<!-- block a -->\n- a\n  <!-- block b -->\n  - b\n"),
+        from_markdown("- a\n  - b\n")
+    );
+}
+
+#[test]
+fn empty_paragraphs_written_with_their_ids_read_back_in_place() {
+    let document = doc(vec![
+        paragraph(text("One")).with_id("a"),
+        paragraph(vec![]).with_id("b"),
+        bullet("Two").with_id("c").with_children(vec![
+            paragraph(vec![]).with_id("d"),
+            bullet("x").with_id("e"),
+        ]),
+        paragraph(vec![]).with_id("f"),
+    ]);
+    let read = from_markdown(&to_markdown_with_ids(&document));
+    assert_eq!(read.blocks, unnamed(&document.blocks));
+}
+
+/// The blocks without their ids.
+fn unnamed(blocks: &[Block]) -> Vec<Block> {
+    blocks
+        .iter()
+        .map(|block| Block {
+            id: None,
+            kind: block.kind.clone(),
+            children: unnamed(&block.children),
+        })
+        .collect()
 }

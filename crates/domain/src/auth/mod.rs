@@ -26,5 +26,5 @@ pub use preferences::Preferences;
 pub use principal::{Credential, Principal};
 pub use registration::RegistrationMode;
 pub use session::{Session, SessionPolicy};
-pub use token::{ApiToken, Scope};
-pub use user::{InvalidDisplayName, MAX_DISPLAY_NAME, Role, User, display_name};
+pub use token::{ApiToken, Scope, TokenHolder};
+pub use user::{InvalidDisplayName, MAX_DISPLAY_NAME, Role, User, UserKind, display_name};

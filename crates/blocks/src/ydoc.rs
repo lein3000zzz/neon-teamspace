@@ -52,13 +52,14 @@ use crate::model::{
 /// BlockNote's collaboration options.
 pub const FRAGMENT: &str = "document-store";
 
-const BLOCK_GROUP: &str = "blockGroup";
-const BLOCK_CONTAINER: &str = "blockContainer";
+pub(crate) const BLOCK_GROUP: &str = "blockGroup";
+pub(crate) const BLOCK_CONTAINER: &str = "blockContainer";
 const HARD_BREAK: &str = "hardBreak";
-const TABLE_ROW: &str = "tableRow";
-const TABLE_CELL: &str = "tableCell";
-const TABLE_HEADER: &str = "tableHeader";
-const TABLE_PARAGRAPH: &str = "tableParagraph";
+pub(crate) const TABLE: &str = "table";
+pub(crate) const TABLE_ROW: &str = "tableRow";
+pub(crate) const TABLE_CELL: &str = "tableCell";
+pub(crate) const TABLE_HEADER: &str = "tableHeader";
+pub(crate) const TABLE_PARAGRAPH: &str = "tableParagraph";
 
 /// The marks of the editor's schema, in its order.
 const BOLD: &str = "bold";
@@ -245,7 +246,7 @@ fn read_group<T: ReadTxn>(
     Ok(blocks)
 }
 
-fn read_container<T: ReadTxn>(
+pub(crate) fn read_container<T: ReadTxn>(
     txn: &T,
     container: &XmlElementRef,
     dropped: Option<&mut usize>,
@@ -730,17 +731,33 @@ fn write_blocks(
     blocks: &[Block],
     ids: &mut dyn IdSource,
 ) {
-    for block in blocks {
-        let container = group.push_back(txn, XmlElementPrelim::empty(BLOCK_CONTAINER));
+    let end = group.len(txn);
+    write_blocks_at(txn, group, end, blocks, ids);
+}
+
+/// Writes `blocks` into a group from `index` on, and returns the ids of the blocks written
+/// there, those under them left out.
+pub(crate) fn write_blocks_at(
+    txn: &mut TransactionMut,
+    group: &XmlElementRef,
+    index: u32,
+    blocks: &[Block],
+    ids: &mut dyn IdSource,
+) -> Vec<String> {
+    let mut written = Vec::with_capacity(blocks.len());
+    for (at, block) in (index..).zip(blocks) {
+        let container = group.insert(txn, at, XmlElementPrelim::empty(BLOCK_CONTAINER));
         let id = block.id.clone().unwrap_or_else(|| ids.next_id());
-        container.insert_attribute(txn, "id", id);
+        container.insert_attribute(txn, "id", id.as_str());
         let content = container.push_back(txn, XmlElementPrelim::empty(block.kind.name()));
         write_kind(txn, &content, &block.kind);
         if !block.children.is_empty() {
             let nested = container.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP));
             write_blocks(txn, &nested, &block.children, ids);
         }
+        written.push(id);
     }
+    written
 }
 
 /// The attributes of one element, written in the schema's order.

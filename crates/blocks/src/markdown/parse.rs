@@ -2,6 +2,7 @@
 //! of markdown's own blocks first; the extension's lines are then found among the
 //! paragraphs, and the tree becomes the document's blocks.
 
+use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
@@ -9,6 +10,7 @@ use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, OffsetIter, Options, Parser, Tag, TagEnd,
 };
 
+use super::write::{ID_CLOSE, ID_OPEN};
 use crate::inline::{Marks, Piece, to_inline, to_pieces};
 use crate::model::{
     AudioProps, Block, BlockKind, CheckListItemProps, CodeBlockProps, DEFAULT_LANGUAGE,
@@ -17,10 +19,215 @@ use crate::model::{
     TableRow, TextAlignment, TextProps,
 };
 
+/// The most levels blocks nest in a document read from markdown: a top-level block is at
+/// the first. What markdown nests deeper is read at the last level instead, as the module
+/// docs say, so no markdown makes a document whose depth would exhaust the stack of the code
+/// that walks it.
+pub const MAX_DEPTH: usize = 32;
+
+/// Markdown whose blocks nest deeper than [`MAX_DEPTH`] levels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("blocks nest at most {MAX_DEPTH} levels deep")]
+pub struct TooDeep;
+
 /// The blocks of a markdown text. Any text is markdown, so this cannot fail; the blocks have
-/// no ids.
+/// no ids, and nest at most [`MAX_DEPTH`] levels deep. The lines naming blocks that
+/// [`to_markdown_with_ids`](super::to_markdown_with_ids) writes are left out, so its markdown
+/// reads as [`to_markdown`](super::to_markdown)'s does, but for a line naming a block that
+/// has no lines of its own: an empty paragraph, which it stays.
 pub fn from_markdown(markdown: &str) -> Document {
-    Document::new(convert(parse(markdown)))
+    read(markdown).0
+}
+
+/// As [`from_markdown`], refusing markdown whose blocks nest deeper than [`MAX_DEPTH`]
+/// levels rather than reading them at the last.
+pub fn try_from_markdown(markdown: &str) -> Result<Document, TooDeep> {
+    match read(markdown) {
+        (document, Nesting { lifted: false }) => Ok(document),
+        _ => Err(TooDeep),
+    }
+}
+
+fn read(markdown: &str) -> (Document, Nesting) {
+    let (markdown, escaped) = bound_markers(markdown);
+    let markdown = without_ids(&markdown);
+    let mut nesting = Nesting { lifted: escaped };
+    let blocks = parse(&markdown, &mut nesting);
+    let document = Document::new(convert(blocks, 1, &mut nesting));
+    (document, nesting)
+}
+
+/// Whether a read lifted blocks out of a parent nested too deep to hold them.
+#[derive(Debug, Default)]
+struct Nesting {
+    lifted: bool,
+}
+
+/// The most quote and list markers the start of a line is read as: one more than blocks
+/// nest, so that a line nesting deeper is still found too deep.
+const MAX_MARKERS: usize = MAX_DEPTH + 1;
+
+/// The markdown with the first quote or list marker past [`MAX_MARKERS`] at the start of
+/// each line escaped, so the rest of the line is text, and whether any was. Only a line's
+/// markers open containers, and pulldown-cmark takes time in proportion to those open on
+/// each line it reads: bounding them bounds it, where a line of thousands of `>` followed
+/// by thousands of lines that continue it would take seconds.
+pub(super) fn bound_markers(markdown: &str) -> (Cow<'_, str>, bool) {
+    let mut escaped: Option<String> = None;
+    let mut copied = 0;
+    let mut start = 0;
+    for line in markdown.split_inclusive('\n') {
+        if let Some(at) = excess_marker(line) {
+            let out = escaped.get_or_insert_with(|| String::with_capacity(markdown.len() + 1));
+            out.push_str(&markdown[copied..start + at]);
+            out.push('\\');
+            copied = start + at;
+        }
+        start += line.len();
+    }
+    match escaped {
+        Some(mut out) => {
+            out.push_str(&markdown[copied..]);
+            (Cow::Owned(out), true)
+        }
+        None => (Cow::Borrowed(markdown), false),
+    }
+}
+
+/// Where a backslash goes in a line that starts with more than [`MAX_MARKERS`] quote or list
+/// markers: before the first marker past them. A thematic break of many `- ` is left alone.
+fn excess_marker(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let spaced = |at: usize| bytes.get(at).is_none_or(u8::is_ascii_whitespace);
+    let mut at = 0;
+    let mut markers = 0;
+    loop {
+        while matches!(bytes.get(at), Some(b' ' | b'\t')) {
+            at += 1;
+        }
+        let (marker, next) = match bytes.get(at)? {
+            b'>' => (at, at + 1),
+            b'-' | b'+' | b'*' if spaced(at + 1) => (at, at + 1),
+            b'0'..=b'9' => {
+                let digits = bytes[at..]
+                    .iter()
+                    .take_while(|b| b.is_ascii_digit())
+                    .count();
+                let end = at + digits;
+                if digits > 9 || !matches!(bytes.get(end), Some(b'.' | b')')) || !spaced(end + 1) {
+                    return None;
+                }
+                (end, end + 1)
+            }
+            _ => return None,
+        };
+        markers += 1;
+        if markers > MAX_MARKERS {
+            return (!is_rule(&line[at..])).then_some(marker);
+        }
+        at = next;
+    }
+}
+
+/// Whether text is a thematic break: three or more of one of `-`, `*` and `_`, and
+/// whitespace.
+fn is_rule(text: &str) -> bool {
+    let mut marks = text.chars().filter(|c| !c.is_whitespace());
+    let Some(first) = marks.next() else {
+        return false;
+    };
+    matches!(first, '-' | '*' | '_') && marks.clone().all(|c| c == first) && marks.count() >= 2
+}
+
+/// The markdown without the lines that name a block: each an HTML block of its own, so none
+/// in code is taken, and gone with its line, so blocks around it read as if it never was.
+/// One that names an empty paragraph stays, to be read as one.
+fn without_ids(markdown: &str) -> Cow<'_, str> {
+    if !markdown.contains(ID_OPEN) {
+        return Cow::Borrowed(markdown);
+    }
+    let events: Vec<(Event<'_>, Range<usize>)> = Parser::new_ext(markdown, options())
+        .into_offset_iter()
+        .collect();
+    let mut cuts: Vec<Range<usize>> = Vec::new();
+    for (index, (event, range)) in events.iter().enumerate() {
+        let Event::Html(html) = event else {
+            continue;
+        };
+        if !names_block(html) {
+            continue;
+        }
+        let start = markdown[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        // What comes before it on its line: indentation, or the markers of a quote.
+        if !markdown[start..range.start]
+            .chars()
+            .all(|c| c == ' ' || c == '\t' || c == '>')
+        {
+            continue;
+        }
+        let end = if markdown[..range.end].ends_with('\n') {
+            range.end
+        } else {
+            markdown[range.end..]
+                .find('\n')
+                .map_or(markdown.len(), |at| range.end + at + 1)
+        };
+        if names_empty_paragraph(markdown, end, &events[index + 1..]) {
+            continue;
+        }
+        cuts.push(start..end);
+    }
+    if cuts.is_empty() {
+        return Cow::Borrowed(markdown);
+    }
+    let mut kept = String::with_capacity(markdown.len());
+    let mut from = 0;
+    for cut in cuts {
+        if cut.start >= from {
+            kept.push_str(&markdown[from..cut.start]);
+            from = cut.end;
+        }
+    }
+    kept.push_str(&markdown[from..]);
+    Cow::Owned(kept)
+}
+
+/// Whether a line naming a block, ending at `end`, names one with no lines of its own: an
+/// empty paragraph. The lines of any other block follow right after it, so it is one when
+/// what follows is a blank line, another line naming a block, the end of what holds it, or
+/// nothing. `after` are the events after the line's.
+fn names_empty_paragraph(markdown: &str, end: usize, after: &[(Event<'_>, Range<usize>)]) -> bool {
+    let mut after = after
+        .iter()
+        .filter(|(event, _)| !matches!(event, Event::End(TagEnd::HtmlBlock)));
+    let Some((next, range)) = after.next() else {
+        return true;
+    };
+    let blank_between = markdown[end..range.start.max(end)]
+        .split_inclusive('\n')
+        .any(|line| line.ends_with('\n') && line.chars().all(|c| c.is_whitespace() || c == '>'));
+    match next {
+        Event::End(_) => true,
+        Event::Start(Tag::HtmlBlock) => {
+            blank_between
+                || matches!(after.next(), Some((Event::Html(html), _)) if names_block(html))
+        }
+        _ => blank_between,
+    }
+}
+
+/// Whether an HTML block's line is one naming a block: `<!-- block <id> -->`, the id one word.
+fn names_block(html: &str) -> bool {
+    html.trim()
+        .strip_prefix(ID_OPEN)
+        .and_then(|rest| rest.strip_suffix(ID_CLOSE))
+        .map(str::trim_end)
+        .is_some_and(|id| {
+            !id.is_empty()
+                && id.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'%')
+                })
+        })
 }
 
 /// The parser's options: CommonMark with GitHub's tables, strikethrough and task lists.
@@ -28,11 +235,11 @@ pub(super) fn options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
 }
 
-fn parse(markdown: &str) -> Vec<Md<'_>> {
+fn parse<'a>(markdown: &'a str, nesting: &mut Nesting) -> Vec<Md<'a>> {
     let mut events = Parser::new_ext(markdown, options())
         .into_offset_iter()
         .peekable();
-    parse_blocks(&mut events, markdown)
+    parse_blocks(&mut events, markdown, 1, nesting)
 }
 
 type Events<'a> = Peekable<OffsetIter<'a, pulldown_cmark::DefaultBrokenLinkCallback>>;
@@ -89,8 +296,18 @@ enum Part {
     },
 }
 
-fn parse_blocks<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Md<'a>> {
+/// The blocks up to the end of the block they are in, at `depth`. A quote or a list item is
+/// a block at its depth, up to [`MAX_DEPTH`], its content one level deeper: one deeper
+/// still is left out, its content read at its level, so reading never recurses further.
+fn parse_blocks<'a>(
+    events: &mut Events<'a>,
+    source: &'a str,
+    depth: usize,
+    nesting: &mut Nesting,
+) -> Vec<Md<'a>> {
     let mut blocks = Vec::new();
+    // The blocks left out whose content is being read here, not ended yet.
+    let mut open = 0usize;
     while let Some((event, _)) = events.peek() {
         if is_inline(event) {
             blocks.push(Md::Paragraph(parse_lines(events, source)));
@@ -100,7 +317,12 @@ fn parse_blocks<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Md<'a>> {
             break;
         };
         match event {
+            Event::End(_) if open > 0 => open -= 1,
             Event::End(_) => break,
+            Event::Start(Tag::BlockQuote(_) | Tag::List(_) | Tag::Item) if depth > MAX_DEPTH => {
+                nesting.lifted = true;
+                open += 1;
+            }
             Event::Start(Tag::Paragraph) => {
                 let lines = parse_lines(events, source);
                 events.next();
@@ -112,13 +334,15 @@ fn parse_blocks<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Md<'a>> {
                 blocks.push(Md::Heading(level as u8, lines));
             }
             Event::Start(Tag::BlockQuote(_)) => {
-                blocks.push(Md::Quote(parse_blocks(events, source)))
+                blocks.push(Md::Quote(parse_blocks(events, source, depth + 1, nesting)))
             }
             Event::Start(Tag::List(start)) => {
                 let mut items = Vec::new();
                 while let Some((event, _)) = events.next() {
                     match event {
-                        Event::Start(Tag::Item) => items.push(parse_blocks(events, source)),
+                        Event::Start(Tag::Item) => {
+                            items.push(parse_blocks(events, source, depth + 1, nesting));
+                        }
                         _ => break,
                     }
                 }
@@ -161,7 +385,7 @@ fn parse_blocks<'a>(events: &mut Events<'a>, source: &'a str) -> Vec<Md<'a>> {
             Event::Rule => blocks.push(Md::Rule),
             Event::Html(text) => blocks.push(Md::Html(text.to_string())),
             // A block of a kind the options leave off: its content, as blocks.
-            Event::Start(_) => blocks.extend(parse_blocks(events, source)),
+            Event::Start(_) => open += 1,
             _ => {}
         }
     }
@@ -425,21 +649,71 @@ enum Segment<'a> {
 }
 
 /// The blocks being built at one level, with the toggles opened in it and not closed yet.
-#[derive(Default)]
 struct Builder {
+    /// The level its blocks are at, outside its toggles.
+    depth: usize,
     blocks: Vec<Block>,
     toggles: Vec<(Block, Vec<Block>)>,
+    /// The toggles opened at the last level, not closed yet: each is a block of its own,
+    /// followed by what it would hold.
+    flat: usize,
+    /// Whether a block was put beside a parent too deep to hold it.
+    lifted: bool,
 }
 
 impl Builder {
+    fn new(depth: usize) -> Self {
+        Self {
+            depth,
+            blocks: Vec::new(),
+            toggles: Vec::new(),
+            flat: 0,
+            lifted: false,
+        }
+    }
+
+    /// The level a block pushed now is at.
+    fn level(&self) -> usize {
+        self.depth + self.toggles.len()
+    }
+
     fn push(&mut self, block: Block) {
+        self.lifted |= self.flat > 0;
         match self.toggles.last_mut() {
             Some((_, children)) => children.push(block),
             None => self.blocks.push(block),
         }
     }
 
+    /// Pushes a block whose children were read a level below [`level`](Self::level), or,
+    /// at the last level, read there: then they follow it instead of nesting.
+    fn push_nested(&mut self, mut block: Block) {
+        if self.level() < MAX_DEPTH {
+            self.push(block);
+            return;
+        }
+        let children = std::mem::take(&mut block.children);
+        self.lifted |= !children.is_empty();
+        self.push(block);
+        for child in children {
+            self.push(child);
+        }
+    }
+
+    fn open(&mut self, toggle: Block) {
+        if self.level() < MAX_DEPTH {
+            self.toggles.push((toggle, Vec::new()));
+        } else {
+            self.push(toggle);
+            self.flat += 1;
+        }
+    }
+
     fn close(&mut self) -> bool {
+        if self.flat > 0 {
+            self.flat -= 1;
+            return true;
+        }
         match self.toggles.pop() {
             Some((toggle, children)) => {
                 self.push(toggle.with_children(children));
@@ -449,14 +723,19 @@ impl Builder {
         }
     }
 
-    fn finish(mut self) -> Vec<Block> {
+    fn finish(mut self, nesting: &mut Nesting) -> Vec<Block> {
+        self.flat = 0;
         while self.close() {}
+        nesting.lifted |= self.lifted;
         self.blocks
     }
 }
 
-fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
-    let mut builder = Builder::default();
+/// The blocks of markdown's blocks at `depth`.
+fn convert(blocks: Vec<Md<'_>>, depth: usize, nesting: &mut Nesting) -> Vec<Block> {
+    let mut builder = Builder::new(depth);
+    // Where the children of a block pushed now are read.
+    let below = |builder: &Builder| (builder.level() + 1).min(MAX_DEPTH);
     for block in blocks {
         match block {
             Md::Paragraph(lines) => {
@@ -467,7 +746,7 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
                                 builder.push(block);
                             }
                         }
-                        Segment::Open(title) => builder.toggles.push((toggle(title), Vec::new())),
+                        Segment::Open(title) => builder.open(toggle(title)),
                         Segment::Close(source) => {
                             if !builder.close() {
                                 builder.push(Block::paragraph(source));
@@ -492,16 +771,22 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
             }
             Md::List { start, items } => {
                 for (index, item) in items.into_iter().enumerate() {
-                    builder.push(list_item(start, index, item));
+                    let item = list_item(start, index, item, below(&builder), nesting);
+                    builder.push_nested(item);
                 }
             }
-            Md::Quote(inner) => builder.push(quote(convert(inner))),
+            Md::Quote(inner) => {
+                let quote = quote(convert(inner, below(&builder), nesting));
+                builder.push_nested(quote);
+            }
             Md::Code { language, code } => builder.push(Block::new(BlockKind::CodeBlock {
                 props: CodeBlockProps { language },
                 code,
             })),
             Md::Rule => builder.push(Block::new(BlockKind::Divider { props: NoProps {} })),
             Md::Table { alignments, rows } => builder.push(table(&alignments, rows)),
+            // A line naming a block that has no other: an empty paragraph.
+            Md::Html(html) if names_block(&html) => builder.push(Block::paragraph("")),
             Md::Html(html) => {
                 let text = if is_break_tag(&html) {
                     "\n".to_owned()
@@ -512,7 +797,7 @@ fn convert(blocks: Vec<Md<'_>>) -> Vec<Block> {
             }
         }
     }
-    builder.finish()
+    builder.finish(nesting)
 }
 
 /// A paragraph's lines, split where the extension's lines are.
@@ -690,7 +975,8 @@ fn lone_link(markdown: &str) -> Option<(String, String, String)> {
 /// The block a `:::toggle` line opens: a toggleable heading when its title is a heading, else
 /// a toggle list item. A title that is another kind of block is taken as plain text.
 fn toggle(title: &str) -> Block {
-    let mut parsed = parse(title);
+    // A title nests nothing it keeps: anything but a heading or a paragraph is plain text.
+    let mut parsed = parse(title, &mut Nesting::default());
     let (level, content) = match (parsed.len(), parsed.pop()) {
         (1, Some(Md::Heading(level, lines))) => {
             (Some(level), to_inline(split_images(join(lines)).0))
@@ -796,17 +1082,27 @@ fn split_images(parts: Vec<Part>) -> (Vec<Piece>, Vec<Block>) {
     (text, images)
 }
 
-/// A list item: its first paragraph is its text, and what follows its children. `list_start`
-/// is its list's first number, for a numbered list, and a task marker makes it a check list
-/// item whatever its list.
-fn list_item(list_start: Option<u64>, index: usize, blocks: Vec<Md<'_>>) -> Block {
+/// A list item: its first paragraph is its text, and what follows its children, read at
+/// `depth`. `list_start` is its list's first number, for a numbered list, and a task marker
+/// makes it a check list item whatever its list.
+fn list_item(
+    list_start: Option<u64>,
+    index: usize,
+    blocks: Vec<Md<'_>>,
+    depth: usize,
+    nesting: &mut Nesting,
+) -> Block {
     let task = match blocks.first() {
         Some(Md::Paragraph(lines)) => lines.first().and_then(|line| line.task),
         _ => None,
     };
-    let mut converted = convert(blocks).into_iter().peekable();
+    // An empty paragraph a line names first is the item's child, not its text.
+    let named_first = matches!(blocks.first(), Some(Md::Html(html)) if names_block(html));
+    let mut converted = convert(blocks, depth, nesting).into_iter().peekable();
     let content = match converted.next_if(|block| {
-        matches!(block.kind, BlockKind::Paragraph { .. }) && block.children.is_empty()
+        !named_first
+            && matches!(block.kind, BlockKind::Paragraph { .. })
+            && block.children.is_empty()
     }) {
         Some(Block {
             kind: BlockKind::Paragraph { content, .. },

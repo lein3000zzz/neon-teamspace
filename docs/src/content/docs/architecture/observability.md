@@ -43,7 +43,9 @@ logged at `error`, inside the request's span.
 
 Logs hold no secrets: passwords, tokens and the values of secret settings are never logged,
 and request spans record the route, not the path or the query string; see
-[Traces](#traces).
+[Traces](#traces). Nor do they hold pages' content or values. The MCP SDK's `debug` lines
+hold each request and answer whole, so it logs at `info` at most, unless the level names its
+target, `rmcp`.
 
 The commands that print their output, `neon openapi`, `neon settings docs` and
 `neon config check`, install no logging, so standard output holds nothing but that output.
@@ -77,11 +79,19 @@ request, so the number of label sets stays small. These subsystems record them:
 | `auth`, the account use cases | The use case, such as `login` or `create_invite`. | A failure of the server, such as a database that does not answer. A refusal, such as a wrong password, is `ok`. | 5 ms to 5 s |
 | `workspaces`, the workspace use cases | The use case, such as `create_workspace` or `accept_invitation`. | A failure of the server. A refusal of the rules, such as `last_owner` or `member_limit`, is `ok`. | 5 ms to 5 s |
 | `pages`, the page use cases | The use case, such as `create_page` or `share_page`. | A failure of the server. A refusal of the rules is `ok`. | 5 ms to 5 s |
+| `agents`, the agent use cases | The use case, such as `create_agent`, `transfer_agent` or `create_agent_token`. | A failure of the server. A refusal of the rules, such as `agent_limit`, is `ok`. | 5 ms to 5 s |
+| `oauth`, the OAuth server | The use case, such as `register`, `authorize`, `approve`, `token`, `revoke` or `cleanup`. | A failure of the server. A refused request, a wrong verifier or a reused code is `ok`. | 5 ms to 5 s |
 | `databases`, the database use cases | The use case, such as `create_row`, `query`, `update_property` or `follow`, the check of a live feed's access. | A failure of the server. A refusal of the rules, an invalid value or filter, or a type change that would lose values is `ok`. | 5 ms to 5 s |
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
+| `mcp`, the MCP server | The tool's name, such as `read_page` or `claim_task`, and `list_resources`, `read_resource` and `subscribe`. | A failure of the server. A tool's refusal, such as `not_found` or `already_claimed`, or arguments its schema does not take, is `ok`. | 5 ms to 5 s |
+| `webhooks`, webhooks' use cases, deliveries and requests | The use case, such as `create_webhook`, `test_webhook` or `create_incoming`; `deliver`, an attempt at a delivery; `receive`, a request to an incoming webhook. | A failure of the server. A refusal, a receiver that fails or times out, and a request refused for its signature, payload or rate are `ok`. | 5 ms to 10 s |
 
-**Planned:** the same metrics for MCP tools.
+Deliveries are jobs of the kind `webhooks.deliver`, so the `jobs` subsystem counts their runs
+too: a run that the receiver fails is retried and `ok`, the last failed one `error`.
+
+The `sync` subsystem's `read` and `edit` operations time the server's own reads and edits of
+pages' content, for the markdown API and the MCP tools.
 
 Timing an operation starts a guard. Finishing the guard records the outcome; a guard dropped
 without being finished, because the code returned early or the work was cancelled, counts as
@@ -114,7 +124,8 @@ sync](/docs/architecture/realtime/#metrics) lists them with the histogram of mes
 and the counters of messages and disconnects. The database feeds keep theirs likewise:
 `neon_databases_open_connections`, and the counters of [database
 feeds](/docs/architecture/realtime/#database-feeds). No log line or span holds a property's
-value: they carry ids and counts.
+value: they carry ids and counts. The MCP server keeps `neon_mcp_sessions`, its sessions
+open, and `neon_mcp_subscriptions`, the resources they subscribe to.
 
 ## Traces
 
@@ -156,8 +167,11 @@ flowchart LR
   The worker runs it in a span named `job <kind>`, such as `job mail.send`, whose parent
   comes from the row, so the run continues the request's trace minutes or hours later. A job
   queued outside any span has no `traceparent`, and its run starts a new trace.
-- **Outgoing webhooks**, **planned**, carry `traceparent`, so a receiver that traces can join
-  the trace too.
+- **Outgoing webhooks.** A delivery is a job, queued in the transaction of the change that
+  caused it, so its run, in a span named `job webhooks.deliver` with a child
+  `webhooks deliver`, continues that change's trace. Its request carries the run's
+  `traceparent`, so a receiver that traces joins the trace too. A request to an incoming
+  webhook, in a span named `webhooks receive`, starts a trace of its own as any request does.
 
 ### Expected and unexpected errors
 

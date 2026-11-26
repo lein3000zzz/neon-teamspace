@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO incoming_webhook_requests (id, hook_id, at, status_code, outcome, action,\n                                                client_ip, latency_ms)\n         SELECT $1, $2, $3, $4, $5, $6, $7, $8\n         WHERE EXISTS (SELECT 1 FROM incoming_webhooks WHERE id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6200f3255574eb84c60450d36e6c696d25d63d6dac16ec9100fc203b88561286"
+}

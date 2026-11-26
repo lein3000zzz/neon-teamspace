@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE webhooks SET disabled_at = $3, disabled_reason = $2, updated_at = $3\n         WHERE id = $1 AND disabled_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0be31c8f171e3f8e31c40f30cdb333548c0fedfc39cbc098b9c7dbc55f80cc3b"
+}

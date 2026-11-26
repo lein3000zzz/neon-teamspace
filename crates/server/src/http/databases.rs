@@ -14,6 +14,7 @@ use neon_domain::databases as domain;
 use neon_domain::databases::filter as filters;
 use neon_domain::databases::sort as sorts;
 use neon_domain::databases::view as views;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use utoipa::ToSchema;
@@ -27,7 +28,7 @@ use super::pages::{Page, Placement, location};
 use super::principal::Authenticated;
 
 /// What a property holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyKind {
     /// The row's title: its page's. Every database has exactly one.
@@ -97,7 +98,7 @@ mirror!(
 );
 
 /// How a number shows; values are any finite number whatever the format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NumberFormat {
     /// `1234.5`.
@@ -117,7 +118,7 @@ mirror!(
 );
 
 /// The group of a status option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StatusGroup {
     ToDo,
@@ -142,13 +143,14 @@ pub struct PropertyOption {
 }
 
 /// An option as a change lists it: an existing one by its id, a new one without.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OptionChange {
     #[serde(default)]
     pub id: Option<Uuid>,
     /// 1 to 100 characters, unique in the property, ignoring case.
     pub name: String,
+    /// 0 to 359; none draws it in grey.
     #[serde(default)]
     #[schema(minimum = 0, maximum = 359)]
     pub hue: Option<u16>,
@@ -240,7 +242,7 @@ mirror!(Layout, domain::Layout, [Table, Board, List]);
 
 /// How a condition compares a row's value with its own; which a property takes depends on
 /// its type, as the databases reference lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Operator {
     Is,
@@ -294,8 +296,9 @@ mirror!(
 
 /// A filter: a group of filters that must all pass, `{"and": [...]}`, or of which one must,
 /// `{"or": [...]}`, or a condition. Groups nest at most three deep, with at most 50
-/// conditions in all.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+/// conditions in all. A filter that does not read says where and why, naming the fields a
+/// condition has and the operators: see [`Filter::read`].
+#[derive(Debug, Clone, Serialize, ToSchema, JsonSchema)]
 #[serde(untagged)]
 pub enum Filter {
     And {
@@ -310,7 +313,7 @@ pub enum Filter {
 }
 
 /// A condition on one property.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Condition {
     /// The property, by id or name.
@@ -323,6 +326,99 @@ pub struct Condition {
     /// range such as `past_week`. Absent for `is_empty` and `is_not_empty`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Json>,
+}
+
+impl Filter {
+    /// The filter `value` writes, or what is wrong with it and where, as `and[1].operator`.
+    fn read(value: Json) -> Result<Self, String> {
+        const SHAPE: &str = "a filter is a condition {\"property\", \"operator\", \"value\"}, \
+                             or {\"and\": [...]} or {\"or\": [...]} of filters";
+        let Json::Object(mut fields) = value else {
+            return Err(SHAPE.to_owned());
+        };
+        for group in ["and", "or"] {
+            let Some(members) = fields.remove(group) else {
+                continue;
+            };
+            if let Some(other) = fields.keys().next() {
+                return Err(format!(
+                    "a group holds \"{group}\" alone, and no field `{other}`"
+                ));
+            }
+            let Json::Array(members) = members else {
+                return Err(format!("`{group}` holds a list of filters"));
+            };
+            let members = members
+                .into_iter()
+                .enumerate()
+                .map(|(index, member)| {
+                    Self::read(member).map_err(|why| format!("{group}[{index}]: {why}"))
+                })
+                .collect::<Result<_, _>>()?;
+            return Ok(match group {
+                "and" => Self::And { and: members },
+                _ => Self::Or { or: members },
+            });
+        }
+        if let Some(other) = fields
+            .keys()
+            .find(|key| !["property", "operator", "value"].contains(&key.as_str()))
+        {
+            return Err(format!(
+                "unknown field `{other}`: a condition has property, operator and value; {SHAPE}"
+            ));
+        }
+        let operators = || {
+            filters::Operator::ALL
+                .iter()
+                .map(|operator| operator.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let property = match fields.remove("property") {
+            Some(Json::String(property)) => property,
+            Some(_) => return Err("`property` names a property by its id or name".to_owned()),
+            None => {
+                return Err(format!(
+                    "a condition names its `property`, by id or name, and its `operator`; \
+                     {SHAPE}"
+                ));
+            }
+        };
+        let operator = match fields.remove("operator") {
+            Some(Json::String(operator)) => {
+                filters::Operator::parse(&operator).ok_or_else(|| {
+                    format!(
+                        "unknown operator `{operator}`: the operators are {}",
+                        operators()
+                    )
+                })?
+            }
+            Some(_) => {
+                return Err(format!(
+                    "`operator` is one of the operators' names: {}",
+                    operators()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "a condition names its `operator`, one of {}",
+                    operators()
+                ));
+            }
+        };
+        Ok(Self::Condition(Condition {
+            property,
+            operator: operator.into(),
+            value: fields.remove("value").filter(|value| !value.is_null()),
+        }))
+    }
+}
+
+impl<'de> Deserialize<'de> for Filter {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::read(Json::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
 }
 
 impl From<Filter> for filters::FilterSpec {
@@ -365,7 +461,7 @@ impl From<filters::FilterSpec> for Filter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
     Ascending,
@@ -375,7 +471,7 @@ pub enum Direction {
 mirror!(Direction, sorts::Direction, [Ascending, Descending]);
 
 /// A sort by one property. Rows without a value come last either way.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Sort {
     /// The property, by id or name.
@@ -526,9 +622,15 @@ pub struct CreateDatabase {
     pub teamspace_id: Option<Uuid>,
     #[serde(default)]
     pub private: bool,
-    /// Embedded in the page it goes under, which `parent_id` names.
+    /// Embedded in the page it goes under, which `parent_id` names: the page's body shows
+    /// it where a block of it stands.
     #[serde(default)]
     pub inline: bool,
+    /// With `inline`, also adds the block that shows it at the end of the page it goes
+    /// under, as an edit's `append` would. The web app's editor adds its own where the
+    /// cursor is, and so leaves this out.
+    #[serde(default)]
+    pub embed: bool,
     /// `"last"` when absent.
     #[serde(default)]
     pub placement: Option<Placement>,
@@ -546,14 +648,16 @@ pub struct CreateDatabase {
     summary = "Create a database",
     description = "A page of kind `database`, under a page the caller edits, at the top of a \
                    teamspace they are in, or among their private pages; inline, it is embedded \
-                   in the page it goes under. It starts with a `Name` title property and a \
-                   `Status` with the options Not started, In progress and Done, a `Table` view \
-                   and a `Board` view grouped by status.",
+                   in the page it goes under, which shows it where a block of it stands: \
+                   `embed` adds that block at the end of the page, or an edit of the page's \
+                   markdown adds `:::database <id>` where it should go. It starts with a `Name` \
+                   title property and a `Status` with the options Not started, In progress and \
+                   Done, a `Table` view and a `Board` view grouped by status.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     request_body = CreateDatabase,
     responses(
         (status = CREATED, description = "The database.", body = Database),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, an inline database without a parent, embed without inline, a parent that is a database or a row, or a title or icon out of bounds.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller may not add pages there; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
@@ -569,6 +673,7 @@ pub(super) async fn create_database(
     Body(body): Body<CreateDatabase>,
 ) -> Result<(StatusCode, Body<Database>), ApiError> {
     let location = location(body.parent_id, body.teamspace_id, body.private)?;
+    let embed = embedding(body.embed, body.inline, body.parent_id)?;
     let created = state
         .databases
         .create_database(
@@ -583,7 +688,46 @@ pub(super) async fn create_database(
             },
         )
         .await?;
+    if let Some(parent) = embed {
+        embed_in(&state.sync, &principal, parent, created.page.page.id).await?;
+    }
     Ok((StatusCode::CREATED, Body(created.into())))
+}
+
+/// The page to add a block of a new database to, when `embed` asks for one: an inline
+/// database's parent alone.
+pub(crate) fn embedding(
+    embed: bool,
+    inline: bool,
+    parent_id: Option<Uuid>,
+) -> Result<Option<Uuid>, ApiError> {
+    match (embed, inline, parent_id) {
+        (false, _, _) => Ok(None),
+        (true, true, Some(parent)) => Ok(Some(parent)),
+        (true, _, _) => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            "embed adds an inline database's block to its parent: set inline and parent_id",
+        )),
+    }
+}
+
+/// Adds the block that shows database `id` at the end of page `parent`, through its live
+/// document.
+pub(crate) async fn embed_in(
+    sync: &neon_app::sync::SyncService,
+    principal: &neon_domain::auth::Principal,
+    parent: Uuid,
+    id: Uuid,
+) -> Result<(), ApiError> {
+    let block = neon_blocks::Block::new(neon_blocks::BlockKind::Database {
+        props: neon_blocks::DatabaseProps {
+            database_id: id.to_string(),
+            view_id: None,
+        },
+    });
+    sync.append(principal, parent, vec![block]).await?;
+    Ok(())
 }
 
 #[utoipa::path(
@@ -662,21 +806,29 @@ pub(super) async fn add_property(
     Path(id): Path<Uuid>,
     Body(body): Body<AddProperty>,
 ) -> Result<(StatusCode, Body<Property>), ApiError> {
-    let new = NewProperty {
-        name: body.name,
-        spec: PropertySpec {
-            kind: body.kind.into(),
-            number_format: body.number_format.map(Into::into),
-            currency: body.currency,
-            prefix: body.prefix,
-        },
-        options: body
-            .options
-            .map(|options| options.into_iter().map(Into::into).collect()),
-        placement: body.placement.map(Into::into).unwrap_or_default(),
-    };
-    let property = state.databases.add_property(&principal, id, new).await?;
+    let property = state
+        .databases
+        .add_property(&principal, id, body.into())
+        .await?;
     Ok((StatusCode::CREATED, Body(property.into())))
+}
+
+impl From<AddProperty> for NewProperty {
+    fn from(body: AddProperty) -> Self {
+        Self {
+            name: body.name,
+            spec: PropertySpec {
+                kind: body.kind.into(),
+                number_format: body.number_format.map(Into::into),
+                currency: body.currency,
+                prefix: body.prefix,
+            },
+            options: body
+                .options
+                .map(|options| options.into_iter().map(Into::into).collect()),
+            placement: body.placement.map(Into::into).unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Deserialize, ToSchema)]

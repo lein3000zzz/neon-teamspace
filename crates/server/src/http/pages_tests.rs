@@ -205,8 +205,8 @@ async fn pages_are_made_nested_changed_moved_trashed_and_restored(pool: PgPool) 
             Some(json!({"cover": "https://example.com/cover.png"})),
         )
         .await;
-    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(unknown.code(), "invalid_json");
+    assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
+    assert_eq!(unknown.code(), "invalid_input");
 
     // Between teamspaces, with what is under it.
     let open = t
@@ -271,7 +271,12 @@ async fn pages_are_made_nested_changed_moved_trashed_and_restored(pool: PgPool) 
         .ada
         .send(Method::DELETE, &format!("/api/v1/pages/{root}"), None)
         .await;
-    assert_eq!(live.status, StatusCode::FORBIDDEN, "{}", live.body);
+    assert_eq!(
+        (live.status, live.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input"),
+        "{}",
+        live.body
+    );
     let restored = t
         .ada
         .post(&format!("/api/v1/pages/{child}/restore"), json!({}))

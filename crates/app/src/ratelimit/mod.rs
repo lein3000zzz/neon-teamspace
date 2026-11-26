@@ -1,6 +1,8 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
-//! requests to join, invite lookups, invitations into workspaces, and imports and exports
-//! of pages.
+//! requests to join, invite lookups, invitations into workspaces, imports and exports of
+//! pages, edits of pages' content from the API and MCP, requests to the MCP server, by
+//! identity and by person, OAuth clients registering themselves, the exchanges of each
+//! OAuth grant, webhooks' test events, and the requests incoming webhooks take.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -35,6 +37,40 @@ pub const ACCOUNT: Quota = Quota {
     every: Duration::from_secs(6),
 };
 
+/// Sixty requests, then one a second: what each incoming webhook takes.
+pub const HOOK: Quota = Quota {
+    burst: 60,
+    every: Duration::from_secs(1),
+};
+
+/// A hundred and twenty requests, then two a second: what one client sends to incoming
+/// webhooks together, whether their URLs work or not.
+pub const HOOK_CLIENT: Quota = Quota {
+    burst: 120,
+    every: Duration::from_millis(500),
+};
+
+/// Two hundred requests, then four a second: one identity's requests to the MCP server,
+/// whose agents work in bursts of tool calls.
+pub const MCP: Quota = Quota {
+    burst: 200,
+    every: Duration::from_millis(250),
+};
+
+/// Four hundred requests, then ten a second: one person's requests to the MCP server, with
+/// their agents' together, so agents of theirs do not multiply their rate.
+pub const MCP_PERSON: Quota = Quota {
+    burst: 400,
+    every: Duration::from_millis(100),
+};
+
+/// A hundred edits, then two a second: one user's edits of pages' content through the API
+/// and MCP, each of which may go over the whole page.
+pub const EDITS: Quota = Quota {
+    burst: 100,
+    every: Duration::from_millis(500),
+};
+
 /// What is being limited. Each has its own buckets, keyed by an IP, an address or a user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bucket {
@@ -66,10 +102,29 @@ pub enum Bucket {
     PageImport,
     /// Exporting pages, by user: each export reads every page it holds.
     PageExport,
+    /// Editing pages' content through their live documents, by user: each edit may go over
+    /// the whole page, twice.
+    PageEdit,
+    /// Requests to the MCP server, by identity: a person or an agent.
+    Mcp,
+    /// Requests to the MCP server, by person: theirs and their agents' together.
+    McpPerson,
+    /// OAuth clients registering themselves, by source, an IPv4 address or an IPv6 /64:
+    /// anyone may, and each is kept a while.
+    OAuthRegister,
+    /// Exchanging an OAuth code or refresh token, by grant: each exchange keeps the
+    /// refresh token it spent until it expires, to catch a second use.
+    OAuthToken,
+    /// Requests to incoming webhooks from one IP, checked before their URL is looked up.
+    IncomingClient,
+    /// Requests to one incoming webhook, by webhook.
+    IncomingHook,
+    /// Test events sent to outgoing webhooks, by user: each is a request to a URL.
+    WebhookTest,
 }
 
 impl Bucket {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 22] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -84,6 +139,14 @@ impl Bucket {
         Self::WorkspaceLinkJoin,
         Self::PageImport,
         Self::PageExport,
+        Self::PageEdit,
+        Self::Mcp,
+        Self::McpPerson,
+        Self::OAuthRegister,
+        Self::OAuthToken,
+        Self::IncomingClient,
+        Self::IncomingHook,
+        Self::WebhookTest,
     ];
 
     /// Starts the keys of this bucket, so buckets never share one.
@@ -103,12 +166,25 @@ impl Bucket {
             Self::WorkspaceLinkJoin => "workspace-link:user:",
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
+            Self::PageEdit => "page-edit:user:",
+            Self::Mcp => "mcp:user:",
+            Self::McpPerson => "mcp:person:",
+            Self::OAuthRegister => "oauth-register:source:",
+            Self::OAuthToken => "oauth-token:grant:",
+            Self::IncomingClient => "hook-in:ip:",
+            Self::IncomingHook => "hook-in:hook:",
+            Self::WebhookTest => "webhook-test:user:",
         }
     }
 
     pub fn quota(self) -> Quota {
         match self {
             Self::LoginEmail => ACCOUNT,
+            Self::PageEdit => EDITS,
+            Self::Mcp => MCP,
+            Self::McpPerson => MCP_PERSON,
+            Self::IncomingClient => HOOK_CLIENT,
+            Self::IncomingHook => HOOK,
             _ => STANDARD,
         }
     }
@@ -142,12 +218,16 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cross_ip_bucket_is_looser() {
+    fn only_the_cross_ip_edit_mcp_and_incoming_webhook_buckets_are_looser() {
         for bucket in Bucket::ALL {
-            let want = if bucket == Bucket::LoginEmail {
-                ACCOUNT
-            } else {
-                STANDARD
+            let want = match bucket {
+                Bucket::LoginEmail => ACCOUNT,
+                Bucket::PageEdit => EDITS,
+                Bucket::Mcp => MCP,
+                Bucket::McpPerson => MCP_PERSON,
+                Bucket::IncomingClient => HOOK_CLIENT,
+                Bucket::IncomingHook => HOOK,
+                _ => STANDARD,
             };
             assert_eq!(bucket.quota(), want, "{bucket:?}");
         }

@@ -1,12 +1,15 @@
 //! Teamspaces: listed as each member may see them, created, changed and deleted, joined
 //! and left, and their members managed.
 
+use std::collections::HashMap;
+
+use neon_domain::agents::check_teamspace_role;
 use neon_domain::auth::Principal;
 use neon_domain::hue::check_hue;
 use neon_domain::workspaces::permissions::check_teamspace_owner_remains;
 use neon_domain::workspaces::{
-    Action, Resource, Teamspace, TeamspaceAccess, TeamspaceMember, TeamspaceRole, WorkspaceRole,
-    authorize, check_icon, check_name,
+    Action, Newcomer, Resource, Teamspace, TeamspaceAccess, TeamspaceMember, TeamspaceRole,
+    WorkspaceRole, check_icon, check_name,
 };
 use neon_store::{is_unique_violation, teamspaces as repo, workspaces};
 use sqlx::PgConnection;
@@ -14,8 +17,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::{
-    AccessChange, Membership, WorkspaceError, WorkspaceService, actor, locked_membership,
-    membership,
+    AccessChange, Membership, WorkspaceError, WorkspaceService, locked_membership, membership,
 };
 
 const NO_TEAMSPACE: &str = "no such teamspace";
@@ -58,28 +60,53 @@ pub struct TeamspaceList {
     pub hidden: Vec<Teamspace>,
 }
 
-/// A teamspace, its workspace and the caller's role in each.
+/// A teamspace, its workspace and the caller's role in each, with an agent's owner's role
+/// in the teamspace.
 struct Context {
     membership: Membership,
     teamspace: Teamspace,
     role: Option<TeamspaceRole>,
+    owner_role: Option<TeamspaceRole>,
 }
 
 impl Context {
-    fn check(&self, principal: &Principal, action: Action) -> Result<(), WorkspaceError> {
-        let resource = Resource::Teamspace {
-            access: self.teamspace.access,
-            membership: self.role,
-        };
-        authorize(actor(principal, self.membership.role), action, resource)
-            .map_err(|denied| WorkspaceError::denied(denied, NO_TEAMSPACE))
+    fn check(&self, action: Action) -> Result<(), WorkspaceError> {
+        check_teamspace(
+            &self.membership,
+            &self.teamspace,
+            self.role,
+            self.owner_role,
+            action,
+        )
     }
 
     /// Whether the caller is an owner or admin of the workspace, who manage every
     /// teamspace in it.
     fn manages_workspace(&self) -> bool {
-        self.membership.role.is_some_and(WorkspaceRole::manages)
+        self.membership
+            .standing
+            .role()
+            .is_some_and(WorkspaceRole::manages)
     }
+}
+
+/// Asks the rules about an action on a teamspace, which the caller is in with `role` and an
+/// agent's owner with `owner_role`.
+fn check_teamspace(
+    membership: &Membership,
+    teamspace: &Teamspace,
+    role: Option<TeamspaceRole>,
+    owner_role: Option<TeamspaceRole>,
+    action: Action,
+) -> Result<(), WorkspaceError> {
+    let seen_with = |membership| Resource::Teamspace {
+        access: teamspace.access,
+        membership,
+    };
+    membership
+        .standing
+        .authorize(action, seen_with(role), seen_with(owner_role))
+        .map_err(|denied| WorkspaceError::denied(denied, NO_TEAMSPACE))
 }
 
 impl WorkspaceService {
@@ -92,23 +119,33 @@ impl WorkspaceService {
         self.observe("list_teamspaces", async {
             let mut conn = self.pool().acquire().await?;
             let membership = membership(&mut conn, principal, workspace_id).await?;
-            membership.check(principal, Action::ViewWorkspace)?;
-            let actor = actor(principal, membership.role);
+            membership.check(Action::ViewWorkspace)?;
+            let owner_roles: HashMap<Uuid, TeamspaceRole> = match membership.standing.owner_id() {
+                Some(owner) => repo::list_with_membership(&mut *conn, workspace_id, owner)
+                    .await?
+                    .into_iter()
+                    .filter_map(|(teamspace, role, _)| Some((teamspace.id, role?)))
+                    .collect(),
+                None => HashMap::new(),
+            };
             let mut list = TeamspaceList::default();
             for (teamspace, role, members) in
                 repo::list_with_membership(&mut *conn, workspace_id, principal.user.id).await?
             {
-                let resource = Resource::Teamspace {
-                    access: teamspace.access,
-                    membership: role,
+                let owner_role = match membership.standing.owner_id() {
+                    Some(_) => owner_roles.get(&teamspace.id).copied(),
+                    None => role,
                 };
-                if authorize(actor, Action::ViewTeamspace, resource).is_ok() {
+                let allowed = |action| {
+                    check_teamspace(&membership, &teamspace, role, owner_role, action).is_ok()
+                };
+                if allowed(Action::ViewTeamspace) {
                     list.teamspaces.push(TeamspaceEntry {
                         teamspace,
                         role,
                         members,
                     });
-                } else if authorize(actor, Action::SeeTeamspace, resource).is_ok() {
+                } else if allowed(Action::SeeTeamspace) {
                     list.hidden.push(teamspace);
                 }
             }
@@ -128,7 +165,7 @@ impl WorkspaceService {
             let context = self
                 .context(&mut conn, principal, workspace_id, id, false)
                 .await?;
-            context.check(principal, Action::ViewTeamspace)?;
+            context.check(Action::ViewTeamspace)?;
             self.entry(&mut conn, principal, context.teamspace).await
         })
         .await
@@ -145,7 +182,7 @@ impl WorkspaceService {
             let mut tx = self.pool().begin().await?;
             locked_membership(&mut tx, principal, workspace_id)
                 .await?
-                .check(principal, Action::CreateTeamspace)?;
+                .check(Action::CreateTeamspace)?;
             if new.access == TeamspaceAccess::Default {
                 return Err(WorkspaceError::InvalidInput(
                     "a workspace has one default teamspace: a new one is open, closed or private"
@@ -212,13 +249,13 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::UpdateTeamspace)?;
+            context.check(Action::UpdateTeamspace)?;
             let mut teamspace = context.teamspace.clone();
             let before = teamspace.access;
             if let Some(access) = update.access
                 && access != teamspace.access
             {
-                context.check(principal, Action::ChangeTeamspaceAccess { to: access })?;
+                context.check(Action::ChangeTeamspaceAccess { to: access })?;
                 teamspace.access = access;
             }
             if let Some(name) = update.name {
@@ -268,7 +305,7 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::DeleteTeamspace)?;
+            context.check(Action::DeleteTeamspace)?;
             repo::delete(&mut *tx, workspace_id, id).await?;
             tx.commit().await?;
             info!(
@@ -297,7 +334,9 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::JoinTeamspace)?;
+            context.check(Action::JoinTeamspace)?;
+            check_teamspace_role(principal.user.kind, TeamspaceRole::Member)
+                .map_err(WorkspaceError::invalid)?;
             repo::add_member(
                 &mut *tx,
                 &context.teamspace,
@@ -333,7 +372,7 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::LeaveTeamspace)?;
+            context.check(Action::LeaveTeamspace)?;
             let owners = repo::count_owners(&mut *tx, id).await?;
             check_teamspace_owner_remains(
                 owners,
@@ -367,7 +406,7 @@ impl WorkspaceService {
             let context = self
                 .context(&mut conn, principal, workspace_id, id, false)
                 .await?;
-            context.check(principal, Action::ListTeamspaceMembers)?;
+            context.check(Action::ListTeamspaceMembers)?;
             Ok(repo::list_members(&mut *conn, id).await?)
         })
         .await
@@ -375,7 +414,9 @@ impl WorkspaceService {
 
     /// Adds a member of the workspace, not a guest, to a teamspace other than the default
     /// one, which everyone is in. The account's role in the workspace is read only once the
-    /// caller may see the teamspace, so a caller who may not learns nothing of either.
+    /// caller may see the teamspace, so a caller who may not learns nothing of either. An
+    /// agent joins as a member, never an owner; its own owner adds it only to teamspaces
+    /// they are in. An integration joins none: its access is its incoming webhook's target.
     pub async fn add_teamspace_member(
         &self,
         principal: &Principal,
@@ -389,11 +430,23 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::ViewTeamspace)?;
-            let workspace_role = workspaces::member_role(&mut *tx, workspace_id, user_id)
+            context.check(Action::ViewTeamspace)?;
+            let newcomer = workspaces::member(&mut *tx, workspace_id, user_id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
-            context.check(principal, Action::AddTeamspaceMember { workspace_role })?;
+            let kind = newcomer.person.kind;
+            let newcomer = if kind.is_human() {
+                Newcomer::Person(newcomer.role)
+            } else {
+                Newcomer::Delegate {
+                    own: newcomer
+                        .person
+                        .owner
+                        .is_some_and(|owner| owner.id == principal.user.id),
+                }
+            };
+            context.check(Action::AddTeamspaceMember { newcomer })?;
+            check_teamspace_role(kind, role).map_err(WorkspaceError::invalid)?;
             repo::add_member(&mut *tx, &context.teamspace, user_id, role, self.now())
                 .await
                 .map_err(|error| {
@@ -436,10 +489,12 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::ChangeTeamspaceRole)?;
-            let current = repo::member_role(&mut *tx, id, user_id)
+            context.check(Action::ChangeTeamspaceRole)?;
+            let current = repo::member(&mut *tx, id, user_id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
+            check_teamspace_role(current.person.kind, role).map_err(WorkspaceError::invalid)?;
+            let current = current.role;
             if current != role {
                 let owners = repo::count_owners(&mut *tx, id).await?;
                 check_teamspace_owner_remains(
@@ -483,7 +538,7 @@ impl WorkspaceService {
             let context = self
                 .context(&mut tx, principal, workspace_id, id, true)
                 .await?;
-            context.check(principal, Action::RemoveTeamspaceMember)?;
+            context.check(Action::RemoveTeamspaceMember)?;
             let current = repo::member_role(&mut *tx, id, user_id)
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
@@ -537,7 +592,7 @@ impl WorkspaceService {
             membership(&mut *conn, principal, workspace_id).await?
         };
         // Someone outside the workspace learns nothing of its teamspaces.
-        membership.check(principal, Action::ViewWorkspace)?;
+        membership.check(Action::ViewWorkspace)?;
         let teamspace = if lock {
             repo::lock(&mut *conn, workspace_id, id).await?
         } else {
@@ -545,10 +600,15 @@ impl WorkspaceService {
         }
         .ok_or(WorkspaceError::NotFound(NO_TEAMSPACE))?;
         let role = repo::member_role(&mut *conn, id, principal.user.id).await?;
+        let owner_role = match membership.standing.owner_id() {
+            Some(owner) => repo::member_role(&mut *conn, id, owner).await?,
+            None => role,
+        };
         Ok(Context {
             membership,
             teamspace,
             role,
+            owner_role,
         })
     }
 

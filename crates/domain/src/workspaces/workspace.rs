@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::roles::TeamspaceAccess;
+use crate::agents::AgentCreation;
 use crate::hue::hue_or_hashed;
 
 /// The longest workspace or teamspace name, in characters.
@@ -61,6 +62,11 @@ pub struct Workspace {
     pub hue_override: Option<u16>,
     /// Whether members, besides owners and admins, may create teamspaces.
     pub members_can_create_teamspaces: bool,
+    /// Whether its agents work, and new ones may be made, as far as the workspace says:
+    /// the setting `mcp.identities` has a say too.
+    pub agents_enabled: bool,
+    /// Who makes agents in it.
+    pub agent_creation: AgentCreation,
     /// Who created it; unset once their account is gone.
     pub created_by: Option<Uuid>,
     pub created_at: OffsetDateTime,
@@ -325,6 +331,8 @@ mod tests {
             icon: None,
             hue_override: None,
             members_can_create_teamspaces: true,
+            agents_enabled: true,
+            agent_creation: crate::agents::AgentCreation::Members,
             created_by: None,
             created_at: now,
             updated_at: now,

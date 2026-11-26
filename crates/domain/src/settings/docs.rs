@@ -28,6 +28,9 @@ that has one:
 A setting set by its environment variable or in the config file is pinned: the admin page
 shows it but cannot change it.
 
+A *set* holds some of its options: a list in the config file, such as `[user, agent]`, and
+a comma-separated list in its environment variable, such as `user,agent`; empty is none.
+
 Secret settings, and those that say where a secret goes, such as the mail server, are marked
 *browser session only*: an admin changes them signed in at a browser, never with an API token.
 
@@ -67,6 +70,7 @@ impl Registry {
 fn kind_label(kind: Kind) -> String {
     match kind {
         Kind::Enum(options) => format!("enum: {}", options.join(", ")),
+        Kind::Set(options) => format!("set: {}", options.join(", ")),
         other => other.to_string(),
     }
 }
@@ -75,6 +79,7 @@ fn default_label(value: &Value) -> String {
     match value {
         Value::Secret(_) => "empty".to_owned(),
         Value::String(s) if s.is_empty() => "empty".to_owned(),
+        Value::List(items) if items.is_empty() => "none".to_owned(),
         other => format!("`{}`", escape(&other.to_string())),
     }
 }
@@ -115,6 +120,12 @@ mod tests {
                 Key::new("mail.password"),
                 "The password.",
             ))
+            .define(Definition::set(
+                Key::new("mcp.identities"),
+                &["user", "agent"],
+                &["user", "agent"],
+                "Modes.",
+            ))
             .build()
             .expect("valid registry");
 
@@ -130,6 +141,7 @@ mod tests {
                 "| `auth.session_idle` | duration | `7d` | `NEON_SETTINGS__AUTH__SESSION_IDLE` | Idle sign-out. |",
                 "| `instance.name` | string | `Neon Teamspace` | `NEON_SETTINGS__INSTANCE__NAME` | The name \\| shown. |",
                 "| `mail.password` | secret | empty | `NEON_SETTINGS__MAIL__PASSWORD` | The password. *Browser session only.* |",
+                "| `mcp.identities` | set: user, agent | `user, agent` | `NEON_SETTINGS__MCP__IDENTITIES` | Modes. |",
             ]
         );
     }

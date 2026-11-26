@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO incoming_webhooks (id, workspace_id, integration_id, target_id, target_kind,\n                                        token_hash, signing_secret, created_by, created_at,\n                                        updated_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ab32812ef5903655d33bca4ba9b1f6aa663734a9da0685f02020bb638c1c080"
+}

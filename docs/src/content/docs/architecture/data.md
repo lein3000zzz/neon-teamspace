@@ -91,10 +91,12 @@ token, is a separate random value of its own, kept only as its hash.
 ## The job queue
 
 Work that happens after a request, or on a schedule, runs as a **job**. Mail is one, of kind
-`mail.send`; outgoing webhooks will be, **planned** with the feature. Imports and exports are
+`mail.send`, and so is each delivery of an outgoing webhook, of kind `webhooks.deliver`.
+Imports and exports are
 not jobs: the request that asks for one waits for it, within
 [their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
-answer. The hourly cleanup of expired sessions, links and invites is not a job but a
+answer. The hourly cleanup of expired sessions, links and invites, and of webhooks' rotated
+secrets once they stop holding, is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
@@ -140,6 +142,11 @@ other.
 A job whose worker stopped, because the process crashed or was killed, is claimed again once
 its lock is old enough. A job can therefore run more than once, and every job is written so
 that running it twice does the same as running it once.
+
+The server's worker runs eight jobs at once. A kind that may have many jobs takes only a
+share of those slots: webhook deliveries run at most four at once, so mail and the other
+kinds always find a slot free, however many deliveries wait for slow receivers. Within its
+share, and among the other kinds, the job due first runs first.
 
 ### Retries with backoff
 
@@ -207,8 +214,8 @@ keys of their own; both go when their page goes, and when the person leaves the 
 
 ## Content
 
-Content is stored according to how it is edited. Pages' documents are kept as below;
-database properties, search and attachments are **planned**.
+Content is stored according to how it is edited. Pages' documents and databases' properties
+are kept as below; search and attachments are **planned**.
 
 - **Pages** are Yjs documents. Postgres keeps each page's log of updates, `page_updates`,
   numbered in order with their authors, and the latest snapshot of the whole document,

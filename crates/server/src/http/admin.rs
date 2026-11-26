@@ -9,7 +9,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::auth::{InviteSpec, NewAccount, UserUpdate};
 use neon_app::mail;
-use neon_app::settings::Change;
+use neon_app::settings::{Change, mcp};
 use neon_domain::auth::JoinRequestStatus;
 use neon_domain::settings::{Kind, Problem, Secret, Source};
 use serde::{Deserialize, Serialize};
@@ -555,10 +555,10 @@ pub enum SettingSource {
 pub struct Setting {
     #[schema(example = "auth.registration")]
     pub key: String,
-    /// `bool`, `integer`, `string`, `enum`, `duration` or `secret`.
+    /// `bool`, `integer`, `string`, `enum`, `duration`, `set` or `secret`.
     #[schema(example = "enum")]
     pub kind: String,
-    /// An enum's options.
+    /// An enum's options, or those a set picks from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<String>>,
     pub description: String,
@@ -641,7 +641,9 @@ fn setting_list(state: &AppState) -> SettingList {
                 key: entry.key.to_owned(),
                 kind: entry.kind.to_string(),
                 options: match entry.kind {
-                    Kind::Enum(options) => Some(options.iter().map(|o| (*o).to_owned()).collect()),
+                    Kind::Enum(options) | Kind::Set(options) => {
+                        Some(options.iter().map(|o| (*o).to_owned()).collect())
+                    }
                     _ => None,
                 },
                 description: entry.description.to_owned(),
@@ -686,8 +688,8 @@ pub(super) async fn list_settings(
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateSettings {
-    /// By key: the new value, as JSON of the setting's type, or null to go back to the
-    /// default.
+    /// By key: the new value, as JSON of the setting's type, a list of options for a set,
+    /// or null to go back to the default.
     #[schema(value_type = Object, example = json!({"auth.registration": "open", "auth.invite_ttl": "3d"}))]
     pub changes: BTreeMap<String, Option<Json>>,
 }
@@ -737,11 +739,17 @@ pub(super) async fn update_settings(
             .with_problems(held));
         }
     }
+    let agents = body.changes.contains_key(mcp::IDENTITIES.name());
     let changes = body.changes.into_iter().map(|(key, value)| {
         let change = value.map_or(Change::Reset, Change::Set);
         (key, change)
     });
     state.settings.update(changes, Some(admin.user.id)).await?;
+    if agents {
+        // Agents' open connections close at once while agents are off, and those of OAuth
+        // tokens at once while their mode is.
+        state.workspaces.agents_switched();
+    }
     Ok(JsonBody(setting_list(&state)))
 }
 

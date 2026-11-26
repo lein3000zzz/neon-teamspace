@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM incoming_webhooks WHERE integration_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92070955798461bfbb98e71f4b7a8bd99c165232b3a3ca423e903866e7c7e85a"
+}

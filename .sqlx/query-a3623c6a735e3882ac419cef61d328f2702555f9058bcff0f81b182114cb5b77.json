@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM favorites\n         WHERE user_id = $1 AND page_id = $2 AND ($3::uuid IS NULL OR workspace_id = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a3623c6a735e3882ac419cef61d328f2702555f9058bcff0f81b182114cb5b77"
+}

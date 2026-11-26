@@ -14,13 +14,14 @@ import { membersQuery, type Member, type WorkspaceSummary } from "@/api/workspac
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Field } from "@/components/forms/field";
 import { Chip } from "@/components/nodes/chip";
-import { HueDot } from "@/components/nodes/hue-dot";
+import { PersonLabel } from "@/components/people/person-label";
 import { useMe } from "@/components/shell/signed-in";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { titleOf } from "@/lib/page-tree";
+import { attribution } from "@/lib/people";
 import { strings } from "@/lib/strings";
 
 const copy = strings.pages.share;
@@ -126,11 +127,12 @@ function Person({ share, guest }: { share: Share; guest: boolean }) {
   return (
     <div className="grid min-w-0 gap-0.5">
       <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
-        <HueDot hue={share.user.hue} />
-        <span className="truncate">{share.user.display_name}</span>
+        <PersonLabel person={share.user} />
         {guest && <Chip>{copy.guest}</Chip>}
       </p>
-      <p className="truncate text-xs text-muted-foreground">{share.user.email}</p>
+      {share.user.email && (
+        <p className="truncate text-xs text-muted-foreground">{share.user.email}</p>
+      )}
     </div>
   );
 }
@@ -252,7 +254,7 @@ function AddShareForm({ workspaceId, pageId, members, taken, onShared }: AddShar
               <option key={member.user.id} value={member.user.id}>
                 {member.role === "guest"
                   ? `${member.user.display_name} (${copy.guest})`
-                  : member.user.display_name}
+                  : attribution(member.user)}
               </option>
             ))}
           </NativeSelect>

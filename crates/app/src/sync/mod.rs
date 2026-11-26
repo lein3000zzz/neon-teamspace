@@ -23,6 +23,12 @@
 //!   those that got it back. Every connection is looked at so again every
 //!   [`Limits::revalidate_interval`], for what no change tells of, such as a session
 //!   expiring.
+//! - **The server's own edits.** [`SyncService::edit`] makes the edits of the API's markdown
+//!   routes and MCP, and [`SyncService::append`] adds blocks to a page as an incoming
+//!   webhook does, each through the page's live document, loaded for it if nobody has it
+//!   open: the editors see them at once and they merge with what is being typed. An
+//!   append is logged before the call answers, or, when the database fails then, kept and
+//!   logged later as every edit is.
 //! - **Saving.** Updates applied wait briefly ([`Limits::persist_delay`]) and are logged
 //!   together, with their authors, in order. Once enough are logged, and when the document
 //!   unloads or the server stops, the whole document is saved as a snapshot in one
@@ -41,6 +47,7 @@
 mod access;
 mod broadcast;
 mod close;
+mod content;
 mod document;
 mod limits;
 mod protocol;
@@ -55,6 +62,7 @@ use metrics::Unit;
 use neon_domain::auth::Principal;
 use neon_domain::pages::PageAccess;
 use neon_observability::red::Red;
+use neon_store::users;
 use sqlx::PgPool;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
@@ -67,13 +75,15 @@ use yrs::Transact as _;
 use crate::auth::AuthService;
 use crate::clock::Clock;
 use crate::pages::{PageError, PageService};
+use crate::ratelimit::{MemoryLimiter, RateLimiter};
 use document::{Command, Joining, Presence};
 pub(crate) use limits::Bucket;
 
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
-pub use document::{LoadError, READ_ONLY};
+pub use content::{ContentError, Edited, MAX_EDITS, changes_document, revision};
+pub use document::{AppendError, LoadError, READ_ONLY};
 pub use limits::Limits;
 
 /// RED subsystem of the sync's work: loading, logging and compacting documents.
@@ -104,6 +114,7 @@ pub(crate) struct Inner {
     pages: PageService,
     auth: AuthService,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
     red: Red,
@@ -180,13 +191,14 @@ impl Registry {
 }
 
 /// Puts a [`SyncService`] together. Without being told otherwise it serves one process's
-/// clients, with the default limits, on the system clock.
+/// clients, with the default limits, counting edits in its own memory, on the system clock.
 pub struct SyncServiceBuilder {
     pool: PgPool,
     pages: PageService,
     auth: AuthService,
     feed: AccessFeed,
     broadcaster: Arc<dyn Broadcaster>,
+    limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     clock: Clock,
 }
@@ -194,6 +206,13 @@ pub struct SyncServiceBuilder {
 impl SyncServiceBuilder {
     pub fn broadcaster(mut self, broadcaster: Arc<dyn Broadcaster>) -> Self {
         self.broadcaster = broadcaster;
+        self
+    }
+
+    /// Where edits of pages' content from the API and MCP are counted, against
+    /// [`Bucket::PageEdit`](crate::ratelimit::Bucket::PageEdit).
+    pub fn limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
+        self.limiter = limiter;
         self
     }
 
@@ -217,6 +236,7 @@ impl SyncServiceBuilder {
             pages: self.pages,
             auth: self.auth,
             broadcaster: self.broadcaster,
+            limiter: self.limiter,
             limits: self.limits,
             clock: self.clock,
             red: Red::new(SUBSYSTEM),
@@ -278,6 +298,8 @@ pub struct Admission {
     page_id: Uuid,
     workspace_id: Uuid,
     access: PageAccess,
+    /// For an agent or integration, its owner's display name, which its presence shows.
+    owner: Option<String>,
     /// How many access changes were heard before the rules were asked.
     epoch: u64,
 }
@@ -303,6 +325,7 @@ impl SyncService {
             auth,
             feed,
             broadcaster: Arc::new(LocalBroadcaster::new()),
+            limiter: Arc::new(MemoryLimiter::new()),
             limits: Limits::default(),
             clock: Clock::system(),
         }
@@ -332,9 +355,16 @@ impl SyncService {
             .pages
             .document_access(&principal, page_id)
             .await?;
+        let owner = match principal.user.owner_id {
+            Some(owner) if !principal.user.kind.is_human() => users::by_id(&self.inner.pool, owner)
+                .await?
+                .map(|owner| owner.display_name),
+            _ => None,
+        };
         Ok(Admission {
             workspace_id: view.page.workspace_id,
             access: view.access,
+            owner,
             principal,
             page_id,
             epoch,
@@ -360,6 +390,8 @@ impl SyncService {
                     id: user.id,
                     name: user.display_name.clone(),
                     hue: user.hue(),
+                    kind: user.kind,
+                    owner: admission.owner.clone(),
                 },
                 access: admission.access,
                 outbox: outbox.clone(),
@@ -448,6 +480,61 @@ impl SyncService {
         Ok(readable(page_id, read))
     }
 
+    /// Adds blocks after the last one of a page's document, as the principal, for those who
+    /// may edit it: through its live document, loaded for this if nobody has it open, so
+    /// everyone editing sees them at once and they merge with what is being typed. Once this
+    /// answers, the change is logged, or kept in memory to log again when the database
+    /// failed; a page deleted meanwhile answers not found.
+    pub async fn append(
+        &self,
+        principal: &Principal,
+        page_id: Uuid,
+        blocks: Vec<neon_blocks::Block>,
+    ) -> Result<(), PageError> {
+        let view = self.inner.pages.document_access(principal, page_id).await?;
+        if view.page.is_trashed() {
+            return Err(PageError::Forbidden(
+                "this page is in the trash: restore it first",
+            ));
+        }
+        if view.access != PageAccess::Edit {
+            return Err(PageError::Forbidden("you may view this page, not edit it"));
+        }
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        for _ in 0..JOIN_ATTEMPTS {
+            let commands = self
+                .document(page_id, view.page.workspace_id)
+                .map_err(|reason| {
+                    PageError::Internal(format!("the document: {}", reason.name()))
+                })?;
+            let (done, answer) = oneshot::channel();
+            let command = Command::Append {
+                author: principal.user.id,
+                blocks: blocks.clone(),
+                done,
+            };
+            if commands.send(command).await.is_err() {
+                continue;
+            }
+            // Dropped unanswered, the document unloaded under the command: open it again.
+            if let Ok(appended) = answer.await {
+                return appended.map_err(|error| match error {
+                    AppendError::Gone => PageError::NotFound("no such page"),
+                    AppendError::TooLarge => PageError::InvalidInput(format!(
+                        "the page would hold more than {} bytes",
+                        self.inner.limits.max_document
+                    )),
+                    AppendError::NotADocument => PageError::Internal(error.to_string()),
+                });
+            }
+        }
+        Err(PageError::Internal(
+            "the page's document kept unloading".to_owned(),
+        ))
+    }
+
     /// Stops: every live document closes its connections and is saved, then the access
     /// watcher stops. Returns once all are done.
     pub async fn shutdown(&self) {
@@ -475,28 +562,58 @@ impl SyncService {
             return Err(CloseReason::TooManyConnections);
         }
         *registry.users.entry(user_id).or_default() += 1;
-        let slot = match registry.docs.entry(admission.page_id) {
-            Entry::Occupied(slot) => slot.into_mut(),
-            Entry::Vacant(vacant) => {
-                static GENERATION: AtomicU64 = AtomicU64::new(1);
-                let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
-                let (commands, received) = mpsc::channel(COMMAND_QUEUE);
-                self.inner.tasks.spawn(document::run(
-                    Arc::clone(&self.inner),
-                    admission.page_id,
-                    generation,
-                    received,
-                ));
-                vacant.insert(Slot {
-                    generation,
-                    workspace_id: admission.workspace_id,
-                    commands,
-                    connections: HashMap::new(),
-                })
-            }
-        };
+        let slot = open(
+            &self.inner,
+            &mut registry,
+            admission.page_id,
+            admission.workspace_id,
+        );
         slot.connections.insert(client, admission.principal.clone());
         Ok((slot.commands.clone(), slot.generation))
+    }
+
+    /// The page's live document, started if there is none, for the server's own use.
+    fn document(
+        &self,
+        page_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<mpsc::Sender<Command>, CloseReason> {
+        let mut registry = self.inner.registry();
+        if self.inner.stop.is_cancelled() {
+            return Err(CloseReason::Restarting);
+        }
+        Ok(open(&self.inner, &mut registry, page_id, workspace_id)
+            .commands
+            .clone())
+    }
+}
+
+/// The slot of a page's live document, its task started if there is none.
+fn open<'r>(
+    inner: &Arc<Inner>,
+    registry: &'r mut Registry,
+    page_id: Uuid,
+    workspace_id: Uuid,
+) -> &'r mut Slot {
+    match registry.docs.entry(page_id) {
+        Entry::Occupied(slot) => slot.into_mut(),
+        Entry::Vacant(vacant) => {
+            static GENERATION: AtomicU64 = AtomicU64::new(1);
+            let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+            let (commands, received) = mpsc::channel(COMMAND_QUEUE);
+            inner.tasks.spawn(document::run(
+                Arc::clone(inner),
+                page_id,
+                generation,
+                received,
+            ));
+            vacant.insert(Slot {
+                generation,
+                workspace_id,
+                commands,
+                connections: HashMap::new(),
+            })
+        }
     }
 }
 

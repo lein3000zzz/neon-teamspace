@@ -13,9 +13,6 @@ use neon_blocks::{
     TableRow, TextProps,
 };
 use neon_domain::pages::files::clean_title;
-use uuid::Uuid;
-use yrs::updates::encoder::Encode as _;
-use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
 use super::archive::Entry;
 use super::{Deadline, TransferError, size};
@@ -124,26 +121,16 @@ fn encode(
     max_document: usize,
     path: &str,
 ) -> Result<Option<ImportedContent>, TransferError> {
-    if document.is_empty() {
+    let Some(content) = ImportedContent::of(document) else {
         return Ok(None);
-    }
-    let doc = Doc::new();
-    let fragment = neon_blocks::fragment(&doc);
-    let mut txn = doc.transact_mut();
-    let mut ids = || Uuid::now_v7().to_string();
-    neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
-    let state = txn.encode_state_as_update_v1(&StateVector::default());
-    if state.len() > max_document {
+    };
+    if content.state.len() > max_document {
         return Err(TransferError::too_large(format!(
             "{path} makes a document larger than {}, the most a page holds",
             size(max_document)
         )));
     }
-    Ok(Some(ImportedContent {
-        state,
-        state_vector: txn.state_vector().encode_v1(),
-        text: document.plain_text(),
-    }))
+    Ok(Some(content))
 }
 
 /// What a page's file holds besides its title and blocks.
@@ -215,8 +202,10 @@ mod tests {
     use std::time::Duration;
 
     use neon_blocks::HeadingProps;
-    use yrs::Update;
+    use uuid::Uuid;
     use yrs::updates::decoder::Decode as _;
+    use yrs::updates::encoder::Encode as _;
+    use yrs::{Doc, ReadTxn as _, Transact as _, Update};
 
     use super::*;
 

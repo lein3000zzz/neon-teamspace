@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM users\n           WHERE role = 'admin' AND disabled_at IS NULL AND kind = 'human'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c4edd98292eff9cbda170295f6f7c2c21c1ce1b9bf2acfc9daf37c3e2dabb6c4"
+}

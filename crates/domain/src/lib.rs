@@ -6,12 +6,15 @@
 #[macro_use]
 mod text_enum;
 
+pub mod agents;
 pub mod auth;
 pub mod databases;
 pub mod duration;
 pub mod hue;
 pub mod jobs;
 pub mod mail;
+pub mod oauth;
 pub mod pages;
 pub mod settings;
+pub mod webhooks;
 pub mod workspaces;

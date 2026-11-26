@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use neon_domain::auth::{Email, Role, User};
+use neon_domain::auth::{Email, Role, User, UserKind};
 use neon_domain::pages::{Page, PageKind, PageStyle, Space};
 use neon_domain::workspaces::{Teamspace, TeamspaceAccess, Workspace, WorkspaceRole};
 use neon_store::documents::{self, Edited, NewSnapshot, NewUpdate};
@@ -17,9 +17,11 @@ fn now() -> OffsetDateTime {
 }
 
 async fn user(pool: &PgPool, email: &str) -> Uuid {
+    let address = Email::parse(email).expect("valid");
     let user = User {
         id: Uuid::now_v7(),
-        email: Email::parse(email).expect("valid"),
+        kind: UserKind::Human,
+        email: Some(address.clone()),
         display_name: "Someone".into(),
         role: Role::User,
         hue_override: None,
@@ -27,8 +29,12 @@ async fn user(pool: &PgPool, email: &str) -> Uuid {
         disabled_at: None,
         created_at: now(),
         updated_at: now(),
+        workspace_id: None,
+        owner_id: None,
     };
-    users::insert(pool, &user, "hash").await.expect("saved");
+    users::insert(pool, &user, &address, "hash")
+        .await
+        .expect("saved");
     user.id
 }
 
@@ -42,6 +48,8 @@ async fn page(pool: &PgPool) -> (Uuid, Uuid) {
         icon: None,
         hue_override: None,
         members_can_create_teamspaces: true,
+        agents_enabled: true,
+        agent_creation: neon_domain::agents::AgentCreation::Members,
         created_by: None,
         created_at: now(),
         updated_at: now(),

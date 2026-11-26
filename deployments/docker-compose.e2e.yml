@@ -1,22 +1,47 @@
 # Overrides for make e2e: a throwaway stack that runs beside any other, under a project name
 # of its own, with the web origin on a free port of this machine's loopback, which
-# `docker compose port web 80` reports. The server gets the instance name the tests expect,
-# the first admin they sign in as, a key to seal invite codes with, and none of the settings
-# a deployments/server.env in this checkout may hold. make e2e makes the password and the key
+# `docker compose port web 80` reports. Both images are the ones make e2e built, under the tags
+# it names. The server gets the instance name the tests expect, the first admin they sign in
+# as, a key to seal invite codes and webhooks' secrets with, and none of the settings a
+# deployments/server.env in this checkout may hold. make e2e makes the password and the key
 # afresh for each run.
 services:
   server:
+    image: ${E2E_SERVER_IMAGE:?make e2e sets E2E_SERVER_IMAGE}
     env_file: !reset []
     environment:
       NEON_SETTINGS__INSTANCE__NAME: ${E2E_INSTANCE_NAME:?make e2e sets E2E_INSTANCE_NAME}
       NEON_ADMIN__EMAIL: ${E2E_ADMIN_EMAIL:?make e2e sets E2E_ADMIN_EMAIL}
       NEON_ADMIN__PASSWORD: ${E2E_ADMIN_PASSWORD:?make e2e sets E2E_ADMIN_PASSWORD}
       NEON_SECRETS__KEYS: ${E2E_SECRET_KEYS:?make e2e sets E2E_SECRET_KEYS}
+      # The receiver below is on the stack's network, at a private address.
+      NEON_SETTINGS__WEBHOOKS__ALLOW_PRIVATE: "true"
+
+  # A webhook receiver the server delivers to at http://receiver:8080, which keeps what it
+  # gets and lists it at GET /deliveries, on a free port of this machine's loopback that
+  # `docker compose port receiver 8080` reports.
+  receiver:
+    image: oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643
+    command: ["bun", "/receiver/server.ts"]
+    volumes:
+      - ../e2e/receiver:/receiver:ro
+    ports:
+      - "127.0.0.1::8080"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 15
 
   # Caddy believes the X-Forwarded-For of this machine's connections, so a spec can give its
   # browsers an address of their own: the server allows ten sign-ins at once from one, and
   # the specs, running side by side, sign in more than that together.
   web:
+    image: ${E2E_WEB_IMAGE:?make e2e sets E2E_WEB_IMAGE}
     environment:
       NEON_WEB_TRUSTED_PROXIES: private_ranges
     ports: !override
