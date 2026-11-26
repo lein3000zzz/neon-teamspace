@@ -3,7 +3,11 @@
 //! An upload is a `multipart/form-data` body with one part, `file`, to the page it is for,
 //! whose kind of block the query names, so the rules, the caller's rate and the size the
 //! client declares answer before any of it is read. Its bytes then stream to the blob store
-//! and are never held whole; past the largest file one takes, the upload stops.
+//! and are never held whole; past the largest file one takes, the upload stops. The body is
+//! bounded as it is read, declared or not: the form's file must start within its first
+//! [`FORM_OVERHEAD`] bytes, and what follows may hold no more than the largest file and as
+//! much again as the form's headers, so a form that never comes to its file, or a file past
+//! the largest, stops before it fills memory.
 //!
 //! A file is read at `/api/v1/files/{id}`, the path documents refer to it by, with the
 //! rules asked on every request: a file follows its page. Media are served for the
@@ -14,9 +18,13 @@
 //! the browser that read it, never for anyone else, and ask again each time, so the rules
 //! see every read.
 
-use axum::body::Body;
-use axum::extract::multipart::MultipartRejection;
-use axum::extract::{DefaultBodyLimit, Multipart, State};
+use std::pin::{Pin, pin};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::task::{Context, Poll, Waker};
+
+use axum::BoxError;
+use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, FromRequest as _, Multipart, Request, State};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
     CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG, IF_NONE_MATCH, IF_RANGE, RANGE,
@@ -24,7 +32,7 @@ use axum::http::header::{
 };
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use futures_util::StreamExt as _;
+use futures_util::{Stream, StreamExt as _};
 use neon_app::attachments::Readable;
 use neon_domain::attachments::{self as domain, Ranged, byte_range};
 use serde::{Deserialize, Serialize};
@@ -52,9 +60,92 @@ pub(super) const UPLOAD_ROUTE: &str = "/api/v1/pages/{id}/files";
 const SANDBOX: &str = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 
 /// Uploads stream past the body limit of other routes: the largest file one takes bounds
-/// them instead, as they come.
+/// them instead, as they come, through a [`Gate`].
 pub(super) fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::disable()
+}
+
+/// Bounds a request body as it is read, so a form's reader never holds more than the bound
+/// and one chunk: past it, the body stops, giving nothing more until the bound is raised,
+/// and the gate says it stalled. Until [`Gate::open`], the bound is what a form's boundary
+/// and part headers may take, so a form whose file did not start by then is refused. Once
+/// open, it is the largest file and its form, which the file's own count stops at first.
+#[derive(Debug, Clone)]
+struct Gate {
+    state: Arc<Mutex<GateState>>,
+}
+
+#[derive(Debug)]
+struct GateState {
+    passed: u64,
+    bound: u64,
+    /// The reader waiting for more, once the body stopped at the bound.
+    parked: Option<Waker>,
+}
+
+impl Gate {
+    fn new(bound: u64) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(GateState {
+                passed: 0,
+                bound,
+                parked: None,
+            })),
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, GateState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lets `more` bytes through past those through already, and wakes the reader.
+    fn open(&self, more: u64) {
+        let mut state = self.state();
+        state.bound = state.passed.saturating_add(more);
+        if let Some(waker) = state.parked.take() {
+            waker.wake();
+        }
+    }
+
+    /// Whether the body stopped at the bound.
+    fn stalled(&self) -> bool {
+        self.state().parked.is_some()
+    }
+
+    fn wrap(&self, body: Body) -> Body {
+        Body::from_stream(Gated {
+            inner: body.into_data_stream(),
+            gate: self.clone(),
+        })
+    }
+}
+
+/// A body through a [`Gate`].
+struct Gated {
+    inner: axum::body::BodyDataStream,
+    gate: Gate,
+}
+
+impl Stream for Gated {
+    type Item = Result<Bytes, BoxError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        {
+            let mut state = self.gate.state();
+            if state.passed >= state.bound {
+                state.parked = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+        }
+        let polled = Pin::new(&mut self.inner).poll_next(cx);
+        if let Poll::Ready(Some(Ok(chunk))) = &polled {
+            let mut state = self.gate.state();
+            state.passed = state
+                .passed
+                .saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        }
+        polled.map(|chunk| chunk.map(|chunk| chunk.map_err(BoxError::from)))
+    }
 }
 
 /// What a file is uploaded for.
@@ -184,7 +275,7 @@ pub struct UploadForm {
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = CONFLICT, description = "storage_limit: the workspace has no room for the file.", body = ErrorBody),
-        (status = PAYLOAD_TOO_LARGE, description = "file_too_large: past attachments.max_file_bytes, said as it arrives or as declared.", body = ErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "file_too_large: past attachments.max_file_bytes, said as it arrives or as declared; or payload_too_large, a form whose file does not start within its first 64 KiB.", body = ErrorBody),
         (status = UNSUPPORTED_MEDIA_TYPE, description = "unsupported_type: the file's bytes are of a type the kind does not take.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "storage_unavailable: the file store did not answer.", body = ErrorBody),
@@ -197,10 +288,10 @@ pub(super) async fn upload_file(
     Authenticated(principal): Authenticated,
     Path(id): Path<Uuid>,
     Query(query): Query<UploadQuery>,
-    headers: HeaderMap,
-    form: Result<Multipart, MultipartRejection>,
+    request: Request,
 ) -> Result<(StatusCode, Json<File>), ApiError> {
-    let declared = headers
+    let declared = request
+        .headers()
         .get(CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
@@ -208,20 +299,40 @@ pub(super) async fn upload_file(
         .attachments
         .admit_upload(&principal, id, query.kind.into(), declared, FORM_OVERHEAD)
         .await?;
-    let mut form = form.map_err(|rejection| {
-        ApiError::new(rejection.status(), "invalid_body", rejection.body_text())
-    })?;
-    let field = form
-        .next_field()
+    let gate = Gate::new(FORM_OVERHEAD);
+    let request = request.map(|body| gate.wrap(body));
+    let mut form = Multipart::from_request(request, &state)
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_body", error.body_text()))?
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "invalid_input",
-                format!("the form has no {FILE_FIELD}"),
-            )
+        .map_err(|rejection| {
+            ApiError::new(rejection.status(), "invalid_body", rejection.body_text())
         })?;
+    let field = {
+        // The form's reader waits for more only when the body has more to give: one that
+        // stopped at the gate wants more than a form's headers take.
+        let mut next = pin!(form.next_field());
+        std::future::poll_fn(|cx| match next.as_mut().poll(cx) {
+            Poll::Pending if gate.stalled() => Poll::Ready(Err(ApiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                format!(
+                    "the form's file does not start within its first {} KiB",
+                    FORM_OVERHEAD / 1024
+                ),
+            ))),
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(field) => Poll::Ready(field.map_err(|error| {
+                ApiError::new(StatusCode::BAD_REQUEST, "invalid_body", error.body_text())
+            })),
+        })
+        .await?
+    }
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            format!("the form has no {FILE_FIELD}"),
+        )
+    })?;
     if field.name() != Some(FILE_FIELD) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -229,6 +340,8 @@ pub(super) async fn upload_file(
             format!("the form takes one part, {FILE_FIELD}"),
         ));
     }
+    // The file, and the boundary that ends it.
+    gate.open(ticket.max().saturating_add(FORM_OVERHEAD));
     let name = field.file_name().unwrap_or_default().to_owned();
     let body = field.map(|chunk| chunk.map_err(|error| error.body_text()));
     let file = state.attachments.upload(ticket, &name, body).await?;
@@ -306,6 +419,7 @@ pub(super) async fn read_file(
             return Ok((answer, error).into_response());
         }
     };
+
     let length = match &range {
         Some(range) => {
             insert(

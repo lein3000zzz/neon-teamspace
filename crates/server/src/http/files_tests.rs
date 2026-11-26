@@ -514,6 +514,114 @@ async fn uploads_stop_at_the_largest_file_and_the_storage_limit(pool: PgPool) {
     assert_eq!(design["usage"]["storage_bytes"], 1500);
 }
 
+/// A body of `total` bytes in chunks of `chunk`, after `head`, sent as it is read with no
+/// declared length, as a chunked request comes; and how many of its bytes were read.
+fn streamed(
+    head: Vec<u8>,
+    fill: u8,
+    total: usize,
+    chunk: usize,
+) -> (axum::body::Body, Arc<std::sync::atomic::AtomicUsize>) {
+    use futures_util::StreamExt as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let read = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&read);
+    let chunks = std::iter::once(head)
+        .chain((0..total.div_ceil(chunk)).map(move |n| vec![fill; chunk.min(total - n * chunk)]));
+    let body = futures_util::stream::iter(chunks).map(move |bytes| {
+        counted.fetch_add(bytes.len(), Ordering::SeqCst);
+        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(bytes))
+    });
+    (axum::body::Body::from_stream(body), read)
+}
+
+async fn upload_streamed(by: &Browser<'_>, page: &str, body: axum::body::Body) -> Raw {
+    upload_streamed_to(by.app(), by.cookie(), page, body).await
+}
+
+async fn upload_streamed_to(app: &Router, cookie: &str, page: &str, body: axum::body::Body) -> Raw {
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+    let request = axum::http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/v1/pages/{page}/files?kind=file"))
+        .header(COOKIE, cookie)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(body)
+        .expect("a request");
+    let response = app.clone().oneshot(request).await.expect("a response");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    Raw {
+        status,
+        headers,
+        body,
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_form_is_read_no_further_than_its_file_and_the_largest_file_bound_it(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let page = page_in_general(&t.ada, &t.workspace, "Plan").await;
+    set(&state, "attachments.max_file_bytes", json!(256 * 1024)).await;
+    let overhead = usize::try_from(files::FORM_OVERHEAD).expect("small");
+    let chunk = 4096;
+
+    // A form that never comes to its boundary is cut off once past what a form's headers
+    // take, whatever it would go on to send.
+    let (body, read) = streamed(Vec::new(), b'A', 64 * 1024 * 1024, chunk);
+    let refused = upload_streamed(&t.ada, &page, body).await;
+    assert_eq!(refused.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(refused.code(), "payload_too_large");
+    let sent = read.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(sent <= overhead + 2 * chunk, "read {sent} bytes");
+
+    // Nor do part headers that never end.
+    let head = format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"\r\nX-More: ")
+        .into_bytes();
+    let (body, read) = streamed(head, b'h', 64 * 1024 * 1024, chunk);
+    let refused = upload_streamed(&t.ada, &page, body).await;
+    assert_eq!(refused.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(refused.code(), "payload_too_large");
+    let sent = read.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(sent <= overhead + 2 * chunk, "read {sent} bytes");
+
+    // A file larger than the form's headers may be passes once it starts, up to the largest.
+    let head = format!(
+        "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\n"
+    )
+    .into_bytes();
+    let mut whole = head.clone();
+    whole.extend(vec![b'a'; 200 * 1024]);
+    whole.extend(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+    let (body, _) = streamed(whole, b'a', 0, chunk);
+    let fits = upload_streamed(&t.ada, &page, body).await;
+    assert_eq!(fits.status, StatusCode::CREATED, "{}", fits.json());
+    assert_eq!(fits.json()["size"], 200 * 1024);
+    // One past it stops as it comes, undeclared.
+    let (body, read) = streamed(head, b'a', 64 * 1024 * 1024, chunk);
+    let refused = upload_streamed(&t.ada, &page, body).await;
+    assert_eq!(refused.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(refused.code(), "file_too_large");
+    let sent = read.load(std::sync::atomic::Ordering::SeqCst);
+    // The form's headers, then the largest file and its form, and a chunk past each.
+    assert!(
+        sent <= 2 * overhead + 256 * 1024 + 2 * chunk,
+        "read {sent} bytes"
+    );
+}
+
 /// Refuses uploads, as if the caller had used theirs up, and lets everything else in.
 struct NoUploads;
 

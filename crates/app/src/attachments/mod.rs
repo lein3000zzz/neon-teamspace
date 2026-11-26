@@ -187,6 +187,13 @@ pub struct UploadTicket {
     max: u64,
 }
 
+impl UploadTicket {
+    /// The most bytes the file may have.
+    pub fn max(&self) -> u64 {
+        self.max
+    }
+}
+
 /// A file the caller may read, as the rules said a moment ago.
 #[derive(Debug, Clone)]
 pub struct Readable {

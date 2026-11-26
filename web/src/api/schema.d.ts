@@ -10134,7 +10134,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description file_too_large: past attachments.max_file_bytes, said as it arrives or as declared. */
+            /** @description file_too_large: past attachments.max_file_bytes, said as it arrives or as declared; or payload_too_large, a form whose file does not start within its first 64 KiB. */
             413: {
                 headers: {
                     [name: string]: unknown;

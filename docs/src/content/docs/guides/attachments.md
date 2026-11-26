@@ -58,8 +58,10 @@ found. It reads an image's width and height from its header as it uploads.
 | How long one upload may take | 15 minutes | |
 
 An upload streams to the store as it comes, so the server never holds a whole file in memory.
-It stops as soon as the bytes pass the largest file. A client that declares its upload's size,
-as browsers do, gets the refusal of one too large before the server reads any of it.
+It stops as soon as the bytes pass the largest file, whether or not the client declared their
+size. A client that declares its upload's size, as browsers do, gets the refusal of one too
+large before the server reads any of it. The form's file must start within its first 64 KiB,
+after its boundary and part headers, so a form that never gets to its file stops there.
 
 A workspace at its storage limit refuses uploads, and imports that bring files. Nothing in it
 is removed, and its pages stay editable. An upload that would take the workspace past its
@@ -152,6 +154,7 @@ cover, and `null` takes it off. `GET /api/v1/files/{id}` reads a file, with `Ran
 | `404` | `not_found` | No such page or file, or none the caller sees. |
 | `409` | `storage_limit` | The workspace has no room for the file. |
 | `413` | `file_too_large` | Past `attachments.max_file_bytes`. |
+| `413` | `payload_too_large` | A form whose file does not start within its first 64 KiB. |
 | `415` | `unsupported_type` | A type the kind does not take. |
 | `416` | `range_not_satisfiable` | A `Range` that starts past the file's end. |
 | `429` | `rate_limited` | Too many uploads; wait for `Retry-After`. |
