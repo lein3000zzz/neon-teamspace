@@ -80,7 +80,12 @@ observability stack on its own, beside `make run`; see
 `make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
 the Playwright tests in `e2e/` against it, and removes it, leaving the report in
 `e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
-and headless Chromium itself.
+and headless Chromium itself. The server image it tests builds with Cargo's `e2e` profile, the
+release profile without link-time optimisation, which compiles in a fraction of the time;
+published images build with `release`, which `E2E_CARGO_PROFILE=release` tests, as the run
+before each release does. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the
+Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so runs from
+two checkouts can go side by side.
 
 ## Development
 
@@ -196,7 +201,8 @@ GitHub Actions runs three workflows.
 
 - **CI** runs on every pull request into `dev` or `main` and on every push to them. A newer push cancels the older run on the same branch or pull request.
   - A changes job starts only the jobs the changed files affect. A change to the Makefile or to a workflow starts all of them.
-  - **Rust:** `make fmt-check`, `cargo deny check`, `make migrate`, `make lint`, `make test`, `make sqlx-check` and `make api-check`, against a Postgres 18 service container.
+  - **Rust lint:** `make fmt-check`, `cargo deny check`, `make migrate`, `make lint` and `make sqlx-check`, against a Postgres 18 service container.
+  - **Rust tests:** `make migrate`, `make test`, and `make api-check` with the `neon` binary the tests built, against a Postgres 18 service container of their own, beside the lint job.
   - **Web app:** `make web-install web-check web-build` and the license check for `web/`. `web-check` runs the tests of `scripts/` too, among them the Claude Code plugin's check, so the job also runs when the plugin or the MCP server's code changes.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
@@ -205,10 +211,11 @@ GitHub Actions runs three workflows.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
   - It runs on every pull request into `main`, and on pull requests into `dev` that touch the images, Caddy, Compose, the end-to-end tests or the Makefile.
+  - It also runs on every push to `dev` and `main`, and saves both images' layers to the Actions cache. Pull requests into those branches build from it, so only the layers their changes touch build again: the tools and the dependencies cargo-chef cooks build only when a Dockerfile, `Cargo.lock` or a manifest changes.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag.
-  - It runs the end-to-end tests, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
+  - It runs the end-to-end tests, with the server built in the release profile as the published image is, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
   - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
 

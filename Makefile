@@ -7,6 +7,16 @@ SQLX   ?= sqlx
 CLAUDE ?= claude
 # Options for cargo-deny, before its command. check adds --offline.
 DENY_FLAGS ?=
+# The e2e stack's Compose project, and the tags of the images make e2e builds and runs it from:
+# a run from another checkout can name its own, to keep apart from this one's.
+E2E_PROJECT       ?= neon-e2e
+E2E_SERVER_IMAGE  ?= neon-teamspace-server:local
+E2E_WEB_IMAGE     ?= neon-teamspace-web:local
+# The Cargo profile of the server image make e2e tests: e2e, the release profile's quicker
+# build, unless set to release, as the run before a release does to test the published build.
+E2E_CARGO_PROFILE ?= e2e
+# Options for docker buildx bake as it builds those images, such as CI's layer cache.
+E2E_BUILD_FLAGS   ?=
 
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
@@ -23,8 +33,15 @@ NO_DATABASE   := POSTGRES_PASSWORD=unused
 # A throwaway stack for e2e, built from this checkout, beside any other: a project of its own,
 # a free port on loopback, and neither deployments/.env nor deployments/server.env, so the
 # tests see the defaults.
-E2E_COMPOSE   := docker compose -p neon-e2e --env-file /dev/null -f deployments/docker-compose.yml \
+E2E_COMPOSE   := docker compose -p $(E2E_PROJECT) --env-file /dev/null -f deployments/docker-compose.yml \
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
+# Builds the e2e stack's images as docker-compose.build.yml describes them, with bake rather
+# than Compose, as bake takes cache options; the server in E2E_CARGO_PROFILE. Bake reads a
+# Compose file's build context from the directory it runs in, not from the file's, so the root
+# is named again.
+E2E_BAKE      := docker buildx bake -f deployments/docker-compose.build.yml \
+	--set server.context=. --set web.context=. --set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
+	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE)
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
 # The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
@@ -190,17 +207,23 @@ e2e-install: ## Install the end-to-end tests' packages and Playwright's headless
 e2e-check: ## Type-check the end-to-end tests and check their formatting
 	cd e2e && $(BUN) run check
 
+.PHONY: e2e-images
+e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
+	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
+
 .PHONY: e2e
-# The trap removes the stack, its volumes too, however the run ends, after printing the
-# containers' logs when it failed, and keeps the run's exit status.
-e2e: e2e-install ## Build both images, test a throwaway stack of them in Chromium, then remove it
+# Under make -j the images build while e2e-install runs. The trap removes the stack, its
+# volumes too, however the run ends, after printing the containers' logs when it failed, and
+# keeps the run's exit status.
+e2e: e2e-install e2e-images ## Build both images, test a throwaway stack of them in Chromium, then remove it
 	@set -e; \
 	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
 		E2E_ADMIN_EMAIL="$(E2E_ADMIN)" E2E_ADMIN_PASSWORD="$$(openssl rand -hex 16)" \
-		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)"; \
+		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)" \
+		E2E_SERVER_IMAGE="$(E2E_SERVER_IMAGE)" E2E_WEB_IMAGE="$(E2E_WEB_IMAGE)"; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
 		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
-	$(E2E_COMPOSE) up --detach --build --wait; \
+	$(E2E_COMPOSE) up --detach --no-build --wait; \
 	address="$$($(E2E_COMPOSE) port web 80)"; \
 	receiver="$$($(E2E_COMPOSE) port receiver 8080)"; \
 	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
