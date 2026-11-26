@@ -697,3 +697,93 @@ async fn rows_an_incoming_webhook_makes_are_told_to_outgoing_ones(pool: PgPool) 
 
     assert_eq!(t.take().await, [("row.assigned".to_owned(), t.dee.user.id)]);
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_rotated_secret_is_shown_and_kept_only_while_it_holds(pool: PgPool) {
+    let t = team(pool.clone()).await;
+    let incoming = t
+        .webhooks
+        .create_incoming(
+            &t.ada,
+            t.workspace,
+            NewIncomingWebhook {
+                name: "Forms".to_owned(),
+                target_id: t.db,
+                signed: true,
+            },
+        )
+        .await
+        .expect("made")
+        .hook
+        .id;
+    let now = t.h.time.clock().now();
+    let (_, outgoing) = t
+        .webhooks
+        .rotate_webhook_secret(&t.dee, t.workspace, t.hook)
+        .await
+        .expect("rotated");
+    let (_, signed) = t
+        .webhooks
+        .rotate_incoming_secret(&t.ada, t.workspace, incoming)
+        .await
+        .expect("rotated");
+    let overlap = time::Duration::hours(24);
+    assert_eq!(outgoing.previous_secret_expires_at, Some(now + overlap));
+    assert_eq!(signed.previous_secret_expires_at, Some(now + overlap));
+    // How many outgoing webhooks keep a rotated secret, and how many incoming ones keep a
+    // rotated and a current one.
+    let kept = || async {
+        sqlx::query_as::<_, (i64, i64, i64)>(
+            "SELECT (SELECT count(*) FROM webhooks WHERE previous_secret IS NOT NULL),
+                    (SELECT count(*) FROM incoming_webhooks
+                     WHERE previous_signing_secret IS NOT NULL),
+                    (SELECT count(*) FROM incoming_webhooks WHERE signing_secret IS NOT NULL)",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("counted")
+    };
+
+    // While they hold, nothing is forgotten.
+    t.h.time.advance(Duration::from_secs(23 * 3600));
+    assert_eq!(
+        t.h.workspaces
+            .cleanup()
+            .await
+            .expect("cleaned")
+            .rotated_secrets,
+        0
+    );
+    assert_eq!(kept().await, (1, 1, 1));
+
+    // Past the overlap, neither is shown, and the cleanup forgets both.
+    t.h.time.advance(Duration::from_secs(2 * 3600));
+    let read = t
+        .webhooks
+        .webhook(&t.dee, t.workspace, t.hook)
+        .await
+        .expect("read");
+    assert_eq!(read.previous_secret_expires_at, None);
+    let listed = t
+        .webhooks
+        .list_webhooks(&t.dee, t.workspace, None)
+        .await
+        .expect("listed");
+    assert_eq!(listed[0].previous_secret_expires_at, None);
+    let hook = t
+        .webhooks
+        .incoming(&t.ada, t.workspace, incoming)
+        .await
+        .expect("read");
+    assert_eq!(hook.previous_secret_expires_at, None);
+    assert!(hook.signed);
+    assert_eq!(
+        t.h.workspaces
+            .cleanup()
+            .await
+            .expect("cleaned")
+            .rotated_secrets,
+        2
+    );
+    assert_eq!(kept().await, (0, 0, 1));
+}

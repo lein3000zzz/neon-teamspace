@@ -195,7 +195,8 @@ def verify(secret: str, body: bytes, timestamp: str, signature: str) -> bool:
 
 **Rotating** the secret makes a new one, shown once. For 24 hours, deliveries are signed with
 both, the new one first, so a receiver keeps working while it moves to the new secret; a
-secret rotated before that stops at once. The server keeps secrets sealed with
+secret rotated before that stops at once. Once the 24 hours pass, the old secret is no longer
+shown as signing, and the server forgets it within the hour. The server keeps secrets sealed with
 [`secrets.keys`](/docs/self-hosting/configuration/#secret-keys), so webhooks need a key:
 without one, registering answers `409 no_secret_key`.
 

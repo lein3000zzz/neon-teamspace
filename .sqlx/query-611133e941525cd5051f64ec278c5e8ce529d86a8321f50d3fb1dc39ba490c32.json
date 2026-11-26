@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE webhooks SET previous_secret = NULL, previous_expires_at = NULL\n         WHERE previous_expires_at <= $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "611133e941525cd5051f64ec278c5e8ce529d86a8321f50d3fb1dc39ba490c32"
+}

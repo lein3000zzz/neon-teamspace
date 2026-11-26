@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE incoming_webhooks\n         SET previous_signing_secret = NULL, previous_expires_at = NULL\n         WHERE previous_expires_at <= $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89f0d054b73dfc4de1978f5cdd44c1e5bd82ab0c55cbc1f1476859b67aa3efdb"
+}

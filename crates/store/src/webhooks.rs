@@ -130,6 +130,21 @@ pub async fn counts(
     Ok((row.all, row.theirs))
 }
 
+/// Forgets the secrets rotated out whose overlap ended at `now` or before, saying how many.
+pub async fn forget_rotated(
+    executor: impl PgExecutor<'_>,
+    now: OffsetDateTime,
+) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "UPDATE webhooks SET previous_secret = NULL, previous_expires_at = NULL
+         WHERE previous_expires_at <= $1",
+        now,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// A webhook by its id alone, for its deliveries.
 pub async fn by_id(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Webhook>> {
     sqlx::query_as!(

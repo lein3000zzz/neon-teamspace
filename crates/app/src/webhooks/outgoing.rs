@@ -218,7 +218,8 @@ fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
         .is_some_and(|db| db.kind() == sqlx::error::ErrorKind::ForeignKeyViolation)
 }
 
-fn view(listed: Listed) -> OutgoingWebhook {
+/// A webhook as the caller sees it at `now`.
+fn view(listed: Listed, now: OffsetDateTime) -> OutgoingWebhook {
     let webhook = listed.webhook;
     OutgoingWebhook {
         events: known_events(&webhook.events),
@@ -230,7 +231,7 @@ fn view(listed: Listed) -> OutgoingWebhook {
         disabled_at: webhook.disabled_at,
         disabled_reason: webhook.disabled_reason,
         failures: webhook.failures,
-        previous_secret_expires_at: webhook.previous_expires_at,
+        previous_secret_expires_at: webhook.previous_expires_at.filter(|until| *until > now),
         created_by: listed
             .creator
             .map(|(id, display_name)| Creator { id, display_name }),
@@ -277,7 +278,7 @@ impl WebhookService {
                     )
                     .is_ok()
                 })
-                .map(view)
+                .map(|listed| view(listed, self.now()))
                 .collect())
         })
         .await
@@ -295,7 +296,7 @@ impl WebhookService {
             let listed = self
                 .manageable(&mut conn, principal, workspace_id, id)
                 .await?;
-            Ok(view(listed))
+            Ok(view(listed, self.now()))
         })
         .await
     }
@@ -398,7 +399,7 @@ impl WebhookService {
                 events = ?webhook.events,
                 "webhook registered"
             );
-            Ok((Secret::new(secret), view(listed)))
+            Ok((Secret::new(secret), view(listed, now)))
         })
         .await
     }
@@ -500,7 +501,7 @@ impl WebhookService {
                 enabled = webhook.disabled_at.is_none(),
                 "webhook changed"
             );
-            Ok(view(listed))
+            Ok(view(listed, self.now()))
         })
         .await
     }
@@ -540,7 +541,7 @@ impl WebhookService {
                 webhook_id = %id,
                 "webhook secret rotated"
             );
-            Ok((Secret::new(secret), view(listed)))
+            Ok((Secret::new(secret), view(listed, now)))
         })
         .await
     }

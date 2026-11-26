@@ -19,9 +19,9 @@ the same features from the side of the people using them.
 | Mailed links | SHA-256 of the link's token. |
 | Mail waiting to go | Sealed with the instance's key and bound to its job, recipient and link included; deleted once sent or given up on. |
 | Secret settings | Sealed with the instance's key. Saving one without a key is refused. |
-| Outgoing webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated is kept until it stops signing, a day later. |
+| Outgoing webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated out is kept while it still signs, a day, and forgotten by the hourly cleanup after. |
 | Incoming webhooks' URL tokens | SHA-256 of the token. |
-| Incoming webhooks' signing secrets | Sealed with the instance's key, bound to the webhook. |
+| Incoming webhooks' signing secrets | Sealed with the instance's key, bound to the webhook; one rotated out is kept while it still verifies, a day, and forgotten by the hourly cleanup after. |
 
 Session tokens, API tokens, made invite codes, invite links, mailed links, incoming webhooks'
 URL tokens and webhooks' signing secrets are 32 random bytes from a CSPRNG, written in

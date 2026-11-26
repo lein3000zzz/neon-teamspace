@@ -1,10 +1,10 @@
-//! The hourly cleanup of invitations and invite links past their retention, and of pages
-//! in the trash past theirs.
+//! The hourly cleanup of invitations and invite links past their retention, of webhooks'
+//! secrets rotated out once they stop holding, and of pages in the trash past theirs.
 
 use std::time::Duration;
 
 use neon_domain::workspaces::RETENTION;
-use neon_store::workspace_invites;
+use neon_store::{incoming_webhooks, webhooks, workspace_invites};
 use tracing::info;
 
 use super::{WorkspaceError, WorkspaceService};
@@ -16,23 +16,30 @@ use crate::periodic::Periodic;
 pub struct CleanupReport {
     pub invitations: u64,
     pub invite_links: u64,
+    /// Webhooks' secrets, outgoing and incoming, rotated out and no longer holding.
+    pub rotated_secrets: u64,
 }
 
 impl WorkspaceService {
     /// Removes, as of now, the invitations answered, revoked or expired more than 30 days
-    /// ago, and the invite links expired or revoked more than 30 days ago.
+    /// ago, the invite links expired or revoked more than 30 days ago, and the webhooks'
+    /// secrets rotated out whose overlap has ended.
     pub async fn cleanup(&self) -> Result<CleanupReport, WorkspaceError> {
         self.observe("cleanup", async {
-            let before = self.now() - RETENTION;
+            let now = self.now();
+            let before = now - RETENTION;
             let report = CleanupReport {
                 invitations: workspace_invites::delete_ended(self.pool(), before).await?,
                 invite_links: workspace_invites::delete_ended_links(self.pool(), before).await?,
+                rotated_secrets: webhooks::forget_rotated(self.pool(), now).await?
+                    + incoming_webhooks::forget_rotated(self.pool(), now).await?,
             };
             if report != CleanupReport::default() {
                 info!(
                     invitations = report.invitations,
                     invite_links = report.invite_links,
-                    "ended workspace invitations removed"
+                    rotated_secrets = report.rotated_secrets,
+                    "ended workspace invitations and rotated webhook secrets removed"
                 );
             }
             Ok(report)

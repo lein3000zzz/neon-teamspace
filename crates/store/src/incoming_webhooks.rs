@@ -201,6 +201,23 @@ pub async fn set_signing(
     Ok(())
 }
 
+/// Forgets the signing secrets rotated out whose overlap ended at `now` or before, saying how
+/// many.
+pub async fn forget_rotated(
+    executor: impl PgExecutor<'_>,
+    now: OffsetDateTime,
+) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "UPDATE incoming_webhooks
+         SET previous_signing_secret = NULL, previous_expires_at = NULL
+         WHERE previous_expires_at <= $1",
+        now,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 pub async fn delete(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
     let result = sqlx::query!("DELETE FROM incoming_webhooks WHERE id = $1", id)
         .execute(executor)

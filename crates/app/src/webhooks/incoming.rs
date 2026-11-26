@@ -833,7 +833,7 @@ impl WebhookService {
             signed: stored.signing_secret.is_some(),
             previous_secret_expires_at: stored
                 .previous_expires_at
-                .filter(|_| stored.signing_secret.is_some()),
+                .filter(|until| stored.signing_secret.is_some() && *until > self.now()),
             id: stored.id,
             workspace_id: stored.workspace_id,
             name: stored.name,

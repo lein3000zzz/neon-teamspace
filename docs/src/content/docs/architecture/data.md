@@ -94,7 +94,8 @@ Work that happens after a request, or on a schedule, runs as a **job**. Mail is 
 `mail.send`; outgoing webhooks will be, **planned** with the feature. Imports and exports are
 not jobs: the request that asks for one waits for it, within
 [their limits](/docs/guides/import-export/#limits), and gets the file or the pages made in its
-answer. The hourly cleanup of expired sessions, links and invites is not a job but a
+answer. The hourly cleanup of expired sessions, links and invites, and of webhooks' rotated
+secrets once they stop holding, is not a job but a
 task of the server process: it needs no retries, since the next run catches up. Nothing else goes through it: edits apply live, and search text is
 updated with the page it comes from; see [Content](#content).
 
