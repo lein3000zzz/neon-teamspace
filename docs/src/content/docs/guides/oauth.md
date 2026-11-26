@@ -168,7 +168,12 @@ with `scope`, never more than its refresh token had, and never more than the gra
 
 A code or a refresh token used a second time means one of the two uses was a copy, and
 which cannot be told: the grant is revoked, with every token issued from it, the thief's and
-the client's alike, and the person connects the client again.
+the client's alike, and the person connects the client again. So a refresh token spent is
+kept until it would have expired, to catch a second use, and each grant exchanges a code or
+refresh token a few at a time, 10 at once and then one every 30 seconds, the
+`oauth-token:grant:` rate limit, which bounds how many one grant keeps. Past it the token
+endpoint answers `429 rate_limited` with `Retry-After`, and the refresh token stays
+unspent. A second use is never held back.
 
 ## When tokens stop
 

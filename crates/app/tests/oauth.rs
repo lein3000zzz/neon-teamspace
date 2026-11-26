@@ -413,3 +413,49 @@ async fn one_network_cannot_take_the_room_every_other_has_to_register_in(pool: P
         .await
         .expect("room again");
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn exchanges_are_rate_limited_by_grant_but_a_second_use_never_is(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let oauth = oauth(&h);
+    let ada = h.person("ada@example.com").await;
+    let design = h.workspace(&ada, "Design").await.workspace.id;
+    let (client, request) = client(&oauth).await;
+    let code = approve(&oauth, &ada, &request, design, Identity::Person).await;
+    let first = oauth
+        .token(&exchange(client, &code), &endpoints())
+        .await
+        .expect("issued");
+    let second = oauth
+        .token(&refresh(client, first.refresh_token.expose()), &endpoints())
+        .await
+        .expect("rotated");
+    let grant = grant_id(&oauth, &ada).await;
+    assert!(
+        h.limiter
+            .seen()
+            .contains(&(Bucket::OAuthToken, grant.to_string()))
+    );
+
+    h.limiter.refuse(Bucket::OAuthToken);
+    let limited = oauth
+        .token(
+            &refresh(client, second.refresh_token.expose()),
+            &endpoints(),
+        )
+        .await;
+    assert!(
+        matches!(limited, Err(OAuthError::RateLimited { .. })),
+        "{limited:?}"
+    );
+    let unspent: i64 = h
+        .scalar("SELECT count(*) FROM oauth_tokens WHERE kind = 'refresh' AND used_at IS NULL")
+        .await;
+    assert_eq!(unspent, 1, "a refresh refused leaves its token unspent");
+    // A spent refresh token used again still ends the grant at once.
+    let reused = oauth
+        .token(&refresh(client, first.refresh_token.expose()), &endpoints())
+        .await;
+    assert!(invalid_grant(&reused), "{reused:?}");
+    assert_eq!(grants(&h).await, 0);
+}

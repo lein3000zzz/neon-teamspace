@@ -18,7 +18,8 @@
 //! - **Tokens**: an access token for `oauth.access_token_ttl`, an hour by default, and a
 //!   refresh token for `oauth.refresh_token_ttl`, 30 days, which works once and is replaced
 //!   each time. A refresh token used twice ends its grant. Refreshing never widens the
-//!   scopes.
+//!   scopes. Each grant exchanges a few at a time, as each refresh token spent is kept
+//!   until it expires, to catch a second use.
 //! - **Every use** reads the grant again: its tokens stop at once when it is revoked, the
 //!   person is disabled or out of its workspace, the agent it acts as is suspended, deleted,
 //!   handed to someone else or switched off, or `mcp.identities` drops its mode. The bearer

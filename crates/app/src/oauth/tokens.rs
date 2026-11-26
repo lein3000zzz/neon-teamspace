@@ -10,11 +10,12 @@ use neon_domain::oauth::{
 use neon_domain::settings::Secret;
 use neon_store::oauth::{self as repo, FoundGrant, Token};
 use sqlx::PgConnection;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::{OAuthError, OAuthService};
 use crate::crypto::{hash_secret, new_secret, pkce_matches};
+use crate::ratelimit::Bucket;
 use crate::settings::mcp;
 
 /// The longest code or token read. Longer text matches nothing.
@@ -80,6 +81,7 @@ impl OAuthService {
                     )
                 })?),
             };
+            let exchanging = request.grant_type.as_deref() == Some("authorization_code");
             let mut tx = self.pool().begin().await?;
             let issued = match request.grant_type.as_deref() {
                 Some("authorization_code") => {
@@ -109,6 +111,11 @@ impl OAuthService {
             };
             let tokens = self.issue(&mut tx, &grant, scopes).await?;
             tx.commit().await?;
+            if exchanging {
+                info!(grant_id = %grant.id, client_id = %grant.client_id, scopes = ?tokens.scopes, "OAuth code exchanged for tokens");
+            } else {
+                debug!(grant_id = %grant.id, client_id = %grant.client_id, scopes = ?tokens.scopes, "OAuth tokens refreshed");
+            }
             Ok(tokens)
         })
         .await
@@ -153,6 +160,7 @@ impl OAuthService {
         if found.used_at.is_some() {
             return Err(Reused(found.grant_id, "code"));
         }
+        self.limit_exchanges(found.grant_id).await?;
         let now = self.now();
         let grant = self.working_grant(&mut *tx, found.grant_id, client).await?;
         if now >= found.expires_at {
@@ -216,6 +224,7 @@ impl OAuthService {
         if old.used_at.is_some() {
             return Err(Reused(old.grant_id, "refresh token"));
         }
+        self.limit_exchanges(old.grant_id).await?;
         let now = self.now();
         let grant = self.working_grant(&mut *tx, old.grant_id, client).await?;
         if now >= old.expires_at {
@@ -232,6 +241,16 @@ impl OAuthService {
             .await
             .map_err(failed)?;
         Ok((grant, scopes))
+    }
+
+    /// Takes an exchange from the grant's rate limit. A refresh token spent stays until it
+    /// expires, so that a second use is caught, and the limit bounds how many one grant
+    /// keeps, however fast its client refreshes. A second use is never limited: it ends
+    /// the grant at once.
+    async fn limit_exchanges(&self, grant_id: Uuid) -> Result<(), Outcome> {
+        self.limit(Bucket::OAuthToken, &grant_id.to_string())
+            .await
+            .map_err(Refused)
     }
 
     /// The grant of a code or refresh token, while it is the client's and works.
@@ -288,7 +307,6 @@ impl OAuthService {
         }
         repo::touch_grant(&mut *conn, grant.id, now).await?;
         repo::touch_client(&mut *conn, grant.client_id, now).await?;
-        info!(grant_id = %grant.id, client_id = %grant.client_id, scopes = ?scopes, "OAuth tokens issued");
         Ok(IssuedTokens {
             access_token: Secret::new(access),
             refresh_token: Secret::new(refresh),

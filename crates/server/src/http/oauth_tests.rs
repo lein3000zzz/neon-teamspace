@@ -1425,6 +1425,35 @@ async fn forms_are_read_only_as_large_and_as_long_as_a_request_needs(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_grant_exchanges_a_few_at_a_time(pool: PgPool) {
+    let state = public(pool, Clock::system()).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let mut current = connect(&app, &team.cy, ws, None, &["read"]).await;
+
+    // The exchange of its code and nine refreshes, then a wait.
+    let mut refreshes = 0;
+    let limited = loop {
+        let answer = refresh(&app, &current.client, &current.refresh, None).await;
+        if answer.status != StatusCode::OK {
+            break answer;
+        }
+        current = tokens(&current.client, &answer);
+        refreshes += 1;
+    };
+    assert_eq!(refreshes, 9, "{}", limited.body);
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(oauth_error(&limited), "rate_limited");
+    assert!(limited.headers.contains_key(RETRY_AFTER));
+    // Nothing was spent or ended: the last tokens work, and another grant exchanges.
+    assert_eq!(works(&app, &current, ws).await, StatusCode::OK);
+    let other = connect(&app, &team.cy, ws, None, &["read"]).await;
+    let rotated = refresh(&app, &other.client, &other.refresh, None).await;
+    assert_eq!(rotated.status, StatusCode::OK, "{}", rotated.body);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn refreshing_never_widens_and_consenting_again_narrows_at_once(pool: PgPool) {
     let state = public(pool, Clock::system()).await;
     let app = router(state.clone(), false);

@@ -156,6 +156,7 @@ attempts, then one more every 30 seconds:
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
 | `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
+| `oauth-token:grant:` | Exchanges of OAuth codes and refresh tokens, by grant. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -237,7 +238,9 @@ MCP clients and other programs connect through an OAuth 2.1 server, which
   browser goes back to in ASCII.
 - **Rotation and reuse.** A refresh token works once and is replaced each time. A code or
   refresh token used a second time ends its grant and every token of it, as one of the two
-  uses was a copy.
+  uses was a copy. Spent refresh tokens are kept until they would have expired, to catch
+  that, and each grant exchanges a few at a time, so that a client refreshing in a loop
+  keeps no more.
 - **Every use is checked.** An access token stands for its grant's person or agent, bound
   to its workspace, with no more scopes than the grant has now. The grant is read again on
   every request: it stops when it is revoked, when its person is disabled or leaves the

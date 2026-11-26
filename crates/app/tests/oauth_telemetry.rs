@@ -281,7 +281,7 @@ async fn refusals_count_as_ok_and_no_code_token_or_verifier_is_written(pool: PgP
     seen.push_str(&format!("{tokens:?} {rotated:?}\n"));
     assert!(seen.contains("oauth approve"), "the capture has the spans");
     assert!(
-        seen.contains("OAuth tokens issued"),
+        seen.contains("OAuth code exchanged for tokens") && seen.contains("OAuth tokens refreshed"),
         "the capture has the logs"
     );
     for secret in [
