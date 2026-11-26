@@ -161,8 +161,8 @@ async fn history_keeps_to_what_the_caller_may_see_and_do(pool: PgPool) {
         .body["revision"]
         .clone();
 
-    // A guest sees nothing until the page is shared with them, then sees no authors, and
-    // restores nothing with a share to view.
+    // A guest sees nothing until the page is shared with them; shared to view, sees the page
+    // and not its history, and restores nothing; shared to edit, sees it without authors.
     super::auth_tests::user(&state, "gus@example.com").await;
     let gus = guest(&app, &t.ada, ws, "gus@example.com").await;
     let hidden = gus.get(&versions).await;
@@ -176,9 +176,22 @@ async fn history_keeps_to_what_the_caller_may_see_and_do(pool: PgPool) {
         )
         .await;
     assert_eq!(shared.status, StatusCode::CREATED, "{}", shared.body);
-    let seen = gus.get(&versions).await;
-    assert_eq!(seen.status, StatusCode::OK, "{}", seen.body);
-    assert_eq!(seen.body["versions"][0]["authors"], json!([]));
+    let page_seen = gus.get(&format!("/api/v1/pages/{page}")).await;
+    assert_eq!(page_seen.status, StatusCode::OK, "{}", page_seen.body);
+    for path in [
+        versions.clone(),
+        format!("{versions}/{version}"),
+        format!("{versions}/{version}/compare"),
+    ] {
+        let refused = gus.get(&path).await;
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {}",
+            refused.body
+        );
+        assert_eq!(refused.body["error"]["code"], "forbidden");
+    }
     let refused = gus
         .post(
             &format!("{versions}/{version}/restore"),
@@ -186,8 +199,22 @@ async fn history_keeps_to_what_the_caller_may_see_and_do(pool: PgPool) {
         )
         .await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.body);
+    let gus_id = gus_id.as_str().expect("an id");
+    let reshared = t
+        .ada
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/pages/{page}/shares/{gus_id}"),
+            Some(json!({"access": "can_edit"})),
+        )
+        .await;
+    assert_eq!(reshared.status, StatusCode::OK, "{}", reshared.body);
+    let seen = gus.get(&versions).await;
+    assert_eq!(seen.status, StatusCode::OK, "{}", seen.body);
+    assert_eq!(seen.body["versions"][0]["authors"], json!([]));
 
-    // A token that only reads lists and compares, and restores nothing.
+    // A token that only reads, of an agent that edits the page as its owner does, lists and
+    // compares, and restores nothing.
     let scout = agent(&t.ada, ws, "Scout").await;
     let reader = Bearer::new(&app, agent_token(&t.ada, ws, &scout, &["read"]).await);
     let listed = reader.send(Method::GET, &versions, None).await;

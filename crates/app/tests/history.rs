@@ -9,7 +9,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use neon_app::history::{HistoryError, HistoryService};
 use neon_app::pages::{Location, NewPage, PageError};
-use neon_app::ratelimit::MemoryLimiter;
+use neon_app::ratelimit::{Bucket, RateLimiter};
+use neon_app::settings::Change as Setting;
 use neon_app::sync::{Connection, ContentError, Limits, Next, SyncService, access_feed, revision};
 use neon_blocks::diff::Change;
 use neon_blocks::edit::Edit;
@@ -93,7 +94,7 @@ impl Team {
             feed,
         )
         .limits(quick())
-        .limiter(std::sync::Arc::new(MemoryLimiter::new()))
+        .limiter(std::sync::Arc::clone(&self.h.limiter) as std::sync::Arc<dyn RateLimiter>)
         .clock(self.h.time.clock())
         .build()
     }
@@ -309,7 +310,7 @@ async fn lists_go_a_part_at_a_time_latest_first(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn history_shows_to_those_who_see_the_page_and_guests_get_no_authors(pool: PgPool) {
+async fn history_shows_to_those_who_edit_the_page_and_guests_get_no_authors(pool: PgPool) {
     let t = team(pool).await;
     let sync = t.sync();
     let history = t.history(&sync);
@@ -335,8 +336,15 @@ async fn history_shows_to_those_who_see_the_page_and_guests_get_no_authors(pool:
         assert_eq!(refused.code(), "not_found");
     }
 
+    // A member who edits it sees it; a guest it is shared with to edit sees it without who
+    // made the versions.
+    let seen = history
+        .versions(&t.dee, page, None, None)
+        .await
+        .expect("listed");
+    assert_eq!(seen.versions[0].authors, [t.ada.user.id]);
     t.h.pages
-        .share_page(&t.ada, page, t.gus.user.id, PageAccess::View)
+        .share_page(&t.ada, page, t.gus.user.id, PageAccess::Edit)
         .await
         .expect("shared");
     let seen = history
@@ -349,6 +357,14 @@ async fn history_shows_to_those_who_see_the_page_and_guests_get_no_authors(pool:
     );
     let read = history.version(&t.gus, page, version).await.expect("read");
     assert!(read.version.authors.is_empty());
+    // An agent sees it once it and its owner both edit the page, whatever its token's
+    // scopes, as reading is all it does.
+    let agent = t.h.agent(&t.ada, t.workspace, "Reader").await;
+    let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
+    history
+        .versions(&reader, page, None, None)
+        .await
+        .expect("listed");
 
     // A version of another page, or of none, is not found.
     let other = t.page(&sync, "Other", "Else\n").await;
@@ -381,6 +397,94 @@ async fn history_shows_to_those_who_see_the_page_and_guests_get_no_authors(pool:
         .await
         .expect_err("refused");
     assert_eq!(refused.code(), "invalid_input");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn those_who_only_view_a_page_see_none_of_what_it_held_before(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync();
+    let pay = t
+        .page(&sync, "Pay", "Salary band: 9999 confidential\n")
+        .await;
+    let read = sync.read(&t.ada, pay).await.expect("read").1;
+    sync.edit(
+        &t.ada,
+        pay,
+        vec![Edit::ReplaceBody {
+            blocks: from_markdown("See HR.\n").blocks,
+        }],
+        Some(revision(&read)),
+    )
+    .await
+    .expect("edited");
+    let notes =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Private,
+                Placement::Last,
+                NewPage {
+                    title: "Notes".to_owned(),
+                    content: sync
+                        .first_snapshot(&from_markdown("Draft figures\n"))
+                        .expect("not too large"),
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("created")
+            .page
+            .id;
+    // Stopping saves Pay as it is now, its second version.
+    sync.shutdown().await;
+    let sync = t.sync();
+    let history = t.history(&sync);
+    let ids = |list: neon_app::history::VersionList| -> Vec<Uuid> {
+        list.versions.iter().map(|version| version.id).collect()
+    };
+    let pay_versions = ids(history
+        .versions(&t.ada, pay, None, None)
+        .await
+        .expect("listed"));
+    assert_eq!(pay_versions.len(), 2);
+    let notes_versions = ids(history
+        .versions(&t.ada, notes, None, None)
+        .await
+        .expect("listed"));
+
+    // Pay is shared with a guest to view once the figure is gone, and Ada's private notes
+    // with her agent to view: neither sees the history, nor what the page held before,
+    // though both see the page as it is.
+    t.h.pages
+        .share_page(&t.ada, pay, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    let agent = t.h.agent(&t.ada, t.workspace, "Viewer").await;
+    let (_, viewer) = t.h.agent_token(&t.ada, &agent, &["read", "write"]).await;
+    t.h.pages
+        .share_page(&t.ada, notes, agent.id, PageAccess::View)
+        .await
+        .expect("shared");
+    for (who, page, versions) in [
+        (&t.gus, pay, pay_versions),
+        (&viewer, notes, notes_versions),
+    ] {
+        t.h.pages.page(who, page).await.expect("seen");
+        let refused = history
+            .versions(who, page, None, None)
+            .await
+            .expect_err("forbidden");
+        assert_eq!(refused.code(), "forbidden");
+        for version in versions {
+            let read = history.version(who, page, version).await.map(|_| ());
+            let compared = history.compare(who, page, version).await.map(|_| ());
+            for refused in [read, compared] {
+                assert_eq!(refused.expect_err("forbidden").code(), "forbidden");
+            }
+        }
+    }
     sync.shutdown().await;
 }
 
@@ -533,6 +637,146 @@ async fn restoring_brings_a_version_back_and_keeps_what_it_replaced(pool: PgPool
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_restore_that_changes_nothing_names_no_version(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync();
+    let history = t.history(&sync);
+    let page = t.page(&sync, "Plan", "First\n").await;
+    let only = history
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions[0]
+        .id;
+    let compared = history.compare(&t.ada, page, only).await.expect("compared");
+    let summary = compared.summary;
+    assert_eq!((summary.added, summary.changed, summary.removed), (0, 0, 0));
+    history
+        .restore(&t.ada, page, only, compared.revision)
+        .await
+        .expect("restored");
+    assert_eq!(t.count(page).await, 1);
+
+    // The next version is an ordinary one.
+    sync.edit(&t.ada, page, append("An ordinary later edit"), None)
+        .await
+        .expect("edited");
+    sync.shutdown().await;
+    let sync = t.sync();
+    let list = t
+        .history(&sync)
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions;
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].restored_from, None);
+    assert_eq!(list[0].restored_from_at, None);
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn restores_count_against_a_rate_of_their_own(pool: PgPool) {
+    let t = team(pool).await;
+    let sync = t.sync();
+    let history = t.history(&sync);
+    let page = t.page(&sync, "Plan", "First\n").await;
+    let first = history
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions[0]
+        .id;
+    sync.edit(&t.ada, page, append("Second"), None)
+        .await
+        .expect("edited");
+    let base = history
+        .compare(&t.ada, page, first)
+        .await
+        .expect("compared")
+        .revision;
+
+    t.h.limiter.refuse(Bucket::PageRestore);
+    let refused = history
+        .restore(&t.ada, page, first, base)
+        .await
+        .expect_err("limited");
+    assert_eq!(content_error(refused), "rate_limited");
+    assert!(
+        t.h.limiter
+            .seen()
+            .contains(&(Bucket::PageRestore, t.ada.user.id.to_string()))
+    );
+    assert_eq!(text_of(&sync, page).await, "First\nSecond");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_keeps_no_more_versions_than_the_cap_between_cleanups(pool: PgPool) {
+    let t = team(pool).await;
+    t.h.settings
+        .update(
+            [("history.max_versions".to_owned(), Setting::Set(json!(3)))],
+            None,
+        )
+        .await
+        .expect("set");
+    let sync = t.sync();
+    let page = t.page(&sync, "Plan", "Zero\n").await;
+    sync.shutdown().await;
+    for n in 1..=4 {
+        t.h.time.advance(Duration::from_secs(60));
+        let sync = t.sync();
+        sync.edit(&t.ada, page, append(&format!("Edit {n}")), None)
+            .await
+            .expect("edited");
+        sync.shutdown().await;
+        assert!(t.count(page).await <= 3, "after edit {n}");
+    }
+
+    // Restoring two versions in turn, over and over, keeps no more either.
+    let sync = t.sync();
+    let history = t.history(&sync);
+    let list = history
+        .versions(&t.ada, page, None, None)
+        .await
+        .expect("listed")
+        .versions;
+    assert_eq!(list.len(), 3);
+    assert_eq!(
+        history
+            .version(&t.ada, page, list[0].id)
+            .await
+            .expect("read")
+            .document
+            .plain_text(),
+        "Zero\nEdit 1\nEdit 2\nEdit 3\nEdit 4"
+    );
+    let mut pick = [list[1].id, list[0].id];
+    for _ in 0..4 {
+        t.h.time.advance(Duration::from_secs(60));
+        let base = history
+            .compare(&t.ada, page, pick[0])
+            .await
+            .expect("compared")
+            .revision;
+        history
+            .restore(&t.ada, page, pick[0], base)
+            .await
+            .expect("restored");
+        assert!(t.count(page).await <= 3);
+        // The newest versions are the restore and what it replaced; alternate between them.
+        let latest = history
+            .versions(&t.ada, page, None, Some(2))
+            .await
+            .expect("listed")
+            .versions;
+        pick = [latest[1].id, latest[0].id];
+    }
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_restore_from_a_stale_comparison_is_refused_and_changes_nothing(pool: PgPool) {
     let t = team(pool).await;
     let sync = t.sync();
@@ -588,8 +832,7 @@ async fn restoring_needs_editing_the_page(pool: PgPool) {
         .expect("compared")
         .revision;
 
-    // A guest it is shared with to view, and a token that only reads, see it and do not
-    // restore it.
+    // A guest it is shared with to view, and a token that only reads, do not restore it.
     t.h.pages
         .share_page(&t.ada, page, t.gus.user.id, PageAccess::View)
         .await

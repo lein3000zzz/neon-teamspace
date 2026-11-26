@@ -204,7 +204,8 @@ impl SyncService {
     /// when it was made, on the revision `base` the caller compared against, refused once the
     /// page is at another: see [`crate::history`]. It counts as the principal's edit of the
     /// page, needs what editing it needs, and goes through its live document as one change,
-    /// so whoever has the page open sees it at once.
+    /// so whoever has the page open sees it at once. Restores count against a rate of their
+    /// own as well, [`Bucket::PageRestore`], as each keeps a whole copy of the page.
     pub async fn restore(
         &self,
         principal: &Principal,
@@ -215,6 +216,13 @@ impl SyncService {
     ) -> Result<Edited, ContentError> {
         self.observe("restore", async {
             let view = self.editable(principal, page_id).await?;
+            let user = principal.user.id.to_string();
+            if let Err(limited) = self.inner.limiter.check(Bucket::PageRestore, &user).await {
+                warn!(user_id = %principal.user.id, "restores of pages' versions rate limited");
+                return Err(ContentError::RateLimited {
+                    retry_after: limited.retry_after,
+                });
+            }
             let made = self
                 .send(view.page.workspace_id, page_id, |done| Command::Restore {
                     author: principal.user.id,

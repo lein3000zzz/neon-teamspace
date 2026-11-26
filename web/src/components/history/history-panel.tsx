@@ -35,7 +35,11 @@ type HistoryButtonProps = {
   editable: boolean;
 };
 
-/** The page's history, in a panel over its side, opened from the page's header. */
+/**
+ * The page's history, in a panel over its side, opened from the page's header:
+ * for those who edit the page, as a version may hold what was taken out of it
+ * before someone was given it to view.
+ */
 export function HistoryButton({ page, editable }: HistoryButtonProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -179,6 +183,10 @@ function VersionDetail({ page, version, editable, onPin }: VersionDetailProps) {
   const comparison = useQuery(comparisonQuery(workspace.id, page.id, version.id));
   const restore = useRestoreVersion(workspace.id, page.id);
   const when = formatDateTime(version.created_at);
+  // A page as the version has it has nothing to restore.
+  const differs =
+    comparison.data !== undefined &&
+    comparison.data.added + comparison.data.changed + comparison.data.removed > 0;
 
   const confirm = () => {
     setConfirming(false);
@@ -212,14 +220,14 @@ function VersionDetail({ page, version, editable, onPin }: VersionDetailProps) {
         {editable && (
           <Button
             size="sm"
-            disabled={comparison.data === undefined || restore.isPending}
+            disabled={!differs || restore.isPending}
             onClick={() => setConfirming(true)}
           >
             {restore.isPending ? copy.restoring : copy.restore}
           </Button>
         )}
       </div>
-      {!editable && <p className="text-sm text-muted-foreground">{copy.viewOnly}</p>}
+      {!editable && <p className="text-sm text-muted-foreground">{copy.inTrash}</p>}
       {restored && (
         <Alert tone="info" live="polite">
           <p>{copy.restored}</p>

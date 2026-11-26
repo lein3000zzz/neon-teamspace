@@ -623,8 +623,8 @@ impl Document {
     /// a version unless the latest one holds it already, so the restore can be undone; then
     /// the restore is made as one edit, which merges as edits do with what is typed
     /// meanwhile in the blocks it keeps, and saved again, its version naming the one
-    /// restored. Saving that last snapshot may fail, and is tried again as every snapshot
-    /// is; the restore stands.
+    /// restored, unless the page held it already. Saving that last snapshot may fail, and is
+    /// tried again as every snapshot is; the restore stands.
     async fn restore(
         &mut self,
         author: Uuid,
@@ -648,7 +648,10 @@ impl Document {
         let made = self
             .edit(author, &[Edit::Restore { blocks }], Some(base))
             .await?;
-        self.storage.restored = Some(from);
+        // A restore that left the page as it was makes no version, and names none.
+        if made.revision.as_deref() != Some(base) {
+            self.storage.restored = Some(from);
+        }
         if self.storage.needs_snapshot() {
             self.compact().await;
         }
@@ -1109,6 +1112,7 @@ impl Document {
         let at = self.inner.clock.now();
         let authors: Vec<Uuid> = self.storage.authors.iter().copied().collect();
         let restored = self.storage.restored;
+        let retention = crate::history::retention(&self.inner.pages.settings());
         let pool = &self.inner.pool;
         let saved = async {
             let mut tx = pool.begin().await?;
@@ -1136,6 +1140,9 @@ impl Document {
                 },
             )
             .await?;
+            if versioned {
+                record::cap(&mut tx, page_id, retention, at).await?;
+            }
             tx.commit().await?;
             Ok::<_, sqlx::Error>((deleted, versioned))
         }

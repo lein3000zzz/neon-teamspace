@@ -1,8 +1,9 @@
 //! Rate limits on the attempts that guess or flood: sign-ins, sign-ups, mailed links,
 //! requests to join, invite lookups, invitations into workspaces, imports and exports of
-//! pages, edits of pages' content from the API and MCP, searches, requests to the MCP
-//! server, by identity and by person, OAuth clients registering themselves, the exchanges
-//! of each OAuth grant, webhooks' test events, and the requests incoming webhooks take.
+//! pages, edits of pages' content from the API and MCP, restores of pages' versions,
+//! searches, requests to the MCP server, by identity and by person, OAuth clients
+//! registering themselves, the exchanges of each OAuth grant, webhooks' test events, and the
+//! requests incoming webhooks take.
 //!
 //! [`RateLimiter`] is the port; [`MemoryLimiter`] keeps the buckets in this process's
 //! memory, which suits one server process. Several would need a shared store behind the
@@ -112,6 +113,9 @@ pub enum Bucket {
     /// Editing pages' content through their live documents, by user: each edit may go over
     /// the whole page, twice.
     PageEdit,
+    /// Restoring versions of pages, by user: each keeps a whole copy of the page as a
+    /// version, and may another of the page as it was.
+    PageRestore,
     /// Searching a workspace, by user: each search may read many pages' text.
     Search,
     /// Requests to the MCP server, by identity: a person or an agent.
@@ -133,7 +137,7 @@ pub enum Bucket {
 }
 
 impl Bucket {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::LoginIp,
         Self::LoginIpEmail,
         Self::LoginEmail,
@@ -149,6 +153,7 @@ impl Bucket {
         Self::PageImport,
         Self::PageExport,
         Self::PageEdit,
+        Self::PageRestore,
         Self::Search,
         Self::Mcp,
         Self::McpPerson,
@@ -177,6 +182,7 @@ impl Bucket {
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
             Self::PageEdit => "page-edit:user:",
+            Self::PageRestore => "page-restore:user:",
             Self::Search => "search:user:",
             Self::Mcp => "mcp:user:",
             Self::McpPerson => "mcp:person:",

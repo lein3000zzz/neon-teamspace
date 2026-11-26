@@ -1,8 +1,10 @@
 //! Keeping a version: in the transaction that saves a page's snapshot, its blocks become a
-//! version when they differ from the latest one's.
+//! version when they differ from the latest one's, and a page that keeps more versions than
+//! the retention's cap is thinned at once.
 
 use neon_blocks::Document;
 use neon_blocks::diff::{Summary, diff};
+use neon_domain::history::{Retention, to_delete};
 use neon_store::versions::{self, NewVersion};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -65,4 +67,24 @@ pub(crate) async fn record(
     )
     .await?;
     Ok(true)
+}
+
+/// Thins a page's versions as the hourly cleanup would as of `now`, when it keeps more than
+/// the retention's cap, so that a page edited fast, or restored over and over, keeps no
+/// more versions between cleanups than the cleanup leaves. Says how many went.
+pub(crate) async fn cap(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+    retention: Retention,
+    now: OffsetDateTime,
+) -> Result<u64, sqlx::Error> {
+    let dated = versions::dated(&mut *conn, page_id).await?;
+    if dated.len() <= retention.max_versions {
+        return Ok(0);
+    }
+    let doomed = to_delete(&dated, now, retention);
+    if doomed.is_empty() {
+        return Ok(0);
+    }
+    versions::delete(&mut *conn, &doomed).await
 }

@@ -71,6 +71,8 @@ type Options = {
   revision?: string;
   /** The revision a refused restore moves the page to, as if someone typed meanwhile. */
   changedTo?: string;
+  /** The page is as every version has it: comparisons find nothing changed. */
+  unchanged?: boolean;
 };
 
 /**
@@ -113,15 +115,25 @@ export function fakeHistory(options: Options = {}) {
         return apiError(404, "not_found", "no such version of this page");
       }
       compared += 1;
-      const comparison: Comparison = {
-        page: roadmap,
-        version,
-        changes: sampleChanges(),
-        added: 1,
-        changed: 1,
-        removed: 1,
-        revision: state.revision,
-      };
+      const comparison: Comparison = options.unchanged
+        ? {
+            page: roadmap,
+            version,
+            changes: [{ change: "same", depth: 0, block_id: "b1", after: "# Roadmap\n" }],
+            added: 0,
+            changed: 0,
+            removed: 0,
+            revision: state.revision,
+          }
+        : {
+            page: roadmap,
+            version,
+            changes: sampleChanges(),
+            added: 1,
+            changed: 1,
+            removed: 1,
+            revision: state.revision,
+          };
       return HttpResponse.json(comparison);
     }),
     http.post(`${base}/:version/restore`, async ({ request, params }) => {

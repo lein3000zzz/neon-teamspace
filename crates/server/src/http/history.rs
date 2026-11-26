@@ -1,7 +1,8 @@
 //! `/api/v1/pages/{id}/versions`: a page's history, the versions its snapshots left.
 //!
-//! Listing, reading and comparing need to see the page, with `read`; restoring needs to edit
-//! it, with `write`, and the revision the comparison answered, which it is refused without
+//! Listing, reading and comparing need to edit the page, with `read`: a version may hold
+//! what was taken out before someone was given the page to view. Restoring needs to edit it
+//! too, with `write`, and the revision the comparison answered, which it is refused without
 //! once the page changed: see [`neon_app::history`]. Guests, and agents of guests, get no
 //! authors.
 
@@ -261,13 +262,15 @@ pub struct ListVersions {
                    how many blocks they added, changed and removed. A version is kept each time \
                    the server saves the page changed, and the hourly cleanup thins them out as \
                    the history settings say. The page as it is now, being edited, may be newer \
-                   than the latest. A database has no body, and no history.",
+                   than the latest. A database has no body, and no history. Only those who may \
+                   edit the page see its history, as a version may hold what was taken out \
+                   before someone was given the page to view.",
     params(("id" = Uuid, Path, description = "The page's id."), ListVersions),
     responses(
         (status = OK, description = "The versions, or a part of them.", body = VersionList),
         (status = BAD_REQUEST, description = "invalid_input: a limit out of bounds, a cursor from no list, or a database.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -292,7 +295,7 @@ pub(super) async fn list_versions(
     tag = "history",
     summary = "Read a version",
     description = "A version of the page, read-only: its blocks in BlockNote's JSON and as \
-                   markdown with their ids.",
+                   markdown with their ids. For those who may edit the page.",
     params(
         ("id" = Uuid, Path, description = "The page's id."),
         ("version_id" = Uuid, Path, description = "The version's id."),
@@ -301,7 +304,7 @@ pub(super) async fn list_versions(
         (status = OK, description = "The version.", body = PageVersion),
         (status = BAD_REQUEST, description = "invalid_input: a database.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such page, or no such version of it.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -325,7 +328,7 @@ pub(super) async fn get_version(
                    edited included, block by block: every block of both, in the page's order, \
                    the version's removed ones where they were, each the same, changed, added or \
                    removed. Blocks are told apart by their ids. Answers the revision the page \
-                   is at, which a restore names as its base.",
+                   is at, which a restore names as its base. For those who may edit the page.",
     params(
         ("id" = Uuid, Path, description = "The page's id."),
         ("version_id" = Uuid, Path, description = "The version's id."),
@@ -334,7 +337,7 @@ pub(super) async fn get_version(
         (status = OK, description = "The comparison.", body = Comparison),
         (status = BAD_REQUEST, description = "invalid_input: a database.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such page, or no such version of it.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
@@ -361,7 +364,8 @@ pub(super) async fn compare_version(
                    it. base is the revision the comparison answered: once the page is at \
                    another, as when someone edited it since, nothing changes and the answer is \
                    edit_conflict, to compare again. Needs edit access to the page, out of the \
-                   trash, and counts as an edit of its content.",
+                   trash, and counts as an edit of its content; restores count against a rate \
+                   of their own as well.",
     params(
         ("id" = Uuid, Path, description = "The page's id."),
         ("version_id" = Uuid, Path, description = "The version's id."),
@@ -375,7 +379,7 @@ pub(super) async fn compare_version(
         (status = NOT_FOUND, description = "not_found: no such page, or no such version of it.", body = ErrorBody),
         (status = CONFLICT, description = "edit_conflict: the page is no longer at base; nothing changed.", body = ErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the page would grow past what it holds.", body = ErrorBody),
-        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many edits of pages' content; Retry-After says when to try again.", body = ErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited: too many edits of pages' content, or restores of versions; Retry-After says when to try again.", body = ErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "unavailable: the page could not be saved first, or the server is stopping.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),

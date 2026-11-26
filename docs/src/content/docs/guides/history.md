@@ -34,7 +34,8 @@ would also have to hide the people named in person values from guests, as rows d
 
 ## In the web app
 
-**History** in a page's header opens its versions in a panel, the latest first. Each one
+**History** in a page's header, shown to those who may edit the page, opens its versions in
+a panel, the latest first. Each one
 shows when, who, and how much changed. The one you pick opens on **Changes since**, every
 block of the version and of the page as it is now, in the page's order:
 
@@ -54,13 +55,16 @@ comparison includes what is being typed right now, saved or not.
 ## Restoring
 
 **Restore this version** asks first, then makes the page hold the version's blocks again.
-It needs edit access to the page, out of the trash. The restore is one change to the page's
+It needs edit access to the page, out of the trash, and is offered only when the page differs
+from the version. The restore is one change to the page's
 live document, made by you, so everyone who has the page open sees it at once, and it counts
 as your edit.
 
 Before it changes anything, the server saves the page as it is as a version, unless the
 latest version holds it already. Restoring that version undoes the restore. The restore
-itself is then kept as a version that names the one restored, **Restored from** its time.
+itself is then kept as a version that names the one restored, **Restored from** its time. A
+restore that finds the page as the version has it, through the API, changes nothing, keeps
+no version and names none.
 
 What happens with edits made around the restore:
 
@@ -88,17 +92,25 @@ The hourly cleanup thins each page's versions, as three settings say:
 | `history.max_versions` | 500 | The most versions a page keeps, the latest ones. |
 
 Days and weeks are UTC's. The latest version always stays. A change to the settings applies
-to every page at the next cleanup. A page's versions go when the page is deleted for good.
+to every page at the next cleanup. A page that keeps a version past `history.max_versions`,
+as one edited fast for long or restored over and over can, is thinned at once, in the
+transaction that keeps the version, as the cleanup would thin it, so no page holds more
+between cleanups. A page's versions go when the page is deleted for good.
 They keep a version whole for an hour to ten years, and 1 to 100,000 versions a page; the
 [settings reference](/docs/reference/settings/) lists their environment variables.
 
 ## Who sees what
 
-Whoever may see a page sees its history, the versions and the comparisons, and whoever may
-edit it restores a version. A page in the trash shows its history to those who could edit
-it, and nobody restores a version of it until it is restored itself. Guests, and agents of
-guests, know no other member, so versions show them no authors. An agent or integration
-sees the history of a page it and its owner both see.
+Whoever may edit a page sees its history, the versions and the comparisons, and restores a
+version. Those who may only view the page see it as it is, and not its history: a version
+may hold what was taken out of the page before they were given it to view, such as a figure
+removed before the page was shared with a guest, or before the page moved from a private
+teamspace into an open one. The API answers them `403 forbidden`, and the web app shows them
+no **History**. A page in the trash shows its history to those who could edit it, and nobody
+restores a version of it until it is restored itself. Guests a page is shared with to edit,
+and agents of guests, know no other member, so versions show them no authors. An agent or
+integration sees the history of a page it and its owner may both edit, whatever its token's
+scopes, as reading the history only reads.
 
 ## The API
 
@@ -124,10 +136,12 @@ sees the history of a page it and its owner both see.
 ```
 
 Each block of a comparison comes as markdown, alone, without the blocks under it, which
-follow it a level deeper. A version of another page, or of none, answers `404 not_found`, and
-a database `400 invalid_input`. A restore answers as an edit of the page's content does:
-`403 forbidden` to those who view the page, `409 edit_conflict` when the page changed since
-`base`, and `429 rate_limited` past the edits a user may make.
+follow it a level deeper. A version of another page, or of none, answers `404 not_found`, a
+database `400 invalid_input`, and every route `403 forbidden` to those who only view the
+page. A restore answers as an edit of the page's content does: `409 edit_conflict` when the
+page changed since `base`, and `429 rate_limited` past the edits a user may make. Restores
+also count on their own, 10 at once, then one every 30 seconds, as each keeps a whole copy
+of the page.
 
 [Agents over MCP](/docs/guides/agents-over-mcp/#pages) list a page's versions with
 `list_versions` and read one with `read_page` and its `version_id`.

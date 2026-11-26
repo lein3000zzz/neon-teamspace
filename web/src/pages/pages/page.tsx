@@ -160,7 +160,9 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
               readOnly={!editable || connection.access === "view"}
             />
           )}
-          {page.kind !== "database" && !peek && <HistoryButton page={page} editable={editable} />}
+          {page.kind !== "database" && !peek && edits(page.access) && (
+            <HistoryButton page={page} editable={editable} />
+          )}
           {!trashed && <FavoriteToggle page={page} />}
           {!trashed && mayShare(workspace.role, page.access) && <ShareButton page={page} />}
           {editable && (

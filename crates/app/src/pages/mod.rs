@@ -159,6 +159,11 @@ impl PageService {
         &self.inner.pool
     }
 
+    /// The runtime settings, as they are now.
+    pub(crate) fn settings(&self) -> Arc<neon_domain::settings::Snapshot> {
+        self.inner.settings.current()
+    }
+
     /// The broadcaster that changes to databases and their rows go to.
     pub(crate) fn broadcaster(&self) -> &Arc<dyn Broadcaster> {
         &self.inner.broadcaster

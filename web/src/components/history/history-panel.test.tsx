@@ -124,7 +124,7 @@ describe("a page's history", () => {
     ]);
   });
 
-  it("lets those who view the page see its history, without restoring", async () => {
+  it("offers no history to those who only view the page", async () => {
     fakeWorkspaces();
     fakePages({
       pages: [
@@ -140,13 +140,23 @@ describe("a page's history", () => {
         ...samplePages().filter((entry) => entry.id !== PAGE_IDS.roadmap),
       ],
     });
-    fakeHistory();
+    const api = fakeHistory();
+    renderApp(PATH);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Roadmap" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "History" })).toBeNull();
+    expect(api.compared()).toBe(0);
+  });
+
+  it("restores nothing while the page is as the version has it", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeHistory({ unchanged: true });
     const { user } = renderApp(PATH);
 
     const panel = await openHistory(user);
-    await panel.findByRole("list", { name: "Changes from this version to now" });
-    expect(panel.queryByRole("button", { name: "Restore this version" })).toBeNull();
-    expect(panel.getByText(/you see its history but do not restore it/)).toBeInTheDocument();
+    expect(await panel.findByText("The page is as this version has it.")).toBeInTheDocument();
+    expect(panel.getByRole("button", { name: "Restore this version" })).toBeDisabled();
   });
 
   it("says when a page has no version yet", async () => {

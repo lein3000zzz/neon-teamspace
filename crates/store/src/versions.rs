@@ -185,6 +185,17 @@ pub async fn to_thin(
     .collect())
 }
 
+/// Every version of one page, as the cleanup sees them, in no order.
+pub async fn dated(executor: impl PgExecutor<'_>, page_id: Uuid) -> sqlx::Result<Vec<Dated>> {
+    sqlx::query_as!(
+        Dated,
+        "SELECT id, created_at AS at FROM page_versions WHERE page_id = $1",
+        page_id,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Deletes versions. Returns how many went.
 pub async fn delete(executor: impl PgExecutor<'_>, ids: &[Uuid]) -> sqlx::Result<u64> {
     let result = sqlx::query!("DELETE FROM page_versions WHERE id = ANY($1)", ids)

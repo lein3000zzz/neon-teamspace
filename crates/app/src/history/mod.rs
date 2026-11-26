@@ -6,9 +6,12 @@
 //!   same transaction, with who changed the page since and how many blocks they added,
 //!   changed and removed. A database's rows are pages, so their bodies have versions too; a
 //!   database itself has no body, and no history.
-//! - **Reading and comparing** need to see the page, as reading it does. Comparing tells
-//!   block by block what changed from the version to the page as it is now, live document
-//!   included, and the revision it is at.
+//! - **Reading and comparing** need to edit the page, as restoring does, through the same
+//!   rules: a version may hold what was taken out of the page before someone was given it
+//!   to view, so those who only view it, guests and agents among them, see the page as it
+//!   is and not its history. A page in the trash shows its history to those who could edit
+//!   it. Comparing tells block by block what changed from the version to the page as it is
+//!   now, live document included, and the revision it is at.
 //! - **Restoring** needs to edit the page, as editing it does, and names the revision the
 //!   restorer compared against: once the page is at another, the restore is refused, so
 //!   nothing written meanwhile is replaced unseen. It goes through the page's live document
@@ -16,7 +19,9 @@
 //!   [`SyncService::restore`]. The page as it was is kept as a version first, so a restore
 //!   is undone by restoring that one.
 //! - **Thinning.** The hourly cleanup keeps what the `history.*` settings say: see
-//!   [`neon_domain::history`].
+//!   [`neon_domain::history`]. A page that keeps a version past `history.max_versions` is
+//!   thinned at once, in the transaction that keeps it, so no page holds more between
+//!   cleanups.
 //!
 //! Guests, and agents of guests, know no other member: the authors of the versions they
 //! read are left out. Every use case runs in a span named `history <operation>` and is
@@ -33,7 +38,7 @@ use neon_blocks::Document;
 use neon_blocks::diff::{Line, Summary, diff};
 use neon_domain::auth::Principal;
 use neon_domain::history::{Retention, to_delete};
-use neon_domain::pages::PageKind;
+use neon_domain::pages::{PageAccess, PageKind};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::versions::{self, VersionInfo};
@@ -43,7 +48,7 @@ use tracing::{Instrument as _, info, info_span};
 use uuid::Uuid;
 
 use crate::clock::Clock;
-use crate::pages::{PageService, PageView};
+use crate::pages::{PageError, PageService, PageView};
 use crate::settings::{SettingsService, history as keys};
 use crate::sync::{ContentError, SyncService, revision};
 
@@ -197,8 +202,8 @@ impl HistoryService {
         }
     }
 
-    /// A page's versions the caller may see the page of, latest first: at most `limit`, up
-    /// to [`MAX_LIST`], after the cursor a list answered, if given.
+    /// A page's versions, for those who may edit it, latest first: at most `limit`, up to
+    /// [`MAX_LIST`], after the cursor a list answered, if given.
     pub async fn versions(
         &self,
         principal: &Principal,
@@ -237,7 +242,7 @@ impl HistoryService {
         .await
     }
 
-    /// A version of a page the caller may see, with its blocks.
+    /// A version of a page the caller may edit, with its blocks.
     pub async fn version(
         &self,
         principal: &Principal,
@@ -327,13 +332,7 @@ impl HistoryService {
     /// many. The hourly cleanup runs it.
     pub async fn thin(&self) -> Result<u64, HistoryError> {
         self.observe("thin", async {
-            let settings = self.inner.settings.current();
-            let retention = Retention {
-                keep_all: *settings.get(keys::KEEP_ALL),
-                keep_daily: *settings.get(keys::KEEP_DAILY),
-                max_versions: usize::try_from(*settings.get(keys::MAX_VERSIONS))
-                    .unwrap_or(usize::MAX),
-            };
+            let retention = retention(&self.inner.settings.current());
             let now = self.inner.clock.now();
             let before = now - retention.keep_all;
             let max = i64::try_from(retention.max_versions).unwrap_or(i64::MAX);
@@ -360,11 +359,18 @@ impl HistoryService {
         .await
     }
 
-    /// A page the caller may see that has a body: a page or a row, not a database.
+    /// A page the caller may edit, setting the trash aside, that has a body: a page or a
+    /// row, not a database. One they only view is forbidden; one they do not see, not found.
     async fn body(&self, principal: &Principal, page_id: Uuid) -> Result<PageView, HistoryError> {
         let page = self.inner.pages.page(principal, page_id).await?;
         if page.page.kind == PageKind::Database {
             return Err(ContentError::Database.into());
+        }
+        if page.access != PageAccess::Edit {
+            return Err(PageError::Forbidden(
+                "a page's history shows to those who may edit the page: you may only view it",
+            )
+            .into());
         }
         Ok(page)
     }
@@ -412,6 +418,15 @@ impl HistoryService {
     }
 }
 
+/// The retention the `history.*` settings say.
+pub(crate) fn retention(settings: &neon_domain::settings::Snapshot) -> Retention {
+    Retention {
+        keep_all: *settings.get(keys::KEEP_ALL),
+        keep_daily: *settings.get(keys::KEEP_DAILY),
+        max_versions: usize::try_from(*settings.get(keys::MAX_VERSIONS)).unwrap_or(usize::MAX),
+    }
+}
+
 const INVALID_CURSOR: &str = "this cursor comes from no list: pass back the one a list answered";
 
 /// Where a list goes on from: when the last version listed was made, in microseconds, and
@@ -423,8 +438,12 @@ fn position(at: OffsetDateTime, id: Uuid) -> String {
 fn cursor(text: &str) -> Result<(OffsetDateTime, Uuid), HistoryError> {
     let invalid = || HistoryError::InvalidInput(INVALID_CURSOR.to_owned());
     let (micros, id) = text.split_once('.').ok_or_else(invalid)?;
-    let micros: i128 = micros.parse().map_err(|_| invalid())?;
-    let at = OffsetDateTime::from_unix_timestamp_nanos(micros * 1000).map_err(|_| invalid())?;
+    let nanos = micros
+        .parse::<i128>()
+        .ok()
+        .and_then(|micros| micros.checked_mul(1000))
+        .ok_or_else(invalid)?;
+    let at = OffsetDateTime::from_unix_timestamp_nanos(nanos).map_err(|_| invalid())?;
     Ok((at, Uuid::try_parse(id).map_err(|_| invalid())?))
 }
 
@@ -438,8 +457,18 @@ mod tests {
             OffsetDateTime::from_unix_timestamp_nanos(1_795_348_800_123_456_000).expect("a time");
         let id = Uuid::from_u128(7);
         assert_eq!(cursor(&position(at, id)).ok(), Some((at, id)));
-        for bad in ["", "12", "x.y", "12.not-a-uuid"] {
-            assert!(cursor(bad).is_err(), "{bad}");
+        for bad in [
+            String::new(),
+            "12".to_owned(),
+            "x.y".to_owned(),
+            "12.not-a-uuid".to_owned(),
+            // Past what a time holds, and past what its nanoseconds do.
+            format!("{}.{id}", i128::MAX),
+            format!("{}.{id}", i128::MIN),
+            format!("{}.{id}", i128::MAX / 1000),
+            format!("{}.{id}", i64::MAX),
+        ] {
+            assert!(cursor(&bad).is_err(), "{bad}");
         }
     }
 }

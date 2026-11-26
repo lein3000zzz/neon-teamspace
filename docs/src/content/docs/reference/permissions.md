@@ -115,6 +115,8 @@ With that access:
 | Export it as markdown, with the pages under it | yes | yes | hidden |
 | Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
 | Change its document | yes, with a token only by the `write` scope | no | hidden |
+| See its [history](/docs/guides/history/#who-sees-what): its versions, and what changed since each | yes, without authors for guests | no | hidden |
+| Restore a version of it | yes, with a token only by the `write` scope | no | hidden |
 | Change its title, icon, cover and style, and add or import pages under it | yes | no | hidden |
 | Move it, from where it is, within its space | yes | no | hidden |
 | Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | hidden |

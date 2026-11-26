@@ -223,7 +223,7 @@ pub(crate) const TOOLS: [Spec; 19] = [
                       properties with their values. A database itself has no body: use \
                       get_database and query_database. With version_id, a version of the page \
                       from list_versions instead, read-only: its markdown, with no revision to \
-                      edit from.",
+                      edit from, for a connection that may edit the page.",
         writes: false,
         destructive: false,
         idempotent: true,
@@ -236,7 +236,8 @@ pub(crate) const TOOLS: [Spec; 19] = [
                       `after`. Each version is the page's content when the server saved it \
                       changed, with when, who changed it since the version before, and how many \
                       blocks they added, changed and removed. Read one with read_page and its \
-                      version_id.",
+                      version_id. Only a connection that may edit the page, as its owner may, \
+                      sees its history: one that only views it is refused.",
         writes: false,
         destructive: false,
         idempotent: true,

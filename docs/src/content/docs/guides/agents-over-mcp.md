@@ -179,8 +179,8 @@ and is answered `forbidden`.
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `read_page` | `page_id`; `version_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. With `version_id`, that version of the page instead, read-only, its `markdown` and `blocks`, with no revision to edit from. |
-| `list_versions` | `page_id`; `limit` 1 to 100, `after` | The page's [history](/docs/guides/history/), the latest first: each version's `id`, when its latest change was made, its `authors`, and how many blocks they `added`, `changed` and `removed`. |
+| `read_page` | `page_id`; `version_id` | The page, its blocks as markdown with their ids, and the `revision` they are at; for a row, its `properties`, each with `id`, `name`, `type`, `value` as rows give it, and `text` as people read it. With `version_id`, that version of the page instead, read-only, its `markdown` and `blocks`, with no revision to edit from, for an agent that may edit the page. |
+| `list_versions` | `page_id`; `limit` 1 to 100, `after` | The page's [history](/docs/guides/history/), the latest first: each version's `id`, when its latest change was made, its `authors`, and how many blocks they `added`, `changed` and `removed`. Only for an agent that may edit the page, as its owner may; one that only views it is answered `forbidden`. |
 | `create_page` | one of `parent_id`, `teamspace_id`, `private: true`; `title`, `icon`, `markdown`, `placement` | Makes the page, its content the blocks of `markdown`, and answers as `read_page` does. |
 | `edit_page` | `page_id`, `operations`, `base` | Makes the operations, in order, all or none; see [Editing](#editing-a-page). |
 | `move_page` | `page_id`; one of `parent_id`, `teamspace_id`, `private: true`; `placement` | Moves it with the pages under it. |

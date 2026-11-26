@@ -1462,7 +1462,7 @@ export interface paths {
         };
         /**
          * List a page's versions
-         * @description The page's versions, latest first, a part at a time: each with when its latest change was made, who changed the page since the version before, and how many blocks they added, changed and removed. A version is kept each time the server saves the page changed, and the hourly cleanup thins them out as the history settings say. The page as it is now, being edited, may be newer than the latest. A database has no body, and no history.
+         * @description The page's versions, latest first, a part at a time: each with when its latest change was made, who changed the page since the version before, and how many blocks they added, changed and removed. A version is kept each time the server saves the page changed, and the hourly cleanup thins them out as the history settings say. The page as it is now, being edited, may be newer than the latest. A database has no body, and no history. Only those who may edit the page see its history, as a version may hold what was taken out before someone was given the page to view.
          */
         get: operations["list_versions"];
         put?: never;
@@ -1482,7 +1482,7 @@ export interface paths {
         };
         /**
          * Read a version
-         * @description A version of the page, read-only: its blocks in BlockNote's JSON and as markdown with their ids.
+         * @description A version of the page, read-only: its blocks in BlockNote's JSON and as markdown with their ids. For those who may edit the page.
          */
         get: operations["get_version"];
         put?: never;
@@ -1502,7 +1502,7 @@ export interface paths {
         };
         /**
          * Compare a version with the page
-         * @description What changed from the version to the page as it is now, what is being edited included, block by block: every block of both, in the page's order, the version's removed ones where they were, each the same, changed, added or removed. Blocks are told apart by their ids. Answers the revision the page is at, which a restore names as its base.
+         * @description What changed from the version to the page as it is now, what is being edited included, block by block: every block of both, in the page's order, the version's removed ones where they were, each the same, changed, added or removed. Blocks are told apart by their ids. Answers the revision the page is at, which a restore names as its base. For those who may edit the page.
          */
         get: operations["compare_version"];
         put?: never;
@@ -1524,7 +1524,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a version
-         * @description Makes the page hold the version's blocks again, as one change through its live document: whoever has it open sees it at once. Blocks the version and the page share stay as they are, so what is typed in them meanwhile stays. The page as it was is kept as a version first, so restoring that one undoes it. base is the revision the comparison answered: once the page is at another, as when someone edited it since, nothing changes and the answer is edit_conflict, to compare again. Needs edit access to the page, out of the trash, and counts as an edit of its content.
+         * @description Makes the page hold the version's blocks again, as one change through its live document: whoever has it open sees it at once. Blocks the version and the page share stay as they are, so what is typed in them meanwhile stays. The page as it was is kept as a version first, so restoring that one undoes it. base is the revision the comparison answered: once the page is at another, as when someone edited it since, nothing changes and the answer is edit_conflict, to compare again. Needs edit access to the page, out of the trash, and counts as an edit of its content; restores count against a rate of their own as well.
          */
         post: operations["restore_version"];
         delete?: never;
@@ -10793,7 +10793,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description forbidden: the caller views the page and does not edit it; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10863,7 +10863,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description forbidden: the caller views the page and does not edit it; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10933,7 +10933,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description forbidden: the caller views the page and does not edit it; or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11043,7 +11043,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description rate_limited: too many edits of pages' content; Retry-After says when to try again. */
+            /** @description rate_limited: too many edits of pages' content, or restores of versions; Retry-After says when to try again. */
             429: {
                 headers: {
                     [name: string]: unknown;

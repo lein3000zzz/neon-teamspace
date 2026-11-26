@@ -1540,7 +1540,7 @@ export const strings = {
     restored: "Restored. The page shows this version again.",
     conflict:
       "The page changed while you were looking at this version. Look at the changes again, then restore.",
-    viewOnly: "You may view this page, so you see its history but do not restore it.",
+    inTrash: "The page is in the trash: restore it from there to restore a version of it.",
   },
   databases: {
     label: (title: string) => `Database ${title}`,

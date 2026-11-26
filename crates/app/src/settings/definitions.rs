@@ -614,7 +614,8 @@ pub fn registry() -> Registry {
                 history::MAX_VERSIONS,
                 500,
                 "The most versions a page keeps, the latest, however young; the latest one \
-                 always stays.",
+                 always stays. A page that keeps one more is thinned at once, as the cleanup \
+                 would thin it.",
             )
             .check(between_counts(1, 100_000)),
         )
