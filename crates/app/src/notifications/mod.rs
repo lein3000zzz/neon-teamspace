@@ -2,7 +2,8 @@
 //!
 //! - **Making them.** A notification is made in the transaction of what it tells of, by
 //!   the use case that makes it: a comment's mentions, replies and the page's followers
-//!   ([`mentions::comment`]), a page's text once its mentions settle in a stored snapshot
+//!   ([`mentions::comment`]), a page's text once its mentions settle in a stored snapshot,
+//!   or as a page is made with it, each mention from whoever wrote it
 //!   ([`mentions::page_text`]), a row's assignment, and an invitation into a workspace. A
 //!   comment tells each person once, by the first rule that reaches them, and only those
 //!   who may see its page then.

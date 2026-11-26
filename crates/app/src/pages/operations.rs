@@ -59,7 +59,8 @@ pub struct PageUpdate {
 impl PageService {
     /// Makes a page under another page, at the top of a teamspace, or private to the
     /// caller, placed among its siblings. Under a page, it needs edit access to that page;
-    /// at the top of a teamspace, being in it.
+    /// at the top of a teamspace, being in it. Those its content mentions are told, as by
+    /// its maker, in its transaction.
     pub async fn create_page(
         &self,
         principal: &Principal,
