@@ -17,6 +17,10 @@ E2E_WEB_IMAGE     ?= neon-teamspace-web:local
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
+S3_TEST_CONTAINER ?= neon-s3-test
+# The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
+SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
@@ -128,6 +132,23 @@ lint: ## Run clippy on every target, warnings as errors
 .PHONY: test
 test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
 	$(CARGO) test --workspace
+
+.PHONY: test-s3
+# SeaweedFS on a free port of loopback, with a key and secret for the run alone; the trap
+# removes its container however the run ends.
+test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (Docker)
+	@set -e; \
+	trap 'docker container rm --force $(S3_TEST_CONTAINER) >/dev/null 2>&1' EXIT; \
+	docker run -d --name $(S3_TEST_CONTAINER) -p 127.0.0.1::8333 \
+		-e AWS_ACCESS_KEY_ID=neon-test -e AWS_SECRET_ACCESS_KEY=neon-test-secret \
+		$(SEAWEEDFS_IMAGE) server -s3 >/dev/null; \
+	address="$$(docker port $(S3_TEST_CONTAINER) 8333/tcp | head -n 1)"; \
+	for _ in $$(seq 1 60); do \
+		curl -fsS "http://$$address/healthz" >/dev/null 2>&1 && break; sleep 1; \
+	done; \
+	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
+		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
+		$(CARGO) test -p neon-server --test blobs
 
 ## Generated files
 

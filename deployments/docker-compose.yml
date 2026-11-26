@@ -14,8 +14,12 @@
 # server reads; server.env.example describes it. `make up` runs the stack built from the
 # checkout in the foreground on http://127.0.0.1:3000.
 #
-# Profiles add services for development:
+# Profiles add services:
 #   mail            Mailpit, which catches mail, with its inbox on http://127.0.0.1:8025.
+#   seaweedfs       SeaweedFS, an S3-compatible store for attachments, on seaweedfs:8333 inside
+#                   the network. It needs SEAWEEDFS_SECRET_KEY in deployments/.env, and the
+#                   server's attachments.s3 settings pointing at it; the docs' File storage
+#                   page shows both.
 #   observability   Grafana's otel-lgtm image (Grafana, Prometheus, Tempo, Loki, Pyroscope
 #                   and an OpenTelemetry collector) on http://127.0.0.1:3001, with a dashboard
 #                   of the server's metrics. `make obs-up` starts it alone, for `make run`.
@@ -68,6 +72,10 @@ services:
       # profile's collector, unless NEON_OBSERVABILITY__TRACING__ENDPOINT in server.env names
       # another.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+    # Attachments on local disk, the default: the image's data directory, owned by the
+    # server's user, kept across new images.
+    volumes:
+      - server-data:/var/lib/neon
     # The admin listener's /readyz: ready once migrations ran and while Postgres answers.
     healthcheck:
       test: ["CMD", "/usr/local/bin/neon", "health"]
@@ -110,6 +118,33 @@ services:
       - "${MAILPIT_PORT:-127.0.0.1:8025}:8025"
     restart: unless-stopped
 
+  # Its S3 gateway signs requests with this access key and secret, and makes a bucket the
+  # first time one is written to. It refuses to start without a secret, rather than take
+  # requests from anyone in the network.
+  seaweedfs:
+    profiles: [seaweedfs]
+    image: chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        if [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then
+        echo "set SEAWEEDFS_SECRET_KEY in deployments/.env" >&2; exit 1; fi;
+        exec /entrypoint.sh server -s3
+    environment:
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:-neon}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:-}
+    volumes:
+      - seaweedfs:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 1m
+      start_interval: 1s
+    restart: unless-stopped
+
   otel-lgtm:
     profiles: [observability]
     image: grafana/otel-lgtm:0.41.1@sha256:1b852b77d7bcadb7699bfe7c78a51d059dff85168de674728cf7abf4474645e5
@@ -142,6 +177,8 @@ services:
 
 volumes:
   postgres:
+  server-data:
+  seaweedfs:
   caddy-data:
   caddy-config:
   otel-lgtm:
