@@ -23,7 +23,7 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `docs` | The documentation site, Astro Starlight. |
 | `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
-| `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check. |
+| `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check and the Claude Code plugin's check. |
 | `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
 | `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
 
@@ -131,7 +131,8 @@ make blocks-install        # BlockNote, for the block fixtures, which make check
 `make check` runs every check that needs no Docker and, once the crates, the packages and
 the advisory database are downloaded, no network: formatting, clippy, a build from the
 `.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
-checks, the block fixtures in both directions, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+checks, the block fixtures in both directions, the Claude Code plugin, with Claude Code's
+own validation when `claude` is installed, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -180,7 +181,7 @@ GitHub Actions runs three workflows.
 - **CI** runs on every pull request into `dev` or `main` and on every push to them. A newer push cancels the older run on the same branch or pull request.
   - A changes job starts only the jobs the changed files affect. A change to the Makefile or to a workflow starts all of them.
   - **Rust:** `make fmt-check`, `cargo deny check`, `make migrate`, `make lint`, `make test`, `make sqlx-check` and `make api-check`, against a Postgres 18 service container.
-  - **Web app:** `make web-install web-check web-build` and the license check for `web/`.
+  - **Web app:** `make web-install web-check web-build` and the license check for `web/`. `web-check` runs the tests of `scripts/` too, among them the Claude Code plugin's check, so the job also runs when the plugin or the MCP server's code changes.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.

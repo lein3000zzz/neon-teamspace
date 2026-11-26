@@ -1,9 +1,10 @@
 # The entry point for local work: `make` lists every target. Works with GNU make 3.81
 # or later and a POSIX shell.
 
-CARGO ?= cargo
-BUN   ?= bun
-SQLX  ?= sqlx
+CARGO  ?= cargo
+BUN    ?= bun
+SQLX   ?= sqlx
+CLAUDE ?= claude
 # Options for cargo-deny, before its command. check adds --offline.
 DENY_FLAGS ?=
 
@@ -221,6 +222,18 @@ blocks-check: ## Test neon-blocks against BlockNote's fixtures, and check BlockN
 	$(CARGO) test -p neon-blocks
 	cd tools/blocknote-fixtures && $(BUN) run check
 
+## Claude Code plugin (.claude-plugin/ and integrations/claude-code/)
+
+.PHONY: plugin-check
+# The test checks the files' fields and paths, and that the skills name only the MCP server's
+# tools and resources, read from its code; make web-check runs it too, with the rest of
+# scripts/. Claude Code's own validation runs as well where Claude Code is installed.
+plugin-check: ## Check the Claude Code plugin and its marketplace, and that its skills name only the MCP server's tools
+	$(BUN) test scripts/claude-plugin
+	@if command -v $(CLAUDE) >/dev/null 2>&1; then \
+		$(CLAUDE) plugin validate --strict . && $(CLAUDE) plugin validate --strict integrations/claude-code; \
+	else echo "$(CLAUDE) is not installed: skipped claude plugin validate"; fi
+
 ## Checks
 
 .PHONY: licenses
@@ -240,7 +253,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean
