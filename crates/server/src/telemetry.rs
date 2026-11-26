@@ -32,12 +32,18 @@ pub(crate) fn init(config: &neon_observability::Config) -> Result<Telemetry, Ini
 }
 
 /// The MCP SDK logs each request and answer whole at `debug`, tool arguments and page
-/// content with them, so it logs at `info` at most, unless the level names its target.
+/// content with them, so it logs at `info` at most, unless the level names its target. A
+/// level of `info` or less verbose holds for it as it is.
 fn quiet_mcp_sdk(level: &str) -> String {
-    if level.contains("rmcp") {
-        level.to_owned()
-    } else {
+    let verbose = level.split(',').map(str::trim).any(|directive| {
+        ["debug", "trace", "4", "5"]
+            .iter()
+            .any(|name| directive.eq_ignore_ascii_case(name))
+    });
+    if verbose && !level.contains("rmcp") {
         format!("{level},rmcp=info")
+    } else {
+        level.to_owned()
     }
 }
 
@@ -48,7 +54,15 @@ mod tests {
     #[test]
     fn the_mcp_sdk_logs_no_requests_unless_asked() {
         assert_eq!(quiet_mcp_sdk("debug"), "debug,rmcp=info");
-        assert_eq!(quiet_mcp_sdk("info,sqlx=warn"), "info,sqlx=warn,rmcp=info");
+        assert_eq!(
+            quiet_mcp_sdk("TRACE,sqlx=warn"),
+            "TRACE,sqlx=warn,rmcp=info"
+        );
         assert_eq!(quiet_mcp_sdk("info,rmcp=debug"), "info,rmcp=debug");
+        assert_eq!(quiet_mcp_sdk("debug,rmcp=debug"), "debug,rmcp=debug");
+        // Quieter than info, it stays as quiet for the SDK too.
+        for level in ["info", "warn", "error,neon_server=debug", "off"] {
+            assert_eq!(quiet_mcp_sdk(level), level);
+        }
     }
 }
