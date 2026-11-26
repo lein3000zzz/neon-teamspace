@@ -6,7 +6,7 @@ use neon_domain::auth::{Principal, Scope, UserKind};
 use neon_domain::oauth::{
     AuthorizationRequest, CODE_TTL, CheckedRequest, Client, ClientMetadata, Endpoints, ErrorCode,
     Identity, Modes, RequestProblem, check_registration, check_request, chosen_scopes,
-    offered_scopes, parse_client_id, redirect_host,
+    offered_scopes, parse_client_id, redirect_host, registration_source,
 };
 use neon_domain::workspaces::{Action, Resource, Workspace, WorkspaceRole};
 use neon_store::agents::{self as agent_store, Stored};
@@ -65,8 +65,10 @@ pub struct Approval {
 
 impl OAuthService {
     /// Registers a client as it describes itself, public, with no secret: PKCE stands in
-    /// for one. While `oauth.registration` is on, at most a few at a time from one address,
-    /// and while fewer than `oauth.max_unused_clients` clients wait unconnected.
+    /// for one. While `oauth.registration` is on, at most a few at a time from one source,
+    /// an IPv4 address or an IPv6 /64 as [`registration_source`] names it, while fewer than
+    /// `oauth.max_unused_clients_per_source` clients of that source wait unconnected, and
+    /// fewer than `oauth.max_unused_clients` of all.
     pub async fn register(
         &self,
         metadata: &ClientMetadata,
@@ -76,11 +78,20 @@ impl OAuthService {
             if !self.registration_open() {
                 return Err(OAuthError::RegistrationOff);
             }
-            self.limit(Bucket::OAuthRegister, ip).await?;
+            let source = registration_source(ip);
+            self.limit(Bucket::OAuthRegister, &source).await?;
             let registered = check_registration(metadata).map_err(OAuthError::Protocol)?;
-            let most = *self.settings().get(keys::MAX_UNUSED_CLIENTS);
+            let settings = self.settings();
+            let theirs = repo::count_unused_clients_from(self.pool(), &source).await?;
+            if theirs >= *settings.get(keys::MAX_UNUSED_CLIENTS_PER_SOURCE) {
+                warn!(
+                    unused = theirs,
+                    source, "OAuth registration refused: too many of its clients wait unconnected"
+                );
+                return Err(OAuthError::SourceLimit);
+            }
             let unused = repo::count_unused_clients(self.pool()).await?;
-            if unused >= most {
+            if unused >= *settings.get(keys::MAX_UNUSED_CLIENTS) {
                 warn!(
                     unused,
                     "OAuth registration refused: too many clients wait unconnected"
@@ -94,7 +105,7 @@ impl OAuthService {
                 created_at: self.now(),
                 last_used_at: None,
             };
-            repo::insert_client(self.pool(), &client).await?;
+            repo::insert_client(self.pool(), &client, &source).await?;
             info!(client_id = %client.id, ip, "OAuth client registered");
             Ok(client)
         })

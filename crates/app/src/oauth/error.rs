@@ -33,6 +33,13 @@ pub enum OAuthError {
     RegistrationOff,
     #[error("too many clients are registered that nobody connected: try again later")]
     ClientLimit,
+    /// One source's share of the clients nobody connected is full; others may still
+    /// register.
+    #[error(
+        "too many clients registered from this address wait for someone to connect them: \
+         connect one, or try again later"
+    )]
+    SourceLimit,
     #[error("too many attempts: try again in {}", duration::format(*retry_after))]
     RateLimited { retry_after: Duration },
     #[error("database: {0}")]
@@ -53,6 +60,7 @@ impl OAuthError {
             Self::NotFound(_) => "not_found",
             Self::RegistrationOff => "registration_off",
             Self::ClientLimit => ErrorCode::TemporarilyUnavailable.as_str(),
+            Self::SourceLimit => "too_many_clients",
             Self::RateLimited { .. } => "rate_limited",
             Self::Database(_) | Self::Internal(_) => "internal",
         }
@@ -103,6 +111,7 @@ mod tests {
             "invalid_scope"
         );
         assert_eq!(OAuthError::ClientLimit.code(), "temporarily_unavailable");
+        assert_eq!(OAuthError::SourceLimit.code(), "too_many_clients");
         assert_eq!(OAuthError::Internal("x".into()).code(), "internal");
     }
 }

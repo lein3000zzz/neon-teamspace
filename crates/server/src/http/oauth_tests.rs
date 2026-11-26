@@ -573,8 +573,26 @@ async fn registration_switches_off_and_waits_while_too_many_are_unconnected(pool
     let state = state(pool).await;
     let app = router(state.clone(), false);
 
-    setting(&state, "oauth.max_unused_clients", json!(1)).await;
+    setting(&state, "oauth.max_unused_clients_per_source", json!(1)).await;
     register(&app, &[REDIRECT]).await;
+    let theirs_full = call(
+        &app,
+        Method::POST,
+        "/api/v1/oauth/register",
+        &[],
+        Some(json!({"redirect_uris": [REDIRECT]})),
+    )
+    .await;
+    assert_eq!(
+        theirs_full.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        theirs_full.body
+    );
+    assert_eq!(oauth_error(&theirs_full), "too_many_clients");
+
+    setting(&state, "oauth.max_unused_clients_per_source", json!(10)).await;
+    setting(&state, "oauth.max_unused_clients", json!(1)).await;
     let full = call(
         &app,
         Method::POST,

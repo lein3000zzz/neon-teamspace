@@ -4,6 +4,8 @@
 //! tokens. Metadata this server does not use is ignored, as the RFC says; metadata that
 //! asks for another flow is refused.
 
+use std::net::{IpAddr, Ipv6Addr};
+
 use super::redirect::check_redirect_uri;
 use super::{ErrorCode, Problem};
 
@@ -120,6 +122,25 @@ fn invisible(c: char) -> bool {
     )
 }
 
+/// Where a client registered from, by which its registering is rate limited and its share
+/// of the clients nobody connected is counted: an IPv4 address, or the /64 network of an
+/// IPv6 address, as one machine, home or office chooses its addresses within a /64 at will.
+/// An IPv4 address mapped into IPv6 is the IPv4 address; text that is no address stays as
+/// it is.
+pub fn registration_source(ip: &str) -> String {
+    match ip.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.to_string(),
+        Ok(IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let network = Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64));
+                format!("{network}/64")
+            }
+        },
+        Err(_) => ip.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +242,26 @@ mod tests {
             ..metadata(&["https://app.example.com/cb"])
         };
         assert!(check_registration(&code_only).is_ok());
+    }
+
+    #[test]
+    fn a_source_is_an_ipv4_address_or_the_64_of_an_ipv6_one() {
+        assert_eq!(registration_source("198.51.100.7"), "198.51.100.7");
+        assert_eq!(registration_source("::ffff:198.51.100.7"), "198.51.100.7");
+        assert_eq!(
+            registration_source("2001:db8:1:2:aaaa:bbbb:cccc:dddd"),
+            "2001:db8:1:2::/64"
+        );
+        assert_eq!(
+            registration_source("2001:db8:1:2::1"),
+            registration_source("2001:db8:1:2:ffff:ffff:ffff:ffff")
+        );
+        assert_ne!(
+            registration_source("2001:db8:1:2::1"),
+            registration_source("2001:db8:1:3::1")
+        );
+        assert_eq!(registration_source("::1"), "::/64");
+        assert_eq!(registration_source("unknown"), "unknown");
     }
 
     #[test]

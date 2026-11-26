@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 pub use client::{
     AuthMethod, ClientMetadata, GRANT_TYPES, RESPONSE_TYPES, Registered, check_registration,
+    registration_source,
 };
 pub use consent::{
     GrantStanding, Identity, InvalidChoice, Modes, chosen_scopes, narrowed, offered_scopes,

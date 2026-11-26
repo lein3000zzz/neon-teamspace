@@ -3,8 +3,9 @@
 //! revocation, the connected apps people and workspace admins see, and the hourly cleanup.
 //!
 //! - **Clients** register themselves and are public: PKCE with S256 stands in for a
-//!   secret. Registering is rate limited by address, and the clients nobody connected are
-//!   bounded in number and removed after a while.
+//!   secret. Registering is rate limited by source, an IPv4 address or an IPv6 /64, and
+//!   the clients nobody connected are bounded in number, for each source and for all, and
+//!   removed after a while.
 //! - **Consent** happens on the web app's page, from a browser session alone: the person
 //!   chooses a workspace, whom the client acts as, themselves or one of their agents that
 //!   works, as `mcp.identities` and the workspace's agent switch allow, and its scopes.

@@ -10,6 +10,7 @@ use neon_app::auth::AuthError;
 use neon_app::crypto::pkce_challenge;
 use neon_app::oauth::{Approval, OAuthError, OAuthService, TokenRequest};
 use neon_app::pages::AccessChange;
+use neon_app::ratelimit::Bucket;
 use neon_domain::auth::{Credential, Principal, Scope};
 use neon_domain::oauth::{AuthorizationRequest, ClientMetadata, Endpoints, Identity};
 use sqlx::PgPool;
@@ -50,17 +51,21 @@ async fn client(oauth: &OAuthService) -> (Uuid, AuthorizationRequest) {
         )
         .await
         .expect("registers");
-    let request = AuthorizationRequest {
+    (client.id, request_of(client.id))
+}
+
+/// An authorization request of a client, with the challenge of [`verifier`].
+fn request_of(client: Uuid) -> AuthorizationRequest {
+    AuthorizationRequest {
         response_type: Some("code".into()),
-        client_id: Some(client.id.to_string()),
+        client_id: Some(client.to_string()),
         redirect_uri: Some(REDIRECT.into()),
         code_challenge: Some(pkce_challenge(&verifier())),
         code_challenge_method: Some("S256".into()),
         scope: None,
         state: Some("opaque".into()),
         resource: None,
-    };
-    (client.id, request)
+    }
 }
 
 /// The code an approval sends the browser back with.
@@ -348,4 +353,63 @@ async fn an_exchange_racing_a_disconnection_or_a_second_exchange_ends_the_grant_
         );
         assert_eq!(grants(&h).await, 0, "the second exchange ended the grant");
     }
+}
+
+fn registration(name: &str) -> ClientMetadata {
+    ClientMetadata {
+        client_name: Some(name.into()),
+        redirect_uris: Some(vec![REDIRECT.into()]),
+        ..ClientMetadata::default()
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn one_network_cannot_take_the_room_every_other_has_to_register_in(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    h.set("oauth.max_unused_clients", serde_json::json!(50))
+        .await;
+    h.set("oauth.max_unused_clients_per_source", serde_json::json!(5))
+        .await;
+    let oauth = oauth(&h);
+
+    // Addresses of one IPv6 /64, a new one each time, register five clients and no more.
+    let mut outcomes = Vec::new();
+    for host in 1..=60 {
+        let ip = format!("2001:db8:1:2::{host:x}");
+        outcomes.push(oauth.register(&registration("Spam"), &ip).await);
+    }
+    assert!(outcomes[..5].iter().all(Result::is_ok), "{outcomes:?}");
+    assert!(
+        outcomes[5..]
+            .iter()
+            .all(|refused| matches!(refused, Err(OAuthError::SourceLimit))),
+        "{outcomes:?}"
+    );
+    // Its rate is counted by the /64 too.
+    assert!(
+        h.limiter
+            .seen()
+            .iter()
+            .all(|(bucket, key)| *bucket == Bucket::OAuthRegister && key == "2001:db8:1:2::/64")
+    );
+
+    // Elsewhere, registering works.
+    oauth
+        .register(&registration("Mine"), "198.51.100.7")
+        .await
+        .expect("another address registers");
+    oauth
+        .register(&registration("Mine"), "2001:db8:1:3::1")
+        .await
+        .expect("another /64 registers");
+    // Once a person connects one of the network's clients, it waits no more, and the
+    // network registers one more.
+    let ada = h.person("ada@example.com").await;
+    let design = h.workspace(&ada, "Design").await.workspace.id;
+    let spam = outcomes[0].as_ref().expect("registered").id;
+    approve(&oauth, &ada, &request_of(spam), design, Identity::Person).await;
+    oauth
+        .register(&registration("Spam"), "2001:db8:1:2::ffff")
+        .await
+        .expect("room again");
 }

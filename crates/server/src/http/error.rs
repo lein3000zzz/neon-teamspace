@@ -317,7 +317,9 @@ impl From<OAuthError> for ApiError {
             | OAuthError::RegistrationOff => StatusCode::FORBIDDEN,
             OAuthError::NotFound(_) => StatusCode::NOT_FOUND,
             OAuthError::ClientLimit => StatusCode::SERVICE_UNAVAILABLE,
-            OAuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            OAuthError::RateLimited { .. } | OAuthError::SourceLimit => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
             OAuthError::Database(_) | OAuthError::Internal(_) => {
                 tracing::error!(error = %error, "an OAuth use case failed");
                 return Self::internal();

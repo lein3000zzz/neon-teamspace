@@ -155,7 +155,7 @@ attempts, then one more every 30 seconds:
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
-| `oauth-register:ip:` | OAuth clients registering themselves, from one IP. |
+| `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
 
 One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
 then one every 6 seconds. That stops guessing from many places at once, while a stranger
@@ -244,8 +244,10 @@ MCP clients and other programs connect through an OAuth 2.1 server, which
   workspace, when its agent is suspended, turned off, deleted or handed to someone else, or
   when `mcp.identities` drops its mode. Agents never get `admin`, and the account's and the
   instance admins' routes refuse every OAuth token.
-- **Bounded registration.** Registering is rate limited by address, the clients nobody
-  connected are bounded in number, and those are removed after a while.
+- **Bounded registration.** Registering is rate limited by source, an IPv4 address or an
+  IPv6 /64, the clients nobody connected are bounded in number for each source and for all
+  together, so that one source cannot take the room every other has, and those are removed
+  after a while.
 - **Small requests.** The endpoints anyone may call read no more than a request of theirs
   needs: 64 KiB of a registration, 16 KiB and 16 parameters of a form.
 

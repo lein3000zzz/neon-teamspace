@@ -1180,7 +1180,7 @@ export interface paths {
         put?: never;
         /**
          * Register an OAuth client
-         * @description Dynamic client registration (RFC 7591), open to anyone while `oauth.registration` is on, a few at a time from one address. Every client is public, with no secret: it proves itself with PKCE. Allows CORS from any origin. Errors are in OAuth's shape.
+         * @description Dynamic client registration (RFC 7591), open to anyone while `oauth.registration` is on, a few at a time from one address or IPv6 /64, and a few waiting unconnected from each. Every client is public, with no secret: it proves itself with PKCE. Allows CORS from any origin. Errors are in OAuth's shape.
          */
         post: operations["register_client"];
         delete?: never;
@@ -8413,7 +8413,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthErrorBody"];
                 };
             };
-            /** @description rate_limited, with Retry-After. */
+            /** @description rate_limited, with Retry-After; or too_many_clients: too many clients registered from the same address, or IPv6 /64, wait unconnected. */
             429: {
                 headers: {
                     [name: string]: unknown;

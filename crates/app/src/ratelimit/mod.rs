@@ -66,7 +66,8 @@ pub enum Bucket {
     PageImport,
     /// Exporting pages, by user: each export reads every page it holds.
     PageExport,
-    /// OAuth clients registering themselves, by IP: anyone may, and each is kept a while.
+    /// OAuth clients registering themselves, by source, an IPv4 address or an IPv6 /64:
+    /// anyone may, and each is kept a while.
     OAuthRegister,
 }
 
@@ -106,7 +107,7 @@ impl Bucket {
             Self::WorkspaceLinkJoin => "workspace-link:user:",
             Self::PageImport => "page-import:user:",
             Self::PageExport => "page-export:user:",
-            Self::OAuthRegister => "oauth-register:ip:",
+            Self::OAuthRegister => "oauth-register:source:",
         }
     }
 

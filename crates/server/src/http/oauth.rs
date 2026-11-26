@@ -267,7 +267,9 @@ impl IntoResponse for Protocol {
             ),
             OAuthError::RegistrationOff => (StatusCode::FORBIDDEN, error.code()),
             OAuthError::ClientLimit => (StatusCode::SERVICE_UNAVAILABLE, error.code()),
-            OAuthError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, error.code()),
+            OAuthError::RateLimited { .. } | OAuthError::SourceLimit => {
+                (StatusCode::TOO_MANY_REQUESTS, error.code())
+            }
             OAuthError::Database(_) | OAuthError::Internal(_) => {
                 tracing::error!(error = %error, "an OAuth request failed");
                 return (
@@ -373,7 +375,8 @@ pub struct RegisteredClient {
     tag = "oauth",
     summary = "Register an OAuth client",
     description = "Dynamic client registration (RFC 7591), open to anyone while \
-                   `oauth.registration` is on, a few at a time from one address. Every client \
+                   `oauth.registration` is on, a few at a time from one address or IPv6 /64, \
+                   and a few waiting unconnected from each. Every client \
                    is public, with no secret: it proves itself with PKCE. Allows CORS from any \
                    origin. Errors are in OAuth's shape.",
     request_body = ClientRegistration,
@@ -382,7 +385,7 @@ pub struct RegisteredClient {
         (status = BAD_REQUEST, description = "invalid_redirect_uri or invalid_client_metadata.", body = OAuthErrorBody),
         (status = FORBIDDEN, description = "registration_off.", body = OAuthErrorBody),
         (status = PAYLOAD_TOO_LARGE, description = "invalid_client_metadata: a body larger than 64 KiB.", body = OAuthErrorBody),
-        (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = OAuthErrorBody),
+        (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After; or too_many_clients: too many clients registered from the same address, or IPv6 /64, wait unconnected.", body = OAuthErrorBody),
         (status = SERVICE_UNAVAILABLE, description = "temporarily_unavailable: too many clients wait unconnected.", body = OAuthErrorBody),
     )
 )]

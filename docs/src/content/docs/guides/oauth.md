@@ -56,7 +56,7 @@ does. They answer errors in OAuth's own shape, `{"error": "invalid_grant",
 | `401` | `invalid_client`: the `client_id` names no client. |
 | `403` | `registration_off`: clients do not register themselves while `oauth.registration` is off. |
 | `413` | A body larger than the endpoint reads: 64 KiB for a registration, 16 KiB for a form. |
-| `429` | `rate_limited`, with `Retry-After`. |
+| `429` | `rate_limited`, with `Retry-After`; or `too_many_clients`, too many clients registered from the same place wait unconnected. |
 | `503` | `temporarily_unavailable`: too many clients wait unconnected. |
 | `500` | `server_error`: the server failed. |
 
@@ -92,10 +92,15 @@ types are `authorization_code` and `refresh_token`, its response type `code`, an
 answer says so. Its name, at most 100 characters, is kept without control characters or the
 invisible ones that reorder text, and the consent page shows it as the client's own word.
 
-Anyone may register a client, so registering is bounded: a few at a time from one address,
-the `oauth-register:ip:` rate limit, and at most `oauth.max_unused_clients` clients that
-nobody connected at once, past which registering answers `503 temporarily_unavailable`
-until the hourly cleanup removes some. A client nobody connected, or whose connections all
+Anyone may register a client, so registering is bounded by where it comes from: an IPv4
+address, or the /64 network of an IPv6 address, as one machine, home or office picks its
+IPv6 addresses within a /64 at will. Each registers a few at a time, the
+`oauth-register:source:` rate limit, and has at most
+`oauth.max_unused_clients_per_source` clients that nobody connected at once, past which it
+gets `429 too_many_clients` while others still register. At most `oauth.max_unused_clients`
+clients that nobody connected wait at once from everywhere together, past which registering
+answers `503 temporarily_unavailable`. Either way, connecting one of them, or the hourly
+cleanup removing some, makes room. A client nobody connected, or whose connections all
 ended, is removed `oauth.unused_client_ttl` after it registered or was last used; it
 registers again the next time it connects. With `oauth.registration` off, no client
 registers, the metadata names no registration endpoint, and those registered keep working.
@@ -215,6 +220,7 @@ tokens works any more, and clients nobody connected.
 | `oauth.access_token_ttl` | `1h` | How long an access token works, 5 minutes to a day. |
 | `oauth.refresh_token_ttl` | `30d` | How long a refresh token works, an hour to 90 days, and longer than an access token. |
 | `oauth.max_unused_clients` | `1000` | The most clients nobody connected at once. |
+| `oauth.max_unused_clients_per_source` | `20` | The most of those from one IPv4 address or IPv6 /64. |
 | `oauth.unused_client_ttl` | `1d` | How long such a client is kept after it registered or was last used. |
 
 The [settings reference](/docs/reference/settings/) describes each.

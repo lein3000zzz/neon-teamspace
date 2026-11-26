@@ -33,15 +33,22 @@ fn parse_audience(text: &str) -> sqlx::Result<Audience> {
     Audience::parse(text).ok_or_else(|| decode_error(format!("unknown audience {text:?}")))
 }
 
-pub async fn insert_client(executor: impl PgExecutor<'_>, client: &Client) -> sqlx::Result<()> {
+/// Keeps a client that registered from `source`, as
+/// [`registration_source`](neon_domain::oauth::registration_source) names it.
+pub async fn insert_client(
+    executor: impl PgExecutor<'_>,
+    client: &Client,
+    source: &str,
+) -> sqlx::Result<()> {
     sqlx::query!(
-        "INSERT INTO oauth_clients (id, name, redirect_uris, created_at, last_used_at)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO oauth_clients (id, name, redirect_uris, created_at, last_used_at, source)
+         VALUES ($1, $2, $3, $4, $5, $6)",
         client.id,
         client.name,
         &client.redirect_uris,
         client.created_at,
         client.last_used_at,
+        source,
     )
     .execute(executor)
     .await?;
@@ -80,6 +87,22 @@ pub async fn count_unused_clients(executor: impl PgExecutor<'_>) -> sqlx::Result
     sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM oauth_clients c
            WHERE NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.id)"#,
+    )
+    .fetch_one(executor)
+    .await
+}
+
+/// How many clients no grant uses registered from `source`: what one source registering
+/// more is bounded by.
+pub async fn count_unused_clients_from(
+    executor: impl PgExecutor<'_>,
+    source: &str,
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM oauth_clients c
+           WHERE c.source = $1
+             AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.id)"#,
+        source,
     )
     .fetch_one(executor)
     .await

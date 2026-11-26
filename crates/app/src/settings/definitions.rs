@@ -103,6 +103,9 @@ pub mod oauth {
     pub const REFRESH_TOKEN_TTL: Key<Duration> = Key::new("oauth.refresh_token_ttl");
     /// The most clients without a grant there may be at once.
     pub const MAX_UNUSED_CLIENTS: Key<i64> = Key::new("oauth.max_unused_clients");
+    /// The most clients without a grant that registered from one source there may be.
+    pub const MAX_UNUSED_CLIENTS_PER_SOURCE: Key<i64> =
+        Key::new("oauth.max_unused_clients_per_source");
     /// How long a client without a grant is kept after it registered or was last used.
     pub const UNUSED_CLIENT_TTL: Key<Duration> = Key::new("oauth.unused_client_ttl");
 }
@@ -138,6 +141,16 @@ const UNUSED_CLIENT_TTL_BOUNDS: (Duration, Duration) = (
     Duration::from_secs(90 * 24 * 3600),
 );
 const MAX_UNUSED_CLIENTS_BOUNDS: (i64, i64) = (1, 100_000);
+
+/// Checks a bound on unused OAuth clients against [`MAX_UNUSED_CLIENTS_BOUNDS`].
+fn within_unused_clients_bounds(n: &i64) -> Result<(), String> {
+    let (least, most) = MAX_UNUSED_CLIENTS_BOUNDS;
+    if (least..=most).contains(n) {
+        Ok(())
+    } else {
+        Err(format!("must be between {least} and {most}"))
+    }
+}
 
 /// The shortest and longest the trash keeps pages.
 const MIN_TRASH_RETENTION: Duration = Duration::from_secs(3600);
@@ -427,14 +440,19 @@ pub fn registry() -> Registry {
                  anyone may register one. Past it, registering waits until the hourly \
                  cleanup removes some; clients people connected never count.",
             )
-            .check(|n: &i64| {
-                let (least, most) = MAX_UNUSED_CLIENTS_BOUNDS;
-                if (least..=most).contains(n) {
-                    Ok(())
-                } else {
-                    Err(format!("must be between {least} and {most}"))
-                }
-            }),
+            .check(within_unused_clients_bounds),
+        )
+        .define(
+            Definition::integer(
+                oauth::MAX_UNUSED_CLIENTS_PER_SOURCE,
+                20,
+                "The most OAuth clients that nobody has connected there may be from one \
+                 place at once: one IPv4 address, or one /64 network of IPv6 addresses. Past \
+                 it, that place registers no more until some are connected or the hourly \
+                 cleanup removes them, so that no one place takes all of \
+                 oauth.max_unused_clients.",
+            )
+            .check(within_unused_clients_bounds),
         )
         .define(
             Definition::duration(
@@ -587,6 +605,7 @@ mod tests {
             Duration::from_secs(30 * 24 * 3600)
         );
         assert_eq!(*snapshot.get(oauth::MAX_UNUSED_CLIENTS), 1000);
+        assert_eq!(*snapshot.get(oauth::MAX_UNUSED_CLIENTS_PER_SOURCE), 20);
         assert_eq!(
             *snapshot.get(oauth::UNUSED_CLIENT_TTL),
             Duration::from_secs(24 * 3600)
@@ -669,6 +688,10 @@ mod tests {
         );
         assert_eq!(
             refuse("oauth.max_unused_clients", "0"),
+            "must be between 1 and 100000"
+        );
+        assert_eq!(
+            refuse("oauth.max_unused_clients_per_source", "0"),
             "must be between 1 and 100000"
         );
         assert_eq!(
