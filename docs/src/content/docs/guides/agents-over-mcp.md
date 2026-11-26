@@ -173,13 +173,18 @@ without a teamspace answers an agent `forbidden`.
 `"last"` unless set. A database has no body of its own, so `read_page` and `edit_page` answer
 it `invalid_input`. Read it with `get_database` and `query_database` instead.
 
+A page shows an inline database where a line `:::database <id>`, or
+`:::database <id> view=<view id>` for one of its views, stands in its markdown. `create_database`
+with `inline` and `embed` adds that line at the end of the parent page; without `embed`, an
+`insert_after` or `append` of the line puts it where it should go.
+
 ### Databases
 
 | Tool | Arguments | What it does |
 |---|---|---|
 | `get_database` | `database_id` | Its page, properties, each with `id`, `name`, `type` and options, and views, each with its filter, sorts and grouping. |
 | `query_database` | `database_id`; `view_id`, `filter`, `sorts`, `limit` 1 to 1000, `after`, `utc_offset_minutes` | Its rows, as a view has them or with a filter and sorts of the caller's, a part at a time. `next` passed as `after` gives the next part. |
-| `create_database` | one of `parent_id`, `teamspace_id`, `private: true`; `inline`, `title`, `icon`, `placement` | Makes one with a `Name`, a `Status` and two views. |
+| `create_database` | one of `parent_id`, `teamspace_id`, `private: true`; `inline`, `embed`, `title`, `icon`, `placement` | Makes one with a `Name`, a `Status` and two views; inline under `parent_id`, with `embed` its block at the end of that page. |
 | `create_row` | `database_id`; `values`, `placement` | Adds a row with its values. |
 | `update_row` | `row_id`, or `database_id` and `unique_id`; `values` | Sets the values named; `null` clears one. |
 | `claim_task` | `row_id`, or `database_id` and `unique_id`; `person_property` | Claims the row; see [Claiming a task](#claiming-a-task). |

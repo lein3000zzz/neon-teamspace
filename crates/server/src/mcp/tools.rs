@@ -29,7 +29,7 @@ use super::Services;
 use crate::http::ApiError;
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
-use crate::http::databases::{Database, Filter, Sort};
+use crate::http::databases::{Database, Filter, Sort, embed_in, embedding};
 use crate::http::pages::{Page, Placement, TreePage, location};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
@@ -289,10 +289,13 @@ pub(crate) const TOOLS: [Spec; 16] = [
     Spec {
         name: "create_database",
         title: "Create a database",
-        description: "A database under a page (parent_id, inline to embed it in that page), at \
-                      the top of a teamspace (teamspace_id) or among your private pages \
-                      (private: true). It starts with a Name title, a Status with Not started, \
-                      In progress and Done, a table view and a board grouped by status.",
+        description: "A database under a page (parent_id), at the top of a teamspace \
+                      (teamspace_id) or among your private pages (private: true). Inline, it \
+                      belongs to its parent page, which shows it where a line `:::database \
+                      <id>` stands in its markdown: embed: true adds that line at the end, or \
+                      edit_page puts it elsewhere. It starts with a Name title, a Status with \
+                      Not started, In progress and Done, a table view and a board grouped by \
+                      status.",
         writes: true,
         destructive: false,
         idempotent: false,
@@ -687,9 +690,14 @@ struct CreateDatabaseArguments {
     /// True to make it one of your private pages.
     #[serde(default)]
     private: bool,
-    /// Embedded in the page it goes under, which parent_id names.
+    /// Embedded in the page it goes under, which parent_id names: the page shows it where a
+    /// block `:::database <id>` stands in its markdown.
     #[serde(default)]
     inline: bool,
+    /// With inline, also adds that block at the end of the parent page. Leave it out to
+    /// place the block yourself with edit_page.
+    #[serde(default)]
+    embed: bool,
     /// Where among its siblings; "last" when absent.
     #[serde(default)]
     placement: Option<Placement>,
@@ -811,6 +819,7 @@ async fn create_database(
 ) -> Result<Json, ToolError> {
     let at = location(given.parent_id, given.teamspace_id, given.private)?;
     let placement = given.placement.map(Into::into).unwrap_or_default();
+    let embed = embedding(given.embed, given.inline, given.parent_id)?;
     let created = s
         .databases
         .create_database(
@@ -826,6 +835,9 @@ async fn create_database(
         )
         .await
         .map_err(refused)?;
+    if let Some(parent) = embed {
+        embed_in(&s.sync, principal, parent, created.page.page.id).await?;
+    }
     answer(Database::from(created))
 }
 

@@ -1833,7 +1833,7 @@ export interface paths {
         put?: never;
         /**
          * Create a database
-         * @description A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.
+         * @description A page of kind `database`, under a page the caller edits, at the top of a teamspace they are in, or among their private pages; inline, it is embedded in the page it goes under, which shows it where a block of it stands: `embed` adds that block at the end of the page, or an edit of the page's markdown adds `:::database <id>` where it should go. It starts with a `Name` title property and a `Status` with the options Not started, In progress and Done, a `Table` view and a `Board` view grouped by status.
          */
         post: operations["create_database"];
         delete?: never;
@@ -2993,8 +2993,17 @@ export interface components {
             workspace_id?: string | null;
         };
         CreateDatabase: {
+            /**
+             * @description With `inline`, also adds the block that shows it at the end of the page it goes
+             *     under, as an edit's `append` would. The web app's editor adds its own where the
+             *     cursor is, and so leaves this out.
+             */
+            embed?: boolean;
             icon?: string | null;
-            /** @description Embedded in the page it goes under, which `parent_id` names. */
+            /**
+             * @description Embedded in the page it goes under, which `parent_id` names: the page's body shows
+             *     it where a block of it stands.
+             */
             inline?: boolean;
             /**
              * Format: uuid
@@ -12197,7 +12206,7 @@ export interface operations {
                     "application/json": components["schemas"]["Database"];
                 };
             };
-            /** @description invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds. */
+            /** @description invalid_input: no place or several, an inline database without a parent, embed without inline, a parent that is a database or a row, or a title or icon out of bounds. */
             400: {
                 headers: {
                     [name: string]: unknown;

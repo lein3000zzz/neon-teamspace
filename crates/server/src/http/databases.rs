@@ -527,9 +527,15 @@ pub struct CreateDatabase {
     pub teamspace_id: Option<Uuid>,
     #[serde(default)]
     pub private: bool,
-    /// Embedded in the page it goes under, which `parent_id` names.
+    /// Embedded in the page it goes under, which `parent_id` names: the page's body shows
+    /// it where a block of it stands.
     #[serde(default)]
     pub inline: bool,
+    /// With `inline`, also adds the block that shows it at the end of the page it goes
+    /// under, as an edit's `append` would. The web app's editor adds its own where the
+    /// cursor is, and so leaves this out.
+    #[serde(default)]
+    pub embed: bool,
     /// `"last"` when absent.
     #[serde(default)]
     pub placement: Option<Placement>,
@@ -547,14 +553,16 @@ pub struct CreateDatabase {
     summary = "Create a database",
     description = "A page of kind `database`, under a page the caller edits, at the top of a \
                    teamspace they are in, or among their private pages; inline, it is embedded \
-                   in the page it goes under. It starts with a `Name` title property and a \
-                   `Status` with the options Not started, In progress and Done, a `Table` view \
-                   and a `Board` view grouped by status.",
+                   in the page it goes under, which shows it where a block of it stands: \
+                   `embed` adds that block at the end of the page, or an edit of the page's \
+                   markdown adds `:::database <id>` where it should go. It starts with a `Name` \
+                   title property and a `Status` with the options Not started, In progress and \
+                   Done, a `Table` view and a `Board` view grouped by status.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     request_body = CreateDatabase,
     responses(
         (status = CREATED, description = "The database.", body = Database),
-        (status = BAD_REQUEST, description = "invalid_input: no place or several, an inline database without a parent, a parent that is a database or a row, or a title or icon out of bounds.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no place or several, an inline database without a parent, embed without inline, a parent that is a database or a row, or a title or icon out of bounds.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller may not add pages there; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
@@ -570,6 +578,7 @@ pub(super) async fn create_database(
     Body(body): Body<CreateDatabase>,
 ) -> Result<(StatusCode, Body<Database>), ApiError> {
     let location = location(body.parent_id, body.teamspace_id, body.private)?;
+    let embed = embedding(body.embed, body.inline, body.parent_id)?;
     let created = state
         .databases
         .create_database(
@@ -584,7 +593,46 @@ pub(super) async fn create_database(
             },
         )
         .await?;
+    if let Some(parent) = embed {
+        embed_in(&state.sync, &principal, parent, created.page.page.id).await?;
+    }
     Ok((StatusCode::CREATED, Body(created.into())))
+}
+
+/// The page to add a block of a new database to, when `embed` asks for one: an inline
+/// database's parent alone.
+pub(crate) fn embedding(
+    embed: bool,
+    inline: bool,
+    parent_id: Option<Uuid>,
+) -> Result<Option<Uuid>, ApiError> {
+    match (embed, inline, parent_id) {
+        (false, _, _) => Ok(None),
+        (true, true, Some(parent)) => Ok(Some(parent)),
+        (true, _, _) => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            "embed adds an inline database's block to its parent: set inline and parent_id",
+        )),
+    }
+}
+
+/// Adds the block that shows database `id` at the end of page `parent`, through its live
+/// document.
+pub(crate) async fn embed_in(
+    sync: &neon_app::sync::SyncService,
+    principal: &neon_domain::auth::Principal,
+    parent: Uuid,
+    id: Uuid,
+) -> Result<(), ApiError> {
+    let block = neon_blocks::Block::new(neon_blocks::BlockKind::Database {
+        props: neon_blocks::DatabaseProps {
+            database_id: id.to_string(),
+            view_id: None,
+        },
+    });
+    sync.append(principal, parent, vec![block]).await?;
+    Ok(())
 }
 
 #[utoipa::path(

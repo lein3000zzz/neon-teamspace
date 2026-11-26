@@ -68,8 +68,12 @@ the database to read, guests too.
 ## Making a database
 
 `POST /api/v1/workspaces/{id}/databases` makes one. The body names one place for it, as for
-a page: `parent_id`, `teamspace_id`, or `private: true`; `inline: true` with `parent_id`
-embeds it in that page. `title`, `icon` and `placement` are as a page's.
+a page: `parent_id`, `teamspace_id`, or `private: true`. `inline: true` with `parent_id` makes
+it an inline database of that page, which shows it where a block of it stands: `embed: true`
+adds that block at the end of the page, and an edit of the page's
+[markdown](/docs/guides/pages/#content-as-markdown) puts the line `:::database <id>`
+elsewhere. The web app's editor adds the block where the cursor is. `title`, `icon` and
+`placement` are as a page's.
 
 ```sh
 curl -X POST "$NEON/api/v1/workspaces/$WORKSPACE/databases" \

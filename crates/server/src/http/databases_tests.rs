@@ -17,7 +17,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use super::agents_tests::{Bearer, agent, agent_token};
 use super::auth_tests::{Answer, call, user};
-use super::pages_tests::{general, guest};
+use super::pages_tests::{create, general, guest};
 use super::sync_tests::Server;
 use super::tests::{state, state_with_feeds};
 use super::workspaces_tests::{Browser, id, team};
@@ -1019,4 +1019,56 @@ async fn feeds_that_stop_answering_are_dropped(pool: PgPool) {
     assert!(pings >= 1, "the server pinged");
     assert_eq!(ending, None, "dropped without a close");
     finish(&state, server, vec![quiet, next]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_inline_database_is_embedded_in_its_parent_when_asked(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let host = create(&t.ada, ws, json!({"teamspace_id": general}), "Host").await;
+    let make = |body: Value| {
+        let ada = &t.ada;
+        let path = format!("/api/v1/workspaces/{ws}/databases");
+        async move { ada.post(&path, body).await }
+    };
+    let markdown = |answer: &Answer| {
+        answer.body["markdown"]
+            .as_str()
+            .expect("markdown")
+            .to_owned()
+    };
+
+    // Inline alone, it belongs to the page, which shows it once a block names it.
+    let alone = make(json!({"parent_id": host, "inline": true})).await;
+    assert_eq!(alone.status, StatusCode::CREATED, "{}", alone.body);
+    let read = t.ada.get(&format!("/api/v1/pages/{host}/markdown")).await;
+    assert!(
+        !markdown(&read).contains(":::database"),
+        "{}",
+        markdown(&read)
+    );
+
+    // Embedded, its block goes at the end of the page.
+    let embedded = make(json!({"parent_id": host, "inline": true, "embed": true})).await;
+    assert_eq!(embedded.status, StatusCode::CREATED, "{}", embedded.body);
+    let database = database_id(&embedded.body);
+    let read = t.ada.get(&format!("/api/v1/pages/{host}/markdown")).await;
+    assert!(
+        markdown(&read).contains(&format!(":::database {database}")),
+        "{}",
+        markdown(&read)
+    );
+    assert_eq!(markdown(&read).matches(":::database").count(), 1);
+
+    // Embedding is for an inline database under a page.
+    let full = make(json!({"teamspace_id": general, "embed": true})).await;
+    assert_eq!(
+        (full.status, full.code()),
+        (StatusCode::BAD_REQUEST, "invalid_input"),
+        "{}",
+        full.body
+    );
 }
