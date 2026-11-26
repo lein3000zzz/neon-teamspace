@@ -118,9 +118,11 @@ services:
       - "${MAILPIT_PORT:-127.0.0.1:8025}:8025"
     restart: unless-stopped
 
-  # Its S3 gateway signs requests with this access key and secret, and makes a bucket the
+  # Its S3 gateway checks requests against this access key and secret, and makes a bucket the
   # first time one is written to. It refuses to start without a secret, rather than take
-  # requests from anyone in the network.
+  # requests from anyone in the network. Only the gateway listens on the network: the master,
+  # volume and filer servers behind it, which take reads and writes without the secret, listen
+  # on the container's loopback alone, and its Iceberg and Lance servers are off.
   seaweedfs:
     profiles: [seaweedfs]
     image: chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
@@ -130,7 +132,8 @@ services:
       - >-
         if [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then
         echo "set SEAWEEDFS_SECRET_KEY in deployments/.env" >&2; exit 1; fi;
-        exec /entrypoint.sh server -s3
+        exec /entrypoint.sh server -s3 -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3.ip.bind=0.0.0.0
+        -s3.port.iceberg=0 -s3.port.lance=0
     environment:
       AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:-neon}
       AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:-}

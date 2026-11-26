@@ -74,8 +74,11 @@ Set in the environment or the file, these settings are
 
 The Compose profile `seaweedfs` runs SeaweedFS beside the stack, with its S3 gateway on
 `seaweedfs:8333` inside the stack's network and its data in the volume `neon_seaweedfs`. It
-makes a bucket the first time the server writes to it, and checks requests against the access
-key and secret in `deployments/.env`. Without a secret, it refuses to start.
+makes a bucket the first time the server writes to it, and the gateway checks requests against
+the access key and secret in `deployments/.env`. Without a secret, it refuses to start.
+SeaweedFS's master, volume and filer servers, which sit behind the gateway and take reads and
+writes without the secret, listen only on the container's loopback, so the gateway is the one
+way in, and its Iceberg and Lance servers are off.
 
 ```sh
 # deployments/.env
