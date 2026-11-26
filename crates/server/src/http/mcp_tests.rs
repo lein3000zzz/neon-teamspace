@@ -1251,7 +1251,6 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
     let server = Server::start(app.clone()).await;
     let t = team(&state, &app).await;
     let ws = t.workspace.clone();
-    set(&state, "mcp.notification_interval", json!("2s")).await;
     let (token, scout) = agent_of(&t.ada, &ws, "Scout").await;
     let mut client = Client::connect(&server, &token).await.expect("connects");
     let plan = page(&t, "Plan", "# Goals\n\nShip").await;
@@ -1347,40 +1346,19 @@ async fn resources_are_listed_read_and_tell_subscribers_of_changes(pool: PgPool)
         .await;
     assert!(missing.is_err());
 
-    // A subscription hears of another client's change to the page: once at first, then
-    // the changes that come within the interval together.
+    // A subscription hears of another client's change to the page.
     let uri = format!("neon://page/{plan}");
     client.subscribe(&uri).await;
-    let edit = |find: &str, replace: &str| json!({"operations": [{"op": "find_replace", "find": find, "replace": replace}]});
     let edited = t
         .dee
         .send(
             Method::PATCH,
             &format!("/api/v1/pages/{plan}/markdown"),
-            Some(edit("Ship", "Ship it")),
+            Some(find_replace("Ship", "Ship it")),
         )
         .await;
     assert_eq!(edited.status, StatusCode::OK, "{}", edited.body);
     assert_eq!(client.updated().await, uri);
-    let first = Instant::now();
-    for (find, replace) in [("Ship it", "Ship it now"), ("Goals", "Aims")] {
-        let edited = t
-            .dee
-            .send(
-                Method::PATCH,
-                &format!("/api/v1/pages/{plan}/markdown"),
-                Some(edit(find, replace)),
-            )
-            .await;
-        assert_eq!(edited.status, StatusCode::OK, "{}", edited.body);
-    }
-    assert_eq!(client.updated().await, uri);
-    assert!(first.elapsed() >= Duration::from_secs(1), "told too soon");
-    let more = timeout(Duration::from_secs(3), client.updates.recv()).await;
-    assert!(
-        more.is_err(),
-        "two changes within the interval, told twice: {more:?}"
-    );
 
     // A view's rows, and the caller's tasks, hear of rows changing.
     let view_uri = format!("neon://database/{db_id}/view/{view}");
@@ -1522,6 +1500,57 @@ async fn a_tasks_subscription_hears_only_of_what_its_caller_sees(pool: PgPool) {
         .map(|task| task["row"]["title"].as_str().expect("a title"))
         .collect();
     assert_eq!(titles, ["Open task"]);
+    client.close().await;
+    finish(&state, server).await;
+}
+
+/// An edit replacing `find` with `replace`, as the markdown route takes it.
+fn find_replace(find: &str, replace: &str) -> Value {
+    json!({"operations": [{"op": "find_replace", "find": find, "replace": replace}]})
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn changes_within_the_interval_are_told_together_once_it_ends(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    // Long enough that the changes after the first are sure to come within it.
+    set(&state, "mcp.notification_interval", json!("30s")).await;
+    let (token, _) = agent_of(&t.ada, &t.workspace, "Scout").await;
+    let mut client = Client::connect(&server, &token).await.expect("connects");
+    let plan = page(&t, "Plan", "# Goals\n\nShip").await;
+    let uri = format!("neon://page/{plan}");
+    client.subscribe(&uri).await;
+    let edit = |find: &str, replace: &str| {
+        let body = find_replace(find, replace);
+        let path = format!("/api/v1/pages/{plan}/markdown");
+        let dee = &t.dee;
+        async move {
+            let edited = dee.send(Method::PATCH, &path, Some(body)).await;
+            assert_eq!(edited.status, StatusCode::OK, "{}", edited.body);
+        }
+    };
+
+    // The first change is told at once.
+    edit("Ship", "Ship it").await;
+    assert_eq!(client.updated().await, uri);
+    let first = Instant::now();
+    // The two after it are told together, once the interval since the first is over.
+    edit("Ship it", "Ship it now").await;
+    edit("Goals", "Aims").await;
+    let next = timeout(Duration::from_secs(60), client.updates.recv())
+        .await
+        .expect("the changes are told")
+        .expect("the client is open");
+    assert_eq!(next, uri);
+    assert!(
+        first.elapsed() >= Duration::from_secs(15),
+        "told after {:?}, within the interval",
+        first.elapsed()
+    );
+    let read = client.read(&uri).await;
+    assert_eq!(plain(text(&read[0])), "# Aims\n\nShip it now");
     client.close().await;
     finish(&state, server).await;
 }
