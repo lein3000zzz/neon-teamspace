@@ -150,7 +150,9 @@ The person chooses:
 something with a cookie, only from the server's own origin; a token cannot approve
 anything. Allowing makes a **grant**: the person's consent for that client, workspace and
 identity, with those scopes. Allowing the same client, workspace and identity again
-replaces the grant's scopes, so allowing fewer narrows every token of it at once.
+replaces the grant's scopes, so allowing fewer narrows every token of it at once, and the
+page and database connections they hold open with them: one that edited and may now only
+read goes read-only.
 
 ## Codes and tokens
 

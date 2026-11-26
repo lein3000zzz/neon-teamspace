@@ -101,7 +101,7 @@ impl OAuthService {
                     tx.commit().await?;
                     warn!(%grant_id, client_id = %client.id, "OAuth grant revoked: {what} used twice");
                     if let Some(grant) = revoked {
-                        self.ended(grant.user_id);
+                        self.grant_changed(grant.user_id);
                     }
                     return Err(invalid_grant(&format!(
                         "the {what} was used already: everything issued from it is revoked"
@@ -347,7 +347,7 @@ impl OAuthService {
             tx.commit().await?;
             if let Some(grant) = revoked {
                 info!(grant_id = %grant.id, client_id = %client.id, "OAuth grant revoked by its client");
-                self.ended(grant.user_id);
+                self.grant_changed(grant.user_id);
             }
             Ok(())
         })

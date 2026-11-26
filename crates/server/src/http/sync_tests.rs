@@ -30,6 +30,7 @@ use yrs::{Doc, ReadTxn as _, StateVector, Transact as _, Update, XmlFragmentRef}
 
 use super::agents_tests::{Bearer, agent, agent_token};
 use super::auth_tests::{admin, user};
+use super::oauth_tests::{REDIRECT, code, exchange, register, request, tokens, verifier};
 use super::pages_tests::{create, general, guest};
 use super::tests::state_for;
 use super::workspaces_tests::{Browser, Team, id, team};
@@ -1198,4 +1199,41 @@ async fn one_connection_too_many_is_refused_before_its_upgrade(pool: PgPool) {
     let mut again = again.expect("room for Ada's next connection");
     again.sync().await;
     finish(&state, [room.server], vec![dee, again]).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn consenting_again_with_fewer_scopes_reaches_open_connections(pool: PgPool) {
+    let state = state_of(pool, quick()).await;
+    let app = router(state.clone(), false);
+    let room = room(&state, &app).await;
+    let ws = &room.team.workspace;
+    let addr = room.server.addr;
+    let client = register(&app, &[REDIRECT]).await;
+    let verifier = verifier('v');
+    let asked = request(&client, &verifier, None);
+    let first = code(&room.team.ada, &asked, ws, None, &["read", "write"]).await;
+    let connected = tokens(&client, &exchange(&app, &client, &first, &verifier).await);
+    let bearer = format!("Bearer {}", connected.access);
+    let socket = open(addr, &room.page, &[("authorization", &bearer)])
+        .await
+        .expect("its access token opens the page");
+    let mut connection = Peer::over(socket, "app");
+    connection.sync().await;
+    connection.write("By the app").await;
+    let mut dee = Peer::join(addr, &room.page, room.team.dee.cookie(), "dee").await;
+    dee.until_text("By the app").await;
+
+    // Ada allows the client again, to read alone: its connection reads alone at once.
+    code(&room.team.ada, &asked, ws, None, &["read"]).await;
+    connection
+        .until("read-only", |_, event| {
+            *event == Event::Told(Some(READ_ONLY.to_owned()))
+        })
+        .await;
+    connection.write("No more").await;
+    assert_eq!(connection.closed().await, Some(4403));
+    dee.write("Still mine").await;
+    let mut ada = Peer::join(addr, &room.page, room.team.ada.cookie(), "ada").await;
+    ada.until_text("By the app\nStill mine").await;
+    finish(&state, [room.server], vec![connection, dee, ada]).await;
 }

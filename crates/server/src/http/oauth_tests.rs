@@ -31,10 +31,10 @@ use super::workspaces_tests::{Browser, Team, id, team};
 use super::*;
 
 /// Where the clients of these tests listen: this machine, as a CLI's would.
-const REDIRECT: &str = "http://127.0.0.1:43110/callback";
+pub(super) const REDIRECT: &str = "http://127.0.0.1:43110/callback";
 
 /// A PKCE verifier, low in entropy: tests never hold secrets that look real.
-fn verifier(letter: char) -> String {
+pub(super) fn verifier(letter: char) -> String {
     letter.to_string().repeat(48)
 }
 
@@ -113,7 +113,7 @@ fn oauth_error(answer: &Answer) -> &str {
 }
 
 /// Registers a client that comes back to `redirects`: its id.
-async fn register(app: &Router, redirects: &[&str]) -> String {
+pub(super) async fn register(app: &Router, redirects: &[&str]) -> String {
     let made = call(
         app,
         Method::POST,
@@ -131,7 +131,7 @@ async fn register(app: &Router, redirects: &[&str]) -> String {
 
 /// An authorization request of `client` with the challenge of `verifier`, as the consent
 /// page sends it.
-fn request(client: &str, verifier: &str, scope: Option<&str>) -> Value {
+pub(super) fn request(client: &str, verifier: &str, scope: Option<&str>) -> Value {
     let mut request = json!({
         "response_type": "code",
         "client_id": client,
@@ -184,7 +184,7 @@ async fn approve(
 }
 
 /// The code an approval sends the browser back with.
-async fn code(
+pub(super) async fn code(
     by: &Browser<'_>,
     request: &Value,
     workspace: &str,
@@ -198,7 +198,7 @@ async fn code(
     params(back)["code"].clone()
 }
 
-async fn exchange(app: &Router, client: &str, code: &str, verifier: &str) -> Answer {
+pub(super) async fn exchange(app: &Router, client: &str, code: &str, verifier: &str) -> Answer {
     form(
         app,
         "/api/v1/oauth/token",
@@ -226,10 +226,10 @@ async fn refresh(app: &Router, client: &str, token: &str, scope: Option<&str>) -
 }
 
 /// A client connected end to end, and its tokens.
-struct Connected {
-    client: String,
-    access: String,
-    refresh: String,
+pub(super) struct Connected {
+    pub(super) client: String,
+    pub(super) access: String,
+    pub(super) refresh: String,
 }
 
 impl Connected {
@@ -238,7 +238,7 @@ impl Connected {
     }
 }
 
-fn tokens(client: &str, answer: &Answer) -> Connected {
+pub(super) fn tokens(client: &str, answer: &Answer) -> Connected {
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
     Connected {
         client: client.to_owned(),

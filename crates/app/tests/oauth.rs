@@ -459,3 +459,22 @@ async fn exchanges_are_rate_limited_by_grant_but_a_second_use_never_is(pool: PgP
     assert!(invalid_grant(&reused), "{reused:?}");
     assert_eq!(grants(&h).await, 0);
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn consenting_again_tells_the_connections_of_whom_the_grant_acts_as(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let oauth = oauth(&h);
+    let ada = h.person("ada@example.com").await;
+    let design = h.workspace(&ada, "Design").await.workspace.id;
+    let scout = h.agent(&ada, design, "Scout").await;
+    let (_, request) = client(&oauth).await;
+
+    h.changes.take();
+    approve(&oauth, &ada, &request, design, Identity::Agent(scout.id)).await;
+    assert_eq!(h.changes.take(), [], "a new grant has no connections yet");
+    approve(&oauth, &ada, &request, design, Identity::Agent(scout.id)).await;
+    assert_eq!(
+        h.changes.take(),
+        [AccessChange::Account { user_id: scout.id }]
+    );
+}

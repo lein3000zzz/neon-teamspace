@@ -116,16 +116,16 @@ closes the connection with `4403`.
 
 ## When access changes
 
-The page, workspace, agent and auth services tell the sync service whose access may have
-changed, once each change commits: a page moved to another place, trashed, restored,
+The page, workspace, agent, auth and OAuth services tell the sync service whose access may
+have changed, once each change commits: a page moved to another place, trashed, restored,
 deleted or purged from the trash, a share added, changed or removed, someone joining or
 leaving a teamspace or getting another role there, a teamspace's new access or its
 deletion, a member's new role, leaving or removal, a workspace's deletion or its agents
 turned off or on, the setting `mcp.identities` changing, an agent handed to someone else or
 deleted, a person signing out, having a session or API token revoked, changing or resetting
-their password, or having their account disabled or given another role, an agent's
-token revoked, and an OAuth grant revoked. A page placed elsewhere among the same siblings changes nobody's access, and
-tells nothing.
+their password, or having their account disabled or given another role, an agent's token
+revoked, and an OAuth grant revoked or allowed again with other scopes. A page placed
+elsewhere among the same siblings changes nobody's access, and tells nothing.
 
 The sync service then looks again, at once, at every open connection the change may
 concern: the person's and their agents' and integrations', whose access theirs bounds, or

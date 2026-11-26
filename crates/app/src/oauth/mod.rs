@@ -99,8 +99,9 @@ impl OAuthServiceBuilder {
         self
     }
 
-    /// Who hears that a grant ended, as the auth service tells it of tokens that end:
-    /// what its tokens hold open looks again, and closes.
+    /// Who hears that a grant ended or was narrowed, as the auth service tells it of tokens
+    /// that end: what its tokens hold open looks again, and closes or keeps to what is
+    /// left.
     pub fn access_changes(mut self, access: Arc<dyn AccessChanges>) -> Self {
         self.access = access;
         self
@@ -160,9 +161,10 @@ impl OAuthService {
         *self.settings().get(keys::REFRESH_TOKEN_TTL)
     }
 
-    /// Tells the port that the tokens of a grant acting as `user_id` ended, once that
-    /// committed: the connections they opened look again, and close.
-    fn ended(&self, user_id: Uuid) {
+    /// Tells the port that the tokens of a grant acting as `user_id` ended, or have fewer
+    /// scopes, once that committed: the connections they opened look again, and close or
+    /// keep to what is left.
+    fn grant_changed(&self, user_id: Uuid) {
         self.inner
             .access
             .access_changed(AccessChange::Account { user_id });

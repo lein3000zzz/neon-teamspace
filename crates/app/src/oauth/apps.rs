@@ -50,7 +50,7 @@ impl OAuthService {
             tx.commit().await?;
             if let Some(grant) = revoked {
                 info!(user_id = %principal.user.id, grant_id = %id, "OAuth grant revoked");
-                self.ended(grant.user_id);
+                self.grant_changed(grant.user_id);
             }
             Ok(())
         })
@@ -135,7 +135,7 @@ impl OAuthService {
                 agent_id = %grant.user_id,
                 "OAuth grant of an agent revoked"
             );
-            self.ended(grant.user_id);
+            self.grant_changed(grant.user_id);
             Ok(())
         })
         .await

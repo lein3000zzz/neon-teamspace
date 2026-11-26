@@ -181,7 +181,8 @@ impl OAuthService {
     /// Grants the client what the person chose, from a browser session alone, and gives
     /// where to send the browser: the client's redirect URI with a code that works once,
     /// for a minute, with the request's PKCE verifier. Consenting again to the same client,
-    /// workspace and identity replaces the grant's scopes.
+    /// workspace and identity replaces the grant's scopes, and the connections its tokens
+    /// hold open look again at once, keeping to fewer if they are.
     pub async fn approve(
         &self,
         principal: &Principal,
@@ -225,10 +226,11 @@ impl OAuthService {
             };
             let scopes = chosen_scopes(&approval.scopes, &offered)?;
             let now = self.now();
+            let new_id = Uuid::now_v7();
             let grant = repo::save_grant(
                 &mut *tx,
                 &NewGrant {
-                    id: Uuid::now_v7(),
+                    id: new_id,
                     client_id: client.id,
                     person_id: principal.user.id,
                     user_id,
@@ -257,6 +259,9 @@ impl OAuthService {
             .await?;
             repo::touch_client(&mut *tx, client.id, now).await?;
             tx.commit().await?;
+            if grant.id != new_id {
+                self.grant_changed(user_id);
+            }
             info!(
                 user_id = %principal.user.id,
                 client_id = %client.id,
