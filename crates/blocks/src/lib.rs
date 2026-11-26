@@ -7,10 +7,13 @@
 //! BlockNote's own block format, and writes a `Document` back into it in exactly the shape
 //! the editor writes, so the server can export, import and index pages, and apply edits to a
 //! live document. [`markdown`] converts a `Document` to and from GitHub-flavoured markdown,
-//! with a small extension for blocks markdown has no syntax for.
+//! with a small extension for blocks markdown has no syntax for. [`diff`] compares two
+//! versions of a document block by block, for a page's history.
 //!
 //! Like `neon-domain`, it does no I/O and has no async code.
 
+mod align;
+pub mod diff;
 pub mod edit;
 mod ids;
 mod inline;
