@@ -1147,3 +1147,100 @@ async fn comments_past_their_rate_are_refused(pool: PgPool) {
         .expect("resolved");
     t.comments.delete(&t.ada, comment).await.expect("deleted");
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_search_finds_pages_the_caller_sees_however_many_hidden_ones_match(pool: PgPool) {
+    let t = team(pool).await;
+    let general =
+        t.h.workspaces
+            .list_teamspaces(&t.ada, t.workspace)
+            .await
+            .expect("listed")
+            .teamspaces[0]
+            .teamspace
+            .id;
+    let make = |who: Principal, title: String, location: Location| {
+        let pages = t.h.pages.clone();
+        let workspace = t.workspace;
+        async move {
+            pages
+                .create_page(
+                    &who,
+                    workspace,
+                    location,
+                    Placement::Last,
+                    NewPage {
+                        title,
+                        ..NewPage::default()
+                    },
+                )
+                .await
+                .expect("created")
+                .page
+                .id
+        }
+    };
+    make(
+        t.ada.clone(),
+        "Layoffs FAQ (public)".into(),
+        Location::Teamspace(general),
+    )
+    .await;
+    // More of Ada's private pages match, and are newer, than a search answers with.
+    for n in 0..60 {
+        make(
+            t.ada.clone(),
+            format!("Layoffs plan {n}"),
+            Location::Private,
+        )
+        .await;
+    }
+    let found = t
+        .comments
+        .candidates(&t.bea, t.page, "layoffs")
+        .await
+        .expect("found");
+    let titles: Vec<&str> = found
+        .pages
+        .iter()
+        .map(|view| view.page.title.as_str())
+        .collect();
+    assert_eq!(titles, ["Layoffs FAQ (public)"]);
+    // Ada finds her own, at most ten.
+    let own = t
+        .comments
+        .candidates(&t.ada, t.page, "layoffs")
+        .await
+        .expect("found");
+    assert_eq!(own.pages.len(), 10);
+
+    // A guest searches what is shared with them, and the pages under it, alone.
+    t.h.pages
+        .share_page(&t.ada, t.page, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    make(
+        t.ada.clone(),
+        "Notes, part two".into(),
+        Location::Under(t.page),
+    )
+    .await;
+    let guest = t
+        .comments
+        .candidates(&t.gus, t.page, "")
+        .await
+        .expect("found");
+    let mut titles: Vec<&str> = guest
+        .pages
+        .iter()
+        .map(|view| view.page.title.as_str())
+        .collect();
+    titles.sort_unstable();
+    assert_eq!(titles, ["Notes", "Notes, part two"]);
+    let none = t
+        .comments
+        .candidates(&t.gus, t.page, "layoffs")
+        .await
+        .expect("found");
+    assert!(none.pages.is_empty());
+}

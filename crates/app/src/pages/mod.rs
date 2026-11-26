@@ -549,6 +549,12 @@ impl Context {
         self.standing.members_hidden()
     }
 
+    /// The principal is a guest of the page's workspace themselves: no space gives them a
+    /// page, only shares.
+    pub(crate) fn is_guest(&self) -> bool {
+        self.standing.role() == Some(WorkspaceRole::Guest)
+    }
+
     fn check_link(&self, action: Action, link: &Link) -> Result<(), PageError> {
         let trashed = link.page.is_trashed();
         self.standing

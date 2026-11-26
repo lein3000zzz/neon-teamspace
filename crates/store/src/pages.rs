@@ -599,12 +599,21 @@ pub async fn recent(
     .await
 }
 
-/// A workspace's pages out of the trash whose titles hold `text`, ignoring case, rows and
-/// databases included, the most recently changed first, at most `limit`. Empty text takes
-/// every title.
-pub async fn titled(
+/// Of a workspace's pages out of the trash that `user_id`'s space or shares let them see,
+/// those whose titles hold `text`, ignoring case, rows and databases included, the most
+/// recently changed first, at most `limit`. Empty text takes every title.
+///
+/// What they may see is narrowed first, as the rules give it: the pages of a teamspace
+/// they are in, of one open to every member unless it is private, their own private
+/// pages, and every page shared with them and those under it; for a `guest`, only those
+/// shared. The title is matched among those alone, so neither the pages found nor the
+/// work of finding them turns on what they may not see. The rules still have the last
+/// word, as an agent sees only what its owner sees too.
+pub async fn titled_for(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
+    user_id: Uuid,
+    guest: bool,
     text: &str,
     limit: i64,
 ) -> sqlx::Result<Vec<Uuid>> {
@@ -615,13 +624,38 @@ pub async fn titled(
             .replace('_', "\\_")
     );
     sqlx::query_scalar!(
-        r#"SELECT id FROM pages
-           WHERE workspace_id = $1 AND trashed_at IS NULL AND title ILIKE $2 ESCAPE '\'
-           ORDER BY GREATEST(updated_at, content_updated_at) DESC, id
-           LIMIT $3"#,
+        r#"WITH RECURSIVE shared (id, depth) AS (
+               SELECT s.page_id, 0 FROM page_shares s
+               JOIN pages r ON r.id = s.page_id
+               WHERE s.user_id = $2 AND r.workspace_id = $1
+             UNION
+               SELECT c.id, d.depth + 1 FROM shared d
+               JOIN pages c ON c.parent_id = d.id
+               WHERE d.depth < $6
+           ),
+           visible AS MATERIALIZED (
+               SELECT p.id FROM pages p
+               LEFT JOIN teamspaces t ON t.id = p.teamspace_id
+               WHERE p.workspace_id = $1 AND p.trashed_at IS NULL
+                 AND ((NOT $3 AND p.teamspace_id IS NOT NULL
+                       AND (t.access <> 'private'
+                            OR EXISTS (SELECT 1 FROM teamspace_members m
+                                       WHERE m.teamspace_id = p.teamspace_id
+                                         AND m.user_id = $2)))
+                      OR (NOT $3 AND p.owner_id = $2)
+                      OR p.id IN (SELECT id FROM shared))
+           )
+           SELECT p.id FROM pages p
+           JOIN visible v ON v.id = p.id
+           WHERE p.title ILIKE $4 ESCAPE '\'
+           ORDER BY GREATEST(p.updated_at, p.content_updated_at) DESC, p.id
+           LIMIT $5"#,
         workspace_id,
+        user_id,
+        guest,
         pattern,
         limit,
+        WALK_LIMIT,
     )
     .fetch_all(executor)
     .await

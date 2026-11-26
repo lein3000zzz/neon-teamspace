@@ -172,7 +172,7 @@ passage selected, or the cursor at the block a mention is in.
 | `PATCH /api/v1/threads/{id}`, `DELETE` | Resolves or reopens it: `resolved`; or, for those who edit the page, deletes it with its comments. |
 | `PATCH /api/v1/comments/{id}`, `DELETE` | Changes one's own comment's `markdown`, or deletes it; those who edit the page delete anyone's. |
 | `PUT /api/v1/pages/{id}/follow` | Follows the page's comments, or stops: `following`. |
-| `GET /api/v1/pages/{id}/mentions?q=` | The people, agents and pages a mention on the page may name, whose names hold `q`, at most 10 of each, each person with `sees_page`. A guest gets pages alone. |
+| `GET /api/v1/pages/{id}/mentions?q=` | The people, agents and pages a mention on the page may name, whose names hold `q`, at most 10 of each, each person with `sees_page`. Pages are searched among those the caller sees alone, so pages they may not see neither show nor crowd out those they may. A guest gets pages alone, of those shared with them. |
 
 Each listed thread has its first comment and its latest replies, ten in all at most, and
 `comment_count`, how many it holds; a longer thread's other replies come from its comments'

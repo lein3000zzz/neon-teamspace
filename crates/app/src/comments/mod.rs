@@ -656,8 +656,8 @@ impl CommentService {
 
     /// The people, agents and pages a mention on a page may name, whose names or titles
     /// hold `query`, ignoring case: at most [`MAX_CANDIDATES`] of each, people each with
-    /// whether they may see the page. A guest, who knows no other member, finds pages
-    /// alone.
+    /// whether they may see the page, and pages among those the caller may see. A guest,
+    /// who knows no other member, finds pages alone, of those shared with them.
     pub async fn candidates(
         &self,
         principal: &Principal,
@@ -699,11 +699,15 @@ impl CommentService {
                     people.push(Candidate { person, sees_page });
                 }
             }
-            let ids = pages_repo::titled(
+            // Among the pages the caller may see alone, so hidden ones neither crowd out
+            // those they may find nor show in how long it takes.
+            let ids = pages_repo::titled_for(
                 &mut *conn,
                 page.workspace_id,
+                principal.user.id,
+                context.is_guest(),
                 &query,
-                i64::try_from(MAX_CANDIDATES * 5).unwrap_or(i64::MAX),
+                count(MAX_CANDIDATES * 2),
             )
             .await?;
             let seen = Facts::read(&mut conn, principal, &ids)
