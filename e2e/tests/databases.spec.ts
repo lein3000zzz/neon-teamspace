@@ -437,3 +437,75 @@ test("a row's properties start on one line, editable or not", async ({ page, bro
   expect(starts).toHaveLength(4);
   expect(new Set(starts).size, `the values start at ${starts.join(", ")}`).toBe(1);
 });
+
+test("a board's cards lay out from the top, whatever their titles' lengths", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const run = String(Date.now());
+  const owner = account("carder", run);
+  const adminContext = await browser.newContext();
+  try {
+    await makeAccounts(await adminContext.newPage(), [owner]);
+  } finally {
+    await adminContext.close();
+  }
+  await page.goto("/login");
+  await signIn(page, owner.email, PASSWORD);
+  await expect(page.getByRole("complementary")).toBeVisible();
+  const workspace = await callApi<Workspace>(
+    page,
+    "POST",
+    "/api/v1/workspaces",
+    { name: `Cards ${run}` },
+    201,
+  );
+  const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+  const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+  const general = teamspaces.find((teamspace) => teamspace.access === "default");
+  const database = await callApi<{ page: { id: string } }>(
+    page,
+    "POST",
+    `/api/v1/workspaces/${workspace.id}/databases`,
+    { teamspace_id: general?.id, title: "Sprint" },
+    201,
+  );
+  const titles = [
+    "Write the demo script",
+    "Set up the Postgres migrations for teams, their members and their invitations",
+  ];
+  for (const title of titles) {
+    await callApi(
+      page,
+      "POST",
+      `/api/v1/databases/${database.page.id}/rows`,
+      { values: { Name: title, Status: "In progress" } },
+      201,
+    );
+  }
+
+  await page.goto(`/w/${workspace.slug}/p/${database.page.id}`);
+  await page.getByRole("tab", { name: "Board" }).click();
+  const column = page.getByRole("region", { name: "In progress" });
+  await expect(column.getByRole("article")).toHaveCount(2);
+  // Where each title's first line starts in its card, and how many lines it takes.
+  const laid = await column.evaluate((element) =>
+    [...element.querySelectorAll("article")].map((card) => {
+      const words = card.querySelector("button > span:last-child");
+      if (words === null) {
+        return { lines: 0, from: 0 };
+      }
+      const box = words.getBoundingClientRect();
+      const line = Number.parseFloat(getComputedStyle(words).lineHeight);
+      return {
+        lines: Math.round(box.height / line),
+        from: Math.round(box.top - card.getBoundingClientRect().top),
+      };
+    }),
+  );
+  const [short, long] = laid;
+  expect(short?.lines).toBe(1);
+  expect(long?.lines).toBeGreaterThan(1);
+  expect(short?.from, "the one-line title starts where the longer one does").toBe(long?.from);
+});
