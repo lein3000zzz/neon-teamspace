@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { account, callApi, clientAddress, makeAccounts, PASSWORD } from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
 
@@ -21,6 +22,40 @@ function pkce(): { verifier: string; challenge: string } {
   const verifier = "e".repeat(48);
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   return { verifier, challenge };
+}
+
+/**
+ * Sends the consent page to the authorization endpoint with `query` and allows the client
+ * named `app` as the agent named `agent`, signing in as `email` first when given. Answers
+ * the address the browser was sent back to, which the test answers in the client's place.
+ */
+async function allowAsAgent(
+  consent: Page,
+  query: URLSearchParams,
+  app: string,
+  agent: string,
+  email?: string,
+): Promise<URL> {
+  const back = new Promise<URL>((resolve) => {
+    void consent.route(`${REDIRECT}**`, async (route) => {
+      resolve(new URL(route.request().url()));
+      await route.fulfill({ status: 200, contentType: "text/plain", body: "connected" });
+    });
+  });
+  await consent.goto(`/api/v1/oauth/authorize?${query.toString()}`);
+  if (email !== undefined) {
+    await expect(consent.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+    await signIn(consent, email, PASSWORD);
+  }
+  const card = consent.getByRole("region", { name: `Connect ${app}?` });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Then you go back to http://127.0.0.1:43110.")).toBeVisible();
+  await card.getByRole("radio", { name: `${agent}, my agent` }).check();
+  await expect(card.getByRole("checkbox", { name: "Write" })).toBeChecked();
+  await card.getByRole("button", { name: "Allow" }).click();
+  const answer = await back;
+  await consent.unroute(`${REDIRECT}**`);
+  return answer;
 }
 
 test("a client registers, is allowed as an agent at the consent page, and calls the API with its token", async ({
@@ -99,6 +134,8 @@ test("a client registers, is allowed as an agent at the consent page, and calls 
 
       // The browser goes to the authorization endpoint signed out, signs in, and comes
       // back to the consent page, where the owner allows the client as Scout.
+      const app = `E2E client ${run}`;
+      const agent = `Scout ${run}`;
       const { verifier, challenge } = pkce();
       const authorize = new URLSearchParams({
         response_type: "code",
@@ -110,28 +147,13 @@ test("a client registers, is allowed as an agent at the consent page, and calls 
         state: `state-${run}`,
       });
       const consent = await consentContext.newPage();
-      const back = new Promise<URL>((resolve) => {
-        void consent.route(`${REDIRECT}**`, async (route) => {
-          resolve(new URL(route.request().url()));
-          await route.fulfill({ status: 200, contentType: "text/plain", body: "connected" });
-        });
-      });
-      await consent.goto(`/api/v1/oauth/authorize?${authorize.toString()}`);
-      await expect(consent.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
-      await signIn(consent, owner.email, PASSWORD);
-      const card = consent.getByRole("region", { name: `Connect E2E client ${run}?` });
-      await expect(card).toBeVisible();
-      await expect(card.getByText("Then you go back to http://127.0.0.1:43110.")).toBeVisible();
-      await card.getByRole("radio", { name: `Scout ${run}, my agent` }).check();
-      await expect(card.getByRole("checkbox", { name: "Write" })).toBeChecked();
-      await card.getByRole("button", { name: "Allow" }).click();
-      const answer = await back;
+      const answer = await allowAsAgent(consent, authorize, app, agent, owner.email);
       expect(answer.searchParams.get("state")).toBe(`state-${run}`);
       expect(answer.searchParams.get("iss")).toBe(origin);
       const code = answer.searchParams.get("code");
       expect(code, "a code").not.toBeNull();
 
-      // It exchanges the code with its verifier, once.
+      // It exchanges the code with its verifier.
       const exchange = {
         grant_type: "authorization_code",
         client_id: clientId,
@@ -161,25 +183,52 @@ test("a client registers, is allowed as an agent at the consent page, and calls 
         const bound = await asScout.get("/api/v1/account/me");
         expect(bound.status()).toBe(403);
 
-        // The owner sees it among the connected apps, and disconnects it.
+        // The owner sees it among the connected apps.
         await ownerPage.goto("/account/apps");
-        const app = ownerPage.getByRole("listitem", { name: `E2E client ${run}` });
-        await expect(app.getByText(`Scout ${run}`, { exact: true })).toBeVisible();
-        await app
-          .getByRole("button", { name: `Disconnect E2E client ${run} from Connected ${run}` })
+        const listed = ownerPage.getByRole("listitem", { name: app });
+        await expect(listed.getByText(agent, { exact: true })).toBeVisible();
+
+        // The code exchanged a second time is refused, and revokes everything issued from
+        // it: the token stops, and the app is no longer connected.
+        const reused = await client.post("/api/v1/oauth/token", { form: exchange });
+        expect(reused.status()).toBe(400);
+        expect(((await reused.json()) as { error: string }).error).toBe("invalid_grant");
+        const revoked = await asScout.get(`${base}/members`);
+        expect(revoked.status()).toBe(401);
+        await ownerPage.reload();
+        await expect(ownerPage.getByText("No apps are connected.")).toBeVisible();
+      } finally {
+        await asScout.dispose();
+      }
+
+      // Connected again, at once as the owner is signed in, then disconnected by the owner.
+      const again = await allowAsAgent(consent, authorize, app, agent);
+      const reissued = await client.post("/api/v1/oauth/token", {
+        form: { ...exchange, code: again.searchParams.get("code") ?? "" },
+      });
+      expect(reissued.status(), await reissued.text()).toBe(200);
+      const second = (await reissued.json()) as Tokens;
+      const asScoutAgain = await playwright.request.newContext({
+        baseURL: origin,
+        extraHTTPHeaders: { ...ADDRESS, Authorization: `Bearer ${second.access_token}` },
+      });
+      try {
+        expect((await asScoutAgain.get(`${base}/members`)).status()).toBe(200);
+        await ownerPage.reload();
+        const listed = ownerPage.getByRole("listitem", { name: app });
+        await listed
+          .getByRole("button", { name: `Disconnect ${app} from Connected ${run}` })
           .click();
         await ownerPage
           .getByRole("alertdialog")
           .getByRole("button", { name: "Disconnect" })
           .click();
-        await expect(ownerPage.getByText(`E2E client ${run} is disconnected.`)).toBeVisible();
-        const refused = await asScout.get(`${base}/members`);
+        await expect(ownerPage.getByText(`${app} is disconnected.`)).toBeVisible();
+        const refused = await asScoutAgain.get(`${base}/members`);
         expect(refused.status()).toBe(401);
       } finally {
-        await asScout.dispose();
+        await asScoutAgain.dispose();
       }
-      const reused = await client.post("/api/v1/oauth/token", { form: exchange });
-      expect(reused.status()).toBe(400);
     } finally {
       await client.dispose();
     }
