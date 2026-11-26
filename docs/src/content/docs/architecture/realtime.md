@@ -35,6 +35,9 @@ The server checks the request before it upgrades, in this order:
 | The caller has fewer than 20 connections open on this server, and the page fewer than 200. | `429 too_many_connections` |
 | It is a WebSocket upgrade. | `426 upgrade_required` |
 
+`?comments=true` after the room asks for the page's [comment messages](#comment-messages)
+too, as the web app does: y-websocket's `params` option adds it.
+
 The origin check stops cross-site WebSocket hijacking. The check that guards requests that
 change something covers `POST`, `PATCH` and `DELETE`, and an upgrade is a `GET`; without its
 own check, a page on another site could open a socket that carries the visitor's cookie. A
@@ -100,6 +103,25 @@ left, passes as it is.
 A connection may send 20 awareness messages a second, with bursts of 100; past that, the
 server drops them rather than pass them on, and the next one tells the same. When a
 connection closes, its client's cursors go, and the others are told.
+
+### Comment messages
+
+A page's [comments](/docs/guides/comments-and-mentions/) are rows beside its document, not in
+it. A connection that asked with `?comments=true` also hears of them, in a message of the
+server's own beside y-protocols': its type is `100`, then a length and a JSON payload, as
+y-protocols writes a message's bytes:
+
+```json
+{"type": "comments", "thread_id": "0193a5b2-0000-7000-8000-0000000000e4"}
+```
+
+It says that a thread was started, answered, changed, resolved, reopened or deleted, once
+that change committed, and nothing of what it holds: the client reads the page's comments
+again through the API, which leaves out what the caller may not see. The connection joins
+the page's room of comments before it sends its first sync step, so a thread that changes
+once the client has the document is never missed. y-websocket hands a type it does not know
+to `messageHandlers`, which the web app fills for type `100`; a client that did not ask gets
+none.
 
 ## Viewing and editing
 
@@ -182,6 +204,15 @@ before it added, so none grows even the copy far past the limit. Then it makes t
 connection at once and the log records it as the editor's, like a client's. A document
 opened for an edit alone stays open its while, as one whose last connection left does, then
 saves and unloads.
+
+### Mentions settle
+
+Whom a page's text mentions is read from its blocks as a snapshot is saved, and recorded in
+`page_mentions`, in the snapshot's transaction, which tells each person it mentions anew; see
+[whom a mention tells](/docs/guides/comments-and-mentions/#whom-a-mention-tells). So that
+someone typing a name is not told of every letter, the document waits until it has gone ten
+seconds without a change, then saves a snapshot early if its text mentions someone it did
+not when last saved.
 
 ## Saving
 
@@ -344,13 +375,48 @@ Its metrics are `neon_databases_open_connections`, a gauge of the open feeds,
 `neon_databases_disconnects_total`, a counter by `cause` as for documents, and
 `neon_databases_events_total`, the changes told, by `type`.
 
+## The inbox feed
+
+`GET /ws/inbox` tells a signed-in person that their [inbox](/docs/guides/inbox/) changed.
+The upgrade is checked as a page's: the origin, then the session cookie or an API token with
+the `read` scope; there is no page to look at, as the feed is the caller's own. Its messages
+are JSON text:
+
+| `type` | Sent when |
+|---|---|
+| `ready` | First, once the connection hears every change. |
+| `inbox` | A notification of theirs was made, read, marked unread, archived or brought back, or an invitation of theirs changed. |
+
+Neither says what changed: the client reads the inbox and its count again through the API,
+which checks each notification against what they may see, after `ready`, as it connects and
+reconnects, and after each `inbox`. A client has nothing to send. What it sends is read and
+dropped; more than 1 KiB in one message closes it with `1009`, and more than 5 messages a
+second, with bursts of 20, with `4429`.
+
+A notification is made in the transaction of what it tells of, and the person's room of the
+broadcaster hears it once that commits, so a change that rolls back tells nobody. When
+someone's session or token ends, their feeds close with `4401`; every five minutes every feed
+is looked at so again.
+
+| Limit | Default | Past it |
+|---|---|---|
+| Connections | 20 for one person on this server, one for each tab | The upgrade is refused with `429 too_many_connections`; one of several that came at once closes with `1013`. |
+| Messages waiting to be sent to a client | 64, and 64 KiB of them | The client fell behind, and the feed closes with `4408`; it reconnects and reads afresh. |
+| Sending one message | 30 seconds | The feed closes with `4408`. |
+| Silence | Nothing from the client, not even a pong, between two pings; the server pings every 30 seconds | The server drops the connection without a close. |
+
+A client should stop after `4401`, and reconnect after the others, after a pause for `4408`,
+`4429` and `1013`. Its metrics are `neon_notifications_open_connections`, a gauge of the open
+feeds, and `neon_notifications_disconnects_total`, a counter by `cause` as for documents.
+
 ## Following on the server
 
 The broadcaster's rooms have listeners on the server too. The MCP server's
 [subscriptions](/docs/guides/agents-over-mcp/#resources) join a page's room, which hears
 every update, and a database's guests' room, which leaves people's details out. Every change
 to the rows and schema of a workspace's databases also goes to the workspace's own room, as
-members read it. No client joins that room. A subscription to someone's tasks hears there of
+members read it. A subscription to someone's inbox joins their inbox's room, which the
+inbox feed hears too. No client joins that room. A subscription to someone's tasks hears there of
 the rows that name them, of every database, those they cannot see too. So such a change has
 it read their tasks again, at most once an interval, and it tells them only when what they
 see changed. None of it asks the database again until a change comes.

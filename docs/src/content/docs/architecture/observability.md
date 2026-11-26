@@ -85,6 +85,8 @@ request, so the number of label sets stays small. These subsystems record them:
 | `sync`, the live documents | `load`, `persist`, a batch of updates logged, and `compact`, a snapshot saved. | A database that fails, or a saved update that does not decode. | 5 ms to 5 s |
 | `transfer`, imports and exports | `admit_import`, `import`, `export_page` and `export_teamspace`. | A failure of the server, such as a document that does not read as blocks. A refusal, a limit or the time limit is `ok`. | 100 ms to 5 min |
 | `mcp`, the MCP server | The tool's name, such as `read_page` or `claim_task`, and `list_resources`, `read_resource` and `subscribe`. | A failure of the server. A tool's refusal, such as `not_found` or `already_claimed`, or arguments its schema does not take, is `ok`. | 5 ms to 5 s |
+| `comments`, the comment use cases | The use case, such as `start_thread`, `reply`, `edit`, `resolve`, `follow` or `candidates`, a search for mentions. | A failure of the server. A refusal of the rules, such as `forbidden` or `too_many_threads`, is `ok`. | 5 ms to 5 s |
+| `notifications`, the inbox | The use case, such as `list`, `count`, `mark`, `mark_all_read`, `set_mail` or `unsubscribe`; `mail`, one notification's mail written, and `digests`, a run of the digests. | A failure of the server. A refusal, such as `invalid_token`, is `ok`. | 5 ms to 5 s |
 | `webhooks`, webhooks' use cases, deliveries and requests | The use case, such as `create_webhook`, `test_webhook` or `create_incoming`; `deliver`, an attempt at a delivery; `receive`, a request to an incoming webhook. | A failure of the server. A refusal, a receiver that fails or times out, and a request refused for its signature, payload or rate are `ok`. | 5 ms to 10 s |
 
 Deliveries are jobs of the kind `webhooks.deliver`, so the `jobs` subsystem counts their runs
@@ -123,7 +125,9 @@ The live documents keep their own gauges, set as they change rather than sampled
 sync](/docs/architecture/realtime/#metrics) lists them with the histogram of message sizes
 and the counters of messages and disconnects. The database feeds keep theirs likewise:
 `neon_databases_open_connections`, and the counters of [database
-feeds](/docs/architecture/realtime/#database-feeds). No log line or span holds a property's
+feeds](/docs/architecture/realtime/#database-feeds), and the inbox's feeds
+`neon_notifications_open_connections` and `neon_notifications_disconnects_total`. No log line
+or span holds a comment's text or a notification's excerpt either: they carry ids. No log line or span holds a property's
 value: they carry ids and counts. The MCP server keeps `neon_mcp_sessions`, its sessions
 open, and `neon_mcp_subscriptions`, the resources they subscribe to.
 
