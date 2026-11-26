@@ -4,8 +4,9 @@
 //! the rates and bounds on sessions, by identity and by person, a session ending when its
 //! agent is suspended, its token revoked or expired, or people are kept out, a person's
 //! token beside an agent's and one across the instance, concurrent claims, an edit
-//! merging with a page-sync client typing, and a client that finds the OAuth server from
-//! `/mcp`'s challenge, connects as an agent and acts there as it.
+//! merging with a page-sync client typing, a client that finds the OAuth server from
+//! `/mcp`'s challenge, connects as an agent and acts there as it, and markdown nested too
+//! deep refused.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -1993,5 +1994,42 @@ async fn an_oauth_client_finds_the_server_from_mcp_and_acts_there_as_the_agent_c
         .await;
     assert_eq!(code, "insufficient_scope");
     reader.close().await;
+    finish(&state, server).await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn the_tools_refuse_markdown_nested_deeper_than_blocks_may(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let server = Server::start(app.clone()).await;
+    let t = team(&state, &app).await;
+    let ws = t.workspace.clone();
+    let general = general(&t.ada, &ws).await;
+    let plan = page(&t, "Plan", "First").await;
+    let (token, _) = agent_of(&t.cy, &ws, "Scout").await;
+    let client = Client::connect(&server, &token).await.expect("connects");
+    let deeper = format!("{}x", "> ".repeat(neon_blocks::markdown::MAX_DEPTH + 1));
+
+    let (code, message) = client
+        .refused(
+            "create_page",
+            json!({"teamspace_id": general, "title": "Deep", "markdown": deeper}),
+        )
+        .await;
+    assert_eq!(code, "invalid_input");
+    assert!(message.contains("levels deep"), "{message}");
+    let (code, _) = client
+        .refused(
+            "edit_page",
+            json!({"page_id": plan, "operations": [{"op": "append", "markdown": deeper}]}),
+        )
+        .await;
+    assert_eq!(code, "invalid_input");
+    let read = client.ok("read_page", json!({"page_id": plan})).await;
+    assert_eq!(
+        plain(read["markdown"].as_str().expect("markdown")).trim(),
+        "First"
+    );
+    client.close().await;
     finish(&state, server).await;
 }

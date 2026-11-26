@@ -4,13 +4,17 @@
 //!
 //! Reading needs a session or a token with `read`, editing one with `write`. The markdown
 //! is the one the docs' block id section describes: a line `<!-- block <id> -->` before each
-//! block, which markdown sent back may keep or leave out.
+//! block, which markdown sent back may keep or leave out. Markdown a caller sends, here, to
+//! a new page or over MCP, nests at most [`MAX_DEPTH`] levels of blocks: deeper is refused,
+//! as an incoming webhook refuses it, rather than read at the last level as an import is.
 
 use axum::extract::State;
+use axum::http::StatusCode;
 use neon_app::databases::{DatabaseService, RowDetails};
 use neon_app::sync::{Edited, SyncService};
+use neon_blocks::Document;
 use neon_blocks::edit::{Applied, Edit};
-use neon_blocks::markdown::{from_markdown, to_markdown_with_ids};
+use neon_blocks::markdown::{MAX_DEPTH, TooDeep, to_markdown_with_ids, try_from_markdown};
 use neon_domain::pages::PageKind as DomainPageKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -110,29 +114,43 @@ pub enum EditOperation {
     ReplaceBody { markdown: String },
 }
 
-impl From<EditOperation> for Edit {
-    fn from(operation: EditOperation) -> Self {
-        let blocks = |markdown: &str| from_markdown(markdown).blocks;
-        match operation {
+/// The blocks of markdown a caller sends, refused with `invalid_input` when they nest deeper
+/// than [`MAX_DEPTH`] levels.
+pub(crate) fn read_markdown(markdown: &str) -> Result<Document, ApiError> {
+    try_from_markdown(markdown).map_err(|TooDeep| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            format!("the markdown nests blocks more than {MAX_DEPTH} levels deep"),
+        )
+    })
+}
+
+impl TryFrom<EditOperation> for Edit {
+    type Error = ApiError;
+
+    fn try_from(operation: EditOperation) -> Result<Self, ApiError> {
+        let blocks = |markdown: &str| read_markdown(markdown).map(|document| document.blocks);
+        Ok(match operation {
             EditOperation::Append { markdown } => Self::Append {
-                blocks: blocks(&markdown),
+                blocks: blocks(&markdown)?,
             },
             EditOperation::InsertAfter { block_id, markdown } => Self::InsertAfter {
                 block_id,
-                blocks: blocks(&markdown),
+                blocks: blocks(&markdown)?,
             },
             EditOperation::ReplaceRange { from, to, markdown } => Self::ReplaceRange {
                 to: to.unwrap_or_else(|| from.clone()),
                 from,
-                blocks: blocks(&markdown),
+                blocks: blocks(&markdown)?,
             },
             EditOperation::FindReplace { find, replace, all } => {
                 Self::FindReplace { find, replace, all }
             }
             EditOperation::ReplaceBody { markdown } => Self::ReplaceBody {
-                blocks: blocks(&markdown),
+                blocks: blocks(&markdown)?,
             },
-        }
+        })
     }
 }
 
@@ -240,7 +258,7 @@ pub(super) async fn get_markdown(
     request_body = EditPage,
     responses(
         (status = OK, description = "What each operation did.", body = EditedPage),
-        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
@@ -257,7 +275,11 @@ pub(super) async fn edit_markdown(
     Path(id): Path<Uuid>,
     Body(body): Body<EditPage>,
 ) -> Result<Body<EditedPage>, ApiError> {
-    let edits = body.operations.into_iter().map(Edit::from).collect();
+    let edits = body
+        .operations
+        .into_iter()
+        .map(Edit::try_from)
+        .collect::<Result<_, _>>()?;
     let edited = state.sync.edit(&principal, id, edits).await?;
     Ok(Body(edited.into()))
 }

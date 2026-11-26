@@ -1,7 +1,9 @@
-//! Pages' markdown with block ids and its edits, claims of rows, the tasks assigned to
-//! someone, the pages changed last, and whom a request acts as, over HTTP.
+//! Pages' markdown with block ids and its edits, markdown nested too deep, claims of rows,
+//! the tasks assigned to someone, the pages changed last, and whom a request acts as, over
+//! HTTP.
 
 use axum::http::{Method, StatusCode};
+use neon_blocks::markdown::MAX_DEPTH;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -469,5 +471,55 @@ async fn edits_past_their_rate_answer_429_with_retry_after(pool: PgPool) {
     // Reading is not counted.
     let read = t.ada.get(&markdown).await;
     assert_eq!(text(markdown_of(&read)), "Ship");
+    state.sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn markdown_nesting_deeper_than_blocks_may_is_refused_and_changes_nothing(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    let pages = format!("/api/v1/workspaces/{ws}/pages");
+    let deepest = format!("{}x", "> ".repeat(MAX_DEPTH));
+    let deeper = format!("{}x", "> ".repeat(MAX_DEPTH + 1));
+
+    // A new page takes markdown nested as deep as blocks may, and no deeper.
+    let refused = t
+        .ada
+        .post(
+            &pages,
+            json!({"teamspace_id": general, "title": "Deep", "markdown": deeper}),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.body);
+    assert_eq!(refused.code(), "invalid_input");
+    let made = t
+        .ada
+        .post(
+            &pages,
+            json!({"teamspace_id": general, "title": "Deep", "markdown": deepest}),
+        )
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+    let markdown = format!("/api/v1/pages/{}/markdown", id(&made));
+    let before = markdown_of(&t.ada.get(&markdown).await).to_owned();
+
+    // So does an edit: one part too deep refuses the whole edit, before anything changes.
+    let refused = t
+        .ada
+        .send(
+            Method::PATCH,
+            &markdown,
+            Some(json!({"operations": [
+                {"op": "append", "markdown": "Kept out"},
+                {"op": "append", "markdown": deeper},
+            ]})),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.body);
+    assert_eq!(refused.code(), "invalid_input");
+    assert_eq!(markdown_of(&t.ada.get(&markdown).await), before);
     state.sync.shutdown().await;
 }

@@ -266,7 +266,9 @@ Blocks read from markdown nest at most 32 levels deep. A quote or list item that
 deeper is left out, its content read at its parent's level; a toggle, quote or list item at
 the 32nd level holds no children, which follow it there instead; and a line that starts with
 more than 33 quote or list markers reads the rest as text. An import reads such markdown that
-way, while an [incoming webhook](/docs/guides/webhooks/#the-payload) refuses it.
+way, while what callers send refuses it: a new page's markdown and the edits of the markdown
+API and [MCP](/docs/guides/agents-over-mcp/#editing-a-page) answer `invalid_input`, and an
+[incoming webhook](/docs/guides/webhooks/#the-payload) `invalid_payload`.
 
 ## Edits in place
 

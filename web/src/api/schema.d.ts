@@ -9892,7 +9892,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13580,7 +13580,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page"];
                 };
             };
-            /** @description invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, or a placement beside a page that is not a sibling. */
+            /** @description invalid_input: no place or several, a parent that is a database or a row, a title or icon out of bounds, a placement beside a page that is not a sibling, or markdown nesting blocks more than 32 levels deep. */
             400: {
                 headers: {
                     [name: string]: unknown;

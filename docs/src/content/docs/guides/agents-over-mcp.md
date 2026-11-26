@@ -250,7 +250,9 @@ the blocks under it are written anew after it.
 A page always keeps a block, so removing every one leaves an empty paragraph. A page holds at
 most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what
 `find_replace` would add before it adds any of it, so replacements that would grow the page
-past that are refused at once.
+past that are refused at once. Markdown, an edit's or `create_page`'s, nests blocks at most
+32 levels deep, as [Page documents](/docs/architecture/documents/) describes; deeper answers
+`invalid_input` and changes nothing.
 
 ```json
 {"name": "edit_page", "arguments": {
