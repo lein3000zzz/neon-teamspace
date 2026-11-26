@@ -7,8 +7,8 @@ use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
-use super::auth_tests::{Answer, admin, call};
-use super::pages_tests::{create, general};
+use super::auth_tests::{Answer, admin, call, user};
+use super::pages_tests::{create, general, guest};
 use super::tests::state;
 use super::workspaces_tests::{Browser, id, team};
 use super::*;
@@ -249,6 +249,29 @@ async fn an_agent_s_teamspaces_show_as_far_as_each_caller_sees_them(pool: PgPool
         teamspaces_of(&team.cy.get(&of_scout).await),
         named(&[("General", false), ("Ops", false)])
     );
+    // Dee, another member, sees as much, and takes it out of Ops once she owns it.
+    assert_eq!(
+        teamspaces_of(&team.dee.get(&of_scout).await),
+        named(&[("General", false), ("Ops", false)])
+    );
+    let dee = id(&team.dee.get("/api/v1/account/me").await);
+    let owner = team
+        .ada
+        .post(
+            &format!("{teamspaces}/{}/members", made[0]),
+            json!({"user_id": dee, "role": "owner"}),
+        )
+        .await;
+    assert_eq!(owner.status, StatusCode::CREATED, "{}", owner.body);
+    assert_eq!(
+        teamspaces_of(&team.dee.get(&of_scout).await),
+        named(&[("General", false), ("Ops", true)])
+    );
+    // A guest knows of no agent, nor of its teamspaces.
+    user(&state, "gus@example.com").await;
+    let gus = guest(&app, &team.ada, ws, "gus@example.com").await;
+    let hidden = gus.get(&of_scout).await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND, "{}", hidden.body);
     // Nor does Scout itself, while its owner is outside it.
     let worker = Bearer::new(&app, agent_token(&team.cy, ws, &scout, &["read"]).await);
     assert_eq!(
