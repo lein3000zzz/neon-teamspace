@@ -22,14 +22,20 @@ export function useLeaveFor(when: boolean, href: string) {
  * Where to go after signing in: the `next` the sign-in page was sent with,
  * when it is a page of this app. Anything that resolves to another origin,
  * such as //evil.example or a tab smuggled into /\t/evil.example, goes home
- * instead, so a crafted link cannot send people elsewhere.
+ * instead, and so does a path that only reads as another origin once
+ * resolved, such as /.//evil.example, whose dot segments leave //evil.example:
+ * a crafted link cannot send people elsewhere.
  */
 export function safeNext(next: string | undefined): string {
   if (next === undefined || !next.startsWith("/")) {
     return "/";
   }
   const url = new URL(next, window.location.origin);
-  if (url.origin !== window.location.origin || url.pathname === "/login") {
+  if (
+    url.origin !== window.location.origin ||
+    url.pathname === "/login" ||
+    /^\/[/\\]/.test(url.pathname)
+  ) {
     return "/";
   }
   return url.pathname + url.search + url.hash;

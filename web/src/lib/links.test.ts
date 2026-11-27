@@ -13,6 +13,11 @@ describe("the page after signing in", () => {
     ["/\t/evil.example", "/"],
     ["https://evil.example/", "/"],
     ["/login?next=%2Faccount", "/"],
+    ["/.//evil.example/x", "/"],
+    ["/%2e//evil.example", "/"],
+    ["/a/..//evil.example", "/"],
+    ["/./\\evil.example", "/"],
+    ["/docs/./guide", "/docs/guide"],
   ])("goes to %j as %j", (next, expected) => {
     expect(safeNext(next)).toBe(expected);
   });
