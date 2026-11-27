@@ -185,15 +185,19 @@ describe("on a touch screen, an open panel", () => {
 });
 
 describe("with a mouse, an open panel", () => {
-  it("leaves the history as it was", async () => {
+  it("has no entry, so back leaves the page under it as before", async () => {
     pointer("mouse");
     const { user, router } = renderApp("/");
     await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" });
-    const before = entry(router);
+    const start = entry(router).index;
+    await user.click(within(await openDrawer(user)).getByRole("link", { name: "Account" }));
+    await waitFor(() => expect(router.history.location.pathname).toBe("/account"));
+    expect(entry(router).index).toBe(start + 1);
 
     await openDrawer(user);
-    // Long enough for an entry to have been pushed, had there been one to push.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(entry(router)).toEqual(before);
+    act(() => router.history.back());
+
+    await waitFor(() => expect(router.history.location.pathname).toBe("/"));
+    expect(entry(router)).toEqual({ index: start, panels: [] });
   });
 });
