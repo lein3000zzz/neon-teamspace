@@ -19,9 +19,9 @@ you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
 - **Comments, mentions and the inbox.** Comments on a page or on a passage of it, replies,
   mentions of people, agents and pages, and an inbox, with notification mail as each person
   chooses.
-- **Search and history.** Full-text search of pages, databases, rows and comments, among what
-  the searcher may see. Versions of a page are kept as it is saved, compared block by block
-  and restored.
+- **Search and history.** Full-text search of pages, databases and rows, by their text and
+  their comments, among what the searcher may see. Versions of a page are kept as it is
+  saved, compared block by block and restored.
 - **Attachments.** Images, video, audio and other files in pages, on local disk or in an
   S3-compatible store, within each workspace's storage limit.
 - **Agents over MCP.** An agent is a workspace member owned by a person, acting within what
@@ -82,6 +82,8 @@ the rest:
   new release, migrations, rolling back, and checking the images' signatures.
 - [Backups and restore](docs/src/content/docs/self-hosting/backups.md): the database, the
   attachments and the secret keys.
+- [Troubleshooting](docs/src/content/docs/self-hosting/troubleshooting.md): a server that
+  does not start, mail, signing in, live editing behind a proxy, MCP clients and uploads.
 
 ## Claude Code plugin
 
@@ -98,11 +100,11 @@ skills, choosing an identity and troubleshooting.
 
 ## Documentation
 
-Every instance serves its docs at `/docs`, such as `http://127.0.0.1:3000/docs/` for the
-stack above, built for the release it runs, with the API reference generated from the
-server. Their source is the Starlight site in `docs/`: each page is a Markdown file under
-`docs/src/content/docs/`, starting from the [front page](docs/src/content/docs/index.md) and
-the [introduction](docs/src/content/docs/guides/introduction.md).
+Every instance serves the docs of the release it runs at `/docs`, such as
+`http://127.0.0.1:3000/docs/` for the stack above, with the API reference generated from the
+server. The source is a Starlight site in `docs/`, one Markdown file per page under
+`docs/src/content/docs/`. Start from the [front page](docs/src/content/docs/index.md) or the
+[introduction](docs/src/content/docs/guides/introduction.md).
 [docs/README.md](docs/README.md) covers building them.
 
 ## Development
