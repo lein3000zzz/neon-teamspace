@@ -187,6 +187,11 @@ document, to the `XmlFragment` named `document-store` that
   database it names with the same views as its own page, compact; see
   [Databases](#databases). The slash menu is BlockNote's, with a **Database** item beside its
   table that makes an inline database under the page and gives its id to a new block.
+- Undo and redo go through y-prosemirror's undo manager, which ends with the editor's view.
+  So the view is mounted once: the comment highlights' extension is among the editor's
+  options rather than registered after, and whether the editor takes input is set on its
+  read-only extension, as a change to the view's `editable` prop mounts it afresh. React's
+  strict mode mounts it twice in development, where undo is lost for that reason.
 
 The page's comments live beside the editor (`web/src/components/comments/`), read from
 `GET /api/v1/pages/{id}/comments` a part at a time: every part of the open threads, so each

@@ -8,6 +8,7 @@ import {
   type InlineContentSchema,
   type StyleSchema,
 } from "@blocknote/core";
+import { ReadOnlyExtension } from "@blocknote/core/extensions";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FormattingToolbar,
@@ -27,6 +28,7 @@ import { Database, FileText, MessageSquarePlus, Rows3, Table2, X } from "lucide-
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -48,12 +50,12 @@ import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { useTheme } from "@/theme/theme-provider";
 import {
-  COMMENT_HIGHLIGHTS,
   commentHighlights,
   revealThread,
   scrollToThread,
   selectionAnchor,
   showThreads,
+  tellComments,
   type CommentHandlers,
   type DraftAnchor,
   type ThreadAnchor,
@@ -93,8 +95,8 @@ export type EditorComments = {
   active: string | null;
   /**
    * A highlight was clicked, or Mod-Alt-M pressed on one; or a range chosen to
-   * comment on. New ones register the highlights afresh, so they should keep their
-   * identity; `changed` likewise, as a new one opens the connection afresh.
+   * comment on. `changed`, below, should keep its identity, as a new one opens
+   * the connection afresh.
    */
   handlers: CommentHandlers;
   /**
@@ -232,6 +234,11 @@ function LiveEditor({
     {
       schema,
       ...withCollaboration({
+        // The comment highlights come with the editor, before its view: registered once
+        // the view is up, an extension remakes the editor's plugins, and that ends the
+        // history undo and redo go through. Typed as nothing, as an extension among the
+        // options keeps the hook from inferring the editor's schema.
+        ...({ extensions: [commentHighlights()] } as object),
         collaboration: {
           fragment: session.doc.getXmlFragment(FRAGMENT),
           user: { ...self },
@@ -270,14 +277,14 @@ function LiveEditor({
     [session, pageId],
   );
 
-  // Registered once the editor is made: given among its options, an extension
-  // keeps the hook from inferring the editor's schema.
-  useEffect(() => {
-    editor.registerExtension(commentHighlights(handlers));
-    return () => {
-      editor.unregisterExtension(COMMENT_HIGHLIGHTS);
-    };
-  }, [editor, handlers]);
+  useEffect(() => tellComments(editor, handlers), [editor, handlers]);
+
+  // Set on the editor rather than given to its view, which mounts the editor afresh as it
+  // changes, and that ends the history undo and redo go through. Before the first paint, so
+  // nothing is typed before the document came.
+  useLayoutEffect(() => {
+    editor.getExtension(ReadOnlyExtension)?.setEditable(editable);
+  }, [editor, editable]);
 
   useEffect(() => {
     editorRef.current = editor;
@@ -502,7 +509,6 @@ function LiveEditor({
       <EditorPageContext value={page}>
         <BlockNoteView
           editor={asSchemaless(editor)}
-          editable={editable}
           theme={mode}
           slashMenu={false}
           formattingToolbar={false}

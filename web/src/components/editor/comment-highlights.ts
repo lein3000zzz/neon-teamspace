@@ -32,7 +32,7 @@ type State = {
 const key = new PluginKey<State>("neon-comment-highlights");
 
 /** The highlights' extension, by its key, as the editor registers it. */
-export const COMMENT_HIGHLIGHTS = "neonCommentHighlights";
+const COMMENT_HIGHLIGHTS = "neonCommentHighlights";
 
 function toBase64(bytes: Uint8Array): string {
   let text = "";
@@ -167,11 +167,20 @@ function threadAt(state: EditorState, pos: number): string | undefined {
  * positions read against the page's Yjs document whenever they or the
  * document change from elsewhere, and mapped through the user's own edits.
  * A click on a highlight opens its thread; Mod-Alt-M opens the thread under
- * the caret, or starts one on the text selected.
+ * the caret, or starts one on the text selected, through the handlers
+ * {@link tellComments} gives it.
+ *
+ * It goes among the editor's options, so it is there before the editor's
+ * view: registered once the view is up, it would remake the editor's
+ * plugins, and that ends the history undo and redo go through.
  */
-export function commentHighlights(handlers: CommentHandlers) {
+export function commentHighlights() {
+  let handlers: CommentHandlers | undefined;
   return createExtension({
     key: COMMENT_HIGHLIGHTS,
+    setHandlers(next: CommentHandlers) {
+      handlers = next;
+    },
     prosemirrorPlugins: [
       new Plugin<State>({
         key,
@@ -194,13 +203,16 @@ export function commentHighlights(handlers: CommentHandlers) {
           handleClick(view, pos) {
             const thread = threadAt(view.state, pos);
             if (thread !== undefined) {
-              handlers.open(thread, false);
+              handlers?.open(thread, false);
             }
             return false;
           },
           handleKeyDown(view, event) {
             const mod = event.metaKey || event.ctrlKey;
             if (!(mod && event.altKey && event.code === "KeyM")) {
+              return false;
+            }
+            if (handlers === undefined) {
               return false;
             }
             const anchor = selectionAnchor(view);
@@ -219,6 +231,16 @@ export function commentHighlights(handlers: CommentHandlers) {
       }),
     ],
   });
+}
+
+/** Gives the highlights of an editor what they tell the page. */
+export function tellComments(
+  editor: { getExtension: (key: string) => unknown },
+  handlers: CommentHandlers,
+) {
+  const highlights = editor.getExtension(COMMENT_HIGHLIGHTS) as
+    { setHandlers: (handlers: CommentHandlers) => void } | undefined;
+  highlights?.setHandlers(handlers);
 }
 
 /** Tells the highlights which threads to show, and which of them is open. */
