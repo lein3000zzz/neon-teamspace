@@ -79,13 +79,13 @@ Once mail can go, **Send a test mail** queues one to you. When the relay does no
 again. A relay that cannot be reached:
 
 ```json
-{"kind": "test", "error": "Connection error: failed to lookup address information: Name or service not known", "permanent": false}
+{"at": "2026-11-27T10:00:00Z", "kind": "test", "error": "Connection error: failed to lookup address information: Name or service not known", "permanent": false}
 ```
 
 A wrong host is that one; a `535` answer is a wrong username or password; a certificate
 error is a relay whose certificate is self-signed or names another host; a timeout is often
-port 587 or 465 blocked between the two. A mail is tried ten times over about an hour and a
-half, then logged as `job failed for the last time`. A mail whose link expired while it
+port 587 or 465 blocked between the two. A mail is tried ten times over at most an hour and
+a half, then logged as `job failed for the last time`. A mail whose link expired while it
 waited is dropped with `mail dropped: its link expired before it could be sent`. Mail the
 relay took that never arrives went to spam or was refused further on:
 [Mail](/docs/self-hosting/mail/#deliverability) has the DNS records receivers check.
