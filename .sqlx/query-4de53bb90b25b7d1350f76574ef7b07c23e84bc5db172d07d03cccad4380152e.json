@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE join_requests SET confirmed_at = $2, token_hash = NULL\n         WHERE token_hash = $1 AND confirmed_at IS NULL AND decided_at IS NULL\n               AND link_expires_at > $2\n         RETURNING id, email, note, created_at, confirmed_at, decided_at, decided_by, approved,\n                   invite_id, link_expires_at, mails, mailed_at",
+  "query": "UPDATE join_requests SET confirmed_at = $2, token_hash = NULL\n         WHERE token_hash = $1 AND confirmed_at IS NULL AND decided_at IS NULL\n               AND link_expires_at > $2\n               AND (SELECT count(*) FROM join_requests\n                    WHERE confirmed_at IS NOT NULL AND decided_at IS NULL) < $3\n         RETURNING id, email, note, created_at, confirmed_at, decided_at, decided_by, approved,\n                   invite_id, link_expires_at, mails, mailed_at",
   "describe": {
     "columns": [
       {
@@ -139,7 +139,8 @@
     "parameters": {
       "Left": [
         "Bytea",
-        "Timestamptz"
+        "Timestamptz",
+        "Int8"
       ]
     },
     "nullable": [
@@ -157,5 +158,5 @@
       false
     ]
   },
-  "hash": "471f6e1d5e18491444898fb78fd604a444713add38a37e890a4d1c6df055ff54"
+  "hash": "4de53bb90b25b7d1350f76574ef7b07c23e84bc5db172d07d03cccad4380152e"
 }

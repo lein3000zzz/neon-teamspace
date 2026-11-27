@@ -594,26 +594,85 @@ async fn an_address_has_one_open_request_mailed_at_most_five_times(pool: PgPool)
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn open_requests_are_capped(pool: PgPool) {
+async fn junk_from_one_source_takes_no_room_from_anyone_else(pool: PgPool) {
     let h = requests_on(pool).await;
+    // Requests nobody confirmed, from one /64, past what one source may keep.
+    for n in 0..12 {
+        h.auth
+            .request_to_join(
+                &format!("junk{n}@example.com"),
+                "",
+                &format!("2001:db8:1:3::{n:x}"),
+            )
+            .await
+            .expect("the same answer");
+    }
+    h.auth.settle().await;
+    let kept: i64 = h.scalar("SELECT count(*) FROM join_requests").await;
+    assert_eq!(kept, 10, "a source keeps ten unconfirmed at most");
+    assert_eq!(h.mails().await.len(), 10);
+
+    // Someone else asks all the same, and is mailed.
+    h.auth
+        .request_to_join("ada@example.com", "", IP)
+        .await
+        .expect("taken");
+    h.auth.settle().await;
+    let mails = h.mails().await;
+    assert_eq!(mails.len(), 1);
+    assert_eq!(mails[0].to.address, "ada@example.com");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn only_confirmed_requests_fill_the_admins_list(pool: PgPool) {
+    let h = requests_on(pool).await;
+    let admin = h.admin().await;
+    // Two hundred requests nobody confirmed, from many sources, fill nothing.
     sqlx::query(
-        "INSERT INTO join_requests (id, email, email_normalized, link_expires_at, mailed_at, created_at)
-         SELECT gen_random_uuid(), n || '@example.com', n || '@example.com', now(), now(), now()
+        "INSERT INTO join_requests (id, email, email_normalized, link_expires_at, mailed_at,
+                                    created_at, source)
+         SELECT gen_random_uuid(), n || '@example.com', n || '@example.com',
+                now() + interval '1 day', now(), now(), '198.51.100.' || n
          FROM generate_series(1, 200) AS n",
     )
     .execute(&h.pool)
     .await
     .unwrap();
-
     h.auth
         .request_to_join("ada@example.com", "", IP)
         .await
-        .expect("the same answer");
+        .expect("taken");
     h.auth.settle().await;
+    let link = h.token_of("join_confirmation").await;
 
-    assert!(h.mails().await.is_empty());
-    let kept: i64 = h.scalar("SELECT count(*) FROM join_requests").await;
-    assert_eq!(kept, 200);
+    // Two hundred confirmed ones do: the link is refused, and says so, while they wait.
+    sqlx::query("UPDATE join_requests SET confirmed_at = now() WHERE email <> 'ada@example.com'")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let refused = h
+        .auth
+        .confirm_join(&link, IP)
+        .await
+        .expect_err("too many wait");
+    assert!(matches!(refused, AuthError::RequestsFull), "{refused:?}");
+
+    // Once the admins decide one, the same link confirms.
+    let waiting = h.auth.list_join_requests(&admin).await.expect("lists");
+    assert_eq!(waiting.len(), 200);
+    h.auth
+        .deny_join(&admin, waiting[0].id)
+        .await
+        .expect("denies");
+    h.auth.confirm_join(&link, IP).await.expect("confirms");
+    assert!(
+        h.auth
+            .list_join_requests(&admin)
+            .await
+            .expect("lists")
+            .iter()
+            .any(|request| request.email == "ada@example.com")
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

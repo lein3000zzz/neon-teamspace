@@ -64,6 +64,12 @@ pub enum AuthError {
     InviteEmailOff,
     #[error("requests to join are off here")]
     RequestsOff,
+    /// As many confirmed requests to join wait for the admins as may at once.
+    #[error(
+        "too many requests to join are waiting for the admins: open the link again later, \
+         while it works"
+    )]
+    RequestsFull,
     /// With what is missing, for admins; the forms anyone can send say only that.
     #[error("mail is not set up{}", .0.as_deref().map(|why| format!(": {why}")).unwrap_or_default())]
     MailNotSetUp(Option<String>),
@@ -109,6 +115,7 @@ impl AuthError {
             Self::PasswordResetOff => "password_reset_off",
             Self::InviteEmailOff => "invite_email_off",
             Self::RequestsOff => "requests_off",
+            Self::RequestsFull => "requests_full",
             Self::MailNotSetUp(_) => "mail_not_set_up",
             Self::NotFound(_) => "not_found",
             Self::LastAdmin => "last_admin",

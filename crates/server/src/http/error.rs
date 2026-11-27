@@ -223,6 +223,7 @@ impl From<AuthError> for ApiError {
             | AuthError::EmailTaken
             | AuthError::LastAdmin
             | AuthError::MailNotSetUp(_)
+            | AuthError::RequestsFull
             | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
             AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             AuthError::Busy => StatusCode::SERVICE_UNAVAILABLE,

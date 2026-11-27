@@ -3148,6 +3148,16 @@
               }
             }
           },
+          "409": {
+            "description": "requests_full: 200 confirmed requests wait for the admins already; the link works again once they decide some.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "rate_limited, with Retry-After.",
             "content": {

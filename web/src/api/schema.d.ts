@@ -8452,6 +8452,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description requests_full: 200 confirmed requests wait for the admins already; the link works again once they decide some. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description rate_limited, with Retry-After. */
             429: {
                 headers: {
