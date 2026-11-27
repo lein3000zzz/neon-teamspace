@@ -1,5 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useConfirmJoin } from "@/api/auth";
+import { ApiError } from "@/api/errors";
 import { AuthCard, authLink } from "@/components/auth/auth-layout";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,16 @@ export function JoinConfirmPage() {
           </p>
         }
       />
+    );
+  }
+  // The link still works: the admins have as many requests waiting as they take.
+  if (isError && error instanceof ApiError && error.code === "requests_full") {
+    return (
+      <AuthCard title={copy.fullTitle} lede={copy.fullLede}>
+        <Button variant="outline" onClick={() => mutate(token)}>
+          {copy.tryAgain}
+        </Button>
+      </AuthCard>
     );
   }
   if (isError) {

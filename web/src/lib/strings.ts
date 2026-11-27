@@ -210,6 +210,10 @@ export const strings = {
       doneLede: "They mail you an invite at this address if they approve it.",
       brokenLede: "A link to confirm works once, for 24 hours. Ask again for a new one.",
       askAgain: "Ask again",
+      fullTitle: "The admins have too many requests waiting",
+      fullLede:
+        "Your request is not confirmed yet. Try again once they have gone through some: the link in the mail works for 24 hours after it was sent.",
+      tryAgain: "Try again",
     },
     verify: {
       pending: "Verifying your address…",

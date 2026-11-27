@@ -114,6 +114,38 @@ describe("confirming a request to join", () => {
     expect(screen.getByRole("link", { name: "Ask again" })).toHaveAttribute("href", "/join");
   });
 
+  it("says when the admins have too many requests waiting, and tries the link again", async () => {
+    const tokens: unknown[] = [];
+    server.use(
+      signedOut,
+      http.post("/api/v1/auth/join-requests/confirm", async ({ request }) => {
+        tokens.push(await request.json());
+        return tokens.length === 1
+          ? apiError(
+              409,
+              "requests_full",
+              "too many requests to join are waiting for the admins: open the link again later, while it works",
+            )
+          : new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { user } = renderApp("/join/confirm?token=tok_full");
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "The admins have too many requests waiting",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Ask again" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Your request is with the admins" }),
+    ).toBeVisible();
+    expect(tokens).toEqual([{ token: "tok_full" }, { token: "tok_full" }]);
+  });
+
   it("says when the address carries no token", async () => {
     server.use(signedOut);
     renderApp("/join/confirm");
