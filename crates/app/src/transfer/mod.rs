@@ -171,7 +171,7 @@ pub struct Export {
 
 /// An export made: its file, and its place and turn, which whoever sends the file keeps
 /// until its last byte is sent, so a client that reads slowly holds them as long as the
-/// file.
+/// file; the place for at most [`Limits::place_while_sent`].
 #[derive(Debug)]
 pub struct Exported {
     pub export: Export,
@@ -191,10 +191,35 @@ pub struct ImportTicket {
 /// [`Limits::parallel`] and one of its person's turns of [`Limits::per_user`]. Work off the
 /// async threads keeps a clone until it ends, so a deadline, which drops the rest of the
 /// work, lets go of neither while it still runs; an export's file keeps one until it is
-/// sent.
+/// sent, the place for [`Limits::place_while_sent`] at most.
 #[derive(Clone)]
 pub struct Hold {
-    _held: Arc<(OwnedSemaphorePermit, Arc<Turn>)>,
+    held: Arc<Held>,
+}
+
+/// A place and a turn, held together; the place may go first.
+struct Held {
+    place: Mutex<Option<OwnedSemaphorePermit>>,
+    _turn: Arc<Turn>,
+}
+
+impl Hold {
+    /// Gives the place back once `after` has passed, if the hold lasts that long; its
+    /// person's turn stays until the hold ends.
+    fn place_for(&self, after: Duration) {
+        let held = Arc::downgrade(&self.held);
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            if let Some(held) = held.upgrade() {
+                let place = held
+                    .place
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                drop(place);
+            }
+        });
+    }
 }
 
 impl std::fmt::Debug for Hold {
@@ -555,6 +580,9 @@ impl TransferService {
                 bytes = export.bytes.len(),
                 "page exported"
             );
+            // A client that reads the file slowly keeps the person's turn while it does,
+            // but no place past a while, so slow readers cannot take every place.
+            hold.place_for(self.inner.limits.place_while_sent);
             Ok(Exported { export, hold })
         })
         .await
@@ -593,6 +621,9 @@ impl TransferService {
                 bytes = export.bytes.len(),
                 "teamspace exported"
             );
+            // A client that reads the file slowly keeps the person's turn while it does,
+            // but no place past a while, so slow readers cannot take every place.
+            hold.place_for(self.inner.limits.place_while_sent);
             Ok(Exported { export, hold })
         })
         .await
@@ -784,7 +815,8 @@ impl TransferService {
 
     /// One of the caller's turns of [`Limits::per_user`], held while their transfer runs.
     fn turn(&self, principal: &Principal) -> Result<Turn, TransferError> {
-        let user_id = principal.user.id;
+        // A person's agents take turns of theirs, so agents do not multiply them.
+        let user_id = principal.user.person_id();
         let mut running = self
             .inner
             .running
@@ -808,7 +840,10 @@ impl TransferService {
             .try_acquire_owned()
             .map_err(|_| TransferError::Busy)?;
         Ok(Hold {
-            _held: Arc::new((place, turn)),
+            held: Arc::new(Held {
+                place: Mutex::new(Some(place)),
+                _turn: turn,
+            }),
         })
     }
 
@@ -935,19 +970,32 @@ fn size(bytes: usize) -> String {
 mod tests {
     use super::*;
 
+    /// A hold of the one place of `places` and a turn of `user_id`'s, counted in `running`.
+    fn hold_of(
+        places: &Arc<Semaphore>,
+        running: &Arc<Mutex<HashMap<Uuid, usize>>>,
+        user_id: Uuid,
+    ) -> Hold {
+        running.lock().expect("unpoisoned").insert(user_id, 1);
+        let turn = Arc::new(Turn {
+            running: Arc::clone(running),
+            user_id,
+        });
+        let place = Arc::clone(places).try_acquire_owned().expect("a place");
+        Hold {
+            held: Arc::new(Held {
+                place: Mutex::new(Some(place)),
+                _turn: turn,
+            }),
+        }
+    }
+
     #[tokio::test]
     async fn work_off_the_async_threads_keeps_its_place_and_turn_past_a_deadline() {
         let places = Arc::new(Semaphore::new(1));
         let user_id = Uuid::now_v7();
-        let running = Arc::new(Mutex::new(HashMap::from([(user_id, 1)])));
-        let turn = Arc::new(Turn {
-            running: Arc::clone(&running),
-            user_id,
-        });
-        let place = Arc::clone(&places).try_acquire_owned().expect("a place");
-        let hold = Hold {
-            _held: Arc::new((place, turn)),
-        };
+        let running = Arc::new(Mutex::new(HashMap::new()));
+        let hold = hold_of(&places, &running, user_id);
         let (release, wait) = std::sync::mpsc::channel::<()>();
         let deadline = Deadline::after(Duration::from_millis(10));
         let work = blocking(&hold, move || {
@@ -963,6 +1011,35 @@ mod tests {
         assert_eq!(running.lock().expect("unpoisoned").get(&user_id), Some(&1));
         release.send(()).expect("the work waits");
         let _again = places.acquire().await.expect("the place comes back");
+        assert!(running.lock().expect("unpoisoned").is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_export_sent_slowly_gives_its_place_back_after_a_while_and_keeps_its_turn() {
+        let places = Arc::new(Semaphore::new(1));
+        let user_id = Uuid::now_v7();
+        let running = Arc::new(Mutex::new(HashMap::new()));
+        let hold = hold_of(&places, &running, user_id);
+        hold.place_for(Duration::from_secs(60));
+        assert_eq!(
+            places.available_permits(),
+            0,
+            "the place is held while it is sent"
+        );
+
+        // The place comes back once the while has passed, the file still on its way.
+        let place = places.acquire().await.expect("the place comes back");
+        assert_eq!(running.lock().expect("unpoisoned").get(&user_id), Some(&1));
+        drop(hold);
+        assert!(running.lock().expect("unpoisoned").is_empty());
+
+        // One sent before then gives both back as it ends.
+        let other = Uuid::now_v7();
+        drop(place);
+        let hold = hold_of(&places, &running, other);
+        hold.place_for(Duration::from_secs(60));
+        drop(hold);
+        assert_eq!(places.available_permits(), 1);
         assert!(running.lock().expect("unpoisoned").is_empty());
     }
 

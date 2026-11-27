@@ -62,7 +62,7 @@ found. It reads an image's width and height from its header as it uploads.
 | One file | 50 MiB | [`attachments.max_file_bytes`](/docs/reference/settings/), from 1 KiB to 5 GiB |
 | A workspace's files together | No limit | [`workspaces.limits.storage_bytes`](/docs/reference/settings/), and an instance admin's limit for the workspace |
 | Uploads by one person or agent | 60 at once, then one more a second | |
-| Uploads running at once | 4 for one person or agent, 32 on the server | |
+| Uploads running at once | 4 for one person, their agents' included, 32 on the server | |
 | How long one upload may take | 15 minutes | |
 | How long an upload may send nothing | 30 seconds | |
 
@@ -174,7 +174,7 @@ cover, and `null` takes it off. `GET /api/v1/files/{id}` reads a file, with `Ran
 | `416` | `range_not_satisfiable` | A `Range` that starts past the file's end. |
 | `429` | `rate_limited` | Too many uploads; wait for `Retry-After`. |
 | `503` | `storage_unavailable` | The file store did not answer. |
-| `503` | `busy` | The caller runs 4 uploads already, or the server 32; wait for `Retry-After`. |
+| `503` | `busy` | The caller's person runs 4 uploads already, their agents' included, or the server 32; wait for `Retry-After`. |
 
 ## When files are deleted
 

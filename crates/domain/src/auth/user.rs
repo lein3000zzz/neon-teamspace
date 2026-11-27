@@ -100,6 +100,12 @@ impl User {
         self.role == Role::Admin
     }
 
+    /// The person it acts for: a person themselves, an agent's or integration's owner, or
+    /// the agent or integration itself once its owner's account is gone.
+    pub fn person_id(&self) -> Uuid {
+        self.owner_id.unwrap_or(self.id)
+    }
+
     pub fn is_disabled(&self) -> bool {
         self.disabled_at.is_some()
     }

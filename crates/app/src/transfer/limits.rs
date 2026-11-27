@@ -45,9 +45,14 @@ pub struct Limits {
     /// How many imports and exports run at once on the server, once their file is
     /// uploaded; one more is refused until one ends.
     pub parallel: usize,
-    /// How many imports and exports one person runs at once, an import's upload included;
-    /// one more is refused until one ends.
+    /// How many imports and exports one person runs at once, an import's upload included,
+    /// their agents' with theirs; one more is refused until one ends. An export runs until
+    /// its file is sent whole.
     pub per_user: usize,
+    /// How long an export keeps its place among [`parallel`](Self::parallel) once its file
+    /// is made, while it is sent: past that, a client that reads it slowly holds only its
+    /// person's turn, so a few slow readers cannot take every place.
+    pub place_while_sent: Duration,
 }
 
 impl Default for Limits {
@@ -69,6 +74,7 @@ impl Default for Limits {
             time_limit: Duration::from_secs(20),
             parallel: 4,
             per_user: 2,
+            place_while_sent: Duration::from_secs(60),
         }
     }
 }

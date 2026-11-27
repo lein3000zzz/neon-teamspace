@@ -71,8 +71,8 @@ pub const UPLOAD_TIME_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// How long an upload may send nothing before it is given up on, with what it held.
 pub const UPLOAD_IDLE: Duration = Duration::from_secs(30);
 
-/// How many uploads one person runs at once, with their agents' apart: each holds a part of
-/// its file in memory while it runs.
+/// How many uploads one person runs at once, their agents' with theirs: each holds a part
+/// of its file in memory while it runs.
 pub const UPLOADS_PER_USER: usize = 4;
 
 /// How many uploads the server runs at once.
@@ -151,8 +151,8 @@ struct Inner {
     red: Red,
 }
 
-/// The uploads running: how many each user runs, and the places among those the server
-/// runs at once.
+/// The uploads running: how many each person runs, their agents' with theirs, and the
+/// places among those the server runs at once.
 struct Uploads {
     per_user: usize,
     running: Arc<Mutex<HashMap<Uuid, usize>>>,
@@ -180,7 +180,7 @@ impl Drop for UploadSlot {
 }
 
 /// Puts an [`AttachmentService`] together. Without being told otherwise it limits rates in
-/// memory, reads the system clock, runs [`UPLOADS_PER_USER`] uploads of one user and
+/// memory, reads the system clock, runs [`UPLOADS_PER_USER`] uploads of one person and
 /// [`UPLOADS_AT_ONCE`] in all at once, and gives up on an upload idle for [`UPLOAD_IDLE`].
 pub struct AttachmentServiceBuilder {
     pool: PgPool,
@@ -206,8 +206,8 @@ impl AttachmentServiceBuilder {
         self
     }
 
-    /// How many uploads one user runs at once, and how many the server runs in all; at
-    /// least one each.
+    /// How many uploads one person runs at once, their agents' with theirs, and how many the
+    /// server runs in all; at least one each.
     pub fn uploads_at_once(mut self, per_user: usize, in_all: usize) -> Self {
         self.uploads_per_user = per_user.max(1);
         self.uploads_at_once = in_all.max(1);
@@ -356,8 +356,8 @@ impl AttachmentService {
         self.inner.uploads.idle
     }
 
-    /// A place for an upload of `user_id` among those running, while they run fewer than
-    /// they may and the server has room; [`AttachmentError::Busy`] otherwise.
+    /// A place for an upload of the person `user_id` among those running, while they run
+    /// fewer than they may and the server has room; [`AttachmentError::Busy`] otherwise.
     fn upload_slot(&self, user_id: Uuid) -> Result<UploadSlot, AttachmentError> {
         let uploads = &self.inner.uploads;
         let mut running = uploads
@@ -366,7 +366,7 @@ impl AttachmentService {
             .unwrap_or_else(PoisonError::into_inner);
         let count = running.entry(user_id).or_default();
         if *count >= uploads.per_user {
-            warn!(%user_id, "too many uploads of one user at once");
+            warn!(%user_id, "too many uploads of one person at once");
             return Err(AttachmentError::Busy);
         }
         let place = Arc::clone(&uploads.places)
@@ -459,7 +459,8 @@ impl AttachmentService {
                 return Err(AttachmentError::StorageLimit { limit });
             }
             Ok(UploadTicket {
-                _slot: self.upload_slot(principal.user.id)?,
+                // A person's agents take places of theirs, so agents do not multiply them.
+                _slot: self.upload_slot(principal.user.person_id())?,
                 principal: principal.clone(),
                 workspace_id,
                 page_id,

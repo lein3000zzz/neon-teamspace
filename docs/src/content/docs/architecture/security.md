@@ -409,8 +409,11 @@ as a page of that origin, whatever its bytes are.
   setting allows. The form around the file is bounded too: its file must start within its
   first 64 KiB, so a body that never gets to its boundary or ends its part headers is refused
   with `413` once past them, rather than held. The server adds its row with the workspace's
-  row locked, so uploads at once cannot pass the storage limit together. An upload may take 15 minutes, the one route whose
-  time limit is longer than 30 seconds.
+  row locked, so uploads at once cannot pass the storage limit together. An upload may take
+  15 minutes, the one route whose time limit is longer than 30 seconds, and is given up on
+  once it sends nothing for 30 seconds. Each holds a part of its file in memory while it
+  runs, so one person runs 4 at once, their agents' included, and the server 32: one more is
+  refused with `503 busy`.
 - **Keys of the server's own.** The server keeps files under keys it makes from the
   workspace's id and the file's, so no name a client sends reaches a path on disk or a key in
   a bucket.
@@ -424,10 +427,12 @@ saved. It, and every setting that says where files go, changes only from a brows
 An import reads a file someone uploads, so it is bounded before it starts. The import route
 takes a body of at most 32 MiB and a form around it, larger than any other route. The server
 asks the rate limit and the rules before it reads the body, and holds one of four places
-for imports and exports while one runs, so a few people cannot fill its memory. The work
-that runs off the async threads holds the place, and its person's turn, until it ends,
-even when the import's deadline has passed and its answer has gone; an export holds them
-until its file is sent whole. Every HTTP connection drops a client that takes nothing of
+for imports and exports while one runs, so a few people cannot fill its memory, and two
+turns of each person's, their agents' included. The work that runs off the async threads
+holds the place, and its person's turn, until it ends, even when the import's deadline has
+passed and its answer has gone. An export holds its turn until its file is sent whole, and
+its place for at most a minute of sending, so clients that read slowly keep their own turns
+but cannot keep every place. Every HTTP connection drops a client that takes nothing of
 what it is sent for 30 seconds, and with it what its answer held in memory, so a client that
 stops reading a large answer, an export or a page's markdown, does not keep it there. A
 client that reads, however slowly, is never cut off, so each has at most 8 answers of 256 KiB

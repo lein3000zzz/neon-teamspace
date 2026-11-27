@@ -973,11 +973,60 @@ async fn an_export_keeps_its_turn_and_place_until_its_file_is_let_go_of(pool: Pg
     assert!(matches!(busy, Err(TransferError::Busy)), "{busy:?}");
     let others = t.transfer.export_page(&t.dee, roadmap, false).await;
     assert!(matches!(others, Err(TransferError::Busy)), "{others:?}");
+    // Her agents take turns of hers.
+    let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
+    let (_, scout) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let agents = t
+        .transfer
+        .admit_import(&scout, t.workspace, Location::Teamspace(t.general))
+        .await;
+    assert!(
+        matches!(agents, Err(TransferError::Busy)),
+        "{:?}",
+        agents.err()
+    );
     drop(held);
     t.transfer
         .export_page(&t.ada, roadmap, false)
         .await
         .expect("the turn came back");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_export_read_slowly_gives_its_place_back_after_a_while_and_keeps_its_turn(pool: PgPool) {
+    let t = team_with(
+        pool,
+        Limits {
+            per_user: 1,
+            parallel: 1,
+            place_while_sent: Duration::from_millis(50),
+            ..Limits::default()
+        },
+    )
+    .await;
+    t.roadmap().await;
+    let roadmap = t.id_of(t.general, "Roadmap").await;
+    let held = t
+        .transfer
+        .export_page(&t.ada, roadmap, false)
+        .await
+        .expect("exported");
+    // Ada's file is still on its way: the server's place comes back to the others after a
+    // while, and her turn stays hers.
+    let others = timeout(Duration::from_secs(5), async {
+        loop {
+            match t.transfer.export_page(&t.dee, roadmap, false).await {
+                Err(TransferError::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
+                other => break other,
+            }
+        }
+    })
+    .await
+    .expect("the place came back");
+    others.expect("another person exports");
+    let hers = t.transfer.export_page(&t.ada, roadmap, false).await;
+    assert!(matches!(hers, Err(TransferError::Busy)), "{hers:?}");
+    drop(held);
 }
 
 /// Opens a page's live document as a client, syncs, then adds a paragraph to it. The
