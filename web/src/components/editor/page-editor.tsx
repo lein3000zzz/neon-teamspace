@@ -8,9 +8,10 @@ import {
   type InlineContentSchema,
   type StyleSchema,
 } from "@blocknote/core";
-import { ReadOnlyExtension } from "@blocknote/core/extensions";
+import { ReadOnlyExtension, SuggestionMenu } from "@blocknote/core/extensions";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
+  EmojiPickerController,
   FormattingToolbar,
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
@@ -19,12 +20,15 @@ import {
   SuggestionMenuController,
   useComponentsContext,
   useCreateBlockNote,
+  useExtension,
+  useExtensionState,
   type DefaultReactSuggestionItem,
   type FormattingToolbarProps,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { useQueryClient } from "@tanstack/react-query";
 import { Database, FileText, MessageSquarePlus, Rows3, Table2, X } from "lucide-react";
+import type { Transaction } from "prosemirror-state";
 import {
   useCallback,
   useEffect,
@@ -517,6 +521,7 @@ function LiveEditor({
           editor={asSchemaless(editor)}
           theme={mode}
           slashMenu={false}
+          emojiPicker={false}
           formattingToolbar={false}
           linkToolbar={false}
           sideMenu={!touch}
@@ -531,6 +536,12 @@ function LiveEditor({
             getItems={mentionItems}
             floatingUIOptions={suggestionMenuOptions}
           />
+          <EmojiPickerController
+            triggerCharacter=":"
+            shouldOpen={startsWord}
+            floatingUIOptions={suggestionMenuOptions}
+          />
+          <EmojiNamesOnly />
           {touch ? (
             <MobileToolbar editor={asSchemaless(editor)} />
           ) : (
@@ -544,6 +555,36 @@ function LiveEditor({
       </EditorPageContext>
     </section>
   );
+}
+
+/**
+ * Whether a character typed where `tr`'s selection is would start a word: at the start of a
+ * block, or after a space or an opening bracket or quote. `:` opens the emoji menu only so,
+ * and not inside a time such as 15:00 or an address such as https://.
+ */
+function startsWord(tr: Transaction): boolean {
+  const { $from } = tr.selection;
+  const offset = $from.parentOffset;
+  const before = $from.parent.textBetween(Math.max(0, offset - 1), offset, undefined, "\ufffc");
+  return before === "" || /[\s([{"'“‘«]/u.test(before);
+}
+
+/**
+ * Closes the emoji menu `:` opened as soon as what follows the colon starts with anything but
+ * a letter, as in ":0" or ":)": emoji are named in words, and the menu would say it found none.
+ */
+function EmojiNamesOnly() {
+  const menu = useExtension(SuggestionMenu);
+  const query = useExtensionState(SuggestionMenu, {
+    selector: (state) =>
+      state?.show === true && state.triggerCharacter === ":" ? state.query : null,
+  });
+  useEffect(() => {
+    if (query !== null && query !== "" && !/^\p{L}/u.test(query)) {
+      menu.closeMenu();
+    }
+  }, [menu, query]);
+  return null;
 }
 
 /** Puts the caret at a block's start and scrolls to it; false while the page holds none such. */

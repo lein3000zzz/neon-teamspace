@@ -113,9 +113,11 @@ paragraphs, headings, lists, to-dos, toggles, quotes, code, tables and more. Typ
 menu of blocks, or the usual markdown shortcuts, such as `#` and a space for a heading or
 `-` and a space for a list. **Database**, in that menu, makes a database inside the page, with
 its views shown where it was typed; see [Inside a
-page](/docs/guides/databases-and-boards/#inside-a-page). Select text for its formatting toolbar. The handle beside a block
-drags it or opens its menu. On a touch screen, a toolbar above the keyboard does both; see
-[On a phone or a tablet](#on-a-phone-or-a-tablet).
+page](/docs/guides/databases-and-boards/#inside-a-page). A colon that starts a word, followed
+by a letter, opens a menu of emoji to narrow by name, such as `:rocket`; a colon inside a word
+or a number, as in `15:00` or `https://`, opens nothing. Select text for its formatting
+toolbar. The handle beside a block drags it or opens its menu. On a touch screen, a toolbar
+above the keyboard does both; see [On a phone or a tablet](#on-a-phone-or-a-tablet).
 
 Everyone with the page open edits the same document at once. Each change reaches the
 others as it is made, and each person's cursor shows to the others in that person's own
@@ -237,8 +239,8 @@ all of it. Taps on it leave the cursor, and so the keyboard, where they were.
 Select text as the phone does, with a long press and the handles; the toolbar's buttons then
 work on the selection. A tap on an image, a file, a divider or a database selects it, for the
 **Block menu** to move, copy or delete it, or to give a file its caption. The menus `/` and
-`@` open, typed or from **Insert**, stay above the toolbar and the keyboard; type to narrow
-them, and tap an item to pick it.
+`@` open, typed or from **Insert**, and the emoji menu stay above the toolbar and the
+keyboard; type to narrow them, and tap an item to pick it.
 A to-do's checkbox takes a tap anywhere across its line's height and the margin before it.
 
 The toolbar follows the part of the page the screen shows, with the browser's

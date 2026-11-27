@@ -197,7 +197,10 @@ document, to the `XmlFragment` named `document-store` that
   now, an agent with its owner, and a page as a link. The block draws the
   database it names with the same views as its own page, compact; see
   [Databases](#databases). The slash menu is BlockNote's, with a **Database** item beside its
-  table that makes an inline database under the page and gives its id to a new block.
+  table that makes an inline database under the page and gives its id to a new block. So is
+  the emoji menu, which `:` opens only where it starts a word, and which closes as soon as
+  what follows it starts with anything but a letter, so a time such as `15:00` opens
+  nothing.
 - Where the main pointer is coarse, `(pointer: coarse)`, the editor has neither BlockNote's
   side menu nor its formatting toolbar: `mobile-toolbar.tsx` does what they do, from a bar
   fixed to the bottom of the visual viewport, so above an on-screen keyboard whether the
@@ -206,7 +209,7 @@ document, to the `XmlFragment` named `document-store` that
   (`toolbar-actions.ts`); a press on it keeps the focus in the content, and the caret is
   scrolled clear of it as it moves. ProseMirror leaves a tap to the browser, which puts the
   caret in the nearest text, so a tap on a block without text selects that block itself. The
-  menus `/` and `@` open keep that much more room at the window's bottom while it shows
+  menus `/`, `@` and `:` open keep that much more room at the window's bottom while it shows
   (`floating.ts`).
 - Undo and redo go through y-prosemirror's undo manager, which ends with the editor's view.
   So the view is mounted once: the comment highlights' extension is among the editor's

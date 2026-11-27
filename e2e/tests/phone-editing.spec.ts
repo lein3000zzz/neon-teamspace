@@ -223,3 +223,36 @@ test("the line being typed stays above the toolbar, and the last line can scroll
   await page.keyboard.type(" The end.");
   await expect.poll(() => clear("Line 40 of the log. The end.")).toBe(true);
 });
+
+test("a time typed on a phone opens no emoji menu, and a name after a colon opens it above the toolbar", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { workspace } = await personOnPhone(browser, page, "timekeeper");
+  const made = await pageIn(page, workspace, "Meeting", "Agenda.");
+  await page.goto(made.path);
+  await live(page);
+  const bar = toolbar(page);
+  await tapAfter(page, "Agenda.");
+  await expect(bar).toBeVisible();
+
+  // The colon of a time opens nothing: no menu marks it, and none covers the page.
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("We meet at 15:00.");
+  await expect(content(page)).toContainText("We meet at 15:00.");
+  await expect(content(page).locator(".bn-suggestion-decorator")).toHaveCount(0);
+  await expect(page.locator(".bn-frimousse-picker")).toHaveCount(0);
+
+  // A name after a colon that starts a word opens it, clear of the toolbar, and a tap picks.
+  await page.keyboard.type(" Bring a :rocket");
+  const picker = page.locator(".bn-frimousse-picker");
+  const rocket = picker.getByText("🚀", { exact: true });
+  await expect(rocket).toBeVisible();
+  const pickerBox = await picker.boundingBox();
+  const barBox = await bar.boundingBox();
+  expect((pickerBox?.y ?? 0) + (pickerBox?.height ?? 0)).toBeLessThanOrEqual(barBox?.y ?? 0);
+  await rocket.tap();
+  await expect(picker).toHaveCount(0);
+  await expect(content(page)).toContainText("We meet at 15:00. Bring a 🚀");
+});

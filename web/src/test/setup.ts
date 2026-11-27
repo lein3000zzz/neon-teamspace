@@ -22,8 +22,16 @@ Range.prototype.getClientRects ??= function getClientRects() {
 Range.prototype.getBoundingClientRect ??= function getBoundingClientRect() {
   return document.createElement("span").getBoundingClientRect();
 };
-// The comments panel scrolls the thread opened into view.
+// BlockNote's suggestion menus note where they open with a DOMRect's toJSON; jsdom measures
+// elements with plain objects, which lack it.
+const measure = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  const { left, top, width, height } = measure.call(this);
+  return new DOMRect(left, top, width, height);
+};
+// The comments panel scrolls the thread opened into view, and the emoji menu its list.
 Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.scrollTo ??= () => {};
 // BlockNote looks for the block under the pointer, to offer its side menu there.
 Document.prototype.elementFromPoint ??= () => null;
 Document.prototype.elementsFromPoint ??= () => [];
