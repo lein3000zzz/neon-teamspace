@@ -28,7 +28,10 @@ tags:
 
 From 1.0.0 on, the major version, such as `1`, is a tag too, and moves to each release of 1.
 A pre-release, such as `v0.2.0-rc.1`, gets its own version as its tag alone, and never moves
-`latest` or the others.
+`latest` or the others. Its GitHub release is marked as a pre-release. A release candidate,
+`-rc.` and a number, rehearses the release of its version on the same commit, so its Compose
+archive is that release's: it runs the candidate's images only with `NEON_VERSION` set to the
+candidate's version, such as `0.2.0-rc.1`.
 
 The Compose file runs the images of its own release, which its `image` lines name, unless
 `NEON_VERSION` in `deployments/.env` names another. Set to `0.1`, it follows patch releases

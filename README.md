@@ -269,11 +269,11 @@ GitHub Actions runs three workflows.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.
-  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, and everything that states the version states it.
+  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, or a release candidate of it such as `v0.2.0-rc.1` for 0.2.0, and everything that states the version states it.
   - The end-to-end tests, with the server built in the release profile as the published image is.
   - The server and web images for `linux/amd64` and `linux/arm64`, built from the tag's checkout and the digest-pinned base images without a layer cache, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the last release, which GitHub lists.
+  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset, marked as a pre-release for a pre-release tag. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the newest full release, which GitHub lists.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
@@ -293,9 +293,13 @@ unless every other place that states it agrees:
 - the docs and the example settings, where they name the version, an image, the Compose
   archive, a release's page or the tag a clone checks out.
 
-Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
-changelog's section must have its date. `make check` runs the check, and so does CI's
-**Versions** job whenever one of those files changes.
+Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, or a
+release candidate of it: `v`, the version, `-rc.` and a number, such as `v0.2.0-rc.1` for
+0.2.0. Either way the changelog's section must have its date. A candidate rehearses the whole
+release on the commit the release will tag, so every file states the version alone; its
+images are tagged with the candidate's version alone, and its GitHub release is marked as a
+pre-release. `make check` runs the check, and so does CI's **Versions** job whenever one of
+those files changes.
 
 To release:
 
@@ -306,9 +310,40 @@ To release:
    numbers, and under **Breaking changes** what the release asks of whoever runs or calls
    the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
-3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
-   The release workflow does the rest. `make compose-archive` writes the archive it attaches,
-   to look at before tagging.
+3. Before the first release only, make the repository public: **Settings** → **General** →
+   **Danger Zone** → **Change repository visibility**. The workflow signs the images only for
+   a public repository, and reads its visibility from the tag's push, so the images of a tag
+   pushed earlier stay unsigned, re-run or not.
+4. Rehearse the release with a candidate on `main`: `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1`
+   and `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
+   both images as `X.Y.Z-rc.1` alone, never as `latest` or the minor version, and makes a
+   GitHub release marked as a pre-release. `make compose-archive` writes the archive it
+   attaches, to look at before tagging.
+5. Check the candidate as anyone without an account would, after `docker logout ghcr.io`:
+   - `docker pull ghcr.io/lein3000zzz/neon-teamspace-server:X.Y.Z-rc.1`, and the same for
+     `neon-teamspace-web`. A pull that is denied means GHCR created that package private,
+     whatever the repository's visibility: on the package's page, from **Packages** on the
+     repository's front page, **Package settings** → **Danger Zone** → **Change visibility**
+     → **Public**, which cannot be undone, then pull again.
+   - `curl -fsSLO https://github.com/lein3000zzz/neon-teamspace/releases/download/vX.Y.Z-rc.1/neon-teamspace-compose-X.Y.Z.tar.gz`,
+     the release's Compose archive, which still names the version alone.
+   - `cosign verify` of both images at `X.Y.Z-rc.1`, as
+     [Upgrading](docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows.
+     The workflow's cosign writes each signature as a Sigstore bundle, which cosign 3 reads,
+     and cosign 2.6 or later with `--new-bundle-format`; older versions, and tools that look
+     for cosign's `.sig` tags, find none. GHCR has no OCI referrers API, so each bundle is
+     stored under the fallback tag `sha256-` and the signed image's digest, in the image's
+     own package.
+
+   A check that fails is fixed through `dev` and `main` like any change, then checked again
+   with `vX.Y.Z-rc.2`.
+6. Tag the same commit as the release, with `main` still on the candidate's commit:
+   `git tag -a vX.Y.Z -m vX.Y.Z main` and `git push origin vX.Y.Z`. Before the first
+   release, delete each candidate's GitHub release and tag first, such as with
+   `gh release delete vX.Y.Z-rc.1 --cleanup-tag --yes`: with no full release before it,
+   GitHub may start the first release's list of pull requests at a candidate. After that,
+   each release's list starts at the full release before it. The candidates' images stay on
+   GHCR.
 
 ## Licenses
 
