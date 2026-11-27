@@ -288,10 +288,13 @@ export class Picker {
       h("span", { class: "server-name" }, name),
       h("span", { class: "server-origin" }, server.origin),
     );
+    // The badge follows the details as one more of them, after a separator: screen readers
+    // join the parts' text as it is, and some ran the last detail into the badge without it.
     const meta = h(
       "p",
       { id: `details-${id}`, class: "server-details" },
       details.join(" · "),
+      server.encrypted ? null : " · ",
       server.encrypted ? null : h("span", { class: "badge" }, "Not encrypted"),
     );
     const actions = h(

@@ -163,11 +163,9 @@ p {
   overflow-wrap: anywhere;
 }
 
+/* Inline text, the badge a word in it, so that the spaces around the separator before it are
+   part of what screen readers read too. */
 .server-details {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
   padding-inline: 0.25rem;
   color: var(--fg-muted);
   font-size: 0.875rem;
@@ -191,6 +189,7 @@ p {
   color: var(--bad);
   font-size: 0.75rem;
   line-height: 1.5rem;
+  vertical-align: middle;
 }
 
 .button {

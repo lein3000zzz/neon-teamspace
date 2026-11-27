@@ -179,6 +179,16 @@ test("the saved servers are listed, and one opens on a click", async ({ page }) 
   expect(await opened(page)).toEqual([ACME.origin]);
 });
 
+test("a screen reader reads the badge apart from the details before it", async ({ page }) => {
+  await launch(page, { servers: [ACME, LAB], last: LAB.origin });
+  await expect(page.getByRole("button", { name: /^Lab/ })).toHaveAccessibleDescription(
+    "Neon Teamspace 0.2.0 · last used · Not encrypted",
+  );
+  await expect(page.getByRole("button", { name: /^Acme/ })).toHaveAccessibleDescription(
+    "Neon Teamspace 0.1.0",
+  );
+});
+
 test("the last server opens as the app starts, and a failure shows on its row", async ({
   page,
 }) => {
