@@ -92,6 +92,35 @@ describe("collectNotices", () => {
     ).toThrow("No license text in");
   });
 
+  it("carries a package's notice files after its license texts, and fails one with notices alone", () => {
+    const text = collect(
+      app({
+        "node_modules/code/NOTICE.txt": "code took its data from data-pkg, under MIT",
+        "node_modules/code/NOTICES": "code's further notices",
+      }),
+    );
+    expect(text).toContain(
+      "code Apache license\n\ncode MIT license\n\n" +
+        "code took its data from data-pkg, under MIT\n\ncode's further notices",
+    );
+
+    const root = app({
+      "node_modules/bare/package.json": manifest("bare"),
+      "node_modules/bare/NOTICE": "bare's notice",
+    });
+    expect(() =>
+      collectNotices({
+        root,
+        moduleIds: [join(root, "node_modules/bare/index.js")],
+        stylesheets: [],
+        publicDir: join(root, "public"),
+        supplied: {},
+        suppliedDir: join(root, "supplied"),
+        copied: [],
+      }),
+    ).toThrow("No license text in");
+  });
+
   it("uses a supplied text for a package that ships none", () => {
     const root = app({
       "node_modules/bare/package.json": manifest("bare"),

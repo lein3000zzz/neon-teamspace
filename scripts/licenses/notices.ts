@@ -1,7 +1,8 @@
 /**
  * What the third-party notices of the web app's and the docs' builds share: the
- * installed package a module belongs to, the license texts a package ships, and
- * the notices file's layout. Each build finds the packages its own files hold.
+ * installed package a module belongs to, the license and notice texts a package
+ * ships, and the notices file's layout. Each build finds the packages its own
+ * files hold.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import { join } from "node:path";
 import { declaredLicense } from "./spdx.ts";
 
 const LICENSE_FILE = /^(?:licen[cs]e|copying)\b/i;
+const NOTICE_FILE = /^notices?\b/i;
 const NODE_MODULES = "/node_modules/";
 const RULE = "=".repeat(80);
 const THIN_RULE = "-".repeat(80);
@@ -62,6 +64,17 @@ export function licenseTexts(root: string): string[] {
     .map((path) => readFileSync(path, "utf8").trim());
 }
 
+/**
+ * The notice files a package ships at its root, sorted by file name: the NOTICE
+ * whose text Apache-2.0 asks every copy to carry, or one that gives the licenses
+ * of code the package took from other projects.
+ */
+export function noticeTexts(root: string): string[] {
+  return filesIn(root)
+    .filter((entry) => entry.isFile() && NOTICE_FILE.test(entry.name))
+    .map((entry) => readFileSync(join(root, entry.name), "utf8").trim());
+}
+
 function filesIn(dir: string) {
   return readdirSync(dir, { withFileTypes: true }).toSorted((a, b) =>
     a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -97,7 +110,8 @@ export type Supplied = Readonly<Record<string, () => readonly string[]>>;
 
 /**
  * The notice for the package installed at `root`: the license texts it ships,
- * or else those `supplied` has for its name. Undefined when there are neither.
+ * or else those `supplied` has for its name, then the notice files it ships.
+ * Undefined when there are no license texts, whatever notice files there are.
  * Throws when the package ships texts of its own while `supplied` has some, so
  * no stale copy stays behind.
  */
@@ -122,7 +136,7 @@ export function packageNotice(root: string, supplied: Supplied = {}): Notice | u
     name,
     version: String(manifest["version"]),
     license: declaredLicense(manifest) ?? "not declared",
-    text: texts.map((text) => text.trim()).join("\n\n"),
+    text: [...texts, ...noticeTexts(root)].map((text) => text.trim()).join("\n\n"),
     ...(repository === undefined ? {} : { repository }),
   };
 }

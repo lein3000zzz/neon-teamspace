@@ -1,10 +1,11 @@
 /**
  * Writes THIRD_PARTY_NOTICES.txt into the production build: the license text
- * of every package whose code ends up in the shipped files, of the code copied
- * into the app from other projects, and of every font served from public/.
- * MIT, ISC and BSD ask for their notice in every copy and Apache-2.0 for a
- * copy of the license, while the minifier drops the comments that carried
- * them. MPL-2.0 also asks to say where its packages' source is.
+ * of every package whose code ends up in the shipped files, with any notice
+ * file it ships, of the code copied into the app from other projects, and of
+ * every font served from public/. MIT, ISC and BSD ask for their notice in
+ * every copy and Apache-2.0 for a copy of the license and of its NOTICE, while
+ * the minifier drops the comments that carried them. MPL-2.0 also asks to say
+ * where its packages' source is.
  */
 
 import { existsSync, readFileSync } from "node:fs";

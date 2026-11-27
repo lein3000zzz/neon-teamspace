@@ -52,12 +52,14 @@ of the repository does.
 
 The minifier strips the license comments from the bundle, so the build writes
 `dist/THIRD_PARTY_NOTICES.txt` instead (`scripts/licenses/notices.ts`, on helpers it shares
-with the docs in `../scripts/licenses/notices.ts`). It holds the license
-text of every package whose code or stylesheet ends up in `dist/`, and of every bundled font,
-and it is served like any other static file. The build fails when a bundled package ships no
-license text. In that case, copy the text from the package's source repository into
-`scripts/licenses/supplied/` and list it in `SUPPLIED`. Each package under MPL-2.0 gets the
-addresses of its source, its version on npm and its repository, as that license asks.
+with the docs in `../scripts/licenses/notices.ts`). It holds the license text of every package
+whose code or stylesheet ends up in `dist/`, followed by any `NOTICE` file the package ships,
+such as `@blocknote/core`'s with the license of the emoji data it took from emojibase, and the
+license of every bundled font, and it is served like any other static file. The build fails
+when a bundled package ships no license text, whatever notice files it has. In that case, copy
+the text from the package's source repository into `scripts/licenses/supplied/` and list it in
+`SUPPLIED`. Each package under MPL-2.0 gets the addresses of its source, its version on npm and
+its repository, as that license asks.
 
 Code copied from another project rather than installed has its license beside it, listed in
 `COPIED`, and the notices always carry it: `src/components/ui` holds components that shadcn/ui

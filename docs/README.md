@@ -128,10 +128,11 @@ check fails on an exception or a clarification nothing installed needs any more.
 
 The minifier strips the license comments from what ships, so the build writes
 `dist/THIRD_PARTY_NOTICES.txt`, served at `/docs/THIRD_PARTY_NOTICES.txt`, with the license
-text of every package whose code or styles reach `dist/`. `scripts/lib/notices.ts` finds
-them in two ways: a Vite plugin records the packages with modules in the browser's scripts or
-in the stylesheets, and `OUTSIDE_VITE` names those whose files get there another way, such as
-Pagefind's search files and Expressive Code's `ec.*` files. `SUPPLIED` adds texts that a
+text of every package whose code or styles reach `dist/`, and any `NOTICE` file it ships.
+`scripts/lib/notices.ts` finds them in two ways: a Vite plugin records the packages with
+modules in the browser's scripts or in the stylesheets, and `OUTSIDE_VITE` names those whose
+files get there another way, such as Pagefind's search files and Expressive Code's `ec.*`
+files. `SUPPLIED` adds texts that a
 package does not publish, copied from its source repository into `scripts/licenses/`, for
 one version each: `@pagefind/default-ui` has none of its own and has Svelte's runtime
 compiled in. The build fails when a shipped package has no license text, or when one of the
