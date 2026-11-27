@@ -197,10 +197,12 @@ pub struct Hold {
     held: Arc<Held>,
 }
 
-/// A place and a turn, held together; the place may go first.
+/// A place and a turn, held together; the place may go first. When both go at the end,
+/// the turn goes before the place (fields drop in order), so whoever takes the place next
+/// finds the turn already given back.
 struct Held {
-    place: Mutex<Option<OwnedSemaphorePermit>>,
     _turn: Arc<Turn>,
+    place: Mutex<Option<OwnedSemaphorePermit>>,
 }
 
 impl Hold {
