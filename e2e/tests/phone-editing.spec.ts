@@ -10,6 +10,7 @@ import {
   selectText,
   toolbar,
 } from "./phone";
+import { png } from "./png";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
@@ -130,6 +131,49 @@ test("a page is written, formatted and rearranged from the toolbar above the key
     .poll(() => markdownOf(page, made.id))
     .toMatch(
       /^# Field notes\s+## Pack the tent\. \*\*Tonight\*\*\s+Sunrise at the \[ridge\]\(https:\/\/example\.com\/ridge\)\.\s+Check the weather\.\s+[-*] Water filter for @\[Field notes\]\(page:[^)]+\)(&#32;)?\s*$/,
+    );
+});
+
+test("an image uploaded from the toolbar is selected with a tap, for its caption and its moves", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { workspace } = await personOnPhone(browser, page, "photographer");
+  const made = await pageIn(page, workspace, "Trip photos", "The summit at dawn.\n\nThe way down.");
+  await page.goto(made.path);
+  await live(page);
+
+  // An image picked on the phone goes in after the block the caret is in.
+  const bar = toolbar(page);
+  await content(page).getByText("The summit at dawn.").tap();
+  await expect(bar.getByRole("button", { name: "Block type: Text" })).toBeEnabled();
+  await bar.getByRole("button", { name: "Insert" }).tap();
+  const chooser = page.waitForEvent("filechooser");
+  await bar.getByRole("button", { name: "Image" }).tap();
+  await (await chooser).setFiles({ name: "summit.png", mimeType: "image/png", buffer: png(96) });
+  const image = content(page).locator('[data-content-type="image"]');
+  await expect(image.locator("img")).toBeVisible();
+
+  // A tap on it selects it, where the browser would put the caret in the text nearest: its
+  // menu writes its caption, and moves it past the text after it.
+  await image.locator("img").tap();
+  await bar.getByRole("button", { name: "Block menu" }).tap();
+  await bar.getByRole("button", { name: "Caption" }).tap();
+  const caption = bar.getByRole("textbox", { name: "Caption" });
+  await expect(caption).toBeFocused();
+  await caption.fill("Sunrise from the top");
+  await bar.getByRole("button", { name: "Set caption" }).tap();
+  await expect(image).toContainText("Sunrise from the top");
+  await expect(content(page)).toBeFocused();
+  await bar.getByRole("button", { name: "Block menu" }).tap();
+  await bar.getByRole("button", { name: "Move down" }).tap();
+  await expect(bar.getByRole("button", { name: "Move down" })).toBeDisabled();
+
+  await expect
+    .poll(() => markdownOf(page, made.id))
+    .toMatch(
+      /^# Trip photos\s+The summit at dawn\.\s+The way down\.\s+!\[summit\.png\]\(\S+ "Sunrise from the top"\)\s*$/,
     );
 });
 
