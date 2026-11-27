@@ -62,9 +62,14 @@ found. It reads an image's width and height from its header as it uploads.
 | One file | 50 MiB | [`attachments.max_file_bytes`](/docs/reference/settings/), from 1 KiB to 5 GiB |
 | A workspace's files together | No limit | [`workspaces.limits.storage_bytes`](/docs/reference/settings/), and an instance admin's limit for the workspace |
 | Uploads by one person or agent | 60 at once, then one more a second | |
+| Uploads running at once | 4 for one person or agent, 32 on the server | |
 | How long one upload may take | 15 minutes | |
+| How long an upload may send nothing | 30 seconds | |
 
-An upload streams to the store as it comes, so the server never holds a whole file in memory.
+An upload streams to the store as it comes, so the server never holds a whole file in memory:
+at most a part of it, 256 KiB on local disk and 5 MiB for an S3 store, and the parts on their
+way. One that sends nothing for 30 seconds is given up on, with what it held, and one more
+than may run at once is refused with `503 busy` until one ends.
 It stops as soon as the bytes pass the largest file, whether or not the client declared their
 size. A client that declares its upload's size, as browsers do, gets the refusal of one too
 large before the server reads any of it. The form's file must start within its first 64 KiB,
@@ -169,6 +174,7 @@ cover, and `null` takes it off. `GET /api/v1/files/{id}` reads a file, with `Ran
 | `416` | `range_not_satisfiable` | A `Range` that starts past the file's end. |
 | `429` | `rate_limited` | Too many uploads; wait for `Retry-After`. |
 | `503` | `storage_unavailable` | The file store did not answer. |
+| `503` | `busy` | The caller runs 4 uploads already, or the server 32; wait for `Retry-After`. |
 
 ## When files are deleted
 

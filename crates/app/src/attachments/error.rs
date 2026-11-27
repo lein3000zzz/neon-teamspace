@@ -28,6 +28,9 @@ pub enum AttachmentError {
     StorageLimit { limit: u64 },
     #[error("too many uploads: slow down")]
     RateLimited { retry_after: Duration },
+    /// As many uploads run, the caller's or the server's, as may at once.
+    #[error("too many uploads are running: try again once one ends")]
+    Busy,
     /// The upload stopped before its end, such as when its client went away.
     #[error("the upload could not be read: {0}")]
     Body(String),
@@ -40,6 +43,9 @@ pub enum AttachmentError {
 }
 
 impl AttachmentError {
+    /// When to try again after [`Busy`](Self::Busy).
+    pub const BUSY_RETRY: Duration = Duration::from_secs(2);
+
     /// A stable code for programs, as the API's error shape carries it.
     pub fn code(&self) -> &'static str {
         match self {
@@ -49,6 +55,7 @@ impl AttachmentError {
             Self::TooLarge { .. } => "file_too_large",
             Self::StorageLimit { .. } => "storage_limit",
             Self::RateLimited { .. } => "rate_limited",
+            Self::Busy => "busy",
             Self::Body(_) => "invalid_body",
             Self::InvalidInput(_) => "invalid_input",
             Self::Store(BlobError::NotFound) => "file_missing",

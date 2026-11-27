@@ -511,6 +511,7 @@ impl From<AttachmentError> for ApiError {
             AttachmentError::TooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             AttachmentError::StorageLimit { .. } => StatusCode::CONFLICT,
             AttachmentError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AttachmentError::Busy => StatusCode::SERVICE_UNAVAILABLE,
             AttachmentError::Body(_) | AttachmentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             AttachmentError::Store(BlobError::NotFound) => {
                 tracing::error!(error = %error, "a file's bytes are missing from the blob store");
@@ -526,8 +527,10 @@ impl From<AttachmentError> for ApiError {
             }
         };
         let mut api = Self::new(status, error.code(), error.to_string());
-        if let AttachmentError::RateLimited { retry_after } = error {
-            api.retry_after = Some(retry_after);
+        match error {
+            AttachmentError::RateLimited { retry_after } => api.retry_after = Some(retry_after),
+            AttachmentError::Busy => api.retry_after = Some(AttachmentError::BUSY_RETRY),
+            _ => {}
         }
         api
     }

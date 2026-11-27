@@ -1498,7 +1498,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a file to a page
-         * @description Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second; an upload may take 15 minutes.
+         * @description Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second, and runs 4 uploads at once; an upload may take 15 minutes, and is given up on once it sends nothing for 30 seconds.
          */
         post: operations["upload_file"];
         delete?: never;
@@ -11634,7 +11634,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description storage_unavailable: the file store did not answer. */
+            /** @description storage_unavailable: the file store did not answer; or busy, with Retry-After: the caller runs 4 uploads already, or the server 32. */
             503: {
                 headers: {
                     [name: string]: unknown;

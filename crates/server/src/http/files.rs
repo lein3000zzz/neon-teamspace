@@ -265,7 +265,9 @@ pub struct UploadForm {
                    streams to the file store as it comes, and counts against the workspace's \
                    storage limit, which refuses it once reached. Give the answer's `url` to the \
                    block, or its `id` to the page as `cover_image`. Each caller may upload 60 \
-                   files at once, then one more a second; an upload may take 15 minutes.",
+                   files at once, then one more a second, and runs 4 uploads at once; an upload \
+                   may take 15 minutes, and is given up on once it sends nothing for 30 \
+                   seconds.",
     params(("id" = Uuid, Path, description = "The page's id."), UploadQuery),
     request_body(content = inline(UploadForm), content_type = "multipart/form-data"),
     responses(
@@ -278,7 +280,7 @@ pub struct UploadForm {
         (status = PAYLOAD_TOO_LARGE, description = "file_too_large: past attachments.max_file_bytes, said as it arrives or as declared; or payload_too_large, a form whose file does not start within its first 64 KiB.", body = ErrorBody),
         (status = UNSUPPORTED_MEDIA_TYPE, description = "unsupported_type: the file's bytes are of a type the kind does not take.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
-        (status = SERVICE_UNAVAILABLE, description = "storage_unavailable: the file store did not answer.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "storage_unavailable: the file store did not answer; or busy, with Retry-After: the caller runs 4 uploads already, or the server 32.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))

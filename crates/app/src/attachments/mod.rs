@@ -44,6 +44,7 @@ use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use neon_store::files;
 use sqlx::{PgConnection, PgPool};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{Instrument as _, info_span, warn};
 use uuid::Uuid;
 
@@ -54,7 +55,8 @@ use crate::settings::{SettingsService, attachments as keys};
 use crate::sync::SyncService;
 
 pub use blobs::{
-    BlobError, BlobRead, BlobStore, BlobWriter, Connector, ObjectBlobs, PART_BYTES, S3Location,
+    BlobError, BlobRead, BlobStore, BlobWriter, Connector, LOCAL_PART_BYTES, ObjectBlobs,
+    PART_BYTES, S3Location,
 };
 pub use cleanup::CleanupReport;
 pub use error::AttachmentError;
@@ -65,6 +67,16 @@ pub const SUBSYSTEM: &str = "attachments";
 
 /// How long one upload may take, from its first byte to its last, as the HTTP route allows.
 pub const UPLOAD_TIME_LIMIT: Duration = Duration::from_secs(15 * 60);
+
+/// How long an upload may send nothing before it is given up on, with what it held.
+pub const UPLOAD_IDLE: Duration = Duration::from_secs(30);
+
+/// How many uploads one person runs at once, with their agents' apart: each holds a part of
+/// its file in memory while it runs.
+pub const UPLOADS_PER_USER: usize = 4;
+
+/// How many uploads the server runs at once.
+pub const UPLOADS_AT_ONCE: usize = 32;
 
 /// How long the blob of an upload under way is kept without its file's row: past any
 /// upload's time limit, so the cleanup never deletes one still being written.
@@ -135,11 +147,41 @@ struct Inner {
     blobs: Blobs,
     limiter: Arc<dyn RateLimiter>,
     clock: Clock,
+    uploads: Uploads,
     red: Red,
 }
 
+/// The uploads running: how many each user runs, and the places among those the server
+/// runs at once.
+struct Uploads {
+    per_user: usize,
+    running: Arc<Mutex<HashMap<Uuid, usize>>>,
+    places: Arc<Semaphore>,
+    idle: Duration,
+}
+
+/// An upload's place among those running, given back as it is dropped.
+struct UploadSlot {
+    running: Arc<Mutex<HashMap<Uuid, usize>>>,
+    user_id: Uuid,
+    _place: OwnedSemaphorePermit,
+}
+
+impl Drop for UploadSlot {
+    fn drop(&mut self) {
+        let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = running.get_mut(&self.user_id) {
+            *count -= 1;
+            if *count == 0 {
+                running.remove(&self.user_id);
+            }
+        }
+    }
+}
+
 /// Puts an [`AttachmentService`] together. Without being told otherwise it limits rates in
-/// memory and reads the system clock.
+/// memory, reads the system clock, runs [`UPLOADS_PER_USER`] uploads of one user and
+/// [`UPLOADS_AT_ONCE`] in all at once, and gives up on an upload idle for [`UPLOAD_IDLE`].
 pub struct AttachmentServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
@@ -148,6 +190,9 @@ pub struct AttachmentServiceBuilder {
     blobs: Blobs,
     limiter: Option<Arc<dyn RateLimiter>>,
     clock: Clock,
+    uploads_per_user: usize,
+    uploads_at_once: usize,
+    upload_idle: Duration,
 }
 
 impl AttachmentServiceBuilder {
@@ -158,6 +203,20 @@ impl AttachmentServiceBuilder {
 
     pub fn clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
+        self
+    }
+
+    /// How many uploads one user runs at once, and how many the server runs in all; at
+    /// least one each.
+    pub fn uploads_at_once(mut self, per_user: usize, in_all: usize) -> Self {
+        self.uploads_per_user = per_user.max(1);
+        self.uploads_at_once = in_all.max(1);
+        self
+    }
+
+    /// How long an upload may send nothing before it is given up on.
+    pub fn upload_idle(mut self, idle: Duration) -> Self {
+        self.upload_idle = idle;
         self
     }
 
@@ -174,6 +233,12 @@ impl AttachmentServiceBuilder {
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
                 clock: self.clock,
+                uploads: Uploads {
+                    per_user: self.uploads_per_user,
+                    running: Arc::new(Mutex::new(HashMap::new())),
+                    places: Arc::new(Semaphore::new(self.uploads_at_once)),
+                    idle: self.upload_idle,
+                },
                 red: Red::new(SUBSYSTEM),
             }),
         }
@@ -181,14 +246,26 @@ impl AttachmentServiceBuilder {
 }
 
 /// An upload let in: the caller edits the page, and may upload now. It says what the file
-/// is for, and the most bytes it may have.
-#[derive(Debug, Clone)]
+/// is for, and the most bytes it may have, and holds the upload's place among those
+/// running until it is dropped.
 pub struct UploadTicket {
     principal: Principal,
     workspace_id: Uuid,
     page_id: Uuid,
     kind: FileKind,
     max: u64,
+    _slot: UploadSlot,
+}
+
+impl std::fmt::Debug for UploadTicket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadTicket")
+            .field("user_id", &self.principal.user.id)
+            .field("page_id", &self.page_id)
+            .field("kind", &self.kind)
+            .field("max", &self.max)
+            .finish_non_exhaustive()
+    }
 }
 
 impl UploadTicket {
@@ -268,7 +345,42 @@ impl AttachmentService {
             blobs,
             limiter: None,
             clock: Clock::system(),
+            uploads_per_user: UPLOADS_PER_USER,
+            uploads_at_once: UPLOADS_AT_ONCE,
+            upload_idle: UPLOAD_IDLE,
         }
+    }
+
+    /// How long an upload may send nothing before it is given up on.
+    pub(crate) fn upload_idle(&self) -> Duration {
+        self.inner.uploads.idle
+    }
+
+    /// A place for an upload of `user_id` among those running, while they run fewer than
+    /// they may and the server has room; [`AttachmentError::Busy`] otherwise.
+    fn upload_slot(&self, user_id: Uuid) -> Result<UploadSlot, AttachmentError> {
+        let uploads = &self.inner.uploads;
+        let mut running = uploads
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let count = running.entry(user_id).or_default();
+        if *count >= uploads.per_user {
+            warn!(%user_id, "too many uploads of one user at once");
+            return Err(AttachmentError::Busy);
+        }
+        let place = Arc::clone(&uploads.places)
+            .try_acquire_owned()
+            .map_err(|_| {
+                warn!("too many uploads at once");
+                AttachmentError::Busy
+            })?;
+        *count += 1;
+        Ok(UploadSlot {
+            running: Arc::clone(&uploads.running),
+            user_id,
+            _place: place,
+        })
     }
 
     fn pool(&self) -> &PgPool {
@@ -315,9 +427,9 @@ impl AttachmentService {
     }
 
     /// Lets an upload to a page in, before its body is read: the caller edits the page,
-    /// has uploads left, declares no more than the largest file, and the workspace is not
-    /// full. `declared` is the size of what the client says it sends, and `overhead` the
-    /// most its form adds to the file.
+    /// has uploads left, declares no more than the largest file, the workspace is not full,
+    /// and fewer uploads run than may, theirs and all. `declared` is the size of what the
+    /// client says it sends, and `overhead` the most its form adds to the file.
     pub async fn admit_upload(
         &self,
         principal: &Principal,
@@ -347,6 +459,7 @@ impl AttachmentService {
                 return Err(AttachmentError::StorageLimit { limit });
             }
             Ok(UploadTicket {
+                _slot: self.upload_slot(principal.user.id)?,
                 principal: principal.clone(),
                 workspace_id,
                 page_id,

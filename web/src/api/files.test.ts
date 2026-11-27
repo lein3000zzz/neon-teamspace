@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiError } from "@/test/fixtures";
 import { server } from "@/test/server";
 import { ApiError } from "./errors";
-import { fileKindOf, fileUrl, uploadFile } from "./files";
+import { UPLOADS_AT_ONCE, fileKindOf, fileUrl, uploadFile } from "./files";
 
 const PAGE = "0193a5b2-0000-7000-8000-0000000000a3";
 const FILE = "0193a5b2-0000-7000-8000-0000000000f1";
@@ -53,6 +53,41 @@ describe("files", () => {
     expect(uploaded.url).toBe(`/api/v1/files/${FILE}`);
     expect(seen).toEqual([{ kind: "image", name: PAGE, size: 5 }]);
     expect(append.mock.calls).toEqual([["file", file, "a.png"]]);
+  });
+
+  it("go a few at once, as the server takes them, and the rest wait their turn", async () => {
+    let inFlight = 0;
+    let most = 0;
+    const answers: (() => void)[] = [];
+    server.use(
+      http.post("/api/v1/pages/:id/files", async () => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        await new Promise<void>((resolve) => answers.push(resolve));
+        inFlight -= 1;
+        return HttpResponse.json(
+          { id: FILE, url: fileUrl(FILE), page_id: PAGE, kind: "image" },
+          { status: 201 },
+        );
+      }),
+    );
+    const files = Array.from(
+      { length: UPLOADS_AT_ONCE + 3 },
+      (_, n) => new File([new Uint8Array(1)], `${n}.png`, { type: "image/png" }),
+    );
+    const uploads = files.map((file) => uploadFile(PAGE, "image", file));
+    // Answer each request as it arrives, until every upload has been sent.
+    const answerAll = async (left: number): Promise<void> => {
+      if (left === 0) {
+        return;
+      }
+      await vi.waitFor(() => expect(answers.length).toBeGreaterThan(0));
+      answers.shift()?.();
+      return answerAll(left - 1);
+    };
+    await answerAll(files.length);
+    await Promise.all(uploads);
+    expect(most).toBe(UPLOADS_AT_ONCE);
   });
 
   it("say why the server refused them", async () => {
