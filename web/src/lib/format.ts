@@ -58,15 +58,19 @@ const SYSTEMS: readonly [RegExp, string][] = [
   [/Linux/, "Linux"],
 ];
 
-const BYTE_UNITS = ["B", "kB", "MB", "GB", "TB"] as const;
+const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
 const decimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
-/** A size in the largest decimal unit that keeps it at 1 or more: 1.5 GB, 0 B. */
+/**
+ * A size in the largest binary unit, 1024 apart, that keeps it at 1 or more:
+ * 1.5 GiB, 0 B. The server's limits and messages name sizes so, as do the
+ * admins' limit fields.
+ */
 export function formatBytes(bytes: number): string {
   let value = bytes;
   let unit = 0;
-  while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
-    value /= 1000;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
     unit += 1;
   }
   return `${decimal.format(value)} ${BYTE_UNITS[unit]}`;

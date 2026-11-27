@@ -31,11 +31,14 @@ function amount(kind: Kind, value: number): string {
   return kind === "storage_bytes" ? formatBytes(value) : String(value);
 }
 
-/** A limit as it reads: absent, or 0 for one set here, is no limit. */
+/** A limit as it reads, or undefined for none: absent, or 0 for one set here. */
+function limitOf(kind: Kind, limit: number | null | undefined): string | undefined {
+  return limit === undefined || limit === null || limit === 0 ? undefined : amount(kind, limit);
+}
+
+/** A limit as it reads on its own, "no limit" for none. */
 function limitText(kind: Kind, limit: number | null | undefined): string {
-  return limit === undefined || limit === null || limit === 0
-    ? copy.unlimited
-    : amount(kind, limit);
+  return limitOf(kind, limit) ?? copy.unlimited;
 }
 
 /**
@@ -124,7 +127,7 @@ function WorkspaceCard({
             <KeyValueRow key={kind} label={copy.kinds[kind]}>
               <span className="grid">
                 <span>
-                  {copy.usage(amount(kind, usage[kind]), limitText(kind, limits[kind].effective))}
+                  {copy.usage(amount(kind, usage[kind]), limitOf(kind, limits[kind].effective))}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {limits[kind].own === undefined || limits[kind].own === null
@@ -184,18 +187,18 @@ function WorkspaceCard({
   );
 }
 
-const UNITS = { B: 1, MB: 1_000_000, GB: 1_000_000_000 } as const;
+const UNITS = { B: 1, MiB: 1024 ** 2, GiB: 1024 ** 3 } as const;
 type Unit = keyof typeof UNITS;
 
 /** The largest unit a stored size divides into exactly, so the form shows it as it is. */
 function unitOf(bytes: number): Unit {
-  if (bytes > 0 && bytes % UNITS.GB === 0) {
-    return "GB";
+  if (bytes > 0 && bytes % UNITS.GiB === 0) {
+    return "GiB";
   }
-  if (bytes > 0 && bytes % UNITS.MB === 0) {
-    return "MB";
+  if (bytes > 0 && bytes % UNITS.MiB === 0) {
+    return "MiB";
   }
-  return bytes === 0 ? "GB" : "B";
+  return bytes === 0 ? "GiB" : "B";
 }
 
 /** What a typed limit sends: blank follows the default, as null; else the number, in its unit. */
@@ -295,7 +298,7 @@ function LimitsForm({
                         setUnit(
                           (Object.keys(UNITS) as Unit[]).find(
                             (option) => option === event.target.value,
-                          ) ?? "GB",
+                          ) ?? "GiB",
                         )
                       }
                     >

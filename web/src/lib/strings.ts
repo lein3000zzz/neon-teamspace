@@ -408,7 +408,8 @@ export const strings = {
       created: (when: string) => `Created ${when}`,
       limits: "Limits",
       kinds: { members: "Members", storage_bytes: "Storage", agents: "Agents" },
-      usage: (used: string, limit: string) => `${used} of ${limit}`,
+      usage: (used: string, limit: string | undefined) =>
+        limit === undefined ? `${used}, no limit` : `${used} of ${limit}`,
       unlimited: "no limit",
       own: "Set for this workspace",
       byDefault: "Instance default",
@@ -418,7 +419,7 @@ export const strings = {
       editHint:
         "Blank follows the instance default, the workspaces.limits settings. 0 is no limit. A lower limit removes nobody: it only stops new people joining.",
       followDefault: (value: string) => `Blank: the default, ${value}.`,
-      units: { B: "bytes", MB: "MB", GB: "GB" },
+      units: { B: "bytes", MiB: "MiB", GiB: "GiB" },
       unit: (kind: string) => `Unit of ${kind}`,
       save: "Save limits",
       saving: "Saving…",
@@ -1036,10 +1037,10 @@ export const strings = {
       limits: "Limits",
       limitsHint:
         "Instance admins set these. A workspace at its member limit takes in nobody new, and one at its storage limit takes no more uploads; its pages stay editable.",
-      memberLimit: (n: number, max: string) => `${n} of ${max}`,
       storage: "Storage",
-      storageUsed: (used: string, max: string) => `${used} of ${max}`,
-      noLimit: "no limit",
+      usage: (used: string, max: string | undefined) =>
+        max === undefined ? `${used}, no limit` : `${used} of ${max}`,
+      noLimit: "No limit",
       leave: "Leave workspace",
       leaveHint:
         "You leave its teamspaces too. To come back, you need a new invitation or invite link.",

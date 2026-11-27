@@ -132,6 +132,24 @@ describe("a workspace's general settings", () => {
     expect(screen.getByRole("region", { name: "Leave workspace" })).toBeInTheDocument();
   });
 
+  it("reads its limits as a size an admin set in bytes, or as none", async () => {
+    fakeWorkspaces({ role: "member" });
+    server.use(
+      http.get("/api/v1/workspaces/:id", () =>
+        Response.json({
+          ...design("member"),
+          limits: { storage_bytes: 2_147_483_648 },
+          storage_bytes: 1_572_864,
+        }),
+      ),
+    );
+    renderApp("/w/design/settings");
+
+    const limits = within(await screen.findByRole("region", { name: "Limits" }));
+    expect(limits.getByText("4, no limit")).toBeInTheDocument();
+    expect(limits.getByText("1.5 MiB of 2 GiB")).toBeInTheDocument();
+  });
+
   it("tells a guest the member limit, but not how many are in the workspace", async () => {
     fakeWorkspaces({ role: "guest" });
     server.use(

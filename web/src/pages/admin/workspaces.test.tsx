@@ -15,7 +15,7 @@ const design: AdminWorkspace = {
   member_count: 4,
   limits: {
     members: { own: 10, effective: 10 },
-    storage_bytes: { own: 2_000_000_000, effective: 2_000_000_000 },
+    storage_bytes: { own: 2 * 1024 ** 3, effective: 2 * 1024 ** 3 },
     agents: { effective: 3 },
   },
   usage: { members: 4, storage_bytes: 0, agents: 0 },
@@ -66,7 +66,7 @@ function adminWorkspaces(pages: AdminWorkspace[][]) {
       HttpResponse.json({
         settings: [
           { key: "workspaces.limits.members", value: 0 },
-          { key: "workspaces.limits.storage_bytes", value: 5_000_000_000 },
+          { key: "workspaces.limits.storage_bytes", value: 5 * 1024 ** 3 },
           { key: "workspaces.limits.agents", value: 3 },
         ],
         mail: { ready: false },
@@ -93,12 +93,12 @@ describe("the instance's workspaces", () => {
     expect(first.getByText("ada@example.com")).toBeInTheDocument();
     expect(first.getByText("4 members")).toBeInTheDocument();
     expect(first.getByText("4 of 10")).toBeInTheDocument();
-    expect(first.getByText("0 B of 2 GB")).toBeInTheDocument();
+    expect(first.getByText("0 B of 2 GiB")).toBeInTheDocument();
     expect(first.getByText("0 of 3")).toBeInTheDocument();
     expect(first.queryByRole("link")).toBeNull();
     const second = await card("Studio");
     expect(second.getByText("No owner")).toBeInTheDocument();
-    expect(second.getByText("1 of no limit")).toBeInTheDocument();
+    expect(second.getByText("1, no limit")).toBeInTheDocument();
   });
 
   it("loads the next page", async () => {
@@ -120,19 +120,19 @@ describe("the instance's workspaces", () => {
     const form = within(first.getByRole("form", { name: "Limits of Design" }));
     expect(form.getByLabelText("Members")).toHaveValue(10);
     expect(form.getByLabelText("Storage")).toHaveValue(2);
-    expect(form.getByRole("combobox", { name: "Unit of Storage" })).toHaveValue("GB");
-    expect(await form.findByText("Blank: the default, 5 GB.")).toBeInTheDocument();
+    expect(form.getByRole("combobox", { name: "Unit of Storage" })).toHaveValue("GiB");
+    expect(await form.findByText("Blank: the default, 5 GiB.")).toBeInTheDocument();
 
     await user.clear(form.getByLabelText("Members"));
     await user.type(form.getByLabelText("Members"), "0");
     await user.clear(form.getByLabelText("Storage"));
     await user.type(form.getByLabelText("Storage"), "500");
-    await user.selectOptions(form.getByRole("combobox", { name: "Unit of Storage" }), "MB");
+    await user.selectOptions(form.getByRole("combobox", { name: "Unit of Storage" }), "MiB");
     await user.click(form.getByRole("button", { name: "Save limits" }));
 
     expect(await screen.findByText("Limits of Design saved.")).toBeInTheDocument();
     expect(api.limits).toEqual([
-      { id: design.id, members: 0, storage_bytes: 500_000_000, agents: null },
+      { id: design.id, members: 0, storage_bytes: 500 * 1024 ** 2, agents: null },
     ]);
   });
 

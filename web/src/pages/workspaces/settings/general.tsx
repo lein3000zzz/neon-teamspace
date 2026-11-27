@@ -324,22 +324,24 @@ function AgentsSection({ workspace }: { workspace: Workspace }) {
  */
 function LimitsSection({ workspace }: { workspace: Workspace }) {
   const max = workspace.limits.members;
-  const limit = max === undefined || max === null ? copy.noLimit : String(max);
+  const limit = max === undefined || max === null ? undefined : String(max);
   const count = workspace.member_count;
   const maxBytes = workspace.limits.storage_bytes;
   const bytesLimit =
-    maxBytes === undefined || maxBytes === null ? copy.noLimit : formatBytes(maxBytes);
+    maxBytes === undefined || maxBytes === null ? undefined : formatBytes(maxBytes);
   const used = workspace.storage_bytes;
   return (
     <PageSection title={copy.limits} hint={copy.limitsHint}>
       <KeyValueList className="max-w-xl text-sm">
         <KeyValueRow label={strings.admin.workspaces.kinds.members}>
-          {count === undefined || count === null ? limit : copy.memberLimit(count, limit)}
+          {count === undefined || count === null
+            ? (limit ?? copy.noLimit)
+            : copy.usage(String(count), limit)}
         </KeyValueRow>
         <KeyValueRow label={copy.storage}>
           {used === undefined || used === null
-            ? bytesLimit
-            : copy.storageUsed(formatBytes(used), bytesLimit)}
+            ? (bytesLimit ?? copy.noLimit)
+            : copy.usage(formatBytes(used), bytesLimit)}
         </KeyValueRow>
       </KeyValueList>
     </PageSection>
