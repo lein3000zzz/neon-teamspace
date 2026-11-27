@@ -16,7 +16,8 @@ are public.
 Say in the report:
 
 - the version: what `neon --version` prints, or `GET /api/v1/meta` answers, or the image tag
-  or commit you ran;
+  or commit you ran; for a flaw in the desktop or mobile apps, the release file you installed
+  and the platform's version too;
 - how the instance runs: the Compose file of a release, a build from a clone, or something
   else, and any setting the problem needs, such as the registration mode or
   `webhooks.allow_private`;
@@ -60,5 +61,7 @@ report, whichever comes first. A report that turns out not to be a vulnerability
 with the reason, and may become an ordinary issue.
 
 The [security model](../docs/src/content/docs/architecture/security.md) describes how the
-server keeps secrets, tells who a request is, and limits guessing and forgery. A server that
-does less than that page says is a vulnerability.
+server keeps secrets, tells who a request is, and limits guessing and forgery; the
+[Apps guide's security model](../docs/src/content/docs/guides/apps.md#security-model)
+describes what a server's pages may do in the apps. A server or an app that does less than
+those pages say is a vulnerability.
