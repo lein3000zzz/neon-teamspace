@@ -139,6 +139,7 @@ export default defineConfig({
             'self-hosting/observability',
             'self-hosting/backups',
             'self-hosting/upgrading',
+            'self-hosting/troubleshooting',
           ],
         },
         {
