@@ -267,12 +267,23 @@ fn open_outside<R: Runtime>(app: &AppHandle<R>, url: &Url) {
     let url = url.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = app.opener().open_url(url.as_str(), None::<&str>) {
-            log::warn!(
-                "could not open {} outside the app: {error}",
-                navigation::describe(&url)
-            );
+            log::warn!("{}", outside_failure(&url, &error));
         }
     });
+}
+
+/// The log line for a URL the system could not open: its origin and the kind of failure. The
+/// opener's own message can hold the command it ran, the whole URL with it, whose path or
+/// query may carry a token.
+fn outside_failure(url: &Url, error: &tauri_plugin_opener::Error) -> String {
+    let reason = match error {
+        tauri_plugin_opener::Error::Io(error) => error.kind().to_string(),
+        _ => "the system's opener failed".to_owned(),
+    };
+    format!(
+        "could not open {} outside the app: {reason}",
+        navigation::describe(url)
+    )
 }
 
 /// `window.open` and links with a target: the server's own pages load in the window, as there
@@ -399,5 +410,28 @@ mod tests {
                 Some(picker)
             );
         }
+    }
+
+    #[test]
+    fn a_failure_to_open_outside_logs_the_origin_alone() {
+        let url = Url::parse("https://client.example/callback?code=secret-code&state=s").unwrap();
+        // What the open crate reports when a launcher such as gio refuses the URL.
+        let error = tauri_plugin_opener::Error::Io(std::io::Error::other(format!(
+            "Launcher \"gio\" [\"open\", \"{url}\"] failed with exit status: 2"
+        )));
+        let line = outside_failure(&url, &error);
+        assert_eq!(
+            line,
+            "could not open https://client.example outside the app: other error"
+        );
+        let error = tauri_plugin_opener::Error::ForbiddenUrl {
+            url: url.to_string(),
+            with: None,
+        };
+        let line = outside_failure(&url, &error);
+        assert!(
+            !line.contains("secret") && !line.contains("callback"),
+            "{line}"
+        );
     }
 }
