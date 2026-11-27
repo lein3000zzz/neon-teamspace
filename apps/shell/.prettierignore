@@ -1,0 +1,7 @@
+dist
+node_modules
+src-tauri
+playwright-report
+test-results
+bun.lock
+about.hbs

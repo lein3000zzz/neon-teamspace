@@ -63,6 +63,14 @@ E2E_ADMIN     := admin@e2e.example
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
 # Where check builds, so that its offline build never reuses one checked against a database.
 OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
+# The apps' Tauri project: the bundled server picker in APP_DIR, and its Rust side, a Cargo
+# workspace of its own, which builds into its own target directory, where Tauri's CLI looks
+# for it, whatever CARGO_TARGET_DIR says for the server's.
+APP_DIR       := apps/shell
+APP_MANIFEST  := $(APP_DIR)/src-tauri/Cargo.toml
+APP_CARGO     := CARGO_TARGET_DIR=$(CURDIR)/$(APP_DIR)/src-tauri/target $(CARGO)
+# The port make app-test previews the picker on: a run from another checkout can name its own.
+PICKER_PORT   ?= 1421
 
 # Astro reports usage over the network unless told not to.
 export ASTRO_TELEMETRY_DISABLED := 1
@@ -127,8 +135,9 @@ migrate: ## Apply pending migrations to the database DATABASE_URL names (.env)
 ## Rust
 
 .PHONY: fmt
-fmt: ## Format the Rust code
+fmt: ## Format the Rust code, the apps' too
 	$(CARGO) fmt --all
+	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all
 
 .PHONY: fmt-check
 fmt-check: ## Fail if any Rust file needs formatting
@@ -293,6 +302,56 @@ blocks-check: ## Test neon-blocks against BlockNote's fixtures, and check BlockN
 	$(CARGO) test -p neon-blocks
 	cd tools/blocknote-fixtures && $(BUN) run check
 
+## Apps (apps/shell/)
+
+.PHONY: app-install
+app-install: ## Install the apps' packages: the server picker's, its tests' and Tauri's CLI
+	cd $(APP_DIR) && $(BUN) install --frozen-lockfile
+
+.PHONY: app-browsers
+app-browsers: ## Install the headless Chromium and WebKit make app-test runs, with their system libraries on CI
+	cd $(APP_DIR) && $(BUN) x playwright install $(if $(CI),--with-deps) --only-shell chromium
+	cd $(APP_DIR) && $(BUN) x playwright install $(if $(CI),--with-deps) webkit
+
+.PHONY: app-picker
+app-picker: ## Build the bundled server picker into apps/shell/dist, which the app's Rust build embeds
+	cd $(APP_DIR) && $(BUN) run build
+
+.PHONY: app-dev
+app-dev: ## Run the desktop app, the picker reloading as it changes
+	cd $(APP_DIR) && $(BUN) run tauri dev
+
+.PHONY: app-check
+app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint and test the app's Rust side
+	cd $(APP_DIR) && $(BUN) run check
+	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all --check
+	$(APP_CARGO) clippy --manifest-path $(APP_MANIFEST) --all-targets -- -D warnings
+	$(APP_CARGO) test --manifest-path $(APP_MANIFEST)
+
+.PHONY: app-test
+app-test: app-picker ## Test the picker on its own, under the app's policy, in Chromium and WebKit at desktop and phone sizes
+	cd $(APP_DIR) && PICKER_PORT=$(PICKER_PORT) $(BUN) run test
+
+.PHONY: app-build
+# CI=true makes the disk image's script skip the AppleScript that lays out its Finder window,
+# which needs permission to control Finder; the image is the same otherwise.
+app-build: ## Build the desktop app and its installers for this machine, into apps/shell/src-tauri/target/release/bundle
+	cd $(APP_DIR) && CI=true $(BUN) run tauri build
+
+.PHONY: app-webview-check
+# The binary make app-build leaves, as CI's Linux build does too. Under xvfb-run -a where there
+# is no display.
+app-webview-check: ## On Linux, run the built app against a hostile server in WebKitGTK: no page of a server may call the picker's commands
+	cd $(APP_DIR) && $(BUN) scripts/webview-check.ts src-tauri/target/release/neon-teamspace
+
+.PHONY: app-android
+app-android: ## Build an Android APK signed with the debug key, for testing (needs JAVA_HOME, ANDROID_HOME and NDK_HOME)
+	cd $(APP_DIR) && CI=true $(BUN) run tauri android build --apk --debug
+
+.PHONY: app-ios
+app-ios: ## Build the iOS app with Xcode, signed for APPLE_DEVELOPMENT_TEAM and exported for App Store Connect
+	cd $(APP_DIR) && CI=true $(BUN) run tauri ios build --export-method app-store-connect
+
 ## Claude Code plugin (.claude-plugin/ and integrations/claude-code/)
 
 .PHONY: plugin-check
@@ -328,10 +387,12 @@ compose-archive: ## Write dist/neon-teamspace-compose-VERSION.tar.gz, the Compos
 # Without --offline, cargo-deny first updates its copy of the RustSec advisory database.
 licenses: ## Run cargo-deny's license, advisory, ban and source checks; check the JS packages' licenses
 	$(CARGO) deny $(DENY_FLAGS) check
+	$(CARGO) deny $(DENY_FLAGS) --manifest-path $(APP_MANIFEST) check
 	$(BUN) scripts/licenses.ts web
 	$(BUN) scripts/licenses.ts docs
 	$(BUN) scripts/licenses.ts e2e
 	$(BUN) scripts/licenses.ts tools/blocknote-fixtures
+	$(BUN) scripts/licenses.ts $(APP_DIR)
 
 .PHONY: check
 # Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
@@ -341,10 +402,11 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
 	@echo "all checks passed"
 
 .PHONY: clean
-clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
+clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro, docs/csp.caddy and the apps'
 	$(CARGO) clean
 	rm -rf "$(OFFLINE_TARGET_DIR)" dist web/dist docs/dist docs/.astro docs/csp.caddy
+	rm -rf $(APP_DIR)/dist $(APP_DIR)/src-tauri/target

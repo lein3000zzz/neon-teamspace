@@ -22,9 +22,10 @@ work in the API and the web app, with tokens their owners make or apps connected
 [webhooks](/docs/guides/webhooks/) both ways, and pages have comments, mentions and an inbox,
 as [Comments and mentions](/docs/guides/comments-and-mentions/) has it, a history, as
 [Page history](/docs/guides/history/) has it, search, as [Search](/docs/guides/search/) has
-it, and attachments, as [Attachments](/docs/guides/attachments/) has it. What is marked
-**planned** is not built yet, the desktop and mobile apps among it. It describes the design
-the code is being built toward, so the details may still change.
+it, and attachments, as [Attachments](/docs/guides/attachments/) has it. The desktop and
+mobile apps open the web app of a server, as [Apps](/docs/guides/apps/) has it. What is marked
+**planned** is not built yet. It describes the design the code is being built toward, so the
+details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds

@@ -95,6 +95,7 @@ export default defineConfig({
             'guides/introduction',
             'guides/concepts',
             'guides/signing-in',
+            'guides/apps',
             'guides/accounts',
             'guides/workspaces',
             'guides/workspace-rules',

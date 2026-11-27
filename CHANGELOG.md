@@ -1,7 +1,8 @@
 # Changelog
 
 What changes in each release of Neon Teamspace, for the people who run it. The server and web
-images, the Compose file and the Claude Code plugin share one version, the cargo workspace's.
+images, the Compose file, the desktop and mobile apps and the Claude Code plugin share one
+version, the cargo workspace's.
 Versions follow [semantic versioning](https://semver.org); until 1.0.0, a minor version may
 change the API or the settings in a way that needs something of you, and says so under
 **Breaking changes**. [Upgrading](docs/src/content/docs/self-hosting/upgrading.md) covers

@@ -38,8 +38,8 @@ you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
   file with Postgres, TLS from Caddy given a domain, settings that change while the server
   runs, and logs, metrics, traces and profiles.
 
-Desktop and mobile apps, thin shells that load the web app from your server, are planned and
-not released yet.
+Apps for macOS, Windows, Linux and Android, thin shells that open your server's web app, come in
+the next release, with an iOS app to build from source.
 
 ## Quick start
 
@@ -110,10 +110,10 @@ server. The source is a Starlight site in `docs/`, one Markdown file per page un
 ## Development
 
 You need Rust through [rustup](https://rustup.rs), [sqlx-cli](https://crates.io/crates/sqlx-cli),
-[cargo-deny](https://crates.io/crates/cargo-deny), [Bun](https://bun.sh), Docker,
-[Node.js](https://nodejs.org) for the end-to-end tests, and GNU make 3.81 or later, which
-macOS ships. [CONTRIBUTING.md](CONTRIBUTING.md#what-you-need) has the commands that
-install them. `make` on its own lists every target.
+[cargo-deny](https://crates.io/crates/cargo-deny), [cargo-about](https://crates.io/crates/cargo-about),
+[Bun](https://bun.sh), Docker, [Node.js](https://nodejs.org) for the end-to-end tests, and
+GNU make 3.81 or later, which macOS ships. [CONTRIBUTING.md](CONTRIBUTING.md#what-you-need)
+has the commands that install them. `make` on its own lists every target.
 
 A development server, against Postgres and Mailpit in Docker:
 
@@ -134,7 +134,7 @@ make web-dev               # http://localhost:5173/, passing the server's paths 
 The checks and the tests:
 
 ```sh
-make docs-install e2e-install blocks-install   # once: the packages make check reads too
+make docs-install e2e-install blocks-install app-install   # once: the packages make check reads too
 make check                 # every check that needs neither Docker nor the network
 make test                  # the Rust tests, against the development database
 make e2e                   # the whole stack in Docker, tested in Chromium

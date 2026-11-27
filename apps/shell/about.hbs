@@ -1,0 +1,17 @@
+{{#each licenses}}
+================================================================================
+{{{name}}} ({{{id}}})
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{{crate.version}}}
+{{#if (eq ../id "MPL-2.0")}}
+    Source: https://crates.io/crates/{{{crate.name}}}/{{{crate.version}}}
+{{#if crate.repository}}
+    Repository: {{{crate.repository}}}
+{{/if}}
+{{/if}}
+{{/each}}
+--------------------------------------------------------------------------------
+
+{{{text}}}
+{{/each}}

@@ -5997,7 +5997,7 @@
           "meta"
         ],
         "summary": "Instance metadata",
-        "description": "The instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.",
+        "description": "The product, the instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.",
         "operationId": "get_meta",
         "responses": {
           "200": {
@@ -20818,6 +20818,7 @@
       "Meta": {
         "type": "object",
         "required": [
+          "product",
           "name",
           "version"
         ],
@@ -20826,6 +20827,11 @@
             "type": "string",
             "description": "The instance's name, from the `instance.name` setting.",
             "example": "Neon Teamspace"
+          },
+          "product": {
+            "type": "string",
+            "description": "Always `neon-teamspace`, so a client can tell this server from any other that answers\nJSON at the same path, as the apps do before they load a server's pages.",
+            "example": "neon-teamspace"
           },
           "version": {
             "type": "string",

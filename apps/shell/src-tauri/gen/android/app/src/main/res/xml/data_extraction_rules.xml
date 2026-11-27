@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: what a cloud backup or a move to a new device may take of the app's
+     data, where Android makes one although allowBackup is false. The server list alone, from
+     the app's data directory; never the web view's data, with the servers' session cookies. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="root" path="servers.json" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" path="servers.json" />
+    </device-transfer>
+</data-extraction-rules>

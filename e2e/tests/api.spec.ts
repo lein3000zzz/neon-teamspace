@@ -1,6 +1,6 @@
 import { type ApiErrorBody, SERVER_VERSION, expect, test } from "./fixtures";
 
-test("GET /api/v1/meta answers the instance's name and the server's version", async ({
+test("GET /api/v1/meta answers the product, the instance's name and the server's version", async ({
   request,
 }) => {
   const response = await request.get("/api/v1/meta");
@@ -8,7 +8,11 @@ test("GET /api/v1/meta answers the instance's name and the server's version", as
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toContain("application/json");
   const body: unknown = await response.json();
-  expect(body).toEqual({ name: expect.any(String), version: SERVER_VERSION });
+  expect(body).toEqual({
+    product: "neon-teamspace",
+    name: expect.any(String),
+    version: SERVER_VERSION,
+  });
 });
 
 test("an unknown API route gets the error shape with a 404, not the app", async ({ request }) => {

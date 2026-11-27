@@ -30,6 +30,7 @@ function workspaceVersion(): string {
 
 /** The server's answer to GET /api/v1/meta. */
 export interface Meta {
+  product: string;
   name: string;
   version: string;
 }

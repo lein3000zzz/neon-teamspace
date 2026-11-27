@@ -1,0 +1,376 @@
+/* The picker in the web app's own tokens: its palettes and modes, read from the web app's
+   file so the two never drift. */
+@import "../../../web/src/styles/palettes.css";
+
+:root {
+  /* The web app's system sans stack, from web/src/styles/fonts.css, whose bundled mono face
+     the picker has no use for. */
+  --font-stack-sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI",
+    Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  /* Every control is a 44px target: the picker runs on phones as much as on desktops. */
+  --tap: 2.75rem;
+  --gap: 1rem;
+}
+
+*,
+::before,
+::after {
+  box-sizing: border-box;
+  border-color: var(--line);
+}
+
+html {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-stack-sans);
+  font-size: 100%;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* The web app's dot grid, from the palette's --dot. */
+  background-image: radial-gradient(circle, var(--dot) 0.75px, transparent 1.25px);
+  background-size: 16px 16px;
+  padding: calc(2rem + env(safe-area-inset-top, 0px)) calc(1rem + env(safe-area-inset-right, 0px))
+    calc(1rem + env(safe-area-inset-bottom, 0px)) calc(1rem + env(safe-area-inset-left, 0px));
+}
+
+.picker,
+.theme {
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+}
+
+.picker {
+  flex: 1;
+}
+
+h1,
+h2 {
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--gap);
+}
+
+h1 {
+  font-size: 1.75rem;
+}
+
+h2 {
+  font-size: 1.125rem;
+}
+
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: var(--focus-glow);
+}
+
+[tabindex="-1"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+::selection {
+  background-color: var(--neon-soft);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+.dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background-color: var(--neon);
+  box-shadow: var(--glow);
+}
+
+.status {
+  min-height: 1.6em;
+  margin-top: var(--gap);
+  color: var(--fg-muted);
+}
+
+/* Stop, while a server is opening. */
+.actions:not(:empty) {
+  margin-top: 0.5rem;
+}
+
+/* The list: one card per server, the open button its full width. */
+.servers {
+  list-style: none;
+  margin: 0 0 var(--gap);
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.server {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background-color: var(--raised);
+  padding: 0.25rem 0.75rem 0.75rem;
+}
+
+.server-open {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.5rem 0.25rem 0.25rem;
+  cursor: pointer;
+  border-radius: calc(var(--radius) * 0.75);
+}
+
+.server-open:hover .server-name {
+  color: var(--neon);
+}
+
+.server-open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: var(--focus-glow);
+}
+
+.server-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.server-origin {
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Inline text, the badge a word in it, so that the spaces around the separator before it are
+   part of what screen readers read too. */
+.server-details {
+  padding-inline: 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.server-actions,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* A pill, as the web app draws them. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--bad);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  color: var(--bad);
+  font-size: 0.75rem;
+  line-height: 1.5rem;
+  vertical-align: middle;
+}
+
+.button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background-color: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  background-color: var(--hover);
+}
+
+.button.primary {
+  border-color: var(--neon);
+  background-color: var(--neon);
+  color: var(--accent-ink);
+}
+
+.button.primary:hover {
+  box-shadow: var(--glow);
+}
+
+.button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.button.quiet {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--fg-muted);
+}
+
+.button.quiet:hover {
+  color: var(--fg);
+  background-color: var(--hover);
+}
+
+.add,
+.inline-form {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.inline-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+label {
+  font-weight: 600;
+}
+
+.field {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) * 0.75);
+  background-color: var(--bg);
+  color: var(--fg);
+  /* At least 16px, or iOS zooms the page in on focus. */
+  font: inherit;
+  font-size: max(1rem, 16px);
+}
+
+.field::placeholder {
+  color: var(--fg-muted);
+  opacity: 1;
+}
+
+.field[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.error {
+  color: var(--bad);
+  font-size: 0.875rem;
+}
+
+.warning {
+  display: grid;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  background-color: var(--raised);
+}
+
+.warning-title {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.theme {
+  margin-top: 2rem;
+}
+
+.theme fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.theme legend {
+  float: left;
+  margin-right: 0.25rem;
+  padding: 0;
+}
+
+.theme label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: var(--tap);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.theme input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--neon);
+}
+
+.notices {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.notices a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  color: var(--fg-muted);
+}
+
+.notices a:hover {
+  color: var(--fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .dot {
+    forced-color-adjust: none;
+    background-color: CanvasText;
+  }
+}

@@ -382,7 +382,7 @@ curl http://localhost:8080/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.1.0"}
 ```
 
 The name is the [`instance.name`](/docs/reference/settings/) setting. Everything else the

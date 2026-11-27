@@ -1224,7 +1224,7 @@ export interface paths {
         };
         /**
          * Instance metadata
-         * @description The instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.
+         * @description The product, the instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.
          */
         get: operations["get_meta"];
         put?: never;
@@ -4482,6 +4482,12 @@ export interface components {
              * @example Neon Teamspace
              */
             name: string;
+            /**
+             * @description Always `neon-teamspace`, so a client can tell this server from any other that answers
+             *     JSON at the same path, as the apps do before they load a server's pages.
+             * @example neon-teamspace
+             */
+            product: string;
             /**
              * @description The server's version.
              * @example 0.1.0
