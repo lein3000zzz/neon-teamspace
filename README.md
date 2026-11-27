@@ -83,15 +83,16 @@ SeaweedFS, an S3-compatible store for attachments, which are kept in the server'
 otherwise; [File storage](docs/src/content/docs/self-hosting/storage.md) covers both and
 their backups.
 
-`make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
-the Playwright tests in `e2e/` against it, and removes it, leaving the report in
-`e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
-and headless Chromium itself. The server image it tests builds with Cargo's `e2e` profile, the
-release profile without link-time optimisation, which compiles in a fraction of the time;
-published images build with `release`, which `E2E_CARGO_PROFILE=release` tests, as the run
-before each release does. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the
-Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so runs from
-two checkouts can go side by side.
+`make e2e` builds both images, starts a throwaway stack of them on a free local port, with
+Mailpit catching its mail for the tests to read, runs the Playwright tests in `e2e/` against
+it, and removes it, leaving the report in `e2e/playwright-report/`. It needs Docker, Bun and
+Node.js, and installs the tests' packages and headless Chromium itself. The server image it
+tests builds with Cargo's `e2e` profile, the release profile without link-time optimisation,
+which compiles in a fraction of the time; published images build with `release`, which
+`E2E_CARGO_PROFILE=release` tests, as the run before each release does. `E2E_PROJECT`,
+`E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the Compose project and the image tags,
+`neon-e2e` and the `:local` tags unless set, so runs from two checkouts can go side by side;
+`E2E_WEB_PORT` names the port, a free one unless set.
 
 ## Development
 
