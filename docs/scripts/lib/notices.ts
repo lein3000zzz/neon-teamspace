@@ -1,6 +1,7 @@
 // Writes THIRD_PARTY_NOTICES.txt into the built docs: the license text of every package whose
-// code or styles reach dist/. MIT, the license of each of them so far, asks for its notice in
-// every copy, and the minifier drops the comments that carried it.
+// code or styles reach dist/, and any notice file it ships. MIT, the license of each of them
+// so far, asks for its notice in every copy, and the minifier drops the comments that carried
+// it.
 //
 // A Vite plugin finds the packages with modules in the browser's scripts or in the stylesheets.
 // OUTSIDE_VITE names the ones whose files reach dist/ another way. The build fails when a

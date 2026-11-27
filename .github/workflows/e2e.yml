@@ -2,7 +2,8 @@
 # the tests against it, all through make e2e. On each pull request into main; on a pull
 # request into dev only when it changes the images, the stack, the tests or the Makefile that
 # runs them; on each push to dev or main, whose run saves the images' layer cache that pull
-# requests into them read; by hand; and before each release, which calls this workflow.
+# requests into them read; by hand; and before each release, which calls this workflow and
+# whose run uses no cache.
 name: E2E
 
 on:
@@ -55,8 +56,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     # A newer push to the pull request cancels its run; the run of a push to a branch or of a
-    # release is never cancelled, so the cache it saves is whole. Named apart from the callers'
-    # groups, as a called workflow sees its caller's name.
+    # release is never cancelled, so the cache a push's run saves is whole. Named apart from
+    # the callers' groups, as a called workflow sees its caller's name.
     concurrency:
       group: e2e-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -75,28 +76,37 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
       # The Actions cache's URL and token, which only actions see otherwise, for bake to reach
-      # the cache from a run step.
-      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      # the cache from a run step. Not in a tag's run, the one before a release: the token
+      # writes to the cache as well as reading it, so the release's tests, with every package
+      # and browser they install, are not handed one. Code on the runner could still read the
+      # job's token from the runner process's memory, which is why the release's images read
+      # no cache at all.
+      - if: github.ref_type != 'tag'
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
       # Each image's layers, every stage's (mode=max), so that the tools, the system packages
       # and the dependencies cargo-chef cooks build again only when a Dockerfile, Cargo.lock, a
       # manifest or a lockfile changes. A run reads what the last push to its branch, or to a
       # pull request's base branch, saved. As with the Rust jobs' caches, only a push to dev or
-      # main saves, and a failed save does not fail the run. Under make -j2 the images build
+      # main saves, and a failed save does not fail the run. A tag's run neither reads nor
+      # saves, and builds both images from the checkout alone. Under make -j2 the images build
       # while make e2e-install installs the tests' browser and its system libraries.
-      # The server builds in Cargo's quicker e2e profile, but for a tag's run, the one before
-      # a release, which tests it built as the published image is, in the release profile.
+      # The server builds in Cargo's quicker e2e profile, but for a tag's run, which tests it
+      # built as the published image is, in the release profile.
       - name: Build the images, start the stack, run the tests
         env:
+          USE_CACHE: ${{ github.ref_type != 'tag' }}
           SAVE_CACHE: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
           E2E_CARGO_PROFILE: ${{ github.ref_type == 'tag' && 'release' || 'e2e' }}
         run: |
           flags=""
-          for image in server web; do
-            flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
-            if [ "$SAVE_CACHE" = true ]; then
-              flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"
-            fi
-          done
+          if [ "$USE_CACHE" = true ]; then
+            for image in server web; do
+              flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
+              if [ "$SAVE_CACHE" = true ]; then
+                flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"
+              fi
+            done
+          fi
           make -j2 e2e E2E_BUILD_FLAGS="$flags"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
