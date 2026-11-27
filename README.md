@@ -273,7 +273,7 @@ GitHub Actions runs three workflows.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
   - **Versions:** `make version-check`, which builds the server for `neon --version`, whenever a file that states the version changes; see [Releasing](#releasing).
-  - **App shell:** on Linux with WebKitGTK, cargo-deny and the license check for `apps/shell/`, `make app-check`, `make app-test`, which tests the picker in Chromium and WebKit, and a `.deb` build of the Linux app.
+  - **App shell:** on Linux with WebKitGTK, cargo-deny and the license check for `apps/shell/`, `make app-check`, `make app-test`, which tests the picker in Chromium and WebKit, a `.deb` build of the Linux app, and `make app-webview-check`, which runs that build against a hostile server under Xvfb.
   - **Secret scan:** gitleaks over the run's new commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.

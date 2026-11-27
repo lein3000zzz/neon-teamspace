@@ -36,7 +36,7 @@
   },
   "overrides": [
     {
-      "files": ["tests/**", "*.config.ts", "notices.ts"],
+      "files": ["tests/**", "scripts/**", "*.config.ts", "notices.ts"],
       "env": {
         "browser": false,
         "node": true

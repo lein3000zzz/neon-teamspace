@@ -276,6 +276,7 @@ make app-check      # the picker's types, lints and formatting; the Rust side's 
 make app-browsers   # once: the headless Chromium and WebKit for the next line
 make app-test       # the picker on its own, in Chromium and WebKit at desktop and phone sizes
 make app-build      # this machine's desktop app and installers
+make app-webview-check  # on Linux, after make app-build: the app against a hostile server
 make app-android    # an APK for every ABI, signed with the debug key, for testing
 make app-ios        # the iOS app for TestFlight
 ```
@@ -290,6 +291,10 @@ It sets `CI=true`, which makes the disk image's script skip the AppleScript that
 Finder window; that script needs permission to control Finder. `make app-android` writes
 `apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`,
 which `adb install` puts on a device or an emulator.
+
+`make app-webview-check` runs the built Linux app in WebKitGTK against a stand-in server whose
+page calls the picker's commands while it sends the window to the app's own origin, and fails
+if one call goes through. It needs a display: CI runs it under `xvfb-run -a`.
 
 ### iOS
 

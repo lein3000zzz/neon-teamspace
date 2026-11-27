@@ -338,6 +338,12 @@ app-test: app-picker ## Test the picker on its own, under the app's policy, in C
 app-build: ## Build the desktop app and its installers for this machine, into apps/shell/src-tauri/target/release/bundle
 	cd $(APP_DIR) && CI=true $(BUN) run tauri build
 
+.PHONY: app-webview-check
+# The binary make app-build leaves, as CI's Linux build does too. Under xvfb-run -a where there
+# is no display.
+app-webview-check: ## On Linux, run the built app against a hostile server in WebKitGTK: no page of a server may call the picker's commands
+	cd $(APP_DIR) && $(BUN) scripts/webview-check.ts src-tauri/target/release/neon-teamspace
+
 .PHONY: app-android
 app-android: ## Build an Android APK signed with the debug key, for testing (needs JAVA_HOME, ANDROID_HOME and NDK_HOME)
 	cd $(APP_DIR) && CI=true $(BUN) run tauri android build --apk --debug

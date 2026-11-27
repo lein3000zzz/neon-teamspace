@@ -422,12 +422,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu.
+      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu, and Xvfb,
+      # the display the webview check runs the app on.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential \
-            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb
       - name: Toolchain
         run: |
           rustup toolchain install --no-self-update
@@ -459,6 +460,10 @@ jobs:
       - name: Linux build
         working-directory: apps/shell
         run: bun run tauri build --ci --bundles deb
+      # The built app in WebKitGTK against a hostile server, whose page may call none of the
+      # picker's commands, however it sends the window to the app's own origin.
+      - name: The app's webview against a hostile server
+        run: xvfb-run -a make app-webview-check
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
