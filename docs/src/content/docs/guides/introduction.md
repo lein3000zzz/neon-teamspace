@@ -30,7 +30,8 @@ the friends its owner lets in.
 
 ## What exists
 
-Neon Teamspace is in early development, before its first release. What exists:
+Version 0.1.0 is the first release; `CHANGELOG.md` in the repository lists what each
+release brings. What exists:
 
 - The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
@@ -49,8 +50,9 @@ Neon Teamspace is in early development, before its first release. What exists:
   admin's work on accounts, through the API and the web app's pages; see
   [Signing in and accounts](/docs/guides/signing-in/), [Accounts and
   registration](/docs/guides/accounts/) and [Administration](/docs/admin/users/).
-- Outgoing mail over SMTP for verification, password resets, mailed invites and requests
-  to join, queued with the change it reports; see [Mail](/docs/self-hosting/mail/).
+- Outgoing mail through an SMTP relay for verification, password resets, mailed invites,
+  requests to join and notifications, queued with the change it reports; see
+  [Mail](/docs/self-hosting/mail/).
 - Workspaces: their members and roles, invitations and invite links, teamspaces, limits
   and hues, through the API and the web app's switcher, workspace settings and the instance
   admins' list; see [Workspaces and teamspaces](/docs/guides/workspaces/), [Workspace rules
@@ -92,17 +94,19 @@ Neon Teamspace is in early development, before its first release. What exists:
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
-- The server and web images, and a Compose file that runs them with Postgres; see
-  [Install](/docs/self-hosting/install/).
+- The server and web images, published for each release, and a Compose file that runs
+  them with Postgres; see [Install](/docs/self-hosting/install/),
+  [Backups and restore](/docs/self-hosting/backups/) and
+  [Upgrading](/docs/self-hosting/upgrading/).
 
 ## What is planned
 
-These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
-in the order it is built:
+These pages describe the design beyond what exists too, and mark it **Planned**:
 
-1. Signed releases and the first version, 0.1.0.
-2. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
-   from the server a person names.
+- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+  from the server a person names, with a toolbar for editing on a phone.
+- Callouts among the blocks of a page.
+- A hue of each database's own, as people, workspaces and teamspaces have.
 
 ## What it is not
 

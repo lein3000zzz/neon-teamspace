@@ -93,6 +93,23 @@ value leaves its key to the default. Compose expands `$` in its values, so a val
 one goes in single quotes. A change applies once the start command runs again, which
 recreates the server's container with the new environment.
 
+Before the first start, `server.env` wants three things a new instance needs:
+
+```sh
+NEON_SERVER__PUBLIC_URL=https://neon.example.com
+NEON_SECRETS__KEYS=2026:<output of openssl rand -base64 32>
+NEON_ADMIN__EMAIL=you@example.com
+NEON_ADMIN__PASSWORD=<a password of 12 characters or more>
+```
+
+The public URL is the address people type, exactly: `http://127.0.0.1:3000` for the stack on
+its default port, or the domain of [below](#a-domain-and-tls). The
+[secret key](/docs/self-hosting/configuration/#secret-keys) seals what the database keeps
+secret, mail and webhooks need it, and it belongs in the backups, apart from the database's.
+The first admin is made as the server starts, while no admin can sign in. Without the two
+`ADMIN` variables, make one in the running stack instead, which asks for the password:
+`docker compose -f deployments/docker-compose.yml exec server neon admin create --email you@example.com`.
+
 The stack sets two of the server's keys itself, over anything `server.env` says:
 `database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
 `0.0.0.0:9090`. The admin listener then answers on the stack's own network, for Prometheus
@@ -205,11 +222,13 @@ Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with N
 
 `make e2e` builds both images from the checkout, starts a throwaway stack of them under its
 own Compose project, on a free port of `127.0.0.1`, and runs the tests in `e2e/` against it
-in a headless Chromium with Playwright: the app and its API, the docs, the security headers,
-and that the admin listener is not reachable. The stack gets a first admin with a password
-made for the run, and a secret key; the tests sign in as that admin, make an invite, sign up
-with it in a second browser and sign out, and read the settings. It removes the stack, its data included,
-however the run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs
+in a headless Chromium with Playwright: accounts and signing in, workspaces, pages edited in
+two browsers at once, databases and boards, comments, search, attachments, import and
+export, agents, OAuth and MCP clients, webhooks delivered to a receiver on the stack's
+network, the docs, the security headers, and that the admin listener is not reachable. The
+stack gets a first admin with a password made for the run, and a secret key, and the tests
+start from that admin. It removes the stack, its data included, however the run ends, and
+leaves Playwright's report in `e2e/playwright-report/`. It needs
 Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the tests'
 packages and the browser. The server image it tests is built with Cargo's `e2e` profile, the
 release profile without link-time optimisation, so it compiles in a fraction of the time; the
@@ -366,8 +385,9 @@ make check
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
 as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
 settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, and the license and advisory checks, which read the packages installed in `web/`,
-`docs/` and `e2e/`. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+checks, the block fixtures in both directions, the Claude Code plugin, and the license and
+advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
+`tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
 `target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
 in `target/`, it could reuse queries last checked against the database instead of the cache.
@@ -400,3 +420,4 @@ falls behind, and a target rewrites it:
 | `web/src/api/schema.d.ts` | `make web-api` | `api/openapi.json` |
 | `.sqlx/` | `make sqlx-prepare` | a query or a migration |
 | `docs/src/content/docs/reference/settings.md` | `make docs-gen` | a runtime setting, added or changed |
+| `crates/blocks/tests/fixtures/blocknote/` and `rust-out/` | `make blocks-fixtures` | the fixture corpus, `crates/blocks`, the editor's own blocks, or the BlockNote version |

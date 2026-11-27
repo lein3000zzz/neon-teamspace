@@ -6,7 +6,26 @@ collaborative editing, and AI agents as first-class teammates over MCP.
 One deployment hosts many workspaces. Each workspace has teamspaces, nested pages and
 databases. Agents connect over MCP, pick up tasks, comment and edit pages next to people.
 
-> **Status:** early development, before its first release.
+> **Status:** 0.1.0, the first release. [CHANGELOG.md](CHANGELOG.md) lists what each release
+> brings, and the [docs](docs/src/content/docs/index.md) cover running and using it.
+
+## Features
+
+- **Workspaces** with owners, admins, members and guests, teamspaces that are open, closed or
+  private, invitations, invite links and per-workspace limits.
+- **Pages** of blocks, edited together in real time with cursors and presence, nested,
+  shared, favorited and trashed, with their history, comments on passages, mentions and an
+  inbox, full-text search, attachments, and markdown import and export.
+- **Databases** whose rows are pages, with typed properties and table, board and list views,
+  changes reaching everyone at once.
+- **Agents** as workspace members, owned by a person, over an MCP server at `/mcp` with 23
+  tools, through OAuth 2.1 or tokens bound to one workspace; the same actions in the REST API;
+  webhooks both ways; and a Claude Code plugin that works your cards.
+- **Accounts** with open, invite-only or closed registration, requests to join, mail through
+  an SMTP relay, and an admin area that never sees inside a workspace.
+- **Running it**: two images for amd64 and arm64 and a Compose file with Postgres, attachments
+  on local disk or S3, settings changed while the server runs, logs, metrics, traces and
+  profiles.
 
 ## Repository layout
 
@@ -18,6 +37,8 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `crates/app` | Use cases, transactions, and the ports for side effects. |
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
+| `migrations` | The database's migrations, plain SQL, built into the binary, which applies them as it starts. |
+| `.sqlx` | The query cache, which lets the build check SQL without a database. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
 | `web` | The web app: React, Vite and TanStack. Its `Dockerfile` and `Caddyfile` make the web image. |
 | `docs` | The documentation site, Astro Starlight. |
@@ -26,6 +47,8 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check and the Claude Code plugin's check. |
 | `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
 | `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
+| `.github` | The CI, end-to-end and release workflows, and Dependabot's configuration. |
+| `CHANGELOG.md` | What each release brings, for the people who run it. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands
 beside `domain`, depending on neither. Each crate's `Cargo.toml` lists what it may use, so the
@@ -48,6 +71,21 @@ It asks for your instance's address, then `/mcp` signs it in. The
 connecting, choosing an identity, the skills, making an agent for it and troubleshooting.
 
 ## Running it with Docker
+
+A release, with its published images, from a clone at its tag:
+
+```sh
+git clone --branch v0.1.0 https://github.com/lein3000zzz/neon-teamspace.git && cd neon-teamspace
+cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD and NEON_VERSION=0.1.0
+cp deployments/server.env.example deployments/server.env  # set NEON_SECRETS__KEYS and the first admin
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
+```
+
+The [install page](docs/src/content/docs/self-hosting/install.md) covers both files, a
+domain with TLS, and the rest; [backups](docs/src/content/docs/self-hosting/backups.md),
+[upgrading](docs/src/content/docs/self-hosting/upgrading.md) and
+[troubleshooting](docs/src/content/docs/self-hosting/troubleshooting.md) have their own pages.
 
 Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
 `ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
@@ -178,7 +216,8 @@ The `neon` binary has these commands:
 |---|---|
 | `neon serve` | Runs the server. The default when no command is given. |
 | `neon migrate` | Applies pending migrations and exits. |
-| `neon admin create --email ADDRESS` | Creates an admin account, whatever the registration mode. Asks for the password at a terminal, or reads it from stdin. |
+| `neon admin create --email ADDRESS [--display-name NAME]` | Creates an admin account, whatever the registration mode. Asks for the password at a terminal, or reads it from stdin. |
+| `neon search reindex [--all]` | Stores the search text of the pages whose text lacks their latest changes, or of every page with `--all`. |
 | `neon openapi [--out PATH]` | Prints the OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the runtime settings reference as markdown. |
 | `neon config check` | Loads and checks the configuration, then prints it with secrets redacted. |
@@ -255,8 +294,8 @@ use the `NEON_` prefix too, such as Neon's Postgres tooling with `NEON_API_KEY`,
 variable that sets no key only gets a warning naming it. An unknown key in the file, or
 an unknown `NEON_SETTINGS__` variable, stops the start, since it is almost always a typo.
 
-For the `server` and `database` sections, the environment wins over the file, and the file
-wins over the defaults. Runtime settings, under `settings`, have one more layer. They
+For bootstrap configuration, every section but `settings`, the environment wins over the
+file, and the file wins over the defaults. Runtime settings, under `settings`, have one more layer. They
 resolve in this order:
 
 1. the environment

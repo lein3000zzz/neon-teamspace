@@ -4,11 +4,11 @@ description: What Neon Teamspace keeps in Postgres, how its SQL is checked, how 
 ---
 
 Everything Neon Teamspace keeps lasting is in one Postgres 18 database: settings, the job
-queue, accounts, sessions, invites, workspaces with their members, teamspaces, invitations
-and invite links, pages with their shares and favorites, and, as it arrives, their content,
-and databases with their properties, views and rows' values.
-There is no
-cache server and no message broker beside it. Attachments' bytes are the one exception: they
+queue, accounts, sessions, tokens and OAuth's grants, invites, workspaces with their members,
+agents and integrations, teamspaces, invitations and invite links, pages with their shares,
+favorites, content and history, databases with their properties, views and rows' values,
+comments, the inbox, webhooks, the text search reads, and what each attachment is. There is
+no cache server and no message broker beside it. Attachments' bytes are the one exception: they
 go to local disk or an S3-compatible store, as files are better kept outside the database,
 while Postgres keeps what each file is.
 
