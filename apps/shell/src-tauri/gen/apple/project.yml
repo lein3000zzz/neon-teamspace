@@ -2,7 +2,7 @@ name: neon-teamspace-shell
 options:
   bundleIdPrefix: io.github.lein3000zzz.neonteamspace
   deploymentTarget:
-    iOS: 14.5
+    iOS: 15.0
 fileGroups: [../../src]
 configs:
   debug: debug

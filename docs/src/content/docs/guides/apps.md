@@ -20,7 +20,7 @@ installers and the Android APK attached. The iPhone and iPad app goes out throug
 | Windows 10 or later | `Neon-Teamspace_<version>_x64-setup.exe` | The installer adds Microsoft's WebView2 runtime when it is missing. |
 | Linux | `.deb`, `.rpm` or `.AppImage` | The `.deb` and `.rpm` depend on WebKitGTK 4.1, which the package manager installs. Make an AppImage executable with `chmod +x` before running it. |
 | Android 7 or later | `Neon-Teamspace_<version>_android.apk` | Allow your browser or file manager to install apps, then open the file. |
-| iOS and iPadOS 14.5 or later | TestFlight | Whoever publishes the app sends the invitation. |
+| iOS and iPadOS 15 or later | TestFlight | Whoever publishes the app sends the invitation. |
 
 The macOS and Windows apps are not signed with a developer certificate, so the system warns
 the first time one opens. On macOS, open it once from Finder with Control-click and **Open**,

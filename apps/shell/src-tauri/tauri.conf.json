@@ -75,7 +75,7 @@
       "signingIdentity": "-"
     },
     "iOS": {
-      "minimumSystemVersion": "14.5"
+      "minimumSystemVersion": "15.0"
     },
     "android": {
       "minSdkVersion": 24
