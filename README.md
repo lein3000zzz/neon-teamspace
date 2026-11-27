@@ -227,7 +227,7 @@ GitHub Actions runs three workflows.
 - **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.
   - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, and everything that states the version states it.
   - The end-to-end tests, with the server built in the release profile as the published image is.
-  - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
+  - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
   - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the upgrade page, and the Compose archive that `make compose-archive` writes as its asset.
 

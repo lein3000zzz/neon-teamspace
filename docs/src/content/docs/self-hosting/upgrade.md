@@ -8,7 +8,8 @@ image, the Compose file and the [Claude Code plugin](/docs/guides/claude-code-pl
 [changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) says what
 each release changes, and what it needs of the instance's admins as they upgrade. Read the
 sections between the release an instance runs and the one it goes to before upgrading. The
-release's page on GitHub has the same notes, the names of its images, and its Compose archive.
+release's page on GitHub names its images and their tags, lists the pull requests it brings,
+links its changelog, and has its Compose archive.
 
 ## Versions and tags
 

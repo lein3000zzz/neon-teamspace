@@ -92,13 +92,12 @@ A new instance has no accounts. Make its first admin in the server's container, 
 docker compose -f deployments/docker-compose.yml exec server neon admin create --email you@example.com --display-name You
 ```
 
-Or, before the first start, set `NEON_ADMIN__EMAIL` and `NEON_ADMIN__PASSWORD` in
-`deployments/server.env`, a copy of `deployments/server.env.example`: the server makes that
-admin as it starts, while no admin can sign in. [Accounts and
-registration](/docs/guides/accounts/#the-first-admin) has the rules of both. Set
-`NEON_SECRETS__KEYS` in the same file too, with the key its comment shows how to make: it
-seals the secrets the database keeps, so admins can copy invite codes again and mail can go
-out. A change to `server.env` applies once `docker compose -f deployments/docker-compose.yml up -d`
+Or set `NEON_ADMIN__EMAIL` and `NEON_ADMIN__PASSWORD` in `deployments/server.env`, a copy
+of `deployments/server.env.example`: the server makes that admin as it starts, while no
+admin can sign in. [Accounts and registration](/docs/guides/accounts/#the-first-admin) has
+the rules of both. Set `NEON_SECRETS__KEYS` in the same file too, with the key its comment
+shows how to make: it seals the secrets the database keeps, so admins can copy invite codes
+again and mail can go out. A change to `server.env` applies once `docker compose -f deployments/docker-compose.yml up -d`
 runs again.
 
 Then, in a browser:
