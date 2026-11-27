@@ -146,6 +146,8 @@ Prerequisites:
 - [cargo-deny](https://crates.io/crates/cargo-deny), for the license and advisory checks:
   `cargo install cargo-deny --locked`, then `cargo deny fetch` once, which downloads the
   RustSec advisory database that `make check` reads offline.
+- [cargo-about](https://crates.io/crates/cargo-about), for the apps' license notices, which
+  every build of the apps' picker writes: `cargo install cargo-about --locked --features cli`.
 - [Bun](https://bun.sh), for the web app, the docs and `scripts/`.
 - Docker, for Postgres.
 - GNU make. The 3.81 that macOS ships is enough.
@@ -328,17 +330,21 @@ To release:
 ## Licenses
 
 Every dependency must be under a license that `deny.toml` allows. `make licenses` runs all of
-cargo-deny's checks on the crates (licenses, advisories, bans and sources), then checks the
-packages installed in `web/`, `docs/`, `e2e/` and `tools/blocknote-fixtures/` with
-`scripts/licenses.ts`, which reads the same allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
+cargo-deny's checks on the crates of the server's workspace and of the apps'
+(`apps/shell/src-tauri/`), that is licenses, advisories, bans and sources, then checks the
+packages installed in `web/`, `docs/`, `e2e/`, `tools/blocknote-fixtures/` and `apps/shell/`
+with `scripts/licenses.ts`, which reads the same allow list. A package outside it needs a build-only exception in `scripts/licenses/policy.ts`,
 with the reason none of it ships.
 
 What ships carries its dependencies' license notices. The web app's and the docs' builds
 write `THIRD_PARTY_NOTICES.txt` beside their files, served at `/THIRD_PARTY_NOTICES.txt` and
 `/docs/THIRD_PARTY_NOTICES.txt`. The server image holds the crates' notices at
 `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`, which [cargo-about](https://github.com/EmbarkStudios/cargo-about)
-writes as the image builds, as `about.toml` sets out; its accepted licenses are the allow list
-of `deny.toml`, and a test keeps the two the same.
+writes as the image builds, as `about.toml` sets out. The apps embed `THIRD_PARTY_NOTICES.txt`
+with their server picker, which links to it: the picker's build writes the notices of its
+packages and, with cargo-about and `apps/shell/about.toml`, of the crates the apps link on
+every platform. Both files' accepted licenses are the allow list of `deny.toml`, and a test
+keeps them the same.
 
 ### Configuration
 

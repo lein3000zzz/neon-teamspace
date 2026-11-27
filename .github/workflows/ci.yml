@@ -83,6 +83,7 @@ jobs:
               - crates/server/src/mcp/**
               - deny.toml
               - about.toml # a scripts/ test compares it with deny.toml
+              - apps/shell/about.toml # and this one
               - .editorconfig # Prettier reads it
               - docs/package.json # the Bun version
             docs:
@@ -434,9 +435,10 @@ jobs:
         with:
           workspaces: apps/shell/src-tauri -> target
           save-if: ${{ github.event_name == 'push' }}
+      # cargo-about writes the crates' notices into each build of the picker.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
-          tool: cargo-deny@0.22.0
+          tool: cargo-deny@0.22.0,cargo-about@0.9.3
           fallback: none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:

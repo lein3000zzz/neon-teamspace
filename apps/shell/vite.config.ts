@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
+import { thirdPartyNotices } from "./notices.ts";
 
 /** The policy the app gives the picker, from tauri.conf.json, which the preview serves too. */
 function appPolicy(): string {
@@ -15,10 +16,11 @@ function appPolicy(): string {
  * The bundled picker. Tauri loads dist/ from inside the app, and `tauri dev` the development
  * server on port 1420. The picker reads the web app's palettes, outside this directory, which
  * the development server is allowed to serve. The preview serves dist/ under the app's
- * Content-Security-Policy, for the tests.
+ * Content-Security-Policy, for the tests. The build writes the third-party notices beside it.
  */
 export default defineConfig({
   clearScreen: false,
+  plugins: [thirdPartyNotices()],
   server: {
     port: 1420,
     strictPort: true,

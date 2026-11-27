@@ -328,7 +328,7 @@ test("the palette is chosen and kept, and the mode follows the system", async ({
 test("every control is at least a 44px target", async ({ page }) => {
   await launch(page, { servers: [ACME, LAB], last: null });
   await page.getByRole("button", { name: "Rename Acme" }).click();
-  const controls = page.locator("button, input:not([type=radio]), label:has(input[type=radio])");
+  const controls = page.locator("button, a, input:not([type=radio]), label:has(input[type=radio])");
   const count = await controls.count();
   expect(count).toBeGreaterThan(8);
   for (let at = 0; at < count; at += 1) {
@@ -348,4 +348,19 @@ test("the picker fits a phone's width without scrolling sideways", async ({ page
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBe(0);
+});
+
+test("the picker links to the third-party notices of the packages and the crates", async ({
+  page,
+}) => {
+  await launch(page, { servers: [ACME], last: null });
+  await page.getByRole("link", { name: "Third-party licenses" }).click();
+  await expect(page).toHaveURL(/\/THIRD_PARTY_NOTICES\.txt$/);
+  const notices = page.locator("body");
+  await expect(notices).toContainText("Third-party notices");
+  // The picker's one package, and the crates of the webview on each platform.
+  await expect(notices).toContainText(/@tauri-apps\/api \d/);
+  for (const crate of ["tauri", "wry", "webkit2gtk", "webview2-com", "objc2-web-kit", "jni"]) {
+    await expect(notices).toContainText(new RegExp(`\\n  ${crate} \\d`));
+  }
 });

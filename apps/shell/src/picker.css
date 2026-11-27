@@ -340,6 +340,22 @@ label {
   accent-color: var(--neon);
 }
 
+.notices {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.notices a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  color: var(--fg-muted);
+}
+
+.notices a:hover {
+  color: var(--fg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
