@@ -41,6 +41,7 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `.sqlx` | The query cache, which lets the build check SQL without a database. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
 | `web` | The web app: React, Vite and TanStack. Its `Dockerfile` and `Caddyfile` make the web image. |
+| `apps/shell` | The desktop and mobile apps: a Tauri project whose bundled server picker opens the chosen server's web app. A Cargo workspace of its own. |
 | `docs` | The documentation site, Astro Starlight. |
 | `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
@@ -195,13 +196,23 @@ make docs-install
 make docs-dev              # http://localhost:4321/docs/
 make e2e-install           # the end-to-end tests' packages, which make check checks too
 make blocks-install        # BlockNote, for the block fixtures, which make check checks too
+make app-install           # the apps' server picker and Tauri's CLI, which make check checks too
 ```
+
+The desktop and mobile apps in `apps/shell/` build with Tauri, which needs its
+[platform prerequisites](https://v2.tauri.app/start/prerequisites/) as well: WebKitGTK and a
+few libraries on Linux, Xcode for iOS, and the Android SDK, NDK and a JDK for Android.
+`make app-dev` runs the desktop app, `make app-build` builds its installers, and
+`make app-android` a debug APK. The [Apps guide](docs/src/content/docs/guides/apps.md) covers
+them, connecting them to a server, their security model and building them.
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and
 the advisory database are downloaded, no network: formatting, clippy, a build from the
 `.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
 checks, the block fixtures in both directions, the Claude Code plugin, with Claude Code's
-own validation when `claude` is installed, the version check, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+own validation when `claude` is installed, the apps' picker checks and their Rust side's
+formatting, clippy and tests, the version check, and the license and advisory checks. Its cargo
+commands for the server build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -260,6 +271,7 @@ GitHub Actions runs three workflows.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
   - **Versions:** `make version-check`, which builds the server for `neon --version`, whenever a file that states the version changes; see [Releasing](#releasing).
+  - **App shell:** on Linux with WebKitGTK, cargo-deny and the license check for `apps/shell/`, `make app-check`, `make app-test`, which tests the picker in Chromium and WebKit, and a `.deb` build of the Linux app.
   - **Secret scan:** gitleaks over the run's new commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
@@ -272,7 +284,8 @@ GitHub Actions runs three workflows.
   - The end-to-end tests, with the server built in the release profile as the published image is.
   - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the last release, which GitHub lists.
+  - Beside the end-to-end tests and the images, the apps: the desktop installers on Linux, Windows and macOS runners, and the Android APK on Linux, signed when the repository has the keystore's secrets, which the [Apps guide](docs/src/content/docs/guides/apps.md#releases) lists.
+  - A GitHub release, with the Compose archive that `make compose-archive` writes and the apps' installers as its assets. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page, the changelog and the Apps guide, before the pull requests merged since the last release, which GitHub lists.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
