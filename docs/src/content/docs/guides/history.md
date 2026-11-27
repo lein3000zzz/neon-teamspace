@@ -47,10 +47,10 @@ block of the version and of the page as it is now, in the page's order:
 | Removed since | Was in the version and is not on the page. Restoring brings it back. |
 
 Each block shows as text, marked as the page marks it: a heading in bold, a list item after
-its bullet, number or box, a file or an image by its name and caption. Blocks are told apart
-by their ids, which a block keeps however its text changes. A block moved under another
-block shows as removed where it was and added where it is. The comparison includes what is
-being typed right now, saved or not.
+its bullet, number or box, ticked or not, a file or an image by its name and caption. Blocks
+are told apart by their ids, which a block keeps however its text changes. A block moved
+under another block shows as removed where it was and added where it is. The comparison
+includes what is being typed right now, saved or not.
 
 **Preview** shows the version read-only, as the editor would draw it.
 

@@ -121,6 +121,16 @@ export function sampleChanges(): BlockChange[] {
         ':::file [checklist.pdf](/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1 "Print two")\n',
       after_text: "checklist.pdf\nPrint two",
     },
+    {
+      change: "changed",
+      depth: 0,
+      block_id: "b9",
+      kind: "checkListItem",
+      before: "- [ ] Book the room\n",
+      after: "- [x] Book the room\n",
+      before_text: "Book the room",
+      after_text: "Book the room",
+    },
   ];
 }
 
@@ -198,7 +208,7 @@ export function fakeHistory(options: Options = {}) {
             version,
             changes: sampleChanges(),
             added: 2,
-            changed: 2,
+            changed: 3,
             removed: 1,
             revision: state.revision,
           };

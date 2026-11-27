@@ -1558,6 +1558,8 @@ export const strings = {
     change: { same: "Same", changed: "Changed", added: "Added since", removed: "Removed since" },
     before: "Then",
     after: "Now",
+    ticked: "Done:",
+    unticked: "To do:",
     previewLabel: "This version, read-only",
     emptyVersion: "This version has no content.",
     restore: "Restore this version",

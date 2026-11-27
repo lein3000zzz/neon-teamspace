@@ -7,6 +7,7 @@ import {
   History,
   Image,
   Square,
+  SquareCheck,
   Table2,
   Video,
 } from "lucide-react";
@@ -396,13 +397,31 @@ function ChangeLine({ change, number }: { change: BlockChange; number: number | 
       </span>
       {change.change === "changed" && (
         <>
-          <BlockText {...block} text={before} mark="del" label={copy.before} />
-          <BlockText {...block} text={after} mark="ins" label={copy.after} />
+          <BlockText
+            {...block}
+            text={before}
+            markdown={change.before}
+            mark="del"
+            label={copy.before}
+          />
+          <BlockText
+            {...block}
+            text={after}
+            markdown={change.after}
+            mark="ins"
+            label={copy.after}
+          />
         </>
       )}
-      {change.change === "removed" && <BlockText {...block} text={before} mark="del" />}
-      {change.change === "added" && <BlockText {...block} text={after} mark="ins" />}
-      {change.change === "same" && <BlockText {...block} text={after} mark="span" />}
+      {change.change === "removed" && (
+        <BlockText {...block} text={before} markdown={change.before} mark="del" />
+      )}
+      {change.change === "added" && (
+        <BlockText {...block} text={after} markdown={change.after} mark="ins" />
+      )}
+      {change.change === "same" && (
+        <BlockText {...block} text={after} markdown={change.after} mark="span" />
+      )}
     </li>
   );
 }
@@ -426,23 +445,33 @@ const glyphs: Partial<Record<string, typeof File>> = {
   toggleListItem: ChevronRight,
 };
 
+/** Whether a to-do item, as its markdown has it, is ticked: `- [x] Book the room`. */
+function ticked(markdown: string | null | undefined): boolean {
+  return /^\s*[-*+] \[[xX]\]/.test(markdown ?? "");
+}
+
 type BlockTextProps = {
   /** The block's type, as BlockNote names it. */
   kind: string;
   /** A numbered list's item's number. */
   number: number | undefined;
   text: string;
+  /** The block as markdown, which tells whether a to-do item is ticked. */
+  markdown: string | null | undefined;
   /** Struck through as it was, set in as it is now, or neither. */
   mark: "del" | "ins" | "span";
   label?: string;
 };
 
 /**
- * A block's text after what marks it in the page, such as a list's bullet or
- * a file's glyph, which stays outside the text struck through or set in.
+ * A block's text after what marks it in the page, such as a list's bullet, a
+ * to-do item's box, ticked or not, or a file's glyph, which stays outside the
+ * text struck through or set in.
  */
-function BlockText({ kind, number, text, mark, label }: BlockTextProps) {
-  const Glyph = glyphs[kind];
+function BlockText({ kind, number, text, markdown, mark, label }: BlockTextProps) {
+  const todo = kind === "checkListItem";
+  const done = todo && ticked(markdown);
+  const Glyph = done ? SquareCheck : glyphs[kind];
   const marker =
     Glyph !== undefined ? (
       <Glyph className="size-3.5" />
@@ -463,6 +492,7 @@ function BlockText({ kind, number, text, mark, label }: BlockTextProps) {
           {marker}
         </span>
       )}
+      {todo && <span className="sr-only">{done ? copy.ticked : copy.unticked}</span>}
       <Mark
         {...(label === undefined ? {} : { "aria-label": label })}
         className={cn(
