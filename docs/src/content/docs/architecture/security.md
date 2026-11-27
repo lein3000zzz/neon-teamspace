@@ -225,10 +225,10 @@ its own containers reach the server there. Caddy in the web image replaces
 server counts. With `NEON_WEB_TRUSTED_PROXIES` set, Caddy reads the header of the proxies in
 front from its end and stops at the first address that is none of theirs, so the entries a
 client wrote before it are never read. The server reads the header's last entry alone, as
-the proxy next to it wrote it: an entry that is no address, or an address with a port, such
-as `198.51.100.1:5555` or `[2001:db8::1]:443`, gives the port up, and anything else that is
-no address counts the proxy itself, never an entry before it. A server process counts on its own, and a second process would need a shared
-counter behind the same port.
+the proxy next to it wrote it: an address with a port, such as `198.51.100.1:5555` or
+`[2001:db8::1]:443`, gives the port up, and an entry that is no address counts the proxy
+itself, never an entry before it. A server process counts on its own, and a second process
+would need a shared counter behind the same port.
 
 ## Envelope encryption
 

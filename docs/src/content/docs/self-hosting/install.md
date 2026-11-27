@@ -132,10 +132,11 @@ its end, skips the addresses of the proxies it trusts, and stops at the first th
 theirs: that is the client, and whatever the client wrote into the header before it is never
 read. A proxy that appends the address it saw, as most do, works so; one that passes the
 header on as the client sent it, without its own entry, would let the client choose. The
-server only ever sees the client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
-set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
-do by default, and pass the server-sent events of `/mcp` on as they come, without buffering
-them, for the notifications of MCP clients.
+server only ever sees the client's address, as Caddy works it out.
+`Strict-Transport-Security` is then the proxy's to set. The proxy must also pass WebSocket
+upgrades on, for the live editing at `/ws`, as most do by default, and pass the server-sent
+events of `/mcp` on as they come, without buffering them, for the notifications of MCP
+clients.
 
 `NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
 change something, and WebSocket upgrades, whose `Origin` is another.
