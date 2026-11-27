@@ -445,7 +445,18 @@ export class Picker {
       "aria-invalid": addError === null ? "false" : "true",
       "aria-describedby": describedBy.join(" "),
       oninput: (event) => {
-        this.state.draft = (event.target as HTMLInputElement).value;
+        const field = event.target as HTMLInputElement;
+        this.state.draft = field.value;
+        if (this.state.insecure !== null) {
+          // The warning was for the address as it was: editing it takes the warning back,
+          // and Connect checks the address as it is now. The caret stays where it was.
+          const { selectionStart, selectionEnd } = field;
+          this.set({ insecure: null }, "address");
+          const again = document.getElementById("address");
+          if (again instanceof HTMLInputElement) {
+            again.setSelectionRange(selectionStart, selectionEnd);
+          }
+        }
       },
       onkeydown: (event) => {
         if ((event as KeyboardEvent).key === "Escape" && !first) {

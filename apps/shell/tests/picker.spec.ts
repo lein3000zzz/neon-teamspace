@@ -108,6 +108,36 @@ test("plain http waits for the warning to be accepted", async ({ page }) => {
   ]);
 });
 
+test("editing the address after the http warning takes the warning back", async ({ page }) => {
+  await launch(page);
+  const field = page.getByLabel("Server address");
+  await field.fill("http://192.168.1.20:3000");
+  await field.press("Enter");
+  await expect(page.getByRole("button", { name: "Connect anyway" })).toBeFocused();
+
+  // A key typed into the field: the warning goes, the field keeps the focus and the caret.
+  // The caret at the end, which the End key does not do on macOS.
+  await field.focus();
+  await field.evaluate((input: HTMLInputElement) =>
+    input.setSelectionRange(input.value.length, input.value.length),
+  );
+  await page.keyboard.type("01");
+  await expect(page.getByRole("button", { name: "Connect anyway" })).toHaveCount(0);
+  await expect(page.getByText("This connection is not encrypted")).toHaveCount(0);
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("http://192.168.1.20:300001");
+
+  // Connect checks the address as the field shows it, never the one the warning was for.
+  await field.fill("neon.example.com");
+  await field.press("Enter");
+  await expect(page.getByRole("status")).toHaveText("Opening Acme…");
+  expect(await opened(page)).toEqual([ACME.origin]);
+  expect((await calls(page)).filter((call) => call.cmd === "connect").map((c) => c.args)).toEqual([
+    { address: "http://192.168.1.20:3000", acceptInsecure: false },
+    { address: "neon.example.com", acceptInsecure: false },
+  ]);
+});
+
 test("servers whose addresses differ only in punctuation keep apart", async ({ page }) => {
   const alpha = { origin: "https://neon-example.com", name: "Alpha", version: "0.1.0" };
   const beta = { origin: "https://neon.example.com", name: "Beta", version: "0.2.0" };
