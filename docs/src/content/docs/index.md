@@ -14,12 +14,13 @@ hero:
 ---
 
 :::note[Early development]
-Neon Teamspace is before its first release. Accounts, workspaces and teamspaces, pages
-edited together in real time with their history, databases with their boards, comments,
-mentions and the inbox, search, agents over MCP and the API, OAuth for their clients,
-webhooks both ways and attachments exist, in the API and the web app, with the Docker images
-that serve them. Pages say what exists today and mark the rest of the design as
-**Planned**.
+Neon Teamspace is in early development, and the
+[changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists its
+releases. Accounts, workspaces and teamspaces, pages edited together in real time with their
+history, databases with their boards, comments, mentions and the inbox, search, agents over
+MCP and the API, OAuth for their clients, webhooks both ways and attachments exist, in the
+API and the web app, with the Docker images that serve them. Pages say what exists today and
+mark the rest of the design as **Planned**.
 :::
 
 ## Start here
@@ -38,6 +39,8 @@ that serve them. Pages say what exists today and mark the rest of the design as
 ## Running an instance
 
 - **[Install](/docs/self-hosting/install/)**: the Docker deployment, and the development setup.
+- **[Upgrading](/docs/self-hosting/upgrade/)**: moving an instance to a new release, and the
+  images' tags.
 - **[Configuration](/docs/self-hosting/configuration/)**: `neon.yaml`, `NEON_` variables, and
   which value wins.
 

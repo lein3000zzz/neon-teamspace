@@ -25,6 +25,12 @@ S3_TEST_CONTAINER ?= neon-s3-test
 # The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
 SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
+# The version of every crate, and so of a release: the cargo workspace's, in Cargo.toml.
+VERSION       := $(shell sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"$$/\1/p' Cargo.toml)
+# The files of the Compose archive a release attaches: what a stack of the published images
+# needs beside them, at the paths the install docs give.
+COMPOSE_FILES := LICENSE deployments/docker-compose.yml deployments/.env.example \
+	deployments/server.env.example deployments/grafana
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
 # A fixed project name, so db-down stops what db-up started whatever COMPOSE_PROJECT_NAME says.
@@ -299,6 +305,23 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 		$(CLAUDE) plugin validate --strict . && $(CLAUDE) plugin validate --strict integrations/claude-code; \
 	else echo "$(CLAUDE) is not installed: skipped claude plugin validate"; fi
 
+## Releases
+
+.PHONY: version-check
+# The release workflow passes the tag it runs for as TAG, which the recipe reads from the
+# environment rather than pasted into the command.
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+
+.PHONY: compose-archive
+# From the commit checked out, not the working tree, so the archive holds what the tag holds.
+compose-archive: ## Write dist/neon-teamspace-compose-VERSION.tar.gz, the Compose file and its settings a release attaches
+	@mkdir -p dist
+	git archive --format=tar.gz --prefix=neon-teamspace-$(VERSION)/ \
+		-o dist/neon-teamspace-compose-$(VERSION).tar.gz HEAD -- $(COMPOSE_FILES)
+	@echo "wrote dist/neon-teamspace-compose-$(VERSION).tar.gz"
+
 ## Checks
 
 .PHONY: licenses
@@ -318,10 +341,10 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean
-clean: ## Remove build output: target/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
+clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
 	$(CARGO) clean
-	rm -rf "$(OFFLINE_TARGET_DIR)" web/dist docs/dist docs/.astro docs/csp.caddy
+	rm -rf "$(OFFLINE_TARGET_DIR)" dist web/dist docs/dist docs/.astro docs/csp.caddy

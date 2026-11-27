@@ -31,6 +31,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       e2e: ${{ steps.filter.outputs.e2e }}
       blocks: ${{ steps.filter.outputs.blocks }}
+      versions: ${{ steps.filter.outputs.versions }}
     steps:
       # A push is compared, in git, with the commit the branch pointed to before it. The
       # whole history is fetched here, as without credentials the filter cannot fetch that
@@ -109,6 +110,25 @@ jobs:
               - deny.toml
               - .editorconfig
               - docs/package.json
+            # What make version-check reads, and what builds neon --version.
+            versions:
+              - *shared
+              - Cargo.toml
+              - Cargo.lock
+              - crates/*/Cargo.toml
+              - crates/server/src/cli.rs
+              - .claude-plugin/**
+              - integrations/**
+              - web/package.json
+              - docs/package.json
+              - docs/src/content/docs/**
+              - README.md
+              - CHANGELOG.md
+              - api/openapi.json
+              - deployments/docker-compose.yml
+              - deployments/.env.example
+              - deployments/server.env.example
+              - scripts/version.ts
 
   # Formatting, cargo-deny, clippy and the query cache check, on a runner beside the tests',
   # which take longest, so that neither waits for the other. Each job keeps a cache of its own,
@@ -338,6 +358,36 @@ jobs:
       - name: Licenses of the installed packages
         run: bun scripts/licenses.ts tools/blocknote-fixtures
 
+  # Every place that states the version states the workspace's, neon --version among them,
+  # which builds the server from the query cache. The release workflow runs the same check
+  # with the tag, and reads the cache this job saves on main.
+  versions:
+    name: Versions
+    needs: changes
+    if: needs.changes.outputs.versions == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: versions
+          save-if: ${{ github.event_name == 'push' }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - name: Every stated version is Cargo.toml's
+        run: make version-check
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
@@ -369,7 +419,7 @@ jobs:
   all:
     name: All checks
     if: always()
-    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, secrets]
+    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, secrets]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

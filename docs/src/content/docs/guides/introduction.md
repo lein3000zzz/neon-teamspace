@@ -30,7 +30,9 @@ the friends its owner lets in.
 
 ## What exists
 
-Neon Teamspace is in early development, before its first release. What exists:
+Neon Teamspace is in early development. The
+[changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
+each release brings. What exists:
 
 - The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
@@ -92,17 +94,16 @@ Neon Teamspace is in early development, before its first release. What exists:
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
-- The server and web images, and a Compose file that runs them with Postgres; see
-  [Install](/docs/self-hosting/install/).
+- The server and web images, and a Compose file that runs them with Postgres, published
+  with each release; see [Install](/docs/self-hosting/install/) and
+  [Upgrading](/docs/self-hosting/upgrade/).
 
 ## What is planned
 
-These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
-in the order it is built:
+These pages describe the design beyond what exists too, and mark it **Planned**:
 
-1. Signed releases and the first version, 0.1.0.
-2. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
-   from the server a person names.
+- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+  from the server a person names.
 
 ## What it is not
 

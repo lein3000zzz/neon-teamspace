@@ -10,20 +10,25 @@
 # for every published image, or e2e, Cargo.toml's quicker build of the same code, which make e2e
 # passes unless E2E_CARGO_PROFILE names another.
 
-# cargo-chef and cargo-about for the builder's platform, amd64 or arm64, as their projects
-# release them, checked against the checksums those releases publish. Compiled from source they
-# took minutes of a CI runner's build. Bumped by hand: a new version needs its new checksums.
+# cargo-chef, cargo-about and cargo-auditable for the builder's platform, amd64 or arm64, as
+# their projects release them, checked against the checksums those releases publish. Compiled
+# from source they took minutes of a CI runner's build. Bumped by hand: a new version needs its
+# new checksums.
 FROM --platform=$BUILDPLATFORM scratch AS tools-amd64
 ADD --unpack=true --checksum=sha256:70ef940ef90d04d122f0176fdb8d6c39069191b484a1eaa29b327370c2e1c3c0 \
     https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.78/cargo-chef-x86_64-unknown-linux-gnu.tar.xz /
 ADD --unpack=true --checksum=sha256:3ad1e94ea1e63d69d1961f4fb15ccbbe9575d906111f96d2cb4dce6df48f71b4 \
     https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.3/cargo-about-0.9.3-x86_64-unknown-linux-musl.tar.gz /
+ADD --unpack=true --checksum=sha256:6de0005fc0d414551da45d679bca258565d521ff8ee51c9da10ceed6b957a033 \
+    https://github.com/rust-secure-code/cargo-auditable/releases/download/v0.7.8/cargo-auditable-x86_64-unknown-linux-musl.tar.xz /
 
 FROM --platform=$BUILDPLATFORM scratch AS tools-arm64
 ADD --unpack=true --checksum=sha256:a47e13fba89c2895f5a5c3d0844acd2a5fd416eceb3a6f9dfb26e28155099f4e \
     https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.78/cargo-chef-aarch64-unknown-linux-gnu.tar.xz /
 ADD --unpack=true --checksum=sha256:eb4d9ff6ebd2518152a8308729431a04b3836e71d2bd5ead7aea69f91a71162e \
     https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.3/cargo-about-0.9.3-aarch64-unknown-linux-musl.tar.gz /
+ADD --unpack=true --checksum=sha256:3a84e9242f1309e519e7eeb941e08c7857ca62ce663913c222a73481120461a5 \
+    https://github.com/rust-secure-code/cargo-auditable/releases/download/v0.7.8/cargo-auditable-aarch64-unknown-linux-musl.tar.xz /
 
 FROM tools-$BUILDARCH AS tools
 
@@ -113,8 +118,13 @@ COPY crates ./crates
 COPY migrations ./migrations
 COPY .sqlx ./.sqlx
 ENV SQLX_OFFLINE=true
+# cargo-auditable writes the crates the binary links, with their versions, into a section of
+# the binary, where the image's SBOM scanner reads them: without it, the SBOM would list the
+# base image's Debian packages alone. Only the binary's own link changes, so the dependencies
+# cooked above are used as they are.
+COPY --from=tools /cargo-auditable-*/cargo-auditable /usr/local/cargo/bin/
 RUN . /cross.env \
-    && cargo build --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server --bin neon \
+    && cargo auditable build --profile "$CARGO_PROFILE" --locked --target "$RUST_TARGET" -p neon-server --bin neon \
     && cp "target/$RUST_TARGET/$CARGO_PROFILE/neon" /neon \
     && mkdir /data
 
