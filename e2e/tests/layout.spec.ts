@@ -208,6 +208,13 @@ test("the sidebar keeps to its column with a long page title and its emoji, and 
       { teamspace_id: general?.id, title: "Sensor wiring notes", icon: "🔌" },
       201,
     );
+    await callApi(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Kickoff notes", icon: "📝" },
+      201,
+    );
 
     await page.goto("/inbox");
     const sidebar = page.getByRole("complementary");
@@ -235,6 +242,12 @@ test("the sidebar keeps to its column with a long page title and its emoji, and 
         : `${drawn.left}..${drawn.right} in ${frame.left}..${frame.right}`;
     });
     expect(icon).toBe("whole");
+    // A row's actions, hidden, take no room from its title, which shows whole when it fits.
+    const kickoff = sidebar.getByRole("link", { name: "Kickoff notes" }).locator("span.truncate");
+    expect(
+      await kickoff.evaluate((title) => title.scrollWidth <= title.clientWidth),
+      "Kickoff notes uncut",
+    ).toBe(true);
     // The row's actions show on hover, inside the column.
     await row.hover();
     const more = sidebar.getByRole("button", { name: "More for Sensor wiring notes" });

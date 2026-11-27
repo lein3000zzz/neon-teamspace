@@ -119,7 +119,7 @@ function TeamspaceSection({ workspace, teamspace, onNavigate }: TeamspaceSection
           <span className="min-w-0 flex-1 truncate">{teamspace.name}</span>
           {teamspace.access === "private" && <Lock aria-hidden className="size-3.5 shrink-0" />}
         </Link>
-        <div data-row-actions="" className="flex shrink-0 items-center">
+        <div data-row-actions="over" className="flex shrink-0 items-center">
           <Button
             variant="ghost"
             size="icon-sm"
