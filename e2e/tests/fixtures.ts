@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { test as base, expect, type ConsoleMessage, type Page } from "@playwright/test";
+import {
+  test as base,
+  expect,
+  type ConsoleMessage,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 export { expect };
 
@@ -43,6 +49,25 @@ function admin(): { email: string; password: string } | undefined {
   const email = process.env.E2E_ADMIN_EMAIL;
   const password = process.env.E2E_ADMIN_PASSWORD;
   return email && password ? { email, password } : undefined;
+}
+
+/**
+ * Shows more of the page's list with its Load more button until `item` is in it. The admin's
+ * lists start with the oldest, so what a test made comes past the first page once the runs
+ * before it filled that.
+ */
+export async function loadMoreUntil(page: Page, item: Locator) {
+  const items = page.getByRole("main").getByRole("listitem");
+  const more = page.getByRole("button", { name: "Load more" });
+  // The first page is in: it holds the item, or there is more.
+  await expect(item.or(more).first()).toBeVisible();
+  while (!(await item.isVisible())) {
+    const shown = await items.count();
+    await more.click();
+    await expect
+      .poll(() => items.count(), { message: "the next page of the list" })
+      .toBeGreaterThan(shown);
+  }
 }
 
 /** Signs in through the form, and waits for the page it leads to. */
