@@ -44,7 +44,7 @@ export type CommentsPanelProps = {
   people: ReadonlyMap<string, Someone>;
   /** The thread open in the panel, highlighted in the page. */
   active: string | null;
-  /** A thread to move focus to, as when the keyboard opened it; each request a new object. */
+  /** A thread to move focus to, as when the keyboard or a link opened it; each request a new object. */
   focusRequest: { threadId: string } | null;
   onActive: (threadId: string | null) => void;
   /** The thread a link names, shown in its part of the list though that part is not read yet. */
@@ -417,6 +417,7 @@ function ThreadItem({
   );
   const { head, tail, hidden } = threadComments(thread, read);
   const item = useRef<HTMLElement>(null);
+  const quoteId = useId();
   const resolved = isResolved(thread);
   const anchor = thread.anchor ?? null;
   const first = thread.comments[0];
@@ -442,12 +443,17 @@ function ThreadItem({
         ref={item}
         tabIndex={-1}
         aria-label={copy.thread(someoneNamed(starter, copy.gone))}
+        // Read out with its name when focus comes to it, as a link to it moves focus here.
+        {...(anchor === null ? {} : { "aria-describedby": quoteId })}
         {...(active ? { "data-active": "" } : {})}
         className="grid gap-3 rounded-lg border border-border bg-card p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring data-active:border-primary"
       >
         {anchor !== null && (
           <div className="grid gap-1">
-            <blockquote className="line-clamp-3 border-l-2 border-primary pl-2 text-sm text-muted-foreground">
+            <blockquote
+              id={quoteId}
+              className="line-clamp-3 border-l-2 border-primary pl-2 text-sm text-muted-foreground"
+            >
               {anchor.quote}
             </blockquote>
             {anchor.detached ? (

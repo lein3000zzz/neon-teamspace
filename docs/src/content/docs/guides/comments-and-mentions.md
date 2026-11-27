@@ -174,8 +174,9 @@ Someone who cannot see the page is marked so, and picking them says that the men
 tell them nothing, with **Share**, to those who may share the page, to share it with them
 first.
 
-A link from the inbox opens the page at what it is about: the panel at its thread, its
-passage selected, or the cursor at the block a mention is in.
+A link from the inbox opens the page at what it is about: the panel at its thread, which
+takes focus, its passage scrolled into view and marked as the one open, nothing selected; or
+the cursor at the block a mention is in.
 
 ## The API
 

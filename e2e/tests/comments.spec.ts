@@ -130,18 +130,23 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
       bobPage.getByRole("complementary").first().getByRole("link", { name: "Inbox, 1 unread" }),
     ).toBeVisible();
 
-    // Its link opens the page at the thread, the passage selected and marked.
+    // Its link opens the page at the thread: the passage marked and in view, and focus on
+    // the thread in the panel. No text is selected, so no formatting toolbar shows.
     await bobPage.getByRole("link", { name: summary }).click();
     await expect(bobPage).toHaveURL(new RegExp(`/p/${plan.id}\\?comment=`));
     await live(bobPage);
     const bobsThread = panel(bobPage).getByRole("article", { name: `Thread by ${ada.name}` });
     await expect(bobsThread).toHaveAttribute("data-active", "");
-    await expect(content(bobPage).locator(".comment-highlight.is-active")).toHaveText("Friday");
-    await expect
-      .poll(() => bobPage.evaluate(() => document.getSelection()?.toString()), {
-        message: "the thread's passage is selected",
-      })
-      .toBe("Friday");
+    await expect(bobsThread).toBeFocused();
+    await expect(bobsThread).toHaveAccessibleDescription("Friday");
+    const passage = content(bobPage).locator(".comment-highlight.is-active");
+    await expect(passage).toHaveText("Friday");
+    await expect(passage).toBeInViewport();
+    expect(
+      await bobPage.evaluate(() => document.getSelection()?.toString() ?? ""),
+      "no text selected",
+    ).toBe("");
+    await expect(bobPage.locator(".bn-formatting-toolbar")).toHaveCount(0);
 
     // Bob replies; Ada sees the reply in her panel, and in her inbox's count.
     await bobsThread.getByRole("button", { name: "Reply" }).click();

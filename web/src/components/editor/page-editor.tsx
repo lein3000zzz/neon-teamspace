@@ -50,6 +50,7 @@ import {
   COMMENT_HIGHLIGHTS,
   commentHighlights,
   revealThread,
+  scrollToThread,
   selectionAnchor,
   showThreads,
   type CommentHandlers,
@@ -74,7 +75,10 @@ export type EditorHandle = {
   reveal: (anchor: Pick<ThreadAnchor, "start" | "end">) => boolean;
 };
 
-/** Where a link opens the page: at a thread's text, or at a block. */
+/**
+ * Where a link opens the page: at a thread's text, scrolled to without
+ * selecting it, or at a block, the caret in it.
+ */
 export type OpenAt =
   | { kind: "thread"; anchor: Pick<ThreadAnchor, "start" | "end"> }
   | { kind: "block"; blockId: string };
@@ -299,8 +303,8 @@ function LiveEditor({
     };
   }, [editor, handleRef]);
 
-  // Before the page opens at a thread: the highlights first, so the text selected is
-  // drawn in them.
+  // Before the page opens at a thread: the highlights first, so the text scrolled to is
+  // marked.
   const { threads, active } = comments;
   useEffect(() => {
     showThreads(editor.prosemirrorView, threads, active);
@@ -320,7 +324,7 @@ function LiveEditor({
       }
       const opened =
         openAt.kind === "thread"
-          ? revealThread(editor.prosemirrorView, openAt.anchor)
+          ? scrollToThread(editor.prosemirrorView, openAt.anchor)
           : showBlock(editor, openAt.blockId);
       if (opened) {
         done = true;

@@ -46,6 +46,14 @@ function pageWith(parts: (string | Y.XmlElement)[]) {
   return sync;
 }
 
+/** The text of the first paragraph of a page `pageWith` made. */
+function textOf(doc: Y.Doc): Y.XmlText {
+  const blocks = doc.getXmlFragment(FRAGMENT).get(0) as Y.XmlElement;
+  const container = blocks.get(0) as Y.XmlElement;
+  const inline = container.get(0) as Y.XmlElement;
+  return inline.get(0) as Y.XmlText;
+}
+
 /** Selects `text` where the editor shows it, as dragging over it would. */
 function selectText(root: HTMLElement, text: string) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -520,6 +528,47 @@ describe("a page's comments", () => {
     expect(thread).toHaveAttribute("data-active");
     expect(panel.getByRole("radio", { name: "Resolved" })).toBeChecked();
     expect(within(thread).getByText(/Resolved by Bob/)).toBeInTheDocument();
+  });
+
+  it("opens at the text of the thread a link names, marked, focus on the thread, nothing selected", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = pageWith(["Kick-off on Monday"]);
+    const at = (index: number) =>
+      btoa(
+        String.fromCharCode(
+          ...Y.encodeRelativePosition(
+            Y.createRelativePositionFromTypeIndex(textOf(sync.doc), index),
+          ),
+        ),
+      );
+    const thread = pageThread(PAGE_IDS.roadmap, "Which Monday?");
+    thread.anchor = { start: at(12), end: at(18), quote: "Monday", detached: false };
+    fakeComments({ threads: [thread] });
+    renderApp(`${PATH}?comment=${COMMENT_IDS.thread}`);
+    const editor = await content();
+
+    const panel = within(await screen.findByRole("complementary", { name: "Comments" }));
+    const article = await panel.findByRole("article", { name: "Thread by Ada" });
+    await waitFor(() => expect(article).toHaveFocus());
+    expect(article).toHaveAttribute("data-active");
+    expect(article).toHaveAccessibleDescription("Monday");
+    const highlight = editor.querySelector(`[data-thread="${COMMENT_IDS.thread}"]`);
+    expect(highlight).toHaveTextContent("Monday");
+    expect(highlight).toHaveClass("comment-highlight", "is-active");
+    expect(document.getSelection()?.toString() ?? "").toBe("");
+  });
+
+  it("opens at a thread on the page as a whole, focus on it", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    fakeComments({ threads: [pageThread(PAGE_IDS.roadmap, "Looks good")] });
+    renderApp(`${PATH}?comment=${COMMENT_IDS.thread}`);
+
+    const panel = within(await screen.findByRole("complementary", { name: "Comments" }));
+    const article = await panel.findByRole("article", { name: "Thread by Ada" });
+    await waitFor(() => expect(article).toHaveFocus());
   });
 
   it("opens at the block a link names, the cursor in it", async () => {
