@@ -320,9 +320,12 @@ alone: nothing comes from the Actions cache, neither crates built before nor Bun
 provenance vouches only for what the tag holds, and every release builds them from scratch.
 Each job that builds or signs an app passes the SHA-256 of its files on to the next as a job
 output, and the job that signs or attaches a file stops when it does not match, as another job
-of the run could replace an artifact. It builds the APK unsigned, and signs it in a job of its
-own, which runs only the Android SDK's `zipalign` and `apksigner`, when the repository has
-these secrets:
+of the run could replace an artifact. The job that attaches the files attests them too, once
+it has checked them and every other job passed: the jobs that build them run the crates' build
+scripts and the packages' code, and get no OIDC token, with which that code could attest any
+file as the workflow's. It builds the APK unsigned, and once the end-to-end tests passed signs
+it in a job of its own, which runs only the Android SDK's `zipalign` and `apksigner`, when the
+repository has these secrets:
 
 | Secret | What it holds |
 |---|---|

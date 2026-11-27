@@ -1,22 +1,26 @@
 # A release, on a version tag such as v1.2.3. Each job starts only once the one before it
-# passed, so nothing is published unless every check did: the version check, which needs the
-# tag to name the workspace's version; the end-to-end tests of the release build; the server and
-# web images for linux/amd64 and linux/arm64 on GHCR, built from the tag without a cache, with
-# OCI labels, an SBOM and build provenance; beside them the apps, desktop on each platform's
-# runner and Android on Linux, also built from the tag without a cache, with build provenance;
-# and a GitHub release with the Compose archive, the apps' installers and a SHA256SUMS file of
-# them attached, whose notes name the images and their tags and link the docs, before the ones
-# GitHub generates from the merged pull requests. It needs no secret but the workflow's own
-# token, and the Android keystore's, when the repository has them, to sign the APK in a job of
-# its own. The iOS app is built on a Mac with Xcode and goes to TestFlight, outside this
-# workflow.
+# passed, so nothing is published, signed or attested unless every check did: the version
+# check, which needs the tag to name the workspace's version; the end-to-end tests of the
+# release build; the server and web images for linux/amd64 and linux/arm64 on GHCR, built from
+# the tag without a cache, with OCI labels, an SBOM and build provenance; beside them the apps,
+# desktop on each platform's runner and Android on Linux, also built from the tag without a
+# cache; and a GitHub release with the Compose archive, the apps' installers and a SHA256SUMS
+# file of them attached, whose notes name the images and their tags and link the docs, before
+# the ones GitHub generates from the merged pull requests; its job gives the apps' files their
+# build provenance. It needs no secret but the workflow's own token, and the Android keystore's, when the
+# repository has them, to sign the APK in a job of its own. The iOS app is built on a Mac with
+# Xcode and goes to TestFlight, outside this workflow.
 #
 # No job that publishes or signs reads the Actions cache, which is neither signed nor checked:
 # a tag's run restores what its own ref or the default branch saved, which any code that ran in
 # one of their jobs with the job's token could have written. Nor does such a job trust an
 # artifact of the run as it finds it, as the same token lets any job of the run replace one: the
 # job that built a file passes its SHA-256 on as a job output, which only that job can set, and
-# the job that signs or attaches the file checks it first.
+# the job that signs or attaches the file checks it first. Nor can the apps' build reach the
+# workflow's OIDC token, with which the crates' build scripts or the packages' code could attest
+# any file as this workflow's: the jobs that build or sign the apps get none, and the release
+# job attests the apps' files once it has checked them. The images build inside BuildKit, which
+# their job's OIDC token does not reach.
 name: Release
 
 on:
@@ -167,9 +171,8 @@ jobs:
   # signing for macOS and Windows needs certificates the project does not hold, so the apps docs
   # say how to open them the first time. Linux builds on the oldest Ubuntu runner, as the
   # AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35, or a later
-  # one. Each installer gets build provenance, an attestation of the workflow run and the
-  # commit that made it; as a safety net, as for the images' signatures, not should the
-  # repository ever be private, where GitHub keeps attestations only on Enterprise plans.
+  # one. The release job attests their build provenance, not this one, which runs the crates'
+  # build scripts and the packages' code and so has no OIDC token to sign with.
   # Nothing comes from the Actions cache, as for the images: no crates built before, nor Bun
   # itself. Unsigned as the apps are, their attestations and checksums vouch for them, and a
   # cached build could put into them what no file of the tag holds. Without a cache every run
@@ -182,8 +185,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
-      attestations: write
     # Each platform's files with their SHA-256, under an output of its own, so the matrix's
     # jobs set them side by side.
     outputs:
@@ -289,10 +290,6 @@ jobs:
             done
             echo SHA256_END
           } >> "$GITHUB_OUTPUT"
-      - if: ${{ !github.event.repository.private }}
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: release-assets/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-${{ matrix.id }}
@@ -362,19 +359,18 @@ jobs:
   # runs. Signed when the repository has the keystore's secrets: ANDROID_KEY_BASE64, the keystore
   # in base64; ANDROID_KEY_ALIAS, its key's alias; and ANDROID_KEY_PASSWORD, the password of
   # both. Without them the APK stays unsigned, and its name says so: Android installs no
-  # unsigned APK until someone signs it. Then, as the desktop installers, build provenance, and
-  # the SHA-256 of the APK it attaches, as its output: the hash alone, as GitHub drops an output
-  # of this job that holds one of its secrets' values, and the key's alias could be any word of
-  # the APK's name.
+  # unsigned APK until someone signs it. Only once the end-to-end tests passed too, so that the
+  # key signs no APK of a release they failed. Then the SHA-256 of the APK it attaches, as its
+  # output: the hash alone, as GitHub drops an output of this job that holds one of its secrets'
+  # values, and the key's alias could be any word of the APK's name. The release job attests
+  # the APK, as it does the desktop installers.
   android-release:
     name: App (Android, release)
-    needs: android
+    needs: [android, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
-      attestations: write
     outputs:
       sha256: ${{ steps.checksum.outputs.sha256 }}
     env:
@@ -424,10 +420,6 @@ jobs:
           test "${#apks[@]}" -eq 1
           sha256="$(sha256sum < "${apks[0]}" | cut -d ' ' -f 1)"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
-      - if: ${{ !github.event.repository.private }}
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: release-assets/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-android
@@ -442,6 +434,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write # create the release
+      id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
+      attestations: write
     steps:
       # The tag's commit, which make compose-archive reads the archive's files from.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -456,9 +450,8 @@ jobs:
           merge-multiple: true
       # The apps' files as the jobs that built them list them in their outputs: each of them,
       # with its SHA-256, and no other. The APK's name is the one android-release gives it,
-      # signed or not. Then one file of the SHA-256 checksums of everything the release
-      # attaches, as sha256sum --check reads it.
-      - name: Checksums
+      # signed or not.
+      - name: Check the apps' files
         env:
           TAG: ${{ github.ref_name }}
           DESKTOP: ${{ toJSON(needs.desktop.outputs) }}
@@ -472,6 +465,19 @@ jobs:
           find release-assets -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$RUNNER_TEMP/downloaded"
           diff -u "$RUNNER_TEMP/built" "$RUNNER_TEMP/downloaded"
           (cd release-assets && sha256sum --check --strict "$built")
+      # Each of them gets build provenance, an attestation of the workflow run and the commit
+      # that made it, here rather than in the jobs that built them, which run the crates' build
+      # scripts and the packages' code, and only once every check passed. As a safety net, as
+      # for the images' signatures, not should the repository ever be private, where GitHub
+      # keeps attestations only on Enterprise plans.
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-assets/*
+      # One file of the SHA-256 checksums of everything the release attaches, as sha256sum
+      # --check reads it.
+      - name: Checksums
+        run: |
           cp dist/neon-teamspace-compose-*.tar.gz release-assets/
           cd release-assets
           sha256sum -- * > SHA256SUMS
