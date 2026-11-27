@@ -186,6 +186,10 @@ The picker follows the system's light or dark mode, and its **Theme** choice off
 app's palettes: Nothing, Soft and Warm. The server's interface keeps your own appearance
 settings, as it does in a browser.
 
+The picker's **Third-party licenses** link opens the license notices of the packages and
+crates the app ships. For each one under MPL-2.0 they give its address on npm or crates.io and
+its repository, where its source is.
+
 ## Security model
 
 **Origin lock.** The web view loads only the app's own origin, which serves the bundled
@@ -265,61 +269,12 @@ server needs a publicly trusted certificate there.
 ## Building from source
 
 The apps' project is `apps/shell/` in the repository: the picker in TypeScript, built with
-Vite, and the Rust side in `apps/shell/src-tauri/`, a Cargo workspace of its own. Beside what
-the [README](https://github.com/lein3000zzz/neon-teamspace#development) lists, cargo-about
-among them, a build needs [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/)
-for its platform:
-
-- **Linux**: WebKitGTK 4.1 and the other libraries Tauri lists, on Debian or Ubuntu
-  `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev
-  libayatana-appindicator3-dev librsvg2-dev`.
-- **macOS**: Xcode's command-line tools for the desktop app; full Xcode and CocoaPods
-  (`brew install cocoapods`) for iOS.
-- **Windows**: the Microsoft C++ build tools and WebView2.
-- **Android**: JDK 17, the Android SDK with its platform tools and NDK, and the Rust targets
-  `aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`.
-  `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` must point at them.
-
-The Makefile runs everything:
-
-```sh
-make app-install    # the picker's packages and Tauri's CLI, pinned in apps/shell/bun.lock
-make app-dev        # the desktop app, the picker reloading as it changes
-make app-check      # the picker's types, lints and formatting; the Rust side's formatting,
-                    # clippy and tests (part of make check)
-make app-browsers   # once: the headless Chromium and WebKit for the next line
-make app-test       # the picker on its own, in Chromium and WebKit at desktop and phone sizes
-make app-build      # this machine's desktop app and installers
-make app-webview-check  # on Linux, after make app-build: the app against a hostile server
-make app-android    # an APK for every ABI, signed with the debug key, for testing
-make app-ios        # the iOS app for TestFlight
-```
-
-Each build of the picker writes `THIRD_PARTY_NOTICES.txt` beside it, with the license
-notices of the picker's packages and, through cargo-about, of the crates the apps link, and
-for each one under MPL-2.0 its address on npm or crates.io and its repository, where its
-source is. The app embeds it with the picker, whose **Third-party licenses** link opens it.
-
-`make app-build` writes to `apps/shell/src-tauri/target/release/bundle/`: on macOS the `.app`
-and a `.dmg`, on Windows the `.msi` and setup `.exe`, on Linux the `.deb`, `.rpm` and AppImage.
-It sets `CI=true`, which makes the disk image's script skip the AppleScript that arranges its
-Finder window; that script needs permission to control Finder. `make app-android` writes
-`apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`,
-which `adb install` puts on a device or an emulator.
-
-`make app-webview-check` runs the built Linux app in WebKitGTK against a stand-in server whose
-page calls the picker's commands while it sends the window to the app's own origin, and fails
-if one call goes through. It needs a display: CI runs it under `xvfb-run -a`.
-
-### iOS
-
-The iOS app builds on a Mac with full Xcode, and is signed with an Apple developer team's
-certificate: set `APPLE_DEVELOPMENT_TEAM` to the team's ID, or `bundle.iOS.developmentTeam` in
-`apps/shell/src-tauri/tauri.conf.json`. `make app-ios` archives the app and exports it for App
-Store Connect, from where Xcode's Organizer or Apple's Transporter uploads it to TestFlight.
-`bun run tauri ios dev` in `apps/shell` runs it in a simulator. The Xcode project is generated
-in `apps/shell/src-tauri/gen/apple/`; `bun run tauri ios init` there makes it again after
-Tauri's template changes.
+Vite, and the Rust side in `apps/shell/src-tauri/`.
+[CONTRIBUTING.md](https://github.com/lein3000zzz/neon-teamspace/blob/main/CONTRIBUTING.md#the-apps)
+lists what each platform needs to build them and the `make` targets that do.
+`make app-android` builds an APK signed with Android's debug key, which `adb install` puts on a
+device or an emulator, and `make app-build` the desktop app's installers for the machine it
+runs on.
 
 ### Releases
 

@@ -109,18 +109,54 @@ its scripts and its license notices among the rest.
 
 ### The apps
 
-The desktop and mobile apps in `apps/shell/` build with Tauri, which needs its
-[platform prerequisites](https://v2.tauri.app/start/prerequisites/) as well: WebKitGTK and a
-few libraries on Linux, Xcode for iOS, and the Android SDK, NDK and a JDK for Android.
+The desktop and mobile apps are the Tauri project in `apps/shell/`: the server picker in
+TypeScript, built with Vite, and the Rust side in `apps/shell/src-tauri/`, a Cargo workspace
+of its own. Beside what [What you need](#what-you-need) lists, cargo-about among them, a build
+needs [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/) for its platform:
+
+- **Linux**: WebKitGTK 4.1 and the other libraries Tauri lists, on Debian or Ubuntu
+  `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev
+  libayatana-appindicator3-dev librsvg2-dev`.
+- **macOS**: Xcode's command-line tools for the desktop app; full Xcode and CocoaPods
+  (`brew install cocoapods`) for iOS.
+- **Windows**: the Microsoft C++ build tools and WebView2.
+- **Android**: JDK 17, the Android SDK with its platform tools and NDK, and the Rust targets
+  `aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`.
+  `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` must point at them.
 
 ```sh
-make app-install           # the apps' server picker and Tauri's CLI, which make check checks too
-make app-dev               # the desktop app
+make app-install           # the picker's packages and Tauri's CLI, pinned in apps/shell/bun.lock
+make app-dev               # the desktop app, the picker reloading as it changes
+make app-check             # the picker's types, lints and formatting; the Rust side's
+                           # formatting, clippy and tests (part of make check)
+make app-browsers          # once: the headless Chromium and WebKit for the next line
+make app-test              # the picker on its own, in Chromium and WebKit at desktop and phone sizes
+make app-build             # this machine's desktop app and installers
+make app-webview-check     # on Linux, after make app-build: the app against a hostile server
+make app-android           # an APK for every ABI, signed with the debug key, for testing
+make app-ios               # the iOS app, signed for an Apple developer team
 ```
 
-`make app-build` builds the desktop app's installers, and `make app-android` a debug APK. The
-[Apps guide](docs/src/content/docs/guides/apps.md) covers them, connecting them to a server,
-their security model and building them.
+`make app-build` writes to `apps/shell/src-tauri/target/release/bundle/`: on macOS the `.app`
+and a `.dmg`, on Windows the `.msi` and setup `.exe`, on Linux the `.deb`, `.rpm` and AppImage.
+It sets `CI=true`, which makes the disk image's script skip the AppleScript that arranges its
+Finder window; that script needs permission to control Finder. `make app-android` writes
+`apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`,
+which `adb install` puts on a device or an emulator.
+
+`make app-webview-check` runs the built Linux app in WebKitGTK against a stand-in server whose
+page calls the picker's commands while it sends the window to the app's own origin, and fails
+if one call goes through. It needs a display: CI runs it under `xvfb-run -a`.
+
+The iOS app builds on a Mac with full Xcode, and needs an Apple developer team's certificate
+to sign it. Set `APPLE_DEVELOPMENT_TEAM` to the team's ID, or `bundle.iOS.developmentTeam` in
+`apps/shell/src-tauri/tauri.conf.json`. `make app-ios` archives the app and exports it for App
+Store Connect. `bun run tauri ios dev` in `apps/shell` runs it in a simulator. The Xcode
+project is generated in `apps/shell/src-tauri/gen/apple/`; `bun run tauri ios init` in
+`apps/shell` makes it again after Tauri's template changes.
+
+The [Apps guide](docs/src/content/docs/guides/apps.md) covers installing the apps, connecting
+them to a server, and their security model, which a change to the apps must keep.
 
 ### The whole stack from the checkout
 
@@ -149,7 +185,8 @@ runs, so commit it with the route change.
 
 ## Checks
 
-A pull request must pass `make check`, the tests and the end-to-end tests.
+A pull request must pass `make check`, the tests and the end-to-end tests. One that changes
+the apps must pass `make app-test` and CI's **App shell** job too.
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and the
 advisory database are downloaded, no network: formatting, clippy with warnings as errors, a
