@@ -108,9 +108,12 @@ unused_must_use = "deny"
 [workspace.lints.clippy]
 dbg_macro = "warn"
 todo = "warn"
+unimplemented = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Every unsafe block says why it is sound, in a SAFETY comment.
+undocumented_unsafe_blocks = "warn"
 # Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
 mod_module_files = "warn"
 
