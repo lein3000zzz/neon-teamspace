@@ -435,8 +435,9 @@ make check
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
 as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
 settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, and the license and advisory checks, which read the packages installed in `web/`,
-`docs/` and `e2e/`. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+checks, the version check, which fails unless everything that states the version states
+the cargo workspace's, and the license and advisory checks, which read the packages installed
+in `web/`, `docs/` and `e2e/`. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
 `target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
 in `target/`, it could reuse queries last checked against the database instead of the cache.

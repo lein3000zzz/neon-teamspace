@@ -15,7 +15,7 @@ pub struct Meta {
     #[schema(example = "Neon Teamspace")]
     pub name: String,
     /// The server's version.
-    #[schema(example = "0.1.0")]
+    #[schema(example = json!(env!("CARGO_PKG_VERSION")))]
     pub version: String,
 }
 

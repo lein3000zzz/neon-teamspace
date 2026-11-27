@@ -13,7 +13,6 @@ import {
   readServer,
   resourceTemplates,
   type Server,
-  serverVersion,
   readTools,
 } from "./check.ts";
 
@@ -276,10 +275,6 @@ describe("checkPlugin", () => {
       "plugin.json: userConfig.server_url has unknown fields: pattern",
     ]);
     expect(checked.plugin.servers).toEqual(["neon"]);
-  });
-
-  it("reads the server's version from the workspace", () => {
-    expect(serverVersion(repoRoot)).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
 

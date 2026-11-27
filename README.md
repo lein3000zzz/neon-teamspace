@@ -159,7 +159,7 @@ make blocks-install        # BlockNote, for the block fixtures, which make check
 the advisory database are downloaded, no network: formatting, clippy, a build from the
 `.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
 checks, the block fixtures in both directions, the Claude Code plugin, with Claude Code's
-own validation when `claude` is installed, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+own validation when `claude` is installed, the version check, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -216,6 +216,7 @@ GitHub Actions runs three workflows.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
+  - **Versions:** `make version-check`, which builds the server for `neon --version`, whenever a file that states the version changes; see [Releasing](#releasing).
   - **Secret scan:** gitleaks over the run's new commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
@@ -229,6 +230,37 @@ GitHub Actions runs three workflows.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
+
+### Releasing
+
+The cargo workspace's version, in `Cargo.toml`, is the release's. `make version-check` fails
+unless every other place that states it agrees:
+
+- the crates, which take it with `version.workspace = true`, and `Cargo.lock`;
+- `neon --version`, which prints the version the binary was built with, the one
+  `/api/v1/meta` answers and the web app shows; a server test and the end-to-end tests check
+  those two against the running server;
+- the Claude Code plugin's `plugin.json`, the `web/` and `docs/` packages, and
+  `api/openapi.json`;
+- the images `deployments/docker-compose.yml` runs while `NEON_VERSION` is unset;
+- the newest section of `CHANGELOG.md`, dated, or `Unreleased` between releases;
+- the docs and the example settings, where they name the version, an image, the Compose
+  archive or a release's page.
+
+Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
+changelog's section must have its date. `make check` runs the check, and so does CI's
+**Versions** job whenever one of those files changes.
+
+To release:
+
+1. On a branch into `dev`, set the version in `Cargo.toml`, then `make api-spec web-api` and
+   a build, which update the generated files and `Cargo.lock`. `make version-check` lists
+   every file that still states the old version. Write the release's section of
+   `CHANGELOG.md`, dated the day of the tag.
+2. Merge `dev` into `main`.
+3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
+   The release workflow does the rest. `make compose-archive` writes the archive it attaches,
+   to look at before tagging.
 
 ## Licenses
 

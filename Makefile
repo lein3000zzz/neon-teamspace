@@ -301,6 +301,13 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 
 ## Releases
 
+.PHONY: version-check
+# The release workflow passes the tag it runs for as TAG, which the recipe reads from the
+# environment rather than pasted into the command.
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+
 .PHONY: compose-archive
 # From the commit checked out, not the working tree, so the archive holds what the tag holds.
 compose-archive: ## Write dist/neon-teamspace-compose-VERSION.tar.gz, the Compose file and its settings a release attaches
@@ -328,7 +335,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean
