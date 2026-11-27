@@ -11,7 +11,7 @@ each change.
 Each section is a release, newest first, dated the day it was tagged. Between releases, the
 next one's section may say `Unreleased` instead of a date.
 
-## 0.1.0 - 2026-11-27
+## 0.1.0 - 2026-11-28
 
 The first release: a self-hosted team workspace with pages edited together in real time,
 databases and boards, comments and an inbox, search, history and attachments, and agents
