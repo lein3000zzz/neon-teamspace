@@ -140,6 +140,7 @@ jobs:
               - apps/**
               # The palettes the picker reads from the web app.
               - web/src/styles/palettes.css
+              - LICENSE # the installers carry it, as tauri.conf.json says
               - scripts/**
               - rust-toolchain.toml
               - clippy.toml
