@@ -62,6 +62,26 @@ gh attestation verify Neon-Teamspace_<version>_aarch64.dmg --repo lein3000zzz/ne
 It fails for a file that the repository's release workflow did not build. Releases made while
 the repository was private have checksums but no provenance.
 
+### How a release builds them
+
+The release workflow builds the desktop apps on GitHub's Linux (Ubuntu 22.04), Windows and
+macOS runners, and the Android APK on Linux, and attaches them to the release with
+`SHA256SUMS`. Like the server's images, they build from the tag's checkout alone. Nothing
+comes from the Actions cache, neither crates built before nor Bun, so the provenance vouches
+only for what the tag holds, and every release builds them from scratch.
+
+Each job that builds or signs an app passes the SHA-256 of its files on to the next as a job
+output. The job that signs or attaches a file stops when the file does not match, since
+another job of the run could replace an artifact. The job that attaches the files also attests
+them, once it has checked them and every other job has passed. The jobs that build the apps
+run the crates' build scripts and the packages' code, so they get no OIDC token, which that
+code could use to attest any file as the workflow's.
+
+The workflow builds the APK unsigned. Once the end-to-end tests have passed, a job of its own
+signs it with the project's Android key, running only the Android SDK's `zipalign` and
+`apksigner`. Only that job gets the key. It writes the key outside any checkout and deletes it
+once used, so no build script, Gradle plugin or package can read it.
+
 ## Connecting to a server
 
 On first launch the app asks for the server's address. Enter the one you open Neon
@@ -275,31 +295,3 @@ lists what each platform needs to build them and the `make` targets that do.
 `make app-android` builds an APK signed with Android's debug key, which `adb install` puts on a
 device or an emulator, and `make app-build` the desktop app's installers for the machine it
 runs on.
-
-### Releases
-
-The release workflow builds the desktop apps on GitHub's Linux (Ubuntu 22.04), Windows and
-macOS runners, and the Android APK on Linux, attests their build provenance, and attaches them
-to the release with `SHA256SUMS`. Like the server's images, they build from the tag's checkout
-alone: nothing comes from the Actions cache, neither crates built before nor Bun, so the
-provenance vouches only for what the tag holds, and every release builds them from scratch.
-Each job that builds or signs an app passes the SHA-256 of its files on to the next as a job
-output, and the job that signs or attaches a file stops when it does not match, as another job
-of the run could replace an artifact. The job that attaches the files attests them too, once
-it has checked them and every other job passed: the jobs that build them run the crates' build
-scripts and the packages' code, and get no OIDC token, with which that code could attest any
-file as the workflow's. It builds the APK unsigned, and once the end-to-end tests passed signs
-it in a job of its own, which runs only the Android SDK's `zipalign` and `apksigner`, when the
-repository has these secrets:
-
-| Secret | What it holds |
-|---|---|
-| `ANDROID_KEY_BASE64` | The release keystore, as `base64 -i release.jks` prints it. |
-| `ANDROID_KEY_ALIAS` | The alias of the key in it. |
-| `ANDROID_KEY_PASSWORD` | The password of the keystore and of the key. |
-
-Make the keystore with `keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048
--validity 10000 -alias upload`, and keep it out of the repository. Only the signing job gets
-the secrets, and it writes the keystore outside any checkout and deletes it once used, so no
-build script, Gradle plugin or package can read the key. Without the secrets, the APK is
-attached unsigned, with `-unsigned` in its name.
