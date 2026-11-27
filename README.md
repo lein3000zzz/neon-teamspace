@@ -355,7 +355,9 @@ with the reason none of it ships.
 
 What ships carries its dependencies' license notices. The web app's and the docs' builds
 write `THIRD_PARTY_NOTICES.txt` beside their files, served at `/THIRD_PARTY_NOTICES.txt` and
-`/docs/THIRD_PARTY_NOTICES.txt`. The server image holds the crates' notices at
+`/docs/THIRD_PARTY_NOTICES.txt`, with where to get the source of each package under MPL-2.0.
+The web app's also carries shadcn/ui's MIT license, for the components copied into
+`web/src/components/ui`, where the license is too. The server image holds the crates' notices at
 `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`, which [cargo-about](https://github.com/EmbarkStudios/cargo-about)
 writes as the image builds, as `about.toml` sets out; its accepted licenses are the allow list
 of `deny.toml`, and a test keeps the two the same.

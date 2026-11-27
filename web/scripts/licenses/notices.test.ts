@@ -1,7 +1,10 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { fixture, manifest, OFL_TEXT } from "../../../scripts/licenses/fixture.ts";
-import { collectNotices, cssImports, packageRoot } from "./notices.ts";
+import { collectNotices, COPIED, type CopiedCode, cssImports, packageRoot } from "./notices.ts";
+
+/** The web app's own root, where COPIED names its files from. */
+const webRoot = resolve(import.meta.dirname, "../..");
 
 describe("packageRoot", () => {
   it.each([
@@ -48,13 +51,19 @@ const app = (files: Record<string, string>) =>
   );
 
 /** Notices for the app built by `app`, with its one bundled module. */
-const collect = (root: string, supplied: Record<string, string> = {}) =>
+const collect = (
+  root: string,
+  supplied: Record<string, string> = {},
+  copied: readonly CopiedCode[] = [],
+) =>
   collectNotices({
+    root,
     moduleIds: [join(root, "node_modules/code/index.js"), join(root, "src/main.tsx")],
     stylesheets: [join(root, "src/index.css")],
     publicDir: join(root, "public"),
     supplied,
     suppliedDir: join(root, "supplied"),
+    copied,
   });
 
 describe("collectNotices", () => {
@@ -72,11 +81,13 @@ describe("collectNotices", () => {
     const root = app({ "node_modules/bare/package.json": manifest("bare") });
     expect(() =>
       collectNotices({
+        root,
         moduleIds: [join(root, "node_modules/bare/index.js")],
         stylesheets: [],
         publicDir: join(root, "public"),
         supplied: {},
         suppliedDir: join(root, "supplied"),
+        copied: [],
       }),
     ).toThrow("No license text in");
   });
@@ -87,11 +98,13 @@ describe("collectNotices", () => {
       "supplied/bare.LICENSE": "bare license from its repository",
     });
     const text = collectNotices({
+      root,
       moduleIds: [join(root, "node_modules/bare/index.js")],
       stylesheets: [],
       publicDir: join(root, "public"),
       supplied: { bare: "bare.LICENSE" },
       suppliedDir: join(root, "supplied"),
+      copied: [],
     });
     expect(text).toContain("bare 1.0.0\nLicense: MIT\n" + "-".repeat(80));
     expect(text).toContain("bare license from its repository");
@@ -100,6 +113,56 @@ describe("collectNotices", () => {
   it("fails on a supplied text that is no longer needed", () => {
     expect(() => collect(app({}), { gone: "gone.LICENSE" })).toThrow("no longer has: gone");
     expect(() => collect(app({}), { code: "code.LICENSE" })).toThrow("now ships its own license");
+  });
+
+  it("always lists the shadcn/ui code copied into src/components/ui, with its MIT notice", () => {
+    const text = collectNotices({
+      root: webRoot,
+      moduleIds: [],
+      stylesheets: [],
+      publicDir: join(app({}), "public"),
+      supplied: {},
+      suppliedDir: join(webRoot, "scripts/licenses/supplied"),
+      copied: COPIED,
+    });
+    expect(text).toContain(
+      "shadcn/ui, the code copied into src/components/ui/\nLicense: MIT\n" + "-".repeat(80),
+    );
+    expect(text).toContain("Copyright (c) 2023 shadcn");
+    expect(text).toContain("The above copyright notice and this permission notice shall be");
+  });
+
+  it("fails on copied code whose license text is missing", () => {
+    const copied = [{ name: "lib", dir: "src/lib", license: "MIT", file: "src/lib/lib.LICENSE" }];
+    expect(() => collect(app({}), {}, copied)).toThrow(
+      "src/lib: src/lib/lib.LICENSE is missing: copy lib's license from its repository",
+    );
+    const text = collect(app({ "src/lib/lib.LICENSE": "lib's license" }), {}, copied);
+    expect(text).toContain("lib, the code copied into src/lib/\nLicense: MIT");
+    expect(text).toContain("lib's license");
+  });
+
+  it("says where to get the source of an MPL-2.0 package, and no other", () => {
+    const root = app({
+      "node_modules/code/package.json": JSON.stringify({
+        name: "code",
+        version: "2.1.0",
+        license: "MPL-2.0",
+        repository: { type: "git", url: "git+https://example.com/code.git", directory: "pkg" },
+      }),
+    });
+    const text = collect(root);
+    expect(text).toContain(
+      [
+        "code 2.1.0",
+        "License: MPL-2.0",
+        "Source: https://www.npmjs.com/package/code/v/2.1.0",
+        "Repository: https://example.com/code (pkg)",
+        "-".repeat(80),
+      ].join("\n"),
+    );
+    expect(text).toContain("styles-pkg 1.0.0\nLicense: MIT\n" + "-".repeat(80));
+    expect(text).toContain("The source code of each package under MPL-2.0");
   });
 
   it("fails on a font without its license", () => {

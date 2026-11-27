@@ -18,6 +18,8 @@ export interface Notice {
   version: string;
   license: string;
   text: string;
+  /** The package's source repository, as its package.json names it, when it does. */
+  repository?: string;
 }
 
 /**
@@ -67,6 +69,27 @@ function filesIn(dir: string) {
 }
 
 /**
+ * The web address of a package's source repository, from its package.json's
+ * `repository`, with the directory of a monorepo's package after it. Undefined
+ * unless the field gives an https address, as published packages' do.
+ */
+export function repositoryUrl(manifest: Readonly<Record<string, unknown>>): string | undefined {
+  const field = manifest["repository"];
+  const entry =
+    typeof field === "object" && field !== null ? (field as Record<string, unknown>) : undefined;
+  const raw = typeof field === "string" ? field : entry?.["url"];
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const url = raw.replace(/^git\+/, "").replace(/\.git$/, "");
+  if (!url.startsWith("https://")) {
+    return undefined;
+  }
+  const directory = entry?.["directory"];
+  return typeof directory === "string" ? `${url} (${directory})` : url;
+}
+
+/**
  * License texts for packages that ship none, by package name: each loads the
  * texts, copied from the package's source repository.
  */
@@ -94,24 +117,51 @@ export function packageNotice(root: string, supplied: Supplied = {}): Notice | u
   if (texts.length === 0) {
     return undefined;
   }
+  const repository = repositoryUrl(manifest);
   return {
     name,
     version: String(manifest["version"]),
     license: declaredLicense(manifest) ?? "not declared",
     text: texts.map((text) => text.trim()).join("\n\n"),
+    ...(repository === undefined ? {} : { repository }),
   };
 }
 
-/** One section of the notices file: a heading, its license, and the text. */
-export function section(title: string, license: string, text: string): string {
-  return [RULE, title, `License: ${license}`, THIN_RULE, "", text, ""].join("\n");
+/**
+ * One section of the notices file: a heading, its license, any further lines
+ * about it, and the text.
+ */
+export function section(
+  title: string,
+  license: string,
+  text: string,
+  details: readonly string[] = [],
+): string {
+  return [RULE, title, `License: ${license}`, ...details, THIN_RULE, "", text, ""].join("\n");
+}
+
+/**
+ * Where to get the source of a package under MPL-2.0, which asks whoever ships
+ * it in another form to say so: the package as npm publishes it, and its
+ * repository. Other licenses ask for nothing of the kind.
+ */
+export function sourceLines(notice: Notice): string[] {
+  if (!/\bMPL-2\.0\b/.test(notice.license)) {
+    return [];
+  }
+  return [
+    `Source: https://www.npmjs.com/package/${notice.name}/v/${notice.version}`,
+    ...(notice.repository === undefined ? [] : [`Repository: ${notice.repository}`]),
+  ];
 }
 
 /** The sections of `notices`, sorted by package name and version. */
 export function packageSections(notices: Iterable<Notice>): string[] {
   return [...notices]
     .toSorted((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))
-    .map((notice) => section(`${notice.name} ${notice.version}`, notice.license, notice.text));
+    .map((notice) =>
+      section(`${notice.name} ${notice.version}`, notice.license, notice.text, sourceLines(notice)),
+    );
 }
 
 /** The notices file: its title, a paragraph on what it covers, then the sections. */
