@@ -185,7 +185,7 @@ jobs:
           case "$version" in *-*) prerelease=(--prerelease); tags="\`$version\` alone" ;; esac
           signed="They are not signed, as the repository is private."
           if [ "$SIGNED" = true ]; then
-            signed="They are signed with cosign's keyless signing; [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrade.md#checking-the-images) shows how to check them."
+            signed="They are signed with cosign's keyless signing; [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows how to check them."
           fi
           notes="## Images
 
@@ -196,6 +196,6 @@ jobs:
 
           ## Installing and upgrading
 
-          \`${archive#dist/}\`, below, holds the Compose file that runs these images, with its example settings. [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrade.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins."
+          \`${archive#dist/}\`, below, holds the Compose file that runs these images, with its example settings. [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins."
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
             --generate-notes --notes "$notes" "${prerelease[@]}" "$archive"

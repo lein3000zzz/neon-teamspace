@@ -39,8 +39,6 @@ each release brings. Pages say what exists today and mark the rest of the design
 ## Running an instance
 
 - **[Install](/docs/self-hosting/install/)**: the Docker deployment, and the development setup.
-- **[Upgrading](/docs/self-hosting/upgrade/)**: moving an instance to a new release, and the
-  images' tags.
 - **[Configuration](/docs/self-hosting/configuration/)**: `neon.yaml`, `NEON_` variables, and
   which value wins.
 - **[Backups and restore](/docs/self-hosting/backups/)**, **[Upgrading](/docs/self-hosting/upgrading/)**

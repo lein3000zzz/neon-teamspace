@@ -110,7 +110,7 @@ settings go in `deployments/server.env`, which only the server reads; `server.en
 beside it lists the usual ones. The
 [install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
 release's Compose archive, the first run, domains and TLS, stopping, and where the data
-lives, and the [upgrade page](docs/src/content/docs/self-hosting/upgrade.md) moving to a new
+lives, and [Upgrading](docs/src/content/docs/self-hosting/upgrading.md) moving to a new
 release.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
@@ -269,7 +269,7 @@ GitHub Actions runs three workflows.
   - The end-to-end tests, with the server built in the release profile as the published image is.
   - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the upgrade page, and the Compose archive that `make compose-archive` writes as its asset.
+  - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the Upgrading page, and the Compose archive that `make compose-archive` writes as its asset.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 

@@ -1,15 +1,20 @@
 ---
 title: Upgrading
-description: How releases are numbered and tagged, moving a Compose install to a new release, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, and the release notes.
+description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive or a clone, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, and checking the images.
 ---
 
 ## Releases
 
-A release is a Git tag, `v` and a version such as `v0.1.0`, and the images built from it.
+A release is a Git tag, `v` and a version such as `v0.1.0`, and the images built from it. It
+has one version for the server image, the web image, the Compose file and the
+[Claude Code plugin](/docs/guides/claude-code-plugin/). The server says its version in
+`GET /api/v1/meta` and in `neon --version`.
+
 Versions follow [semantic versioning](https://semver.org). Until 1.0.0, a new minor version,
 such as 0.2.0 after 0.1.x, may change the API, the settings or the behaviour in a way that
 asks something of whoever runs or calls the server, and its notes say what; a patch version,
-such as 0.1.1, fixes what its minor version shipped.
+such as 0.1.1, fixes what its minor version shipped. A pre-release, such as `0.2.0-rc.1`,
+comes before the release of its number.
 
 Each release publishes both images, `ghcr.io/lein3000zzz/neon-teamspace-server` and
 `ghcr.io/lein3000zzz/neon-teamspace-web`, for `linux/amd64` and `linux/arm64`, under three
@@ -21,53 +26,102 @@ tags:
 | `0.1`, the minor version | To each patch release of 0.1 as it is published. |
 | `latest` | To each release as it is published. |
 
-From 1.0.0 on, the major version, such as `1`, is a tag too. A pre-release, such as
-`v0.2.0-rc.1`, gets its own tag alone, and never moves `latest` or the others. The server
-says its version in `GET /api/v1/meta` and in `neon --version`, and the
-[Claude Code plugin](/docs/guides/claude-code-plugin/)'s version is the server's.
+From 1.0.0 on, the major version, such as `1`, is a tag too, and moves to each release of 1.
+A pre-release, such as `v0.2.0-rc.1`, gets its own version as its tag alone, and never moves
+`latest` or the others.
 
-`NEON_VERSION` in `deployments/.env` picks the tag both images run. Name a full version: the
-instance then changes only when you change it, and the backup you take first matches what
-runs. Unset, it is `latest`, which moves to a new release, migrations included, at the next
-`pull`.
+The Compose file runs the images of its own release, which its `image` lines name, unless
+`NEON_VERSION` in `deployments/.env` names another. Set to `0.1`, it follows patch releases
+as they are pulled; set to `latest`, it follows every release, and each `pull` may then take
+the instance to a release whose migrations cannot be undone. On an instance whose data
+matters, leave it unset, or name a full version: the instance then changes only when you
+upgrade it, and the backup you take first matches what runs.
 
 ## The release notes
 
-Read them before an upgrade. Each release has its notes on the repository's
-[releases page](https://github.com/lein3000zzz/neon-teamspace/releases), with the images'
-names and the pull requests it merged, and in `CHANGELOG.md` at the repository's root, by
-area. A change that needs something of you, a setting renamed, a route that answers
-differently, a step to run after the upgrade, is called out there under
-**Breaking changes**, with what to do.
+Read them before an upgrade, for every release between the one running and the new one.
+They are in two places:
+
+- `CHANGELOG.md` at the repository's root, by area, with a section for each release. A
+  change that needs something of you, a setting renamed, a route that answers differently, a
+  step to run after the upgrade, is called out there under **Breaking changes**, with what to
+  do.
+- The release's own page among the repository's
+  [releases](https://github.com/lein3000zzz/neon-teamspace/releases). Its notes name the
+  images, their platforms and their tags, say whether they are signed, and link the install
+  page, this page and the changelog; the pull requests merged since the release before come
+  after, as GitHub lists them. The release's Compose archive is attached to it.
 
 ## Upgrading a Compose install
 
 1. Read the notes of every release between the one running and the new one.
 2. [Back up](/docs/self-hosting/backups/) the database, the files and the secrets. Migrations
    only go forward, so this backup is the way back.
-3. Get `deployments/` of the new release, as its Compose file may change with it. In a
-   clone, `git fetch --tags` and `git checkout v0.1.0`; with a copy of the directory, copy
-   the new release's files over it, keeping `.env` and `server.env`.
-4. Set `NEON_VERSION` in `deployments/.env` to the new version, then pull and start:
+3. Get `deployments/` of the new release, as its Compose file may change with it, and start
+   it: from its [Compose archive](#with-the-compose-archive), or
+   [built from a clone](#built-from-a-clone).
+4. Check `GET /api/v1/meta` for the new version, and the server's log for warnings, as
+   [What happens](#what-happens) shows.
 
-   ```sh
-   docker compose -f deployments/docker-compose.yml pull
-   docker compose -f deployments/docker-compose.yml up -d --wait
-   ```
+### With the Compose archive
 
-   Built from a clone instead, check out the tag and build:
+In the directory the [install](/docs/self-hosting/install/#starting-it) unpacked the archive
+in, unpack the new release's over it, then pull and start its images:
 
-   ```sh
-   docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build --wait
-   ```
+```sh
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz' --clobber
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait
+```
 
-5. Check `GET /api/v1/meta` for the new version, and the server's log for warnings.
+Unpacking replaces the Compose file and the two example files, and keeps `deployments/.env`
+and `deployments/server.env`, which the archive does not hold. A release may add settings, so
+compare the new examples with the files made from the old ones:
+
+```sh
+diff deployments/.env.example deployments/.env
+diff deployments/server.env.example deployments/server.env
+```
+
+With `NEON_VERSION` set in `deployments/.env`, set it to the new release too, or leave it
+blank to run the archive's own.
+
+### Built from a clone
+
+Check out the release's tag, then build and start both images from it:
+
+```sh
+git fetch --tags
+git checkout v0.1.0
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build --wait
+```
+
+## What happens
 
 Compose replaces the containers whose image or settings changed. The old server stops as
-[Stopping](/docs/self-hosting/install/#stopping) describes, and the new one migrates the
-database, then takes requests. Meanwhile Caddy answers `502`, and open pages show
-**Reconnecting** and keep what is typed until the server is back. MCP sessions live in the
-server's memory, so MCP clients start new ones.
+[Stopping](/docs/self-hosting/install/#stopping) describes. The new one migrates the
+database, as [below](#migrations), and logs `database migrations applied` when it is done,
+then takes requests; `/readyz` answers `503` until then. Meanwhile Caddy answers `502`, and
+open pages show **Reconnecting** and keep what is typed until the server is back. The new web
+container starts once the new server is healthy. MCP sessions live in the server's memory,
+so MCP clients start new ones. A server that was killed rather than stopped may leave pages
+whose latest text search does not read yet; `neon search reindex` stores it, as
+[Search](/docs/guides/search/#rebuilding-the-text) explains.
+
+Then check that every service is healthy and that the new release runs:
+
+```sh
+docker compose -f deployments/docker-compose.yml ps
+docker compose -f deployments/docker-compose.yml exec server neon --version
+curl -s http://127.0.0.1:3000/api/v1/meta
+```
+
+```json
+{"name":"Neon Teamspace","version":"0.1.0"}
+```
+
+The foot of the app's sidebar shows the same version.
 
 ## Migrations
 
@@ -104,7 +158,7 @@ Docker starts it again, as the Compose file says `restart: unless-stopped`, and 
 tries the same migration, so the server keeps restarting and never turns healthy:
 `up --wait` stops with `dependency failed to start: container neon-server-1 is unhealthy`, and
 `docker compose -f deployments/docker-compose.yml logs server` shows the error. Restore the
-backup and go back to the release before, then report the error.
+backup and go back to the release before, as [below](#rolling-back), then report the error.
 
 To migrate apart from the start, to watch it say, set
 `NEON_DATABASE__AUTO_MIGRATE=false` in `deployments/server.env`, pull the new images, and
@@ -120,8 +174,8 @@ older or newer than its own migrations.
 
 ## Rolling back
 
-A server refuses a database that a newer release migrated, as its migrations do not include
-the newer ones:
+A server refuses a database that a newer release migrated, naming the migration it does not
+know:
 
 ```txt
 Error: applying database migrations
@@ -130,8 +184,35 @@ Caused by:
     migration 20270101000000 was previously applied but is missing in the resolved migrations
 ```
 
-So rolling back is a restore. Set `NEON_VERSION` back to the release before, bring back its
-`deployments/`, and restore the backup taken before the upgrade
-[over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs). Everything
-changed since the backup is lost. An upgrade without migrations can go back by its image
-alone, but the notes do not promise which releases have none: take the backup either way.
+So rolling back is a restore of the backup taken before the upgrade. First point the stack
+at the older release: unpack its Compose archive over the directory again, or check out its
+tag in a clone, and set `NEON_VERSION` back if it names the newer one. Setting `NEON_VERSION`
+to the older release runs its images too, with the newer Compose file. Then restore the
+backup [over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs), whose
+last command starts the older release's images; built from a clone, start them with
+`docker-compose.build.yml` and `--build` instead, as [above](#built-from-a-clone).
+Everything changed since the backup is lost. An upgrade without migrations can go back by its
+image alone, but the notes do not promise which releases have none: take the backup either
+way.
+
+## Checking the images
+
+Each image carries a software bill of materials, which lists the packages in it, the crates
+the `neon` binary links among them in the server image, and the provenance of its build,
+which records the commit and the workflow that built it:
+
+```sh
+docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 --format '{{ json .Provenance }}'
+```
+
+Releases are signed with [cosign](https://docs.sigstore.dev/cosign/)'s keyless signing once
+the repository is public, as the signature records the repository's identity in Sigstore's
+public log; a release made while the repository is private has no signature, and its notes
+say so. To check one:
+
+```sh
+cosign verify ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/lein3000zzz/neon-teamspace/\.github/workflows/release\.yml@refs/tags/v'
+```
