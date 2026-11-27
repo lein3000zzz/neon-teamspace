@@ -42,9 +42,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type HTMLInputTypeAttribute,
   type ReactNode,
@@ -69,6 +71,7 @@ import {
   MARKS,
   move,
   movable,
+  onHistoryChange,
   openMenu,
   remove,
   replaceFile,
@@ -126,7 +129,6 @@ function snapshot(editor: Editor) {
     nest: editor.canNestBlock(),
     unnest: editor.canUnnestBlock(),
     move: movable(editor, blocks),
-    history: historyState(editor),
     text: selectsText(editor),
     link: editor.getSelectedLinkUrl() ?? null,
     file:
@@ -140,6 +142,21 @@ function snapshot(editor: Editor) {
               : null,
           },
   };
+}
+
+/**
+ * Whether there is anything to undo and to redo, as it changes: read apart
+ * from the editor's state, which an undo or a redo changes before the
+ * history knows there is something to put back.
+ */
+function useHistory(editor: Editor): { undo: boolean; redo: boolean } {
+  const subscribe = useCallback(
+    (changed: () => void) => onHistoryChange(editor, changed),
+    [editor],
+  );
+  const undo = useSyncExternalStore(subscribe, () => historyState(editor).undo);
+  const redo = useSyncExternalStore(subscribe, () => historyState(editor).redo);
+  return { undo, redo };
 }
 
 /** The nearest element around the content that scrolls it, or none when the page itself does. */
@@ -239,6 +256,7 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
     editor,
     selector: ({ editor: current }) => snapshot(current as Editor),
   });
+  const history = useHistory(editor);
   const [panel, setPanel] = useState<Panel>("main");
   // Hidden, the toolbar starts from its main row when it shows again.
   const [wasShown, setWasShown] = useState(shown);
@@ -561,13 +579,13 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
           <Tool
             icon={Undo2}
             label={copy.undo}
-            disabled={!state.history.undo}
+            disabled={!history.undo}
             onClick={() => editor.undo()}
           />
           <Tool
             icon={Redo2}
             label={copy.redo}
-            disabled={!state.history.redo}
+            disabled={!history.redo}
             onClick={() => editor.redo()}
           />
         </>

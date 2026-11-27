@@ -15,6 +15,8 @@ import {
   VALID_LINK_PROTOCOLS,
 } from "@blocknote/core/extensions";
 import { TextSelection, type Command } from "prosemirror-state";
+import { yUndoPluginKey } from "y-prosemirror";
+import type { UndoManager } from "yjs";
 
 /** The page's editor, as the toolbar works on it, whatever its schema. */
 export type Editor = BlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>;
@@ -273,6 +275,49 @@ export function historyState(editor: Editor): { undo: boolean; redo: boolean } {
   return history === undefined
     ? { undo: false, redo: false }
     : { undo: editor.canExec(history.undoCommand), redo: editor.canExec(history.redoCommand) };
+}
+
+/** What the shared document's undo manager tells of its stacks as they change. */
+const STACK_EVENTS = ["stack-item-added", "stack-item-popped", "stack-cleared"] as const;
+
+/** The shared document's undo manager, where the editor has one. */
+function undoManagerOf(editor: Editor): UndoManager | undefined {
+  const state = yUndoPluginKey.getState(editor.prosemirrorState) as
+    { undoManager?: UndoManager } | undefined;
+  return state?.undoManager;
+}
+
+/**
+ * Calls `changed` whenever there may be more or less to undo or redo: as the
+ * document changes, and as the shared document's undo manager adds to its
+ * stacks or takes from them. An undo or a redo reaches the editor before the
+ * manager moves what it undid to the other stack, so the editor's own change
+ * comes too early to tell.
+ */
+export function onHistoryChange(editor: Editor, changed: () => void): () => void {
+  let manager: UndoManager | undefined;
+  const follow = () => {
+    const current = undoManagerOf(editor);
+    if (current === manager) {
+      return;
+    }
+    for (const event of STACK_EVENTS) {
+      manager?.off(event, changed);
+      current?.on(event, changed);
+    }
+    manager = current;
+  };
+  follow();
+  const stop = editor.onChange(() => {
+    follow();
+    changed();
+  });
+  return () => {
+    stop();
+    for (const event of STACK_EVENTS) {
+      manager?.off(event, changed);
+    }
+  };
 }
 
 /** Whether the selection holds text, for a mark, a link or a comment to go on. */

@@ -1,7 +1,9 @@
 import { BlockNoteEditor, type PartialBlock } from "@blocknote/core";
 import { SuggestionMenu } from "@blocknote/core/extensions";
+import { withCollaboration } from "@blocknote/core/yjs";
 import { TextSelection } from "prosemirror-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 import {
   blockTypeOf,
   currentBlocks,
@@ -12,6 +14,7 @@ import {
   linkAddress,
   move,
   movable,
+  onHistoryChange,
   openMenu,
   remove,
   selectsText,
@@ -40,6 +43,24 @@ afterEach(() => {
 /** An editor of BlockNote's own blocks holding `blocks`, mounted in the page. */
 function editorWith(blocks: PartialBlock[]): Editor {
   const editor = BlockNoteEditor.create({ initialContent: blocks }) as unknown as Editor;
+  const element = document.createElement("div");
+  document.body.append(element);
+  editor.mount(element);
+  mounted.push(editor);
+  return editor;
+}
+
+/** An editor of a shared document, empty, whose undo is the document's own, as a page's is. */
+function sharedEditor(): Editor {
+  const doc = new Y.Doc();
+  const editor = BlockNoteEditor.create(
+    withCollaboration({
+      collaboration: {
+        fragment: doc.getXmlFragment("document-store"),
+        user: { name: "Ada", color: "#000000" },
+      },
+    }),
+  ) as unknown as Editor;
   const element = document.createElement("div");
   document.body.append(element);
   editor.mount(element);
@@ -277,6 +298,28 @@ describe("the editing toolbar's actions", () => {
     expect(historyState(editor)).toEqual({ undo: true, redo: false });
     editor.undo();
     expect(historyState(editor)).toEqual({ undo: false, redo: true });
+  });
+
+  it("tells when the shared history changed, once an undo or a redo has moved what it took", () => {
+    const editor = sharedEditor();
+    const [first] = editor.document;
+    if (first === undefined) {
+      throw new Error("no block to type in");
+    }
+    editor.setTextCursorPosition(first, "end");
+    editor.insertInlineContent("Agenda");
+    const told: { undo: boolean; redo: boolean }[] = [];
+    const stop = onHistoryChange(editor, () => told.push(historyState(editor)));
+
+    editor.undo();
+    expect(told.at(-1)).toEqual({ undo: false, redo: true });
+    editor.redo();
+    expect(told.at(-1)).toEqual({ undo: true, redo: false });
+
+    stop();
+    told.length = 0;
+    editor.undo();
+    expect(told).toEqual([]);
   });
 
   it("finds the file block the caret is on, and writes its caption", () => {

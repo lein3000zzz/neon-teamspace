@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import * as Y from "yjs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fakeComments } from "@/test/comments";
@@ -223,6 +223,38 @@ describe("the editing toolbar of a touch screen", () => {
     await waitFor(() =>
       expect(screen.queryByRole("toolbar", { name: "Editing tools" })).toBeNull(),
     );
+  });
+
+  it("offers Redo as soon as Undo took something back, and Undo again once Redo put it", async () => {
+    pointer("touch");
+    fakeWorkspaces();
+    fakePages();
+    pageWith("Kick-off on Monday");
+    const { user } = renderApp(PATH);
+    const content = await editable();
+    await user.click(content);
+    await waitFor(() => toolbar());
+    const undo = toolbar().getByRole("button", { name: "Undo" });
+    const redo = toolbar().getByRole("button", { name: "Redo" });
+    expect(undo).toBeDisabled();
+    await user.keyboard("Agenda ");
+    expect(undo).toBeEnabled();
+
+    // A tap and nothing else, no selection changed after it: the history alone says what
+    // there is.
+    act(() => {
+      fireEvent.click(undo);
+    });
+    expect(content).toHaveTextContent(/^Kick-off on Monday$/);
+    expect(redo).toBeEnabled();
+    expect(undo).toBeDisabled();
+
+    act(() => {
+      fireEvent.click(redo);
+    });
+    expect(content).toHaveTextContent("Agenda Kick-off on Monday");
+    expect(undo).toBeEnabled();
+    expect(redo).toBeDisabled();
   });
 
   it("indents a block under the one before, and back out", async () => {
