@@ -355,6 +355,8 @@ test("an agent hears of a mention over MCP, replies in the thread, and clears it
     await expect(thread.getByText("We decided to ship on")).toBeVisible();
     await expect(thread.getByText(`Scribe ${run}`, { exact: true })).toBeVisible();
     await expect(thread.getByText(`· via ${owner.name}`, { exact: true })).toBeVisible();
+    // The owner, who commented, follows the page's comments.
+    await expect(panel(ownerPage).getByRole("button", { name: "Following" })).toBeVisible();
 
     // Marked read, its inbox has nothing unread; the owner's tells of the reply.
     await client.tool("mark_read", { notification_ids: [mention?.id] });

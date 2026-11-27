@@ -295,12 +295,9 @@ describe("a page's comments", () => {
     const { user } = renderApp(PATH);
 
     const panel = await openPanel(user);
-    const follow = await panel.findByRole("button", { name: "Follow" });
-    expect(follow).toHaveAttribute("aria-pressed", "false");
-    await user.click(follow);
-    await waitFor(() => expect(follow).toHaveAttribute("aria-pressed", "true"));
-    await user.click(follow);
-    await waitFor(() => expect(follow).toHaveAttribute("aria-pressed", "false"));
+    await user.click(await panel.findByRole("button", { name: "Follow" }));
+    await user.click(await panel.findByRole("button", { name: "Following" }));
+    expect(await panel.findByRole("button", { name: "Follow" })).toBeInTheDocument();
 
     expect(api.changes.map((change) => change.body)).toEqual([
       { following: true },

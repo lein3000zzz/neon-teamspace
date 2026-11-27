@@ -177,16 +177,16 @@ export function CommentsPanel({
         </h2>
         <div className="flex items-center gap-1">
           {flags !== undefined && (
+            // Its name says how things stand, so it is no toggle with a name of its own.
             <Button
               variant="outline"
               size="sm"
-              aria-pressed={flags.following}
-              title={copy.followHint}
+              title={flags.following ? copy.followingHint : copy.followHint}
               disabled={follow.isPending}
               onClick={() => follow.mutate(!flags.following)}
             >
               {flags.following && <Check aria-hidden />}
-              {copy.follow}
+              {flags.following ? copy.following : copy.follow}
             </Button>
           )}
           <Button variant="ghost" size="icon" aria-label={copy.close} onClick={onClose}>

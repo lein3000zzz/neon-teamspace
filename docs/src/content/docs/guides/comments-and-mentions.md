@@ -161,7 +161,8 @@ panel. In it:
   edited one marked so, and **Delete** on anyone's for those who edit the page; a long thread
   shows its first comment and its latest, with **Show earlier replies** between; then
   **Reply** and **Resolve**, or **Reopen**, and **Delete thread** for those who edit the page;
-- **Follow** says whether you follow the page's comments, and changes it.
+- **Follow** follows the page's comments; while you do, it reads **Following**, and pressing it
+  stops.
 
 In the page, the text of each open inline thread is underlined and tinted, the one open in
 the panel more strongly. A click on it opens its thread; so does Ctrl+Alt+M with the cursor

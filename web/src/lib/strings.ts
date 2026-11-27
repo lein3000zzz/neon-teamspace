@@ -1948,7 +1948,9 @@ export const strings = {
     gone: "An account that is gone",
     someone: "Someone",
     follow: "Follow",
-    followHint: "Told of every comment on this page in your inbox.",
+    followHint: "Be told of every comment on this page in your inbox.",
+    following: "Following",
+    followingHint: "You are told of every comment on this page in your inbox. Press to stop.",
     unseen: (names: string) =>
       `${names} cannot see this page, so a mention here tells them nothing. Share the page with them first.`,
     share: "Share",
