@@ -498,7 +498,10 @@ function Preview({ pageId, versionId }: { pageId: string; versionId: string }) {
     return <p className="text-sm text-muted-foreground">{copy.emptyVersion}</p>;
   }
   return (
-    <section aria-label={copy.previewLabel} className="rounded-lg border border-border py-4">
+    <section
+      aria-label={copy.previewLabel}
+      className="rounded-lg border border-border py-4 [--page-inset:1rem]"
+    >
       <Suspense fallback={<Loading />}>
         <VersionView blocks={version.data.blocks} slug={workspace.slug} people={people} />
       </Suspense>
