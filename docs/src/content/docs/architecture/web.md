@@ -135,7 +135,10 @@ A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
   itself, even once the menu that asked is gone.
 - `web/src/lib/page-rules.ts` repeats the page rules only to decide which controls show.
 - The page trees' open pages, folded sections and the page being dragged are kept while the
-  app runs, shared by the sidebar's column and its drawer.
+  app runs, shared by the sidebar's column and its drawer. The folded sections are also kept
+  in the browser's local storage, under `neon.folded.` and the account's id, so each person
+  sharing a browser finds theirs folded after a reload; where storage is refused, they stay
+  folded for the session.
 
 The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
 about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
