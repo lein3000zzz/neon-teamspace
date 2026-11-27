@@ -940,3 +940,97 @@ fn a_block_is_named_by_its_id_as_markdown_writes_it_or_as_it_is() {
     .expect("replaced");
     assert_eq!(md(&doc), "all\n\nd\n\nc\n");
 }
+
+/// `n` paragraphs, `p1` to `pn`.
+fn paragraphs(n: usize) -> Vec<Block> {
+    (1..=n).map(|i| Block::paragraph(format!("p{i}"))).collect()
+}
+
+#[test]
+fn writes_that_would_walk_too_far_into_a_long_page_are_refused_whole() {
+    let doc = page(paragraphs(2001));
+    let before = md(&doc);
+    // 2000 blocks after 2001 others walk past more than MAX_WALK items.
+    let many = paragraphs(2000);
+    assert_eq!(
+        edit(
+            &doc,
+            &Edit::Append {
+                blocks: many.clone()
+            }
+        ),
+        Err(EditError::TooFar(TooFar))
+    );
+    assert_eq!(
+        edit(
+            &doc,
+            &Edit::InsertAfter {
+                block_id: "block-2001".into(),
+                blocks: many.clone(),
+            }
+        ),
+        Err(EditError::TooFar(TooFar))
+    );
+    assert_eq!(
+        edit(
+            &doc,
+            &Edit::ReplaceRange {
+                from: "block-2001".into(),
+                to: "block-2001".into(),
+                blocks: many.clone(),
+            }
+        ),
+        Err(EditError::TooFar(TooFar))
+    );
+    {
+        let fragment = fragment(&doc);
+        let mut txn = doc.transact_mut();
+        assert_eq!(
+            crate::ydoc::append(&mut txn, &fragment, &many, &mut SequentialIds::new("new")),
+            Err(crate::ydoc::AppendRefused::TooFar(TooFar))
+        );
+    }
+    assert_eq!(md(&doc), before);
+    // Near the top of the page, the same blocks go in.
+    edit(
+        &doc,
+        &Edit::InsertAfter {
+            block_id: "block-1".into(),
+            blocks: many,
+        },
+    )
+    .expect("inserted near the top");
+    assert_eq!(read(&doc).blocks.len(), 4001);
+}
+
+#[test]
+fn replacing_every_block_of_a_long_page_removes_them_at_once() {
+    // One removal of 3000 neighbours walks to the first; one at a time, they would walk
+    // past 4.5 million items.
+    let doc = page(paragraphs(3000));
+    let new: Vec<Block> = (1..=3000)
+        .map(|i| Block::paragraph(format!("q{i}")))
+        .collect();
+    edit(
+        &doc,
+        &Edit::ReplaceBody {
+            blocks: new.clone(),
+        },
+    )
+    .expect("replaced");
+    assert_eq!(to_markdown(&read(&doc)), to_markdown(&Document::new(new)));
+}
+
+#[test]
+fn a_body_that_keeps_a_long_page_and_adds_many_blocks_after_it_is_weighed_so() {
+    // The 2000 new blocks go in after the 2100 that stay, as appending them would.
+    let doc = page(paragraphs(2100));
+    let mut new = paragraphs(2100);
+    new.extend((1..=2000).map(|i| Block::paragraph(format!("q{i}"))));
+    let before = md(&doc);
+    assert_eq!(
+        edit(&doc, &Edit::ReplaceBody { blocks: new }),
+        Err(EditError::TooFar(TooFar))
+    );
+    assert_eq!(md(&doc), before);
+}

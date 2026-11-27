@@ -34,10 +34,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use yrs::types::Delta;
 use yrs::types::text::YChange;
 use yrs::{
-    Any, Doc, Number, Out, ReadTxn, Text, Transact, TransactionMut, Xml, XmlElementPrelim,
-    XmlElementRef, XmlFragment, XmlFragmentRef, XmlOut, XmlTextPrelim, XmlTextRef,
+    Any, Doc, Number, OffsetKind, Out, ReadTxn, Text, Transact, TransactionMut, Xml,
+    XmlElementPrelim, XmlElementRef, XmlFragment, XmlFragmentRef, XmlOut, XmlTextPrelim,
+    XmlTextRef,
 };
 
 use crate::ids::IdSource;
@@ -96,6 +98,44 @@ pub enum ReadError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("the fragment does not hold a block group")]
 pub struct NotADocument;
+
+/// The most items the writes of one edit may walk past. yrs finds where a block goes by
+/// walking the items of its group that come before that place, once for each block put
+/// there, and finds a block to remove the same way, so `n` blocks written after `m` others
+/// walk `n × m` items: a fraction of a second at most, on the longest pages a document's
+/// size allows.
+pub const MAX_WALK: usize = 4_000_000;
+
+/// Writes that would walk past more than [`MAX_WALK`] items: none of them is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the edit writes or removes too many blocks this far into a long page at once: make it \
+     in smaller edits"
+)]
+pub struct TooFar;
+
+/// Why blocks were not added to a fragment.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AppendRefused {
+    #[error(transparent)]
+    NotADocument(#[from] NotADocument),
+    #[error(transparent)]
+    TooFar(#[from] TooFar),
+}
+
+/// The items writing `blocks` blocks at index `at` of a group walks past.
+pub(crate) fn walk(blocks: usize, at: u32) -> usize {
+    blocks.saturating_mul(at as usize)
+}
+
+/// Refuses writes that would walk past more than [`MAX_WALK`] items.
+pub(crate) fn within(walked: usize) -> Result<(), TooFar> {
+    if walked > MAX_WALK {
+        Err(TooFar)
+    } else {
+        Ok(())
+    }
+}
 
 /// The fragment of `doc` that holds its blocks.
 pub fn fragment(doc: &Doc) -> XmlFragmentRef {
@@ -251,20 +291,25 @@ pub fn replace(
 }
 
 /// Adds `blocks` after the fragment's last top-level block. Blocks without an id get one
-/// from `ids`, as [`replace`] gives them.
+/// from `ids`, as [`replace`] gives them. Refused, before anything changes, when the
+/// fragment holds no block group, or when writing the blocks after those there would walk
+/// past more than [`MAX_WALK`] items.
 pub fn append(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
-) -> Result<(), NotADocument> {
+) -> Result<(), AppendRefused> {
     if blocks.is_empty() {
         return Ok(());
     }
     let group = match fragment.first_child() {
-        Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => group,
+        Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => {
+            within(walk(blocks.len(), group.len(txn)))?;
+            group
+        }
         None => fragment.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP)),
-        Some(_) => return Err(NotADocument),
+        Some(_) => return Err(NotADocument.into()),
     };
     write_blocks(txn, &group, blocks, ids);
     Ok(())
@@ -807,6 +852,13 @@ fn read_cell<T: ReadTxn>(txn: &T, cell: &XmlElementRef) -> Result<Vec<Inline>, R
 }
 
 // Writing.
+//
+// yrs finds an index of a sequence by walking its items from the first, so siblings written
+// one after another, each at the end, would walk n²/2 items. Each sequence is written at one
+// index instead, its last item first: into a new element at index 0, which walks nothing,
+// and into a group that holds blocks already at the index the new ones go to, which walks
+// only the blocks before it. A text's runs go in as one string, and each mark is then applied
+// to every range it covers in one pass. Writing takes time in proportion to what is written.
 
 fn write_blocks(
     txn: &mut TransactionMut,
@@ -819,7 +871,8 @@ fn write_blocks(
 }
 
 /// Writes `blocks` into a group from `index` on, and returns the ids of the blocks written
-/// there, those under them left out.
+/// there, those under them left out. Blocks without an id get one from `ids`, parents
+/// before their children, in document order.
 pub(crate) fn write_blocks_at(
     txn: &mut TransactionMut,
     group: &XmlElementRef,
@@ -827,20 +880,47 @@ pub(crate) fn write_blocks_at(
     blocks: &[Block],
     ids: &mut dyn IdSource,
 ) -> Vec<String> {
-    let mut written = Vec::with_capacity(blocks.len());
-    for (at, block) in (index..).zip(blocks) {
-        let container = group.insert(txn, at, XmlElementPrelim::empty(BLOCK_CONTAINER));
-        let id = block.id.clone().unwrap_or_else(|| ids.next_id());
-        container.insert_attribute(txn, "id", id.as_str());
-        let content = container.push_back(txn, XmlElementPrelim::empty(block.kind.name()));
-        write_kind(txn, &content, &block.kind);
-        if !block.children.is_empty() {
+    let named = named(blocks, ids);
+    write_named(txn, group, index, &named);
+    named.into_iter().map(|block| block.id).collect()
+}
+
+/// A block, the id it is written with, and its children so.
+struct Named<'a> {
+    block: &'a Block,
+    id: String,
+    children: Vec<Named<'a>>,
+}
+
+/// The blocks with their ids: their own, or the next of `ids`, parents before their
+/// children, in document order.
+fn named<'a>(blocks: &'a [Block], ids: &mut dyn IdSource) -> Vec<Named<'a>> {
+    blocks
+        .iter()
+        .map(|block| {
+            let id = block.id.clone().unwrap_or_else(|| ids.next_id());
+            Named {
+                block,
+                id,
+                children: named(&block.children, ids),
+            }
+        })
+        .collect()
+}
+
+/// Writes blocks into a group at `index`, the last first, so each goes in where the walk to
+/// `index` ends and none walks past those written before it.
+fn write_named(txn: &mut TransactionMut, group: &XmlElementRef, index: u32, blocks: &[Named<'_>]) {
+    for named in blocks.iter().rev() {
+        let container = group.insert(txn, index, XmlElementPrelim::empty(BLOCK_CONTAINER));
+        container.insert_attribute(txn, "id", named.id.as_str());
+        let content = container.push_back(txn, XmlElementPrelim::empty(named.block.kind.name()));
+        write_kind(txn, &content, &named.block.kind);
+        if !named.children.is_empty() {
             let nested = container.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP));
-            write_blocks(txn, &nested, &block.children, ids);
+            write_named(txn, &nested, 0, &named.children);
         }
-        written.push(id);
     }
-    written
 }
 
 /// The attributes of one element, written in the schema's order.
@@ -968,22 +1048,35 @@ pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind
 
 /// Writes inline content as y-prosemirror does: each run of text nodes one `XmlText`, each
 /// hard break and each mention an element between them, a mention's attributes in its
-/// props' order.
+/// props' order. The element is new and empty: its nodes go in at index 0, the last first.
 fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[Inline]) {
+    let mut nodes: Vec<Node> = Vec::new();
     let mut texts: Vec<(String, Marks)> = Vec::new();
     for piece in to_pieces(content) {
         match piece {
             Piece::Text { text, marks } => texts.push((text, marks)),
             Piece::Break => {
-                write_text(txn, element, &std::mem::take(&mut texts));
-                element.push_back(txn, XmlElementPrelim::empty(HARD_BREAK));
+                close_text(&mut nodes, &mut texts);
+                nodes.push(Node::Break);
             }
             Piece::Mention(mention) => {
-                write_text(txn, element, &std::mem::take(&mut texts));
-                let node = element.push_back(txn, XmlElementPrelim::empty(MENTION));
+                close_text(&mut nodes, &mut texts);
+                nodes.push(Node::Mention(mention));
+            }
+        }
+    }
+    close_text(&mut nodes, &mut texts);
+    for node in nodes.iter().rev() {
+        match node {
+            Node::Text(runs) => write_text(txn, element, runs),
+            Node::Break => {
+                element.insert(txn, 0, XmlElementPrelim::empty(HARD_BREAK));
+            }
+            Node::Mention(mention) => {
+                let node = element.insert(txn, 0, XmlElementPrelim::empty(MENTION));
                 let props = &mention.props;
                 let mut attrs = Writer {
-                    txn,
+                    txn: &mut *txn,
                     element: &node,
                 };
                 attrs.set("kind", props.kind.as_str());
@@ -992,26 +1085,46 @@ fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[In
             }
         }
     }
-    write_text(txn, element, &texts);
+}
+
+/// One node of an element's inline content.
+enum Node {
+    /// A run of text nodes, written as one `XmlText`.
+    Text(Vec<(String, Marks)>),
+    Break,
+    Mention(Mention),
+}
+
+/// Ends the run of text nodes so far, if there is one.
+fn close_text(nodes: &mut Vec<Node>, texts: &mut Vec<(String, Marks)>) {
+    if !texts.is_empty() {
+        nodes.push(Node::Text(std::mem::take(texts)));
+    }
 }
 
 /// The formatting value a mark has on a run, if the run has the mark.
 type MarkValue = fn(&Marks) -> Option<Any>;
 
-/// One `XmlText` of the runs. The text goes in first and each mark is then applied over the
-/// ranges it covers, one attribute at a time and in the schema's order: an insert with
-/// several attributes at once would add them in a hash map's order, which differs from run to
-/// run, and so would the update's bytes.
+/// One `XmlText` of the runs, at index 0 of the element. The text goes in first, a run at a
+/// time in one pass, so every range a mark covers starts and ends between two of the text's
+/// items and none needs splitting; each mark is then applied over the ranges it covers, one
+/// attribute at a time and in the schema's order: an insert with several attributes at once
+/// would add them in a hash map's order, which differs from run to run, and so would the
+/// update's bytes.
 fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String, Marks)]) {
-    if runs.is_empty() {
-        return;
-    }
-    let text = element.push_back(txn, XmlTextPrelim::new(""));
+    let text = element.insert(txn, 0, XmlTextPrelim::new(""));
+    text.apply_delta(
+        txn,
+        runs.iter()
+            .map(|(chunk, _)| Delta::Inserted(Any::from(chunk.as_str()), None)),
+    );
+    let kind = txn.doc().offset_kind();
     let mut spans = Vec::with_capacity(runs.len());
+    let mut end = 0;
     for (chunk, _) in runs {
-        let start = text.len(txn);
-        text.insert(txn, start, chunk);
-        spans.push((start, text.len(txn)));
+        let start = end;
+        end = start + units(chunk, kind);
+        spans.push((start, end));
     }
     let marks: [(&str, MarkValue); 8] = [
         (BOLD, |m| flag(m.styles.bold)),
@@ -1028,6 +1141,7 @@ fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String
         (LINK, |m| m.link.as_deref().map(|href| single("href", href))),
     ];
     for (name, value_of) in marks {
+        let mut ranges: Vec<(u32, u32, Any)> = Vec::new();
         let mut open: Option<(u32, u32, Any)> = None;
         for ((_, marks), &(start, end)) in runs.iter().zip(&spans) {
             let value = value_of(marks);
@@ -1036,22 +1150,41 @@ fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String
                     Some((from, end, current))
                 }
                 (previous, value) => {
-                    if let Some((from, to, current)) = previous {
-                        format(txn, &text, from, to, name, current);
-                    }
+                    ranges.extend(previous);
                     value.map(|value| (start, end, value))
                 }
             };
         }
-        if let Some((from, to, current)) = open {
-            format(txn, &text, from, to, name, current);
-        }
+        ranges.extend(open);
+        format(txn, &text, name, ranges);
     }
 }
 
-fn format(txn: &mut TransactionMut, text: &XmlTextRef, from: u32, to: u32, name: &str, value: Any) {
-    let attributes = HashMap::from([(Arc::<str>::from(name), value)]);
-    text.format(txn, from, to - from, attributes);
+/// Applies one mark over ranges of a text, in order and apart, in one pass over it.
+fn format(txn: &mut TransactionMut, text: &XmlTextRef, name: &str, ranges: Vec<(u32, u32, Any)>) {
+    if ranges.is_empty() {
+        return;
+    }
+    let mut delta: Vec<Delta<Any>> = Vec::with_capacity(ranges.len() * 2);
+    let mut at = 0;
+    for (from, to, value) in ranges {
+        if from > at {
+            delta.push(Delta::Retain(from - at, None));
+        }
+        let attributes = HashMap::from([(Arc::<str>::from(name), value)]);
+        delta.push(Delta::Retain(to - from, Some(Box::new(attributes))));
+        at = to;
+    }
+    text.apply_delta(txn, delta);
+}
+
+/// The length of `text` in the units the document counts offsets in.
+pub(crate) fn units(text: &str, kind: OffsetKind) -> u32 {
+    let len = match kind {
+        OffsetKind::Bytes => text.len(),
+        OffsetKind::Utf16 => text.encode_utf16().count(),
+    };
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 fn flag(on: bool) -> Option<Any> {
@@ -1073,12 +1206,13 @@ fn write_table(txn: &mut TransactionMut, table: &XmlElementRef, content: &TableC
     let header_rows = content.header_rows.unwrap_or(0) as usize;
     let header_cols = content.header_cols.unwrap_or(0) as usize;
     let columns = column_positions(&content.rows);
-    for (row_index, row) in content.rows.iter().enumerate() {
-        let row_element = table.push_back(txn, XmlElementPrelim::empty(TABLE_ROW));
-        for (cell_index, cell) in row.cells.iter().enumerate() {
+    // Rows, and each row's cells, at index 0, the last first, as the table is new.
+    for (row_index, row) in content.rows.iter().enumerate().rev() {
+        let row_element = table.insert(txn, 0, XmlElementPrelim::empty(TABLE_ROW));
+        for (cell_index, cell) in row.cells.iter().enumerate().rev() {
             let header = row_index < header_rows || cell_index < header_cols;
             let name = if header { TABLE_HEADER } else { TABLE_CELL };
-            let element = row_element.push_back(txn, XmlElementPrelim::empty(name));
+            let element = row_element.insert(txn, 0, XmlElementPrelim::empty(name));
             let props = &cell.props;
             let column = columns
                 .get(row_index)
@@ -1492,6 +1626,43 @@ mod tests {
                 dropped: 0,
             }
         );
+    }
+
+    #[test]
+    fn nodes_count_blocks_rows_cells_and_inline_nodes() {
+        let document = crate::markdown::from_markdown(
+            "One **bold** and plain\\\nline\n\n| a | b |\n| - | - |\n| c | d |\n\n- top\n  - under\n",
+        );
+        // The paragraph: itself, three runs, a break and the run after it. The table:
+        // itself, two rows of two cells, each with its run. The list: two items, each with its run.
+        assert_eq!(document.nodes(), 6 + 11 + 4);
+        assert_eq!(crate::nodes(&[]), 0);
+    }
+
+    #[test]
+    fn a_long_document_writes_in_time_in_proportion_to_its_size() {
+        // Each paragraph went in at the end of the group, and every one walked past those
+        // before it: 50000 took minutes in a debug build. Each now goes in at the start.
+        let document = Document::new(
+            (0..50_000)
+                .map(|i| Block::paragraph(format!("paragraph {i}")))
+                .collect(),
+        );
+        let doc = Doc::new();
+        let fragment = fragment(&doc);
+        let started = std::time::Instant::now();
+        replace(
+            &mut doc.transact_mut(),
+            &fragment,
+            &document,
+            &mut SequentialIds::new("b"),
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(read_doc(&doc).expect("reads").blocks.len(), 50_000);
     }
 
     #[test]

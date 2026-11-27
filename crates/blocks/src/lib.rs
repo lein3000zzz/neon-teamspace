@@ -31,9 +31,9 @@ pub use model::{
     DEFAULT_LANGUAGE, DatabaseProps, Document, FileProps, HeadingProps, ImageProps, Inline, Link,
     Mention, MentionKind, MentionProps, NoProps, NumberedListItemProps, QuoteProps, StyledText,
     Styles, TableCell, TableCellProps, TableContent, TableProps, TableRow, TextAlignment,
-    TextProps,
+    TextProps, nodes,
 };
 pub use ydoc::{
-    FRAGMENT, Lenient, MentionItem, NotADocument, ReadError, append, fragment, mention_items, read,
-    read_doc, read_lenient, replace,
+    AppendRefused, FRAGMENT, Lenient, MAX_WALK, MentionItem, NotADocument, ReadError, TooFar,
+    append, fragment, mention_items, read, read_doc, read_lenient, replace,
 };

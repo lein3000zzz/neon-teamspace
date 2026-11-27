@@ -15,7 +15,8 @@ use yrs::branch::BranchID;
 use yrs::{TransactionMut, XmlElementPrelim, XmlElementRef, XmlFragment as _, XmlOut};
 
 use super::{
-    Applied, EditError, branch, children_of, containers, group_or_new, id_of, tidy, top_group,
+    Applied, EditError, branch, children_of, containers, group_or_new, id_of, make_placed, tidy,
+    top_group,
 };
 use crate::align::{Key, pairs};
 use crate::ids::IdSource;
@@ -142,15 +143,11 @@ fn restore_group(
     // From the last place back, so the places before stay; at one place, what goes before
     // what comes.
     placed.sort_by_key(|&(place, kind, n)| (Reverse(place), kind, Reverse(n)));
-    for (place, kind, n) in placed {
-        if kind == 0 {
-            group.remove_range(txn, place, 1);
-        } else {
-            applied
-                .added
-                .extend(write_blocks_at(txn, group, place, runs[n], ids));
-        }
-    }
+    make_placed(txn, group, &placed, |txn, place, n| {
+        applied
+            .added
+            .extend(write_blocks_at(txn, group, place, runs[n], ids));
+    });
 }
 
 /// Writes a block's content element anew, for a block that stays with other content.
