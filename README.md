@@ -38,8 +38,8 @@ you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
   file with Postgres, TLS from Caddy given a domain, settings that change while the server
   runs, and logs, metrics, traces and profiles.
 
-Desktop and mobile apps for macOS, Windows, Linux, Android and iOS, thin shells that open your
-server's web app, come in the next release.
+Apps for macOS, Windows, Linux and Android, thin shells that open your server's web app, come in
+the next release, with an iOS app to build from source.
 
 ## Quick start
 

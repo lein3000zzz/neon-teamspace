@@ -12,7 +12,8 @@ shows, and the server needs no setting for it.
 ## Installing
 
 Each [release](https://github.com/lein3000zzz/neon-teamspace/releases) has the desktop
-installers and the Android APK attached. The iPhone and iPad app goes out through TestFlight.
+installers and the Android APK attached. The iPhone and iPad app is not attached: it is built
+from source on a Mac, as [Building from source](#building-from-source) says.
 
 | Platform | File | Notes |
 |---|---|---|
@@ -20,7 +21,7 @@ installers and the Android APK attached. The iPhone and iPad app goes out throug
 | Windows 10 or later | `Neon-Teamspace_<version>_x64-setup.exe` | The installer adds Microsoft's WebView2 runtime when it is missing. |
 | Linux with glibc 2.35 or later, such as Ubuntu 22.04, Debian 12 or Fedora 36 | `.deb`, `.rpm` or `.AppImage` | The `.deb` and `.rpm` depend on WebKitGTK 4.1, which the package manager installs. The AppImage brings its own, from Ubuntu 22.04, where the apps are built. Make an AppImage executable with `chmod +x` before running it. |
 | Android 7 or later | `Neon-Teamspace_<version>_android.apk` | Allow your browser or file manager to install apps, then open the file. |
-| iOS and iPadOS 15 or later | TestFlight | Whoever publishes the app sends the invitation. |
+| iOS and iPadOS 15 or later | None | Build the app from source with Xcode, signed for your own Apple developer team. |
 
 A release candidate, such as `v0.2.0-rc.1`, is marked as a pre-release, and its files carry
 the candidate's version in their names, as `Neon-Teamspace_0.2.0-rc.1_x64-setup.exe`. The
@@ -294,4 +295,5 @@ Vite, and the Rust side in `apps/shell/src-tauri/`.
 lists what each platform needs to build them and the `make` targets that do.
 `make app-android` builds an APK signed with Android's debug key, which `adb install` puts on a
 device or an emulator, and `make app-build` the desktop app's installers for the machine it
-runs on.
+runs on. The iOS app builds on a Mac with full Xcode, and an Apple developer team of your own
+signs it.

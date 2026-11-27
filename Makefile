@@ -349,7 +349,7 @@ app-android: ## Build an Android APK signed with the debug key, for testing (nee
 	cd $(APP_DIR) && CI=true $(BUN) run tauri android build --apk --debug
 
 .PHONY: app-ios
-app-ios: ## Build the iOS app with Xcode, signed for APPLE_DEVELOPMENT_TEAM, for TestFlight
+app-ios: ## Build the iOS app with Xcode, signed for APPLE_DEVELOPMENT_TEAM and exported for App Store Connect
 	cd $(APP_DIR) && CI=true $(BUN) run tauri ios build --export-method app-store-connect
 
 ## Claude Code plugin (.claude-plugin/ and integrations/claude-code/)
