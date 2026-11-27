@@ -146,6 +146,18 @@ export async function tapAfter(page: Page, text: string) {
   await page.touchscreen.tap(at.x, at.y);
 }
 
+/**
+ * The safe area of an iPhone with a Dynamic Island, in portrait, which a page drawn under the
+ * status bar keeps clear of: Chromium reports none of its own, as a desktop's screen has none.
+ */
+export const DYNAMIC_ISLAND = { top: 59, bottom: 34, left: 0, right: 0 };
+
+/** Gives the page's env(safe-area-inset-*) the safe area of `insets`, from its next load. */
+export async function safeArea(page: Page, insets: typeof DYNAMIC_ISLAND) {
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setSafeAreaInsetsOverride", { insets });
+}
+
 /** Opens the sidebar, a drawer on a phone, from the button at the top of the screen. */
 export async function openDrawer(page: Page): Promise<Locator> {
   await page.getByRole("button", { name: "Open navigation" }).tap();
