@@ -3,12 +3,17 @@
 # tag to name the workspace's version; the end-to-end tests of the release build; the server and
 # web images for linux/amd64 and linux/arm64 on GHCR, built from the tag without a cache, with
 # OCI labels, an SBOM and build provenance; beside them the apps, desktop on each platform's
-# runner and Android on Linux, with build provenance; and a GitHub release with the Compose
-# archive, the apps' installers and a SHA256SUMS file of them attached, whose notes name the
-# images and their tags and link the docs, before the ones GitHub generates from the merged
-# pull requests. It needs no secret but the workflow's own token, and the Android keystore's,
-# when the repository has them, to sign the APK in a job of its own. The iOS app is built on a
-# Mac with Xcode and goes to TestFlight, outside this workflow.
+# runner and Android on Linux, also built from the tag without a cache, with build provenance;
+# and a GitHub release with the Compose archive, the apps' installers and a SHA256SUMS file of
+# them attached, whose notes name the images and their tags and link the docs, before the ones
+# GitHub generates from the merged pull requests. It needs no secret but the workflow's own
+# token, and the Android keystore's, when the repository has them, to sign the APK in a job of
+# its own. The iOS app is built on a Mac with Xcode and goes to TestFlight, outside this
+# workflow.
+#
+# No job that publishes or signs reads the Actions cache, which is neither signed nor checked:
+# a tag's run restores what its own ref or the default branch saved, which any code that ran in
+# one of their jobs with the job's token could have written.
 name: Release
 
 on:
@@ -160,8 +165,13 @@ jobs:
   # say how to open them the first time. Linux builds on the oldest Ubuntu runner, as the
   # AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35, or a later
   # one. Each installer gets build provenance, an attestation of the workflow run and the
-  # commit that made it, once the repository is public: GitHub keeps attestations of private
-  # repositories only on Enterprise plans.
+  # commit that made it; as a safety net, as for the images' signatures, not should the
+  # repository ever be private, where GitHub keeps attestations only on Enterprise plans.
+  # Nothing comes from the Actions cache, as for the images: no crates built before, nor Bun
+  # itself. Unsigned as the apps are, their attestations and checksums vouch for them, and a
+  # cached build could put into them what no file of the tag holds. Without a cache every run
+  # builds everything, as a release's first run did anyway, since no other workflow saves a
+  # cache under these jobs' keys.
   desktop:
     name: App (${{ matrix.name }})
     needs: version
@@ -213,18 +223,16 @@ jobs:
           rustup toolchain install --no-self-update
           if [ -n "$TARGET" ]; then rustup target add "$TARGET"; fi
           rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: apps/shell/src-tauri -> target
-          key: ${{ matrix.id }}
       # cargo-about writes the crates' notices, which the picker's build embeds.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-about@0.9.3
           fallback: none
+      # Bun from its release, not from the copy setup-bun keeps in the Actions cache.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: docs/package.json
+          no-cache: true
       # The packages as make app-install installs them, without make, which Windows lacks.
       - name: Packages
         working-directory: apps/shell
@@ -262,6 +270,9 @@ jobs:
 
   # The Android APK, for every ABI in one file, built unsigned: the job runs Gradle's plugins,
   # the crates' build scripts and the packages' code, and none of them gets the signing key.
+  # Nothing comes from the Actions cache, as for the desktop apps: no crates built before, no
+  # Bun, and no Gradle cache, which setup-java keeps only when asked to; Gradle checks its own
+  # download against the checksum in gradle-wrapper.properties.
   android:
     name: App (Android)
     needs: version
@@ -283,10 +294,6 @@ jobs:
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android \
             x86_64-linux-android
           rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: apps/shell/src-tauri -> target
-          key: android
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-about@0.9.3
@@ -294,6 +301,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: docs/package.json
+          no-cache: true
       - run: make app-install
       # The runner's SDK comes with NDKs; the newest is the one Tauri builds with.
       - name: NDK

@@ -310,9 +310,11 @@ Tauri's template changes.
 
 The release workflow builds the desktop apps on GitHub's Linux (Ubuntu 22.04), Windows and
 macOS runners, and the Android APK on Linux, attests their build provenance, and attaches them
-to the release with `SHA256SUMS`. It builds the APK unsigned, and signs it in a job of its own,
-which runs only the Android SDK's `zipalign` and `apksigner`, when the repository has these
-secrets:
+to the release with `SHA256SUMS`. Like the server's images, they build from the tag's checkout
+alone: nothing comes from the Actions cache, neither crates built before nor Bun, so the
+provenance vouches only for what the tag holds, and every release builds them from scratch.
+It builds the APK unsigned, and signs it in a job of its own, which runs only the Android
+SDK's `zipalign` and `apksigner`, when the repository has these secrets:
 
 | Secret | What it holds |
 |---|---|
