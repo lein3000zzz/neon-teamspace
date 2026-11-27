@@ -201,27 +201,9 @@ geolocation and other device features.
 
 ### Upgrading
 
-Built from the clone, pull the new code and build again:
-
-```sh
-git pull
-docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
-```
-
-With the published images, set the new release in `NEON_VERSION`, then:
-
-```sh
-docker compose -f deployments/docker-compose.yml pull
-docker compose -f deployments/docker-compose.yml up -d
-```
-
-Compose replaces the containers whose image changed. The new server applies the new
-migrations before it takes requests, and `/readyz` answers `503` until it has. Migrations
-only go forward, so take a backup first (see [below](#where-the-data-lives)): going back to
-an older version means restoring the backup taken before the upgrade. A server that was
-killed rather than stopped may leave pages whose latest text search does not read yet;
-`neon search reindex` stores it, as [Search](/docs/guides/search/#rebuilding-the-text)
-explains.
+A new release brings its own Compose archive: unpacked over the old one, it brings its images
+with it. [Upgrading](/docs/self-hosting/upgrade/) has the steps, the backup to take first,
+and how to check the result.
 
 ### Stopping
 

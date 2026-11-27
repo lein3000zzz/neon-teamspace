@@ -6,7 +6,7 @@ collaborative editing, and AI agents as first-class teammates over MCP.
 One deployment hosts many workspaces. Each workspace has teamspaces, nested pages and
 databases. Agents connect over MCP, pick up tasks, comment and edit pages next to people.
 
-> **Status:** early development, before its first release.
+> **Status:** early development. [CHANGELOG.md](CHANGELOG.md) lists the releases.
 
 ## Repository layout
 
@@ -71,7 +71,9 @@ runs it in the background. `deployments/.env.example` lists the stack's settings
 settings go in `deployments/server.env`, which only the server reads; `server.env.example`
 beside it lists the usual ones. The
 [install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
-published images, domains and TLS, upgrades, stopping, and where the data lives.
+release's Compose archive, the first run, domains and TLS, stopping, and where the data
+lives, and the [upgrade page](docs/src/content/docs/self-hosting/upgrade.md) moving to a new
+release.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the
