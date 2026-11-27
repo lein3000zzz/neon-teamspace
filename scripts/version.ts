@@ -20,9 +20,9 @@ const SEMVER_ONLY = new RegExp(`^${SEMVER}$`);
 
 /**
  * How the docs state Neon Teamspace's version, each with the version as its first group: the
- * variable that picks the images, the images, /api/v1/meta's answer, the Compose archive, and
- * the repository's release pages and files at a tag. Other numbers, such as the versions of
- * other software or of a webhook's payload, are none of these.
+ * variable that picks the images, the images, /api/v1/meta's answer, the Compose archive, the
+ * repository's release pages and files at a tag, and the tag a clone checks out. Other numbers,
+ * such as the versions of other software or of a webhook's payload, are none of these.
  */
 const DOC_FORMS: { name: string; pattern: RegExp }[] = [
   { name: "NEON_VERSION", pattern: new RegExp(`NEON_VERSION=(${SEMVER})`, "g") },
@@ -36,6 +36,7 @@ const DOC_FORMS: { name: string; pattern: RegExp }[] = [
       "g",
     ),
   },
+  { name: "a checkout", pattern: new RegExp(`git checkout v(${SEMVER})`, "g") },
 ];
 
 /** The files of the docs that DOC_FORMS reads, beside the docs' pages. */

@@ -52,6 +52,7 @@ describe("checkVersions", () => {
         "```",
         "Unpack `neon-teamspace-compose-1.2.2.tar.gz` from",
         "https://github.com/lein3000zzz/neon-teamspace/releases/download/v1.2.2/.",
+        "git checkout v1.2.2",
         '```sh\ncurl -d \'{"version": 1, "action": "append", "markdown": "## v1.4.0"}\'\n```',
         "Postgres 18.7 and Compose 2.24.4 are other software.",
       ].join("\n"),
@@ -65,6 +66,7 @@ describe("checkVersions", () => {
       "docs/src/content/docs/self-hosting/upgrade.md:2: a version in JSON names 1.2.2",
       "docs/src/content/docs/self-hosting/upgrade.md:4: the Compose archive names 1.2.2",
       "docs/src/content/docs/self-hosting/upgrade.md:5: a release names 1.2.2",
+      "docs/src/content/docs/self-hosting/upgrade.md:6: a checkout names 1.2.2",
       'neon --version: printed "neon 1.2.2"',
       "the tag v1.2.4 is not v1.2.3",
     ]);
