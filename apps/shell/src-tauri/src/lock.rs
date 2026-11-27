@@ -270,6 +270,16 @@ impl Lock {
         let mut state = self.state();
         match navigation::judge(url, &self.app, &state.servers) {
             Verdict::Load(Place::Server) => Navigation::Load,
+            // From the app's own page, a blank page the app did not ask for is the one in the
+            // history behind the picker, where iOS's back gesture or the menu's Back would go
+            // next: going back ends at the picker.
+            Verdict::Load(Place::App)
+                if url.scheme() == "about"
+                    && state.page == Page::App
+                    && state.showing == Showing::No =>
+            {
+                Navigation::Refuse
+            }
             Verdict::Load(Place::App) if url.scheme() == "about" => Navigation::Load,
             Verdict::Load(Place::App) => {
                 if state.showing == Showing::Picker || matches!(state.page, Page::Start | Page::App)
@@ -529,6 +539,23 @@ mod tests {
         }
         // Past the server's first page, the picker, which the app shows its own way.
         assert_eq!(lock.navigation(&url(PICKER), now), Navigation::ShowPicker);
+    }
+
+    #[test]
+    fn going_back_ends_at_the_picker() {
+        let (lock, now) = on_server("https://neon.example.com/w/acme");
+        // Back from the server's first page: the picker, through a blank page.
+        let blank = lock.show_picker();
+        assert_eq!(lock.navigation(&blank, now), Navigation::Load);
+        assert_eq!(lock.started(&blank, now), Started::LoadPicker(url(PICKER)));
+        assert_eq!(lock.navigation(&url(PICKER), now), Navigation::Load);
+        lock.started(&url(PICKER), now);
+        // Back again, into the history behind the picker: the blank page is refused, and the
+        // server's pages behind it are out of reach.
+        assert_eq!(lock.navigation(&blank, now), Navigation::Refuse);
+        // The app's own way to the picker still goes through a blank page, from the picker too.
+        let again = lock.show_picker();
+        assert_eq!(lock.navigation(&again, now), Navigation::Load);
     }
 
     #[test]
