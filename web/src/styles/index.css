@@ -221,7 +221,9 @@
    pointer can hover, and always where one cannot, as on a touch screen, so
    none is reachable only by hovering. A sidebar row's sit over the end of its
    title, on the row's colour as it shows on hover over the sidebar's, so
-   hidden they take no room from it, and stay where a pointer finds them. */
+   hidden they take no room from it, and stay where a pointer finds them. The
+   row of the page open shows them as the others do, and focus brings them out
+   only from the keyboard, so the title of a row just clicked shows whole. */
 @media (hover: hover) and (not (any-pointer: coarse)) {
   [data-row-actions] {
     opacity: 0;
@@ -237,8 +239,7 @@
   }
 
   [data-row]:hover [data-row-actions],
-  [data-row]:focus-within [data-row-actions],
-  [data-row]:has([aria-current="page"]) [data-row-actions],
+  [data-row]:has(:focus-visible) [data-row-actions],
   [data-row-actions]:has([aria-expanded="true"]) {
     opacity: 1;
   }

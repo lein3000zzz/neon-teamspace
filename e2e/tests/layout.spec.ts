@@ -215,6 +215,30 @@ test("the sidebar keeps to its column with a long page title and its emoji, and 
       { teamspace_id: general?.id, title: "Kickoff notes", icon: "📝" },
       201,
     );
+    const plan = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Launch plan", icon: "🚀" },
+      201,
+    );
+
+    // The row of the page open shows its title whole, its actions coming over its end on hover
+    // as the other rows' do.
+    await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    const open = page.getByRole("complementary").getByRole("link", { name: "Launch plan" });
+    await expect(open).toHaveAttribute("aria-current", "page");
+    await page.getByRole("main").hover();
+    const actions = open.locator("xpath=following-sibling::*[@data-row-actions]");
+    await expect(actions).toHaveCSS("opacity", "0");
+    expect(
+      await open
+        .locator("span.truncate")
+        .evaluate((title) => title.scrollWidth <= title.clientWidth),
+      "Launch plan uncut where it is open",
+    ).toBe(true);
+    await open.hover();
+    await expect(actions).toHaveCSS("opacity", "1");
 
     await page.goto("/inbox");
     const sidebar = page.getByRole("complementary");
