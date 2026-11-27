@@ -245,6 +245,13 @@ the tests fail, the Playwright report is attached to the run.
 Dependabot opens one grouped pull request per ecosystem each month, into `dev`. The few pins
 it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
 
+## Rust code
+
+- A module with submodules lives in `foo.rs` beside its directory `foo/`, never in
+  `foo/mod.rs`: clippy's `mod_module_files` fails `make check` on one. The code that an
+  integration test's files share stays in `tests/support/mod.rs`, so that cargo does not
+  build it as a test of its own.
+
 ## Branches and commits
 
 - Branch from `dev` and open the pull request into `dev`. `main` takes `dev`'s changes for

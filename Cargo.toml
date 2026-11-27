@@ -112,6 +112,8 @@ todo = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
+mod_module_files = "warn"
 
 [profile.release]
 lto = "thin"

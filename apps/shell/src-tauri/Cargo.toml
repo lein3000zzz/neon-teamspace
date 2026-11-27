@@ -63,6 +63,8 @@ todo = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
+mod_module_files = "warn"
 
 # Small and quick to start, as the server's: the app is a thin shell.
 [profile.release]
