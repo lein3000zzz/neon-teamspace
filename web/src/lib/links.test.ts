@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeUserAgent, formatWait } from "./format";
-import { inviteLink, safeNext } from "./links";
+import { inviteLink, openApart, safeNext } from "./links";
 
 describe("the page after signing in", () => {
   it.each([
@@ -16,6 +16,33 @@ describe("the page after signing in", () => {
   ])("goes to %j as %j", (next, expected) => {
     expect(safeNext(next)).toBe(expected);
   });
+});
+
+describe("addresses a page opens", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("open in a tab cut off from this one", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    openApart("https://elsewhere.example/docs?a=1");
+    openApart("/api/v1/files/abc");
+    openApart("mailto:ada@example.com");
+    expect(open.mock.calls).toEqual([
+      ["https://elsewhere.example/docs?a=1", "_blank", "noopener,noreferrer"],
+      [`${window.location.origin}/api/v1/files/abc`, "_blank", "noopener,noreferrer"],
+      ["mailto:ada@example.com", "_blank", "noopener,noreferrer"],
+    ]);
+  });
+
+  it.each(["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,hi", "http://["])(
+    "open nothing for %j",
+    (href) => {
+      const open = vi.spyOn(window, "open").mockReturnValue(null);
+      openApart(href);
+      expect(open).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("invite links", () => {

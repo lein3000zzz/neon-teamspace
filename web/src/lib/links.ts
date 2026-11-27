@@ -35,6 +35,27 @@ export function safeNext(next: string | undefined): string {
   return url.pathname + url.search + url.hash;
 }
 
+/** The schemes an address opened in a tab of its own may have: none that runs script. */
+const OPENABLE = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+/**
+ * Opens an address from a page, such as a link in its text or a file of it, in a
+ * tab of its own, cut off from this one: the page there gets no window.opener,
+ * so it cannot send this tab elsewhere, nor a Referer. An address of another
+ * scheme, such as javascript:, opens nothing.
+ */
+export function openApart(href: string): void {
+  let url: URL;
+  try {
+    url = new URL(href, window.location.href);
+  } catch {
+    return;
+  }
+  if (OPENABLE.has(url.protocol)) {
+    window.open(url.href, "_blank", "noopener,noreferrer");
+  }
+}
+
 /**
  * Takes a one-time secret, a mailed link's token or an invite code, out of
  * the address as the page opens: the page keeps it in memory, and the history
