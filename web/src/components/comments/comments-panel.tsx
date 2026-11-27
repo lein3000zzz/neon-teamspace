@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { cn } from "cn";
 import { Check, MessageSquarePlus, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -161,7 +162,9 @@ export function CommentsPanel({
       ref={panel}
       aria-labelledby={headingId}
       data-comments-panel=""
-      className="fixed inset-y-0 right-0 z-30 flex w-[min(24rem,100vw)] flex-col gap-4 overflow-y-auto overscroll-contain border-l border-border bg-raised safe-top-3 safe-right-3 safe-bottom-4 pl-3"
+      // The whole width of a phone, which a 24rem panel would leave a strip of; beside the
+      // page from sm up.
+      className="fixed inset-y-0 right-0 z-30 flex w-full flex-col gap-4 overflow-y-auto overscroll-contain border-border bg-raised safe-top-3 safe-right-3 safe-bottom-4 pl-3 sm:w-96 sm:border-l"
     >
       <div className="flex items-center justify-between gap-2">
         <h2
@@ -255,8 +258,12 @@ export function CommentsPanel({
                 <MessageSquarePlus aria-hidden />
                 {copy.onSelection}
               </Button>
+              {/* The shortcut is for a keyboard, which a touch screen as the main pointer lacks. */}
               <p
-                className="text-xs text-muted-foreground"
+                className={cn(
+                  "text-xs text-muted-foreground",
+                  !noSelection && "pointer-coarse:hidden",
+                )}
                 role={noSelection ? "status" : undefined}
               >
                 {noSelection ? copy.selectFirst : copy.shortcut}

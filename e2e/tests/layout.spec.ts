@@ -398,3 +398,35 @@ test("the editor's toolbar keeps off the comments panel, and its mention menu in
     await page.context().close();
   }
 });
+
+test("on a phone, the comments cover the whole screen, without the keyboard's shortcut", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const screen = { width: 390, height: 844 };
+  const { page, workspace } = await sprintOf(browser, "thumb", {
+    context: { viewport: screen, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  });
+  try {
+    const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    const plan = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Launch plan", markdown: "We ship on Friday." },
+      201,
+    );
+    await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    await page.getByRole("button", { name: "Comments" }).tap();
+    const panel = page.getByRole("complementary", { name: "Comments" });
+    await expect(panel.getByRole("button", { name: "Comment on the selected text" })).toBeVisible();
+    const box = await panel.boundingBox();
+    expect(box?.x, "no strip of the page at its left").toBe(0);
+    expect(box?.width).toBe(screen.width);
+    await expect(panel.getByText(/Ctrl\+Alt\+M/)).toBeHidden();
+  } finally {
+    await page.context().close();
+  }
+});
