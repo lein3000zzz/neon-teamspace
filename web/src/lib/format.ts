@@ -2,10 +2,27 @@ import { strings } from "./strings";
 
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+const dateTimeThisYear = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 /** A moment from the API, RFC 3339, in the reader's locale and time zone. */
 export function formatDateTime(iso: string): string {
   return dateTime.format(new Date(iso));
+}
+
+/**
+ * A moment as {@link formatDateTime} has it, without its year when that is
+ * the year of `now`: Nov 27, 12:30 AM. For where room is short.
+ */
+export function formatShortDateTime(iso: string, now: Date = new Date()): string {
+  const moment = new Date(iso);
+  return moment.getFullYear() === now.getFullYear()
+    ? dateTimeThisYear.format(moment)
+    : dateTime.format(moment);
 }
 
 export function formatDate(iso: string): string {

@@ -28,7 +28,7 @@ import { useMe } from "@/components/shell/signed-in";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatShortDateTime } from "@/lib/format";
 import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { CommentComposer } from "./comment-composer";
@@ -618,10 +618,13 @@ function CommentItem({
     <li className="grid gap-1">
       {before}
       <div className="flex min-w-0 items-center justify-between gap-2">
+        {/* The time goes under the name only when a long one leaves it no room. */}
         <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <PersonLabel person={author} className="text-foreground" />
-          <time dateTime={comment.created_at}>{when}</time>
-          {edited && <span>({copy.edited})</span>}
+          <time dateTime={comment.created_at} title={when} className="shrink-0 whitespace-nowrap">
+            {formatShortDateTime(comment.created_at)}
+          </time>
+          {edited && <span className="shrink-0">({copy.edited})</span>}
         </p>
         {(mine || mayModerate) && !editing && (
           <div className="flex shrink-0">

@@ -430,3 +430,79 @@ test("on a phone, the comments cover the whole screen, without the keyboard's sh
     await page.context().close();
   }
 });
+
+test("an agent's comment keeps its time on the line of its name, as a person's does", async ({
+  browser,
+  playwright,
+}) => {
+  test.setTimeout(90_000);
+  const { page, workspace } = await sprintOf(browser, "scouted", {
+    context: { viewport: { width: 1440, height: 900 } },
+  });
+  try {
+    const base = `/api/v1/workspaces/${workspace.id}`;
+    // Named as in the screenshots: Scout, an agent for Ada.
+    await callApi(page, "PATCH", "/api/v1/account/me", { display_name: "Ada" }, 200);
+    const scout = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `${base}/agents`,
+      { name: "Scout" },
+      201,
+    );
+    const { token } = await callApi<{ token: string }>(
+      page,
+      "POST",
+      `${base}/agents/${scout.id}/tokens`,
+      { name: "replies", scopes: ["read", "write"] },
+      201,
+    );
+    const answer = await page.request.get(`${base}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    const plan = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `${base}/pages`,
+      { teamspace_id: general?.id, title: "Launch plan", markdown: "We ship on Friday." },
+      201,
+    );
+    const { thread } = await callApi<{ thread: { id: string } }>(
+      page,
+      "POST",
+      `/api/v1/pages/${plan.id}/comments`,
+      { markdown: "Can we freeze at 10 instead?" },
+      201,
+    );
+    const agent = await playwright.request.newContext({
+      baseURL: new URL(page.url()).origin,
+      extraHTTPHeaders: { Authorization: `Bearer ${token}` },
+    });
+    try {
+      const replied = await agent.post(`/api/v1/threads/${thread.id}/comments`, {
+        data: { markdown: "A 10:00 freeze still leaves five hours of rehearsal." },
+      });
+      expect(replied.status(), await replied.text()).toBe(201);
+    } finally {
+      await agent.dispose();
+    }
+
+    await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    await page.getByRole("button", { name: "Comments, 1 open" }).click();
+    const panel = page.getByRole("complementary", { name: "Comments" });
+    const headers = panel.locator("article p:has(time)");
+    await expect(headers).toHaveCount(2);
+    await expect(headers.nth(1)).toContainText("· via Ada");
+    const [person, agentsOwn] = await headers.evaluateAll((all) =>
+      all.map((each) => {
+        const time = each.querySelector("time")?.getBoundingClientRect();
+        const name = each.firstElementChild?.getBoundingClientRect();
+        return time !== undefined && name !== undefined && time.top < name.bottom;
+      }),
+    );
+    expect(person, "a person's time beside their name").toBe(true);
+    expect(agentsOwn, "an agent's time beside its name").toBe(true);
+  } finally {
+    await page.context().close();
+  }
+});
