@@ -228,13 +228,16 @@ own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` na
 runs the tests in `e2e/` against it in a headless Chromium with Playwright: the app and its
 API, the docs, the security headers, and that the admin listener is not reachable. The stack
 gets a first admin with a password made for the run, a secret key, and Mailpit, which takes
-its mail and whose API the tests read; the tests sign in as that admin, make an invite, sign
-up with it in a second browser and sign out, and read the settings. It removes the stack, its
-data included, however the run ends, and leaves Playwright's report in
-`e2e/playwright-report/`. It needs Docker, Bun and Node.js; `make e2e-install`, which it runs
-first, installs the tests' packages and the browser. The server image it tests is built with
-Cargo's `e2e` profile, the release profile without link-time optimisation, so it compiles in
-a fraction of the time; the published images are built with `release`, which
+its mail and whose API the tests read. The tests sign in as that admin and make people of
+their own; they sign up in each registration mode, verify an address and reset a password
+with the links mailed to them, ask to join and are approved or denied, get the mail of a
+mention and of an invitation into a workspace, download a page's file only where they may,
+edit pages together, work boards and connect over MCP. It removes the stack, its data
+included, however the run ends, and leaves Playwright's report in `e2e/playwright-report/`.
+It needs Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the
+tests' packages and the browser. The server image it tests is built with Cargo's `e2e`
+profile, the release profile without link-time optimisation, so it compiles in a fraction of
+the time; the published images are built with `release`, which
 `make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
