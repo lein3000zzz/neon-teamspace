@@ -32,6 +32,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       blocks: ${{ steps.filter.outputs.blocks }}
       versions: ${{ steps.filter.outputs.versions }}
+      app: ${{ steps.filter.outputs.app }}
     steps:
       # A push is compared, in git, with the commit the branch pointed to before it. The
       # whole history is fetched here, as without credentials the filter cannot fetch that
@@ -129,6 +130,18 @@ jobs:
               - deployments/.env.example
               - deployments/server.env.example
               - scripts/version.ts
+            app:
+              - *shared
+              - apps/**
+              # The palettes the picker reads from the web app.
+              - web/src/styles/palettes.css
+              - scripts/**
+              - rust-toolchain.toml
+              - clippy.toml
+              - rustfmt.toml
+              - deny.toml
+              - .editorconfig
+              - docs/package.json
 
   # Formatting, cargo-deny, clippy and the query cache check, on a runner beside the tests',
   # which take longest, so that neither waits for the other. Each job keeps a cache of its own,
@@ -388,6 +401,65 @@ jobs:
       - name: Every stated version is Cargo.toml's
         run: make version-check
 
+  # The apps' Tauri project on Linux, with the system libraries its webview needs: the picker's
+  # checks, the Rust side's formatting, lints and tests, the picker in Chromium and WebKit, and
+  # a build of the Linux app.
+  app:
+    name: App shell
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential \
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/shell/src-tauri -> target
+          save-if: ${{ github.event_name == 'push' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.22.0
+          fallback: none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make app-install
+      - name: Licenses of the crates and the installed packages
+        run: |
+          cargo deny --manifest-path apps/shell/src-tauri/Cargo.toml check
+          bun scripts/licenses.ts apps/shell
+      - name: Picker checks, Rust formatting, lints and tests
+        run: make app-check
+      - name: Browsers
+        run: make app-browsers
+      - name: The picker in Chromium and WebKit
+        run: make app-test
+      # The Linux app as a .deb, the quickest of its bundles; the release builds them all.
+      - name: Linux build
+        working-directory: apps/shell
+        run: bun run tauri build --ci --bundles deb
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picker-report
+          path: apps/shell/playwright-report
+          retention-days: 7
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
@@ -419,7 +491,7 @@ jobs:
   all:
     name: All checks
     if: always()
-    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, secrets]
+    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, app, secrets]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
