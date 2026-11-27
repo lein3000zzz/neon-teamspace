@@ -150,7 +150,7 @@ too.
 
 **Comments** in a page's header opens its comments in a panel beside the page, which leaves
 the page usable; the button counts the open threads. Escape or the close button closes the
-panel. In it:
+panel, and on a phone, where it covers the page, so does the back gesture. In it:
 
 - the field at the top comments on the page as a whole;
 - **Comment on the selected text** starts a thread on the text selected in the page, as do

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { ImagePlus, Maximize2, MessageSquare, Smile, Star, UserPlus } from "lucide-react";
 import {
   lazy,
@@ -69,6 +69,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
+import { COARSE_QUERY, useMediaQuery } from "@/lib/media";
+import { useBackCloses } from "@/lib/panel-history";
 import { edits, mayShare } from "@/lib/page-rules";
 import { titleOf } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
@@ -461,6 +463,8 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
     setActive(null);
     button.current?.focus();
   }, [button]);
+  // Over the whole page on a phone, the panel closes with the back gesture, as a sheet does.
+  useBackCloses(panelOpen, (shown) => (shown ? setPanelOpen(true) : close()));
   const unseenOne = useCallback(
     (person: Person) =>
       setUnseen((current) =>
@@ -598,23 +602,34 @@ function DatabaseBody({ page }: { page: Page }) {
 /**
  * A row beside the page that shows its database, in a panel over the page's
  * side: the row's page as it is on its own, with the way to open it so.
- * Closing it, or Escape, goes back to the database where it was.
+ * Closing it, or Escape, goes back to the database where it was. The address
+ * names it, so Back closes it as it leaves that address. On a touch screen,
+ * closing it otherwise steps back too, where it was opened from the database,
+ * or takes its entry's place, so no entry of it is left for Back to open again.
  */
 function RowPeek({ rowId }: { rowId: string }) {
   const workspace = useWorkspace();
+  const router = useRouter();
+  const touch = useMediaQuery(COARSE_QUERY);
   const navigate = useNavigate({ from: "/w/$slug/p/$pageId" });
   const page = useQuery(pageQuery(workspace.id, rowId));
-  const close = () =>
+  const close = () => {
+    if (touch && router.history.location.state.peeked === true) {
+      router.history.back();
+      return;
+    }
     void navigate({
       search: (previous) => {
         const next = { ...previous };
         delete next.peek;
         return next;
       },
+      replace: touch,
     });
+  };
   const title = page.data === undefined ? strings.pages.untitled : titleOf(page.data);
   return (
-    <Sheet open onOpenChange={(open) => !open && close()}>
+    <Sheet open onOpenChange={(open) => !open && close()} backCloses={false}>
       <SheetContent side="right" closeLabel={strings.databases.peek.close}>
         <SheetTitle className="sr-only">{strings.databases.peek.label(title)}</SheetTitle>
         <div className="mt-10 pr-3">

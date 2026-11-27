@@ -80,7 +80,8 @@ scrolls sideways and the title column stays in place.
   property**, which asks first. The title can be neither hidden nor deleted.
 - **Reorder columns** by dragging a heading onto another, or with its menu's moves.
 - **Resize a column** by dragging the edge of its heading. With the keyboard, Tab to the edge,
-  a slider, and press the arrow keys. The width is kept in the view once it settles.
+  a slider, and press the arrow keys. On a touch screen, drag the grip that shows at the edge.
+  The width is kept in the view once it settles.
 - **+** after the last heading adds a property, shown in this view.
 - **New**, under the rows, adds a row with the cursor in its title. The count beside it says
   how many rows the view shows. In a view that filters, see [New rows in a filtered
@@ -274,6 +275,7 @@ turn its people into names. On a board grouped by person, their cards stay in th
 
 ## On a phone
 
-Everything above works on a phone. Tables scroll sideways with their titles in place; boards
-scroll sideways too, and cards move from their menu; every control is a full touch target.
+Everything above works on a phone. Tables scroll sideways with their titles in place, and
+columns widen from a grip at their edge; boards scroll sideways too, and cards move from their
+menu; every control is a full touch target.
 Dates take the phone's own date picker. A row opens as a full page.

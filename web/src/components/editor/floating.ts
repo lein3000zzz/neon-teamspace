@@ -23,6 +23,17 @@ const EDGE = 12;
 export const MENU_MAX_HEIGHT = 352;
 
 /**
+ * The room a menu keeps from each edge of the window: more at the bottom while
+ * the editing toolbar of a touch screen shows there, above the keyboard, so a
+ * menu never goes under it.
+ */
+function edges(): { top: number; right: number; bottom: number; left: number } {
+  const toolbar = document.querySelector<HTMLElement>("[data-editing-toolbar]:not([hidden])");
+  const covered = toolbar === null ? 0 : toolbar.getBoundingClientRect().height;
+  return { top: EDGE, right: EDGE, bottom: EDGE + covered, left: EDGE };
+}
+
+/**
  * Below the caret, unless a menu of the tallest height has no room there and
  * more above. The menu's own height is not asked, as its items come after it
  * opens, so it keeps its side while the list is filtered.
@@ -32,8 +43,9 @@ const belowUnlessCramped: Middleware = {
   async fn(state) {
     const { rects, placement } = state;
     const floating = { ...rects.floating, height: MENU_MAX_HEIGHT };
+    const padding = edges();
     const at = (y: number) =>
-      detectOverflow({ ...state, rects: { ...rects, floating }, y }, { padding: EDGE });
+      detectOverflow({ ...state, rects: { ...rects, floating }, y }, { padding });
     const below = await at(rects.reference.y + rects.reference.height + GAP);
     let wanted: Placement = "bottom-start";
     if (below.bottom > 0) {
@@ -59,24 +71,25 @@ function keepWidest(element: HTMLElement) {
 
 /**
  * Where the slash and mention menus go: below the caret unless cramped there,
- * clear of the window's edges by a margin, as wide as they have been, and no
- * taller than the room on their side or {@link MENU_MAX_HEIGHT}.
+ * clear of the window's edges and the editing toolbar by a margin, as wide as
+ * they have been, and no taller than the room on their side or
+ * {@link MENU_MAX_HEIGHT}.
  */
 export const suggestionMenuOptions: FloatingUIOptions = {
   useFloatingOptions: {
     middleware: [
       belowUnlessCramped,
       offset(GAP),
-      shift({ padding: EDGE }),
-      size({
-        padding: EDGE,
+      shift(() => ({ padding: edges() })),
+      size(() => ({
+        padding: edges(),
         apply({ elements, availableHeight, availableWidth }) {
           const style = elements.floating.style;
           style.maxHeight = `${Math.max(0, Math.min(availableHeight, MENU_MAX_HEIGHT))}px`;
           style.maxWidth = `${Math.max(0, availableWidth)}px`;
           keepWidest(elements.floating);
         },
-      }),
+      })),
     ],
   },
 };

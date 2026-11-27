@@ -14,6 +14,7 @@ import {
 } from "@/api/pages";
 import type { WorkspaceSummary } from "@/api/workspaces";
 import { Button } from "@/components/ui/button";
+import { COARSE_QUERY, useMediaQuery } from "@/lib/media";
 import { edits } from "@/lib/page-rules";
 import { forestOf, siblingsOf, subtreeOf, titleOf, type PageForest } from "@/lib/page-tree";
 import { strings } from "@/lib/strings";
@@ -28,7 +29,8 @@ const copy = strings.pages.tree;
  * A row of the sidebar: the line before or after it lights up, or the whole
  * row, while a dragged page would land there; its actions show on hover or
  * focus where every pointer hovers, over the end of its title, and always on
- * touch screens, beside it (index.css).
+ * touch screens, beside it (index.css), where a page's row has its menu alone,
+ * which holds the way to add a page inside it, so its title keeps the room.
  */
 export const treeRow =
   "relative flex min-h-(--tap) items-center gap-0.5 rounded-md pr-0.5 text-sm text-muted-foreground transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary before:opacity-0 before:shadow-glow hover:bg-accent hover:text-foreground has-[[aria-current=page]]:bg-accent has-[[aria-current=page]]:text-foreground has-[[aria-current=page]]:before:opacity-100 data-[drop=after]:shadow-[inset_0_-2px_0_var(--primary)] data-[drop=before]:shadow-[inset_0_2px_0_var(--primary)] data-[drop=inside]:bg-neon-soft data-[drop=inside]:text-foreground";
@@ -36,6 +38,14 @@ export const treeRow =
 /** The link inside a row, which takes the rest of its width. */
 export const treeLink =
   "flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-md px-1.5 outline-offset-[-2px]";
+
+/**
+ * A row's title: one line, cut short at its end, where a pointer hovers; on a touch screen,
+ * whose row buttons always show beside it, up to two lines, broken anywhere a word is too
+ * long for one.
+ */
+export const treeTitle =
+  "min-w-0 flex-1 truncate pointer-coarse:line-clamp-2 pointer-coarse:whitespace-normal pointer-coarse:wrap-anywhere";
 
 type Drop = "before" | "after" | "inside";
 
@@ -88,6 +98,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
   const nav = usePageNav();
   const move = useMovePage(workspace.id);
   const newPage = useNewPage(workspace, onNavigate);
+  const touch = useMediaQuery(COARSE_QUERY);
   const [renaming, setRenaming] = useState(false);
   const [drop, setDrop] = useState<Drop | null>(null);
   const link = useRef<HTMLAnchorElement>(null);
@@ -213,7 +224,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             className={treeLink}
           >
             <PageGlyph icon={page.icon} kind={page.kind} />
-            <span className="min-w-0 flex-1 truncate">{title}</span>
+            <span className={treeTitle}>{title}</span>
           </Link>
         )}
         <div data-row-actions="over" className="flex shrink-0 items-center">
@@ -234,7 +245,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             }
             onNavigate={onNavigate}
           />
-          {holds && (
+          {holds && !touch && (
             <Button
               variant="ghost"
               size="icon-sm"

@@ -295,12 +295,16 @@ browsers at once, shared and trashed; databases and boards; comments, mentions, 
 and the mail it sends; search and page history; attachments, and who may download them;
 import and export; agents, OAuth and MCP clients; webhooks delivered to a receiver on the
 stack's network; the layout on a phone's screen; the docs, the security headers, and that
-the admin listener is not reachable. It removes the stack, its data included, however the
-run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs Docker, Bun
-and Node.js; `make e2e-install`, which it runs first, installs the tests' packages and the
-browser. The server image it tests is built with Cargo's `e2e` profile, the release profile
-without link-time optimisation, so it compiles in a fraction of the time; the published
-images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
+the admin listener is not reachable. The `phone-*.spec.ts` specs run with an iPhone's and an
+Android phone's screen, touch and browser name, in the same Chromium: they sign in, find
+pages from the drawer and the search, edit and rearrange a page from the toolbar above the
+keyboard, comment, open the inbox and edit a board's cards. It removes the stack, its data
+included, however the run ends, and leaves Playwright's report in `e2e/playwright-report/`.
+It needs Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the
+tests' packages and the browser. The server image it tests is built with Cargo's `e2e`
+profile, the release profile without link-time optimisation, so it compiles in a fraction of
+the time; the published images are built with `release`, which
+`make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 

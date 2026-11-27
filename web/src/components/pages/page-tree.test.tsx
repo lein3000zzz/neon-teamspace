@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { COARSE_QUERY } from "@/lib/media";
 import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { fakePages, page, PAGE_IDS } from "@/test/pages";
@@ -173,6 +174,26 @@ describe("the page trees in the sidebar", () => {
     await user.click(
       within(await row("Launch")).getByRole("button", { name: "Add a page inside Launch" }),
     );
+
+    expect(await (await sidebar()).findByRole("button", { name: "Collapse Launch" })).toBeVisible();
+    expect(api.changes.at(-1)?.body).toEqual({ parent_id: PAGE_IDS.launch });
+  });
+
+  it("on a touch screen, gives a page's row its menu alone, which adds a page inside it", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === COARSE_QUERY,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    fakeWorkspaces();
+    const api = fakePages();
+    const { user } = renderApp("/w/design");
+
+    const launch = within(await row("Launch"));
+    expect(launch.queryByRole("button", { name: "Add a page inside Launch" })).toBeNull();
+    await user.click(launch.getByRole("button", { name: "More for Launch" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Add a page inside" }));
 
     expect(await (await sidebar()).findByRole("button", { name: "Collapse Launch" })).toBeVisible();
     expect(api.changes.at(-1)?.body).toEqual({ parent_id: PAGE_IDS.launch });

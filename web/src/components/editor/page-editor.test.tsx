@@ -44,6 +44,52 @@ describe("the live editor", () => {
     await waitFor(async () => expect(await content()).toHaveAttribute("contenteditable", "true"));
   });
 
+  it("undoes what was typed once the page came, as it turned editable", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = fakeSync();
+    const blocks = new Y.XmlElement("blockGroup");
+    sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
+    blocks.insert(0, [paragraph("block-1", "Kick-off on Monday")]);
+    const { user } = renderApp(PATH);
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+    await waitFor(() => expect(editor).toHaveTextContent("Kick-off on Monday"));
+
+    await user.click(editor);
+    await user.keyboard("Agenda and ");
+    expect(editor).toHaveTextContent("Agenda and");
+    await user.keyboard("{Control>}z{/Control}");
+    expect(editor).toHaveTextContent("Kick-off on Monday");
+    expect(editor).not.toHaveTextContent("Agenda and");
+  });
+
+  it("opens the emoji menu for a name after a colon that starts a word, not in a time", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const { user } = renderApp(PATH);
+    const editor = await content();
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
+    // What `:` opens marks the colon in the text, as soon as it is typed.
+    const opened = () => editor.querySelector(".bn-suggestion-decorator");
+
+    await user.click(editor);
+    await user.keyboard("Meet at 15:");
+    expect(opened()).toBeNull();
+    await user.keyboard("00, see https:");
+    expect(opened()).toBeNull();
+
+    // At a word's start it opens, and closes once what follows is no letter.
+    await user.keyboard(" :");
+    expect(opened()).toHaveTextContent(":");
+    await user.keyboard("0");
+    await waitFor(() => expect(opened()).toBeNull());
+
+    await user.keyboard(" :ro");
+    expect(opened()).toHaveTextContent(":");
+  });
+
   it("takes no input before the document came from the server", async () => {
     fakeWorkspaces();
     fakePages();

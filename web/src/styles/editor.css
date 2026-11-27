@@ -276,3 +276,109 @@ html .bn-root .comment-highlight.is-active {
   background-color: var(--neon-soft);
   box-shadow: 0 0 0 1px var(--neon);
 }
+
+/*
+ * On a touch screen every control of the editor takes a fingertip, 44px, as
+ * the app's own do. BlockNote's toolbars, menus and panels grow to it. The
+ * arrow of a toggle and the checkbox of a to-do keep their size and take a tap
+ * over a fingertip's width, reaching into the margin before them rather than
+ * over the text after them. A table's handles keep theirs: they show over its
+ * cells, whose text a larger target would cover.
+ */
+@media (any-pointer: coarse) {
+  html
+    .bn-shadcn
+    :is(
+      [data-slot="button"]:not(.bn-table-handle, .bn-extend-button),
+      [data-slot="toggle"],
+      [data-slot="dropdown-menu-item"],
+      [data-slot="dropdown-menu-checkbox-item"],
+      [data-slot="dropdown-menu-sub-trigger"],
+      [data-slot="select-trigger"],
+      [data-slot="select-item"],
+      [data-slot="tabs-trigger"],
+      [data-slot="input"]
+    ) {
+    min-height: var(--tap);
+  }
+  html
+    .bn-shadcn
+    :is([data-slot="button"]:not(.bn-table-handle, .bn-extend-button), [data-slot="toggle"]) {
+    min-width: var(--tap);
+  }
+
+  html .bn-root .bn-toggle-button {
+    position: relative;
+  }
+  html .bn-root .bn-toggle-button::before {
+    content: "";
+    position: absolute;
+    inset-block: -3px;
+    right: 0;
+    width: var(--tap);
+  }
+
+  /* The handles that widen an image or a video, which show once it is tapped: a fingertip
+     around the bar each draws, and a drag on one widens it rather than scrolling the page. */
+  html .bn-root [data-file-block] .bn-resize-handle {
+    touch-action: none;
+  }
+  html .bn-root [data-file-block] .bn-resize-handle::before {
+    content: "";
+    position: absolute;
+    inset-block: calc((100% - var(--tap)) / 2);
+    inset-inline: calc((100% - var(--tap)) / 2);
+  }
+
+  /* A to-do's checkbox: the box drawn where it was, and the checkbox itself
+     unseen over the whole height of its line, so it takes no tap meant for a
+     neighbour. */
+  html .bn-root [data-content-type="checkListItem"] > div:has(> input) {
+    position: relative;
+    width: 24px;
+    flex-shrink: 0;
+  }
+  html .bn-root [data-content-type="checkListItem"] > div:has(> input)::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1rem;
+    height: 1rem;
+    translate: -50% -50%;
+    border: 1.5px solid var(--fg-muted);
+    border-radius: calc(var(--radius) * 0.5);
+    background-color: var(--bg);
+    pointer-events: none;
+  }
+  html .bn-root [data-content-type="checkListItem"] > div:has(> input:checked)::before {
+    border-color: var(--neon);
+    background-color: var(--neon);
+  }
+  html .bn-root [data-content-type="checkListItem"] > div:has(> input:checked)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0.3rem;
+    height: 0.55rem;
+    translate: -50% -60%;
+    rotate: 45deg;
+    border: solid var(--accent-ink);
+    border-width: 0 2px 2px 0;
+    pointer-events: none;
+  }
+  html .bn-root [data-content-type="checkListItem"] > div:has(> input:focus-visible)::before {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  html .bn-root [data-content-type="checkListItem"] > div > input {
+    position: absolute;
+    inset-block: -3px;
+    right: 0;
+    width: var(--tap);
+    height: auto;
+    margin: 0;
+    opacity: 0;
+  }
+}

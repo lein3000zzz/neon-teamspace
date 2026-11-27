@@ -635,6 +635,30 @@ describe("a database's table", () => {
     expect(change?.properties.find((entry) => entry.property === DB.points)?.width).toBe(240);
   });
 
+  it("resizes a column by a finger on the grip at its edge, saving its width once dropped", async () => {
+    const { db } = openDatabase();
+    const rows = await table();
+
+    // A touch on the slider is left to scroll the table; the grip beside it takes the drag.
+    const heading = screen.getByRole("button", { name: "Points, property menu" }).closest("th");
+    const grip = heading?.querySelector("[data-column-grip]");
+    if (!(grip instanceof HTMLElement)) {
+      throw new Error("no grip at the edge of Points");
+    }
+    const touch = { pointerId: 7, pointerType: "touch", button: 0 };
+    fireEvent.pointerDown(grip, { ...touch, clientX: 300, clientY: 20 });
+    fireEvent.pointerMove(window, { ...touch, clientX: 340, clientY: 22 });
+    fireEvent.pointerMove(window, { ...touch, clientX: 360, clientY: 22 });
+    expect(rows.getByRole("slider", { name: "Width of Points" })).toHaveValue("240");
+    fireEvent.pointerUp(window, { ...touch, clientX: 360, clientY: 22 });
+
+    await waitFor(() => expect(viewChanges(db.changes)).toHaveLength(1));
+    const [change] = viewChanges(db.changes) as {
+      properties: { property: string; width?: number }[];
+    }[];
+    expect(change?.properties.find((entry) => entry.property === DB.points)?.width).toBe(240);
+  });
+
   it("changes a property's type, asking first when values would be lost", async () => {
     const { user, db } = openDatabase();
     let asked = false;

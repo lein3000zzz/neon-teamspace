@@ -1,15 +1,21 @@
 import { cn } from "cn";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
+import { useBackCloses } from "@/lib/panel-history";
 
 /**
  * A modal question before something that cannot be taken back. Focus moves
- * to Cancel when it opens, Escape cancels, and a tap outside does nothing, so
- * the answer is always a deliberate press.
+ * to Cancel when it opens, Escape cancels, as does the back gesture or Back on
+ * a touch screen, and a tap outside does nothing, so the answer is always a
+ * deliberate press.
  */
 function AlertDialog(props: ComponentProps<typeof AlertDialogPrimitive.Root>) {
+  const { open, onOpenChange } = props;
+  useBackCloses(open ?? false, onOpenChange ?? ignore, onOpenChange !== undefined);
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
 }
+
+function ignore() {}
 
 function AlertDialogContent({
   className,
