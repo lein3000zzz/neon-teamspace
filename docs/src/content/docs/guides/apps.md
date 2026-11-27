@@ -313,8 +313,11 @@ macOS runners, and the Android APK on Linux, attests their build provenance, and
 to the release with `SHA256SUMS`. Like the server's images, they build from the tag's checkout
 alone: nothing comes from the Actions cache, neither crates built before nor Bun, so the
 provenance vouches only for what the tag holds, and every release builds them from scratch.
-It builds the APK unsigned, and signs it in a job of its own, which runs only the Android
-SDK's `zipalign` and `apksigner`, when the repository has these secrets:
+Each job that builds or signs an app passes the SHA-256 of its files on to the next as a job
+output, and the job that signs or attaches a file stops when it does not match, as another job
+of the run could replace an artifact. It builds the APK unsigned, and signs it in a job of its
+own, which runs only the Android SDK's `zipalign` and `apksigner`, when the repository has
+these secrets:
 
 | Secret | What it holds |
 |---|---|

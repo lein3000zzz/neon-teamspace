@@ -13,7 +13,10 @@
 #
 # No job that publishes or signs reads the Actions cache, which is neither signed nor checked:
 # a tag's run restores what its own ref or the default branch saved, which any code that ran in
-# one of their jobs with the job's token could have written.
+# one of their jobs with the job's token could have written. Nor does such a job trust an
+# artifact of the run as it finds it, as the same token lets any job of the run replace one: the
+# job that built a file passes its SHA-256 on as a job output, which only that job can set, and
+# the job that signs or attaches the file checks it first.
 name: Release
 
 on:
@@ -181,6 +184,13 @@ jobs:
       contents: read
       id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
       attestations: write
+    # Each platform's files with their SHA-256, under an output of its own, so the matrix's
+    # jobs set them side by side.
+    outputs:
+      linux-x86_64: ${{ steps.collect.outputs.linux-x86_64 }}
+      windows-x86_64: ${{ steps.collect.outputs.windows-x86_64 }}
+      macos-aarch64: ${{ steps.collect.outputs.macos-aarch64 }}
+      macos-x86_64: ${{ steps.collect.outputs.macos-x86_64 }}
     strategy:
       matrix:
         include:
@@ -244,8 +254,12 @@ jobs:
         run: |
           read -ra args <<<"$ARGS"
           bun run tauri build --ci "${args[@]}"
-      # The installers, named for the release without the spaces of the product's name.
-      - name: Collect the installers
+      # The installers, named for the release without the spaces of the product's name, then
+      # each file's SHA-256, as this platform's output.
+      - id: collect
+        name: Collect the installers
+        env:
+          ID: ${{ matrix.id }}
         run: |
           mkdir -p release-assets
           find apps/shell/src-tauri/target -path '*/release/bundle/*' -type f \
@@ -257,6 +271,17 @@ jobs:
             done
           ls -l release-assets
           test -n "$(ls release-assets)"
+          # sha256sum on Linux and Windows, shasum on macOS; either prints the hash first.
+          sha256() {
+            if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi | cut -d ' ' -f 1
+          }
+          {
+            echo "$ID<<SHA256_END"
+            for file in release-assets/*; do
+              printf '%s  %s\n' "$(sha256 < "$file")" "${file#release-assets/}"
+            done
+            echo SHA256_END
+          } >> "$GITHUB_OUTPUT"
       - if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -280,6 +305,11 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    # The unsigned APK's SHA-256, which the signing job checks the artifact against.
+    outputs:
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+    env:
+      APK: apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -309,10 +339,13 @@ jobs:
       - name: Build
         working-directory: apps/shell
         run: bun run tauri android build --ci --apk
+      - id: checksum
+        name: Checksum
+        run: echo "sha256=$(sha256sum < "$APK" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-unsigned
-          path: apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+          path: ${{ env.APK }}
           if-no-files-found: error
           retention-days: 1
 
@@ -320,7 +353,8 @@ jobs:
   # runs. Signed when the repository has the keystore's secrets: ANDROID_KEY_BASE64, the keystore
   # in base64; ANDROID_KEY_ALIAS, its key's alias; and ANDROID_KEY_PASSWORD, the password of
   # both. Without them the APK stays unsigned, and its name says so: Android installs no
-  # unsigned APK until someone signs it. Then, as the desktop installers, build provenance.
+  # unsigned APK until someone signs it. Then, as the desktop installers, build provenance, and
+  # the SHA-256 of the APK it attaches, as its output.
   android-release:
     name: App (Android, release)
     needs: android
@@ -330,6 +364,8 @@ jobs:
       contents: read
       id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
       attestations: write
+    outputs:
+      android: ${{ steps.checksum.outputs.android }}
     env:
       SIGNED: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
     steps:
@@ -337,6 +373,11 @@ jobs:
         with:
           name: android-unsigned
           path: built
+      # The APK the build job made, and no other, before the key touches it.
+      - name: Check the APK
+        env:
+          SHA256: ${{ needs.android.outputs.sha256 }}
+        run: echo "$SHA256  built/app-universal-release-unsigned.apk" | sha256sum --check --strict
       # The SDK's newest build tools check that the APK is aligned, as Gradle packs it, with
       # its native libraries on 16 KB pages, then sign it and check the signature. The keystore
       # lives only in this step, outside any checkout, and goes once it is used.
@@ -365,6 +406,14 @@ jobs:
           mkdir -p release-assets
           cp built/app-universal-release-unsigned.apk \
             "release-assets/Neon-Teamspace_${GITHUB_REF_NAME#v}_android-unsigned.apk"
+      - id: checksum
+        name: Checksum
+        run: |
+          {
+            echo "android<<SHA256_END"
+            (cd release-assets && sha256sum -- *)
+            echo SHA256_END
+          } >> "$GITHUB_OUTPUT"
       - if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -395,10 +444,20 @@ jobs:
           pattern: app-*
           path: release-assets
           merge-multiple: true
-      # One file of the SHA-256 checksums of everything the release attaches, as sha256sum
-      # --check reads it.
+      # The apps' files as the jobs that built them list them in their outputs: each of them,
+      # with its SHA-256, and no other. Then one file of the SHA-256 checksums of everything the
+      # release attaches, as sha256sum --check reads it.
       - name: Checksums
+        env:
+          DESKTOP: ${{ toJSON(needs.desktop.outputs) }}
+          ANDROID: ${{ needs.android-release.outputs.android }}
         run: |
+          built="$RUNNER_TEMP/built.sha256"
+          { jq -r '.[]' <<<"$DESKTOP"; printf '%s\n' "$ANDROID"; } | sed '/^$/d' > "$built"
+          cut -d ' ' -f 3- "$built" | sort > "$RUNNER_TEMP/built"
+          find release-assets -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$RUNNER_TEMP/downloaded"
+          diff -u "$RUNNER_TEMP/built" "$RUNNER_TEMP/downloaded"
+          (cd release-assets && sha256sum --check --strict "$built")
           cp dist/neon-teamspace-compose-*.tar.gz release-assets/
           cd release-assets
           sha256sum -- * > SHA256SUMS
