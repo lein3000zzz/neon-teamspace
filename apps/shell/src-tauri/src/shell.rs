@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
+#[cfg(desktop)]
+use tauri::utils::config::WebviewUrl;
+use tauri::utils::config::WindowConfig;
 use tauri::webview::{DownloadEvent, WebviewWindowBuilder};
 use tauri::{App, AppHandle, Manager, Runtime, Url, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -114,7 +117,9 @@ pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<
         list.servers.len(),
         store.path().display()
     );
-    let lock = Arc::new(Lock::new(app_origin(app)));
+    let origin = app_origin(app);
+    log::info!("the picker is on {origin}");
+    let lock = Arc::new(Lock::new(origin));
     app.manage(Shell {
         store,
         list: Mutex::new(list),
@@ -123,14 +128,36 @@ pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<
         launched: AtomicBool::new(false),
     });
 
-    let window = main_window(app.handle(), Arc::clone(&lock))?;
-    let picker = window.url()?;
-    log::info!("the picker is at {}", navigation::describe(&picker));
+    let config = main_config(app.handle())?;
     #[cfg(desktop)]
     {
-        *lock.picker.write().unwrap_or_else(PoisonError::into_inner) = Some(picker);
+        *lock.picker.write().unwrap_or_else(PoisonError::into_inner) =
+            picker_url(&lock.app, &config);
     }
+    main_window(app.handle(), &config, lock)?;
     Ok(())
+}
+
+/// The window's configuration in tauri.conf.json.
+fn main_config<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WindowConfig> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == MAIN_WINDOW)
+        .cloned()
+        .ok_or(tauri::Error::WindowNotFound)
+}
+
+/// Where the picker is: the window's page on the app's own origin, as Tauri loads it. Worked
+/// out from the configuration, as a webview only knows its URL once it has started loading.
+#[cfg(desktop)]
+fn picker_url(app: &Origin, config: &WindowConfig) -> Option<Url> {
+    let page = match &config.url {
+        WebviewUrl::App(path) => path.to_string_lossy().into_owned(),
+        _ => String::new(),
+    };
+    Url::parse(&format!("{app}/")).ok()?.join(&page).ok()
 }
 
 /// The origin the app's own pages are served from: `tauri://localhost` on macOS, iOS and
@@ -157,19 +184,14 @@ fn app_origin<R: Runtime>(app: &App<R>) -> Origin {
 
 /// The window, from its configuration, with the origin lock on every navigation, new window
 /// and download.
-fn main_window<R: Runtime>(app: &AppHandle<R>, lock: Arc<Lock>) -> tauri::Result<WebviewWindow<R>> {
-    let config = app
-        .config()
-        .app
-        .windows
-        .iter()
-        .find(|window| window.label == MAIN_WINDOW)
-        .cloned()
-        .ok_or_else(|| tauri::Error::WindowNotFound)?;
-
+fn main_window<R: Runtime>(
+    app: &AppHandle<R>,
+    config: &WindowConfig,
+    lock: Arc<Lock>,
+) -> tauri::Result<WebviewWindow<R>> {
     let navigation_lock = Arc::clone(&lock);
     let navigation_app = app.clone();
-    let builder = WebviewWindowBuilder::from_config(app, &config)?
+    let builder = WebviewWindowBuilder::from_config(app, config)?
         .on_navigation(move |url| {
             let verdict = navigation_lock.judge(url);
             log::info!("navigation to {}: {verdict}", navigation::describe(url));
@@ -254,8 +276,9 @@ fn on_new_window<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 }
 
 /// Downloads from the server's origin are saved where the webview proposes, the downloads
-/// directory; others are refused. A finished one is shown in its folder on desktop.
-#[cfg_attr(target_os = "android", allow(unused_variables))]
+/// directory; others are refused. A finished one is shown in its folder on desktop; on mobile
+/// the system tells of it, so where it went is of no use there.
+#[cfg_attr(mobile, allow(unused_variables))]
 fn on_download<R: Runtime>(app: &AppHandle<R>, lock: &Lock, event: DownloadEvent<'_>) -> bool {
     match event {
         DownloadEvent::Requested { url, destination } => {
@@ -323,5 +346,42 @@ fn allow_back_gesture<R: Runtime>(window: &WebviewWindow<R>) {
     });
     if let Err(error) = result {
         log::warn!("could not turn on the back gesture: {error}");
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_picker_is_the_windows_page_on_the_apps_origin() {
+        let config = WindowConfig {
+            url: WebviewUrl::App("index.html".into()),
+            ..WindowConfig::default()
+        };
+        let development = Url::parse("http://localhost:1420").unwrap();
+        for (origin, picker) in [
+            (
+                Origin::new("tauri", "localhost"),
+                "tauri://localhost/index.html",
+            ),
+            (
+                Origin::new("http", "tauri.localhost"),
+                "http://tauri.localhost/index.html",
+            ),
+            (
+                Origin::new("https", "tauri.localhost"),
+                "https://tauri.localhost/index.html",
+            ),
+            (
+                Origin::of(&development).unwrap(),
+                "http://localhost:1420/index.html",
+            ),
+        ] {
+            assert_eq!(
+                picker_url(&origin, &config).map(String::from).as_deref(),
+                Some(picker)
+            );
+        }
     }
 }
