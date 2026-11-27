@@ -6,7 +6,26 @@ collaborative editing, and AI agents as first-class teammates over MCP.
 One deployment hosts many workspaces. Each workspace has teamspaces, nested pages and
 databases. Agents connect over MCP, pick up tasks, comment and edit pages next to people.
 
-> **Status:** early development. [CHANGELOG.md](CHANGELOG.md) lists the releases.
+> **Status:** 0.1.0, the first release. [CHANGELOG.md](CHANGELOG.md) lists what each release
+> brings, and the [docs](docs/src/content/docs/index.md) cover running and using it.
+
+## Features
+
+- **Workspaces** with owners, admins, members and guests, teamspaces that are open, closed or
+  private, invitations, invite links and per-workspace limits.
+- **Pages** of blocks, edited together in real time with cursors and presence, nested,
+  shared, favorited and trashed, with their history, comments on passages, mentions and an
+  inbox, full-text search, attachments, and markdown import and export.
+- **Databases** whose rows are pages, with typed properties and table, board and list views,
+  changes reaching everyone at once.
+- **Agents** as workspace members, owned by a person, over an MCP server at `/mcp` with 23
+  tools, through OAuth 2.1 or tokens bound to one workspace; the same actions in the REST API;
+  webhooks both ways; and a Claude Code plugin that works your cards.
+- **Accounts** with open, invite-only or closed registration, requests to join, mail through
+  an SMTP relay, and an admin area that never sees inside a workspace.
+- **Running it**: two images for amd64 and arm64 and a Compose file with Postgres, attachments
+  on local disk or S3, settings changed while the server runs, logs, metrics, traces and
+  profiles.
 
 ## Repository layout
 
@@ -18,6 +37,8 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `crates/app` | Use cases, transactions, and the ports for side effects. |
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
+| `migrations` | The database's migrations, plain SQL, built into the binary, which applies them as it starts. |
+| `.sqlx` | The query cache, which lets the build check SQL without a database. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
 | `web` | The web app: React, Vite and TanStack. Its `Dockerfile` and `Caddyfile` make the web image. |
 | `docs` | The documentation site, Astro Starlight. |
@@ -26,6 +47,8 @@ databases. Agents connect over MCP, pick up tasks, comment and edit pages next t
 | `scripts` | Tooling shared by the web app, the docs and the tests, such as the license check and the Claude Code plugin's check. |
 | `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
 | `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
+| `.github` | The CI, end-to-end and release workflows, and Dependabot's configuration. |
+| `CHANGELOG.md` | What each release brings, for the people who run it. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands
 beside `domain`, depending on neither. Each crate's `Cargo.toml` lists what it may use, so the
@@ -49,6 +72,28 @@ connecting, choosing an identity, the skills, making an agent for it and trouble
 
 ## Running it with Docker
 
+A release runs from its Compose archive, which its page on GitHub attaches, and its
+published images:
+
+```sh
+mkdir neon-teamspace && cd neon-teamspace
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD
+cp deployments/server.env.example deployments/server.env  # set the public URL, NEON_SECRETS__KEYS and the first admin
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
+```
+
+A clone at the release's tag holds the same files, and its Compose file runs the same
+images. While the repository is private, the archive and the images need a GitHub account
+with access to it: `gh` signed in as it, and `docker login ghcr.io` before the pull. The
+[install page](docs/src/content/docs/self-hosting/install.md) covers
+the archive, both files, the first run, a domain with TLS, stopping, and where the data
+lives; [backups](docs/src/content/docs/self-hosting/backups.md),
+[upgrading](docs/src/content/docs/self-hosting/upgrading.md) and
+[troubleshooting](docs/src/content/docs/self-hosting/troubleshooting.md) have their own pages.
+
 Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
 `ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
 `ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes the
@@ -69,11 +114,7 @@ keeps the data. Without make,
 runs it in the background. `deployments/.env.example` lists the stack's settings, among them
 `NEON_DOMAIN`, a domain for which Caddy gets its TLS certificate itself. The server's own
 settings go in `deployments/server.env`, which only the server reads; `server.env.example`
-beside it lists the usual ones. The
-[install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
-release's Compose archive, the first run, domains and TLS, stopping, and where the data
-lives, and the [upgrade page](docs/src/content/docs/self-hosting/upgrade.md) moving to a new
-release.
+beside it lists the usual ones.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the
@@ -182,7 +223,8 @@ The `neon` binary has these commands:
 |---|---|
 | `neon serve` | Runs the server. The default when no command is given. |
 | `neon migrate` | Applies pending migrations and exits. |
-| `neon admin create --email ADDRESS` | Creates an admin account, whatever the registration mode. Asks for the password at a terminal, or reads it from stdin. |
+| `neon admin create --email ADDRESS [--display-name NAME]` | Creates an admin account, whatever the registration mode. Asks for the password at a terminal, or reads it from stdin. |
+| `neon search reindex [--all]` | Stores the search text of the pages whose text lacks their latest changes, or of every page with `--all`. |
 | `neon openapi [--out PATH]` | Prints the OpenAPI description, or writes it to `PATH`. |
 | `neon settings docs` | Prints the runtime settings reference as markdown. |
 | `neon config check` | Loads and checks the configuration, then prints it with secrets redacted. |
@@ -230,7 +272,7 @@ GitHub Actions runs three workflows.
   - The end-to-end tests, with the server built in the release profile as the published image is.
   - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
   - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the upgrade page, and the Compose archive that `make compose-archive` writes as its asset.
+  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the last release, which GitHub lists.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
@@ -248,7 +290,7 @@ unless every other place that states it agrees:
 - the images `deployments/docker-compose.yml` runs while `NEON_VERSION` is unset;
 - the newest section of `CHANGELOG.md`, dated, or `Unreleased` between releases;
 - the docs and the example settings, where they name the version, an image, the Compose
-  archive or a release's page.
+  archive, a release's page or the tag a clone checks out.
 
 Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
 changelog's section must have its date. `make check` runs the check, and so does CI's
@@ -259,7 +301,9 @@ To release:
 1. On a branch into `dev`, set the version in `Cargo.toml`, then `make api-spec web-api` and
    a build, which update the generated files and `Cargo.lock`. `make version-check` lists
    every file that still states the old version. Write the release's section of
-   `CHANGELOG.md`, dated the day of the tag.
+   `CHANGELOG.md` as the ones before it: what changed, by area, with the pull requests'
+   numbers, and under **Breaking changes** what the release asks of whoever runs or calls
+   the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
 3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
    The release workflow does the rest. `make compose-archive` writes the archive it attaches,
@@ -293,8 +337,8 @@ use the `NEON_` prefix too, such as Neon's Postgres tooling with `NEON_API_KEY`,
 variable that sets no key only gets a warning naming it. An unknown key in the file, or
 an unknown `NEON_SETTINGS__` variable, stops the start, since it is almost always a typo.
 
-For the `server` and `database` sections, the environment wins over the file, and the file
-wins over the defaults. Runtime settings, under `settings`, have one more layer. They
+For bootstrap configuration, every section but `settings`, the environment wins over the
+file, and the file wins over the defaults. Runtime settings, under `settings`, have one more layer. They
 resolve in this order:
 
 1. the environment

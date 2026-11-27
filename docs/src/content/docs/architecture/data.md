@@ -4,11 +4,11 @@ description: What Neon Teamspace keeps in Postgres, how its SQL is checked, how 
 ---
 
 Everything Neon Teamspace keeps lasting is in one Postgres 18 database: settings, the job
-queue, accounts, sessions, invites, workspaces with their members, teamspaces, invitations
-and invite links, pages with their shares and favorites, and, as it arrives, their content,
-and databases with their properties, views and rows' values.
-There is no
-cache server and no message broker beside it. Attachments' bytes are the one exception: they
+queue, accounts, sessions, tokens and OAuth's grants, invites, workspaces with their members,
+agents and integrations, teamspaces, invitations and invite links, pages with their shares,
+favorites, content and history, databases with their properties, views and rows' values,
+comments, the inbox, webhooks, the text search reads, and what each attachment is. There is
+no cache server and no message broker beside it. Attachments' bytes are the one exception: they
 go to local disk or an S3-compatible store, as files are better kept outside the database,
 while Postgres keeps what each file is.
 
@@ -346,6 +346,8 @@ moment waits and writes its own after.
 
 ## Backups
 
-A backup is a `pg_dump` of the database and a copy of the attachments' directory or bucket,
-taken after it, as [File storage](/docs/self-hosting/storage/#backups) describes. The server migrates the schema forward as a new version starts, and
-migrations cannot be undone, so back up before upgrading.
+A backup is a `pg_dump` of the database, a copy of the attachments' directory or bucket
+taken after it, and the secret keys, without which the sealed values in the database do not
+open; [Backups and restore](/docs/self-hosting/backups/) has the commands. The server
+migrates the schema forward as a new version starts, and migrations cannot be undone, so
+back up before upgrading, as [Upgrading](/docs/self-hosting/upgrading/) describes.

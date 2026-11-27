@@ -47,9 +47,20 @@ it. The server's tests fail
 when the committed description no longer matches the routes, and the app's checks fail when
 its types no longer match the description.
 
+**One error shape.** Every error of the API answers `{"error": {"code", "message"}}`:
+`code` is stable, for programs to act on, and `message` is for people. The OAuth endpoints
+clients call answer in OAuth's own shape instead, as clients expect.
+
 **One origin.** The app, these docs, the API, real-time sync, agents' endpoint and webhooks
 all share one origin behind Caddy. There is no CORS to configure, and the session cookie and
 the origin check have one origin to know. [More](/docs/architecture/overview/#one-origin).
+
+**The app on React and TanStack, its types from the API.** React, TypeScript and Vite, with
+Bun to install and run, TanStack Router for typed routes and TanStack Query for the server's
+data, and shadcn/ui on Radix, styled with Tailwind v4 whose colours are CSS variables, so a
+theme is a set of variables. The client's types are generated from `api/openapi.json` with
+`openapi-typescript` and called through `openapi-fetch`, so a route the server changes breaks
+the app's type check rather than a page. [More](/docs/architecture/web/#the-stack).
 
 ## Data
 
@@ -63,7 +74,16 @@ query reads as what runs. [More](/docs/architecture/data/#queries).
 **The job queue is a table.** A job is inserted in the same transaction as the change that
 caused it, so a rollback leaves no job and a commit always leaves one. A broker outside the
 database cannot promise that without a second protocol on top, and would be one more service
-to run and back up. [More](/docs/architecture/data/#the-job-queue).
+to run and back up. Workers claim jobs with `FOR UPDATE SKIP LOCKED`, and a failed job is
+tried again with backoff. The queue carries what leaves the process, mail and webhook
+deliveries, and notification mail; editing never waits on it, as edits apply to the live
+document and search reads text written with the snapshot.
+[More](/docs/architecture/data/#the-job-queue).
+
+**An hourly cleanup.** One periodic task deletes what has run out: expired sessions, links
+and OAuth grants, accounts left unverified for a week, ended invitations, pages in the
+trash past `pages.trash_retention`, versions the history no longer keeps, and attachments
+nothing shows any more.
 
 **IDs are UUIDv7.** They are made in the server, sort by creation, and keep indexes compact,
 as new IDs land at the end. [More](/docs/architecture/data/#ids).
@@ -81,6 +101,10 @@ workspace's documents do not grow into one. The server runs yrs, so it checks ea
 against the editor's permissions, keeps the update log and snapshots in Postgres, and
 compacts them; [Real-time sync](/docs/architecture/realtime/) has how. Agents' edits go
 through the live document too, as [edits from the server](/docs/architecture/realtime/#edits-from-the-server).
+
+**Rows are pages.** Each row of a database is a page with properties and a body of blocks,
+under the database. Sharing, the trash, favorites, comments, history, search and export then
+work on rows unchanged, and a card on a board opens as a page.
 
 **Database properties are plain data.** A row's status, assignee or date is a column, not
 part of a CRDT. Views filter, sort and group them in SQL, and when two people set one at the
@@ -100,7 +124,16 @@ read and edit pages as markdown with block ids, as
 [Agents over MCP](/docs/guides/agents-over-mcp/#block-ids) describes.
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
-app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
+app's components. Its core is MPL-2.0; its XL packages are GPL and are not used. The block
+fixtures `neon-blocks` is tested against are written by BlockNote itself, at the versions the
+app uses, and BlockNote loads what `neon-blocks` writes, so the server and the editor agree on
+every block.
+
+**Comments beside the document.** Comments are rows in Postgres, not part of a page's Yjs
+document, so restoring a version of the page leaves its threads, and who may comment is
+decided apart from who may edit. A comment on a passage is anchored with Yjs relative
+positions, so it follows the passage as the text around it changes, and its thread stays,
+detached, when the passage goes.
 
 **Search in Postgres, written with the page.** Search is Postgres's full-text search with
 the `simple` configuration, which does not stem and so reads every language alike, and
@@ -109,7 +142,9 @@ reads is written in the same transaction as what it comes from, a page's text wi
 snapshot and a row's values with them, so it never waits on a queue and a rolled-back write
 leaves no trace in it. The query keeps to what the caller may see in the database, a branch
 per way of seeing a page, so a guest of a large workspace gets their few pages quickly;
-[Data and storage](/docs/architecture/data/#search) has how.
+[Data and storage](/docs/architecture/data/#search) has how. There are no embeddings and
+no semantic index: the product is about live editing, and an indexing pipeline beside it
+does not fit. Agents find pages with the same search people use, and read them whole.
 
 **History from snapshots, restored live.** A version is the page's blocks as each snapshot
 leaves them, kept only when they changed, so history costs nothing between saves and keeps
@@ -128,7 +163,8 @@ attribution that hold for people hold for them; [Agents](/docs/guides/agents/) h
 
 **MCP inside the server.** The MCP endpoint, `/mcp`, is served by the server itself, with
 `rmcp` over Streamable HTTP, not by a service of its own. An agent then reaches the same use
-cases through the same checks as a person, and there is nothing more to deploy.
+cases through the same checks as a person, and there is nothing more to deploy. It offers
+tools and resources, with subscriptions, and no prompts.
 
 **OAuth 2.1 for clients with a person, tokens for the rest.** MCP clients that a person runs
 expect an OAuth 2.1 server: dynamic client registration, PKCE, a consent page. Neon Teamspace
@@ -144,13 +180,55 @@ tokens, for scripts and bots that do not speak MCP, and a test holds the table o
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
 a row assigned to it or a status changed on one, without polling, and of mentions and
-replies. Incoming webhooks are members of kind integration, so what they write
-carries the same attribution, permissions and limits as an agent's;
-[Webhooks](/docs/guides/webhooks/) has both.
+replies. They are signed with HMAC-SHA256, carry the change's trace context, and go through
+the job queue with retries. They never reach loopback, private or link-local addresses,
+so a webhook cannot make the server call what only it can reach, unless
+`webhooks.allow_private` lets them reach a private network, for a receiver beside the
+server. Cloud metadata and reserved addresses stay refused either way. Incoming webhooks
+are members of kind integration, so what they write carries the same attribution,
+permissions and limits as an agent's, and they take a small JSON format of their own rather
+than any one sender's; [Webhooks](/docs/guides/webhooks/) has both.
 
 **Agents in their tools.** A Claude Code plugin, with a skill that works through an agent's
 tasks over MCP, claiming a card, writing results into it and moving it on, is installed from
 this repository's marketplace; [Claude Code plugin](/docs/guides/claude-code-plugin/) has it.
+
+## Accounts and secrets
+
+**Sessions are rows, not signed tokens.** A session is 32 random bytes in an `HttpOnly`
+cookie, `__Host-neon_session` over HTTPS, and the database keeps only its SHA-256, as it
+does for API tokens and OAuth's tokens. Signing out, a password change or a disabled account
+ends sessions at once, with nothing to wait out. By default a session ends when unused for
+a week, and in any case 30 days after it began.
+
+**argon2id for passwords.** With 19 MiB of memory, two passes and one lane, in PHC strings,
+so the cost can rise later and each account's hash is upgraded at its next sign-in. An
+address without an account is checked against a stand-in hash, so it takes as long as a
+wrong password.
+
+**An origin check rather than CSRF tokens.** A request that changes something with the
+session cookie must come from the public URL's origin, by its `Origin` or `Referer`, and the
+cookie is `SameSite=Lax`. Requests with a bearer token are exempt, as browsers never add
+one themselves. [More](/docs/architecture/security/#cross-site-requests).
+
+**Forms that tell nobody anything.** Asking for a password reset, a new verification link
+or to join answers the same whether or not the address has an account, and does its work
+after the answer. A disabled or unverified account says so only after the right password.
+The few answers that do tell, such as a workspace invitation to an address without an
+account, are for admins alone, and rate limited. [More](/docs/architecture/security/#forms-that-tell-nobody-anything).
+
+**Envelope encryption for the secrets the server reads back.** Invite codes' copies, secret
+settings, mail waiting in the queue and webhooks' signing secrets are sealed with AES-256-GCM,
+each with a key of its own wrapped by a master key from `secrets.keys`, and bound to their
+row. The first key seals and every key listed opens, so keys rotate, and the keys stay in the
+deployment's environment, never in the database they protect.
+[More](/docs/architecture/security/#envelope-encryption).
+
+**Mail through a relay.** The server hands mail to an SMTP relay the operator chooses, over
+STARTTLS or TLS 1.2 and later, and never delivers to recipients' servers itself, which needs
+a reputation, PTR records and port 25 that most servers lack. Mail is queued with the change
+it reports, sealed, and written when it goes, with the settings of that moment.
+[More](/docs/self-hosting/mail/).
 
 ## One process, no Redis
 
@@ -186,9 +264,35 @@ subsystem, and an internal listener for metrics, probes and profiles that is nev
 [More](/docs/architecture/observability/).
 
 **Two images behind Caddy.** A `web` image, Caddy with the app and these docs, which gets
-its own TLS certificate given a domain, and a `server` image, the `neon` binary on a minimal
-base, both for amd64 and arm64, run together by one Compose file.
+its own TLS certificate given a domain, sets the security headers and believes
+`X-Forwarded-For` only from the proxies it is told of, and a `server` image, the `neon`
+binary on a minimal base, both for amd64 and arm64, run together by one Compose file with
+Postgres, and profiles for Mailpit, SeaweedFS and the observability stack.
 [More](/docs/self-hosting/install/#with-docker).
+
+**Releases from tags.** One version, the cargo workspace's, names the images, the Compose
+file and the Claude Code plugin. A `v*` tag checks that the tag and every file that states
+the version agree, runs the end-to-end tests against the images built in the release
+profile, then publishes both images to GitHub's container registry with an SBOM and build
+provenance, tagged with the version, the minor version and `latest`, and from 1.0 on the
+major version, and makes a GitHub release with the Compose archive attached. Images are
+signed with cosign's keyless signing once the repository is public, as the signature records
+the repository in Sigstore's public log. [More](/docs/self-hosting/upgrading/).
+
+**One Makefile.** Every task, local or in CI, is a target of the root `Makefile`, and `make`
+alone lists them, so a check that passes on a laptop is the check CI runs. `make check` runs
+everything that needs no Docker and no network.
+
+**Tests against the real thing.** The Rust tests run against Postgres, a fresh database for
+each, with fakes only for the ports; the permission rules have tests over every role, action
+and resource; the web app's tests run against a stand-in API; and the end-to-end tests drive
+the two images, run with Compose, in a browser.
+
+**Docs in the image, generated where they can be.** These docs are an Astro Starlight site
+served at `/docs` by the web image. Diagrams are drawn into inline SVG as the docs build, the
+API reference is built from `api/openapi.json`, the settings reference from the server's
+registry, and a check fails when either falls behind. The inline scripts are allowed by
+hash in a Content-Security-Policy of their own.
 
 ## The product
 
@@ -197,12 +301,30 @@ who gets one; a person can be in several workspaces. One deployment then serves 
 several teams, or the people its owner lets in.
 
 **Invite only, to start with.** Registration is by invite unless the admins open it to
-anyone or close it.
+anyone or close it. Any account may create a workspace, unless `workspaces.creation` leaves
+that to instance admins.
+
+**Four workspace roles, guests among them.** Owners, admins and members work in the
+workspace; a guest sees only the pages shared with them, and the pages under those, which
+is how a team lets someone outside it into a few pages. A workspace always keeps an owner.
+
+**Teamspaces inside a workspace.** Every workspace has a default teamspace that all its
+members but guests are in. The others are open, which any member joins; closed, visible
+with members their owners add; or private, which only their members see.
+
+**Access follows the teamspace, shares add to it.** A page takes its access from its
+teamspace, and a share gives one person view, comment or edit access to a page and the
+pages under it. A person's access is the most any of these gives, and a page they may not
+see answers `404`, as if it did not exist.
+
+**Workspace invitations only to existing accounts.** An invitation never creates an
+account: accounts are the instance's to give. The invitee accepts or declines in their
+inbox. An invite link admits whoever opens it signed in, within its uses and its expiry.
 
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
 A workspace at a limit takes no more uploads, invitations or agents, and its members go on
-editing. The member and agent limits hold now, agents and integrations counting against the
-agent limit together, and so does storage, which attachments' bytes count against.
+editing. Agents and integrations count against the agent limit together, and attachments'
+bytes against the storage limit.
 
 **Instance admins do not enter workspaces.** Being an instance admin counts only for the
 instance's own work: accounts, settings, and the list of workspaces with their limits. Inside
@@ -211,11 +333,29 @@ means reading the teams on it. The permission rules live in one pure function th
 case calls, with tests over every role, action and resource.
 [More](/docs/reference/permissions/).
 
+**A theme of three choices.** Each person picks a palette, Nothing, Soft or Warm, a mode,
+and an accent hue. The accent is an OKLCH colour whose lightness and chroma are fixed for
+each palette and mode, so text keeps its contrast at any hue, and in dark mode only what
+carries a hue glows. People, agents, integrations, workspaces and teamspaces each have a hue
+worked out from their id, the same in every browser and on the server, with nothing to store.
+[More](/docs/architecture/web/#the-theme-model).
+
+**System fonts, and one bundled.** Text is set in the system's own sans-serif, as Notion's
+is, so nothing is downloaded for it. A page can be Serif, the system's serif, or Mono, with
+small text or full width, and a person can set the interface in Mono. Mono is iA Writer
+Mono, under the SIL Open Font License, bundled so it is the same everywhere.
+[More](/docs/architecture/web/#fonts).
+
 **English, on the web.** The interface is in English, with its strings in one place for
-translations to follow. It is a responsive web app. The desktop and mobile apps, **planned**,
-are thin Tauri shells: a person enters their server's address, as in Bitwarden's apps, and
-the shell loads the web UI that server serves. An app then never falls behind its server,
-and there is no second client to build. No app-store release is planned yet.
+translations to follow. It is a responsive web app, not an installable one, whose sidebar
+is a drawer on a phone and whose every control is a full touch target. The desktop and
+mobile apps, **planned**, are thin Tauri shells: a person enters their server's address, as
+in Bitwarden's apps, and the shell loads the web UI that server serves. An app then never falls behind its server,
+and there is no second client to build. Tauri, rather than a native toolkit or React Native,
+as the editor's stack, BlockNote, ProseMirror and Yjs, exists only in JavaScript; and rather
+than Capacitor, which has no desktop target. Push notifications and deep links wait, as the
+first needs a relay run by whoever publishes the apps and the second every domain known when
+the app is built. No app-store release is planned yet.
 
 ## The license
 

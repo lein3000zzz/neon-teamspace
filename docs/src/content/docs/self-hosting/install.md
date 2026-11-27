@@ -135,7 +135,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, the same for both: another than the one the Compose file belongs to, which it runs unless set, or `latest`. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for both, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.1.0`, a minor version such as `0.1`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
@@ -148,6 +148,23 @@ the server reads, as its environment: a `NEON_` variable for any key that
 value leaves its key to the default. Compose expands `$` in its values, so a value that holds
 one goes in single quotes. A change applies once the start command runs again, which
 recreates the server's container with the new environment.
+
+Before the first start, `server.env` wants three things a new instance needs:
+
+```sh
+NEON_SERVER__PUBLIC_URL=https://neon.example.com
+NEON_SECRETS__KEYS=2026:<output of openssl rand -base64 32>
+NEON_ADMIN__EMAIL=you@example.com
+NEON_ADMIN__PASSWORD=<a password of 12 characters or more>
+```
+
+The public URL is the address people type, exactly: `http://127.0.0.1:3000` for the stack on
+its default port, or the domain of [below](#a-domain-and-tls). The
+[secret key](/docs/self-hosting/configuration/#secret-keys) seals what the database keeps
+secret, mail and webhooks need it, and it belongs in the backups, apart from the database's.
+The first admin is made as the server starts, while no admin can sign in. Without the two
+`ADMIN` variables, `neon admin create` makes one in the running stack instead, as
+[the first run](#the-first-run) shows.
 
 The stack sets two of the server's keys itself, over anything `server.env` says:
 `database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
@@ -201,8 +218,13 @@ geolocation and other device features.
 ### Upgrading
 
 A new release brings its own Compose archive: unpacked over the old one, it brings its images
-with it. [Upgrading](/docs/self-hosting/upgrade/) has the steps, the backup to take first,
-and how to check the result.
+with it. The new server applies the new migrations before it takes requests, and they only go
+forward, so going back to an older release means restoring the backup taken before the
+upgrade. [Upgrading](/docs/self-hosting/upgrading/) has the steps, the backup to take first,
+how migrations run and fail, rolling back, and how to check the result. A server that was
+killed rather than stopped may leave pages whose latest text search does not read yet;
+`neon search reindex` stores it, as [Search](/docs/guides/search/#rebuilding-the-text)
+explains.
 
 ### Stopping
 
@@ -231,27 +253,10 @@ prefixes their names with the project's, `neon`:
 | `neon_otel-lgtm` | With the `observability` profile, the metrics, traces, logs and profiles it collected. |
 | `neon_seaweedfs` | With the `seaweedfs` profile, the files SeaweedFS keeps, attachments among them once the server is set to use it. |
 
-To back the database up into `neon.sql`:
-
-```sh
-docker compose -f deployments/docker-compose.yml exec -T postgres pg_dump -U neon --clean --if-exists neon > neon.sql
-```
-
-To restore it, stop the server, empty the database by making it again, restore the dump into
-it, and start the server:
-
-```sh
-docker compose -f deployments/docker-compose.yml stop server
-docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d postgres -c 'DROP DATABASE neon WITH (FORCE)' -c 'CREATE DATABASE neon OWNER neon'
-docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d neon < neon.sql
-docker compose -f deployments/docker-compose.yml start server
-```
-
-A dump restored over the database without emptying it first replaces only the tables it
-holds itself. After an upgrade, the tables a newer release added depend on those, so the
-restore fails part of the way, and leaves them behind for the next upgrade to trip over.
-Back up attachments' files with the dump, after it, as [File storage](/docs/self-hosting/storage/#backups)
-shows.
+A backup takes the database, the attachments' files and the secret keys in
+`deployments/server.env`, which open the secrets the database keeps sealed.
+[Backups and restore](/docs/self-hosting/backups/) has the commands, the restore onto a new
+machine, and what a backup without one of the three loses.
 
 ### Profiles
 
@@ -273,20 +278,22 @@ Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with N
 
 `make e2e` builds both images from the checkout, starts a throwaway stack of them under its
 own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
-runs the tests in `e2e/` against it in a headless Chromium with Playwright: the app and its
-API, the docs, the security headers, and that the admin listener is not reachable. The stack
-gets a first admin with a password made for the run, a secret key, and Mailpit, which takes
-its mail and whose API the tests read. The tests sign in as that admin and make people of
-their own; they sign up in each registration mode, verify an address and reset a password
-with the links mailed to them, ask to join and are approved or denied, get the mail of a
-mention and of an invitation into a workspace, download a page's file only where they may,
-edit pages together, work boards and connect over MCP. It removes the stack, its data
-included, however the run ends, and leaves Playwright's report in `e2e/playwright-report/`.
-It needs Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the
-tests' packages and the browser. The server image it tests is built with Cargo's `e2e`
-profile, the release profile without link-time optimisation, so it compiles in a fraction of
-the time; the published images are built with `release`, which
-`make e2e E2E_CARGO_PROFILE=release` tests.
+runs the tests in `e2e/` against it in a headless Chromium with Playwright. The stack gets a
+first admin with a password made for the run, a secret key, its public URL on that port, and
+Mailpit, which takes all its mail and whose API the tests read. The tests start from that
+admin and make people of their own. They cover signing up in each registration mode,
+verifying an address and resetting a password with the links mailed, and requests to join,
+approved or denied; workspaces, joined by invitation and by link; pages edited in two
+browsers at once, shared and trashed; databases and boards; comments, mentions, the inbox
+and the mail it sends; search and page history; attachments, and who may download them;
+import and export; agents, OAuth and MCP clients; webhooks delivered to a receiver on the
+stack's network; the layout on a phone's screen; the docs, the security headers, and that
+the admin listener is not reachable. It removes the stack, its data included, however the
+run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs Docker, Bun
+and Node.js; `make e2e-install`, which it runs first, installs the tests' packages and the
+browser. The server image it tests is built with Cargo's `e2e` profile, the release profile
+without link-time optimisation, so it compiles in a fraction of the time; the published
+images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 
@@ -439,9 +446,10 @@ make check
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
 as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
 settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, the version check, which fails unless everything that states the version states
-the cargo workspace's, and the license and advisory checks, which read the packages installed
-in `web/`, `docs/` and `e2e/`. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+checks, the block fixtures in both directions, the Claude Code plugin, the version check,
+which fails unless everything that states the version states the cargo workspace's, and the
+license and advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
+`tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
 `target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
 in `target/`, it could reuse queries last checked against the database instead of the cache.
@@ -474,3 +482,4 @@ falls behind, and a target rewrites it:
 | `web/src/api/schema.d.ts` | `make web-api` | `api/openapi.json` |
 | `.sqlx/` | `make sqlx-prepare` | a query or a migration |
 | `docs/src/content/docs/reference/settings.md` | `make docs-gen` | a runtime setting, added or changed |
+| `crates/blocks/tests/fixtures/blocknote/` and `rust-out/` | `make blocks-fixtures` | the fixture corpus, `crates/blocks`, the editor's own blocks, or the BlockNote version |
