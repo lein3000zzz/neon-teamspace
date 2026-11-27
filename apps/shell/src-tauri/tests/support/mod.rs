@@ -64,6 +64,11 @@ pub struct Server {
 }
 
 impl Server {
+    /// The request lines of the requests the server has had and no test has read yet.
+    pub fn requests_so_far(&mut self) -> Vec<String> {
+        std::iter::from_fn(|| self.requests.try_recv().ok()).collect()
+    }
+
     /// The request line of the next request, such as `GET /api/v1/meta HTTP/1.1`.
     pub async fn next_request(&mut self) -> String {
         tokio::time::timeout(Duration::from_secs(5), self.requests.recv())

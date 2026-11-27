@@ -175,7 +175,7 @@ fn an_address_that_is_not_one_is_refused_before_any_check() {
 async fn plain_http_needs_the_warning_accepted_first() {
     let dir = tempfile::tempdir().unwrap();
     let app = app(dir.path());
-    let server = serve(Answer::neon("Acme")).await;
+    let mut server = serve(Answer::neon("Acme")).await;
     let before = picker(&app);
     let error = from_picker(
         &app,
@@ -190,7 +190,9 @@ async fn plain_http_needs_the_warning_accepted_first() {
             .is_some_and(|m| m.contains("your password included")),
         "{error}"
     );
-    // Nothing was checked, saved or opened.
+    // Nothing was checked, saved or opened: the server has had no request at all, as the
+    // command answered only once any check it made was done.
+    assert_eq!(server.requests_so_far(), Vec::<String>::new());
     assert_eq!(window(&app).url().unwrap().as_str(), before);
     assert!(!dir.path().join("servers.json").exists());
 }

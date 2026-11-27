@@ -113,8 +113,17 @@ async fn an_answer_that_is_not_json_is_refused() {
 
 #[tokio::test]
 async fn an_answer_over_the_cap_is_refused_by_its_length() {
-    let body = vec![b' '; MAX_ANSWER_BYTES + 1];
-    let answer = Answer::http("200 OK", &[("content-type", "application/json")], &body);
+    // It announces more than the cap and sends a valid answer far under it: only its length
+    // can refuse it.
+    let length = (MAX_ANSWER_BYTES + 1).to_string();
+    let answer = Answer::http(
+        "200 OK",
+        &[
+            ("content-type", "application/json"),
+            ("content-length", &length),
+        ],
+        br#"{"product":"neon-teamspace","name":"Acme","version":"0.1.0"}"#,
+    );
     assert_eq!(check_answer(answer).await.unwrap_err().code(), "too_large");
 }
 
