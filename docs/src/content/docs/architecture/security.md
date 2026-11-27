@@ -34,6 +34,11 @@ salt and no stretching. Someone who reads the database learns no token that work
 The server hashes passwords with argon2id at OWASP's minimum: 19 MiB of memory, 2 passes, 1
 lane. Hashing runs on a thread meant for blocking work, away from the threads that answer
 requests. A password may have at most 1024 bytes, which bounds the work one request costs.
+The server hashes or checks as many passwords at once as the machine has processors, so the
+memory hashing takes stays bounded however many sign-ins arrive together. A password that
+gets no turn within 2 seconds is refused with `503` and the code `busy`, with a
+`Retry-After` header, and an unknown address waits for its turn and is refused the same way.
+A reset link that does not work is refused before its new password is hashed.
 
 When someone signs in with a password hashed with other parameters, the server hashes it
 again with the current ones and saves that. Raising the cost later upgrades every account
@@ -87,8 +92,9 @@ more tokens. So do deleting a workspace and transferring its ownership, so a lea
 cannot take a team's work away.
 
 A token bound to one workspace works on that workspace's routes and sockets alone, is never
-an instance admin's, and answers `403 token_bound` on the account's and the admin routes,
-on making a workspace and on invite links. On the account's favorites it reaches its own
+an instance admin's, and answers `403 token_bound` on the account's routes, the mail of the
+inbox at `/api/v1/me/notifications` among them, on the admin routes, on making a workspace
+and on invite links. On the account's favorites it reaches its own
 workspace's alone, and the others answer as pages that are no favorite. Its `admin` scope is
 the workspace's admin work, for its owners and admins. An agent's token is always bound, and
 never has `admin`.
@@ -169,9 +175,9 @@ attempts, then one more every 30 seconds:
 
 | Key | What it counts |
 |---|---|
-| `login:ip:` | Sign-ins from one IP. Checked first, so a client it stops costs nothing more. |
-| `login:ip-email:` | Sign-ins to one address from one IP. |
-| `register:ip:` | Sign-ups from one IP. |
+| `login:ip:` | Sign-ins from one source. Checked first, so a client it stops costs nothing more. |
+| `login:ip-email:` | Sign-ins to one address from one source. |
+| `register:ip:` | Sign-ups from one source. |
 | `verify:ip:` | Verifying addresses, and asking for the link again. |
 | `reset:ip:` | Asking for reset links, and using them. |
 | `join:ip:` | Requests to join. |
@@ -182,15 +188,20 @@ attempts, then one more every 30 seconds:
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
-| `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
+| `oauth-register:source:` | OAuth clients registering themselves, from one source. |
 | `oauth-token:grant:` | Exchanges of OAuth codes and refresh tokens, by grant. |
-| `hook-in:ip:` | Requests to incoming webhooks from one IP, before their URL is looked up: 120, then two a second. |
+| `hook-in:ip:` | Requests to incoming webhooks from one source, before their URL is looked up: 120, then two a second. |
 | `hook-in:hook:` | Requests to one incoming webhook, from anyone: 60, then one a second. |
 | `webhook-test:user:` | Test events sent to outgoing webhooks, by user. |
 
-One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
-then one every 6 seconds. That stops guessing from many places at once, while a stranger
-cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
+One more key is looser: `login:email:` gives one address 50 sign-ins from every source
+together, then one every 6 seconds. That stops guessing from many places at once, while a
+stranger cannot lock the owner out from one source: the limits of one source let it spend
+fewer attempts than the key gets back. Sign-ins from a source the account holds a session
+from, one that has not expired, skip this key, so its owner still signs in from the networks
+they use while guesses come from elsewhere. Guesses from many sources together can still
+spend it, and then the owner waits as everyone does when signing in from a network they hold
+no session on. `mcp:user:` counts the requests of one person or
 agent to the MCP server, 200 at once, then four a second, since agents work in bursts.
 `mcp:person:` counts them again by person, theirs and their agents' together, 400 at once,
 then ten a second, so agents of one person do not multiply their rate.
@@ -203,13 +214,21 @@ request over a limit gets `429` with the code `rate_limited` and a `Retry-After`
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.
 
-The limits count by the client's address. The server takes it from the connection, or from
+The limits that count by client count by its source: an IPv4 address, or the /64 network of
+an IPv6 address, as one machine, home or office takes any address of its /64 at will. An
+IPv4 address mapped into IPv6 is the IPv4 address. The server takes the client's address
+from the connection, or from
 the last `X-Forwarded-For` entry when the connection comes from `server.trusted_proxies`,
 which is loopback alone unless set. The Compose stack trusts the private networks, as only
 its own containers reach the server there. Caddy in the web image replaces
 `X-Forwarded-For` with the one address it sees, so a client cannot choose the address the
-server counts. A server process counts on its own, and a second process would need a shared
-counter behind the same port.
+server counts. With `NEON_WEB_TRUSTED_PROXIES` set, Caddy reads the header of the proxies in
+front from its end and stops at the first address that is none of theirs, so the entries a
+client wrote before it are never read. The server reads the header's last entry alone, as
+the proxy next to it wrote it: an address with a port, such as `198.51.100.1:5555` or
+`[2001:db8::1]:443`, gives the port up, and an entry that is no address counts the proxy
+itself, never an entry before it. A server process counts on its own, and a second process
+would need a shared counter behind the same port.
 
 ## Envelope encryption
 
@@ -396,8 +415,11 @@ as a page of that origin, whatever its bytes are.
   setting allows. The form around the file is bounded too: its file must start within its
   first 64 KiB, so a body that never gets to its boundary or ends its part headers is refused
   with `413` once past them, rather than held. The server adds its row with the workspace's
-  row locked, so uploads at once cannot pass the storage limit together. An upload may take 15 minutes, the one route whose
-  time limit is longer than 30 seconds.
+  row locked, so uploads at once cannot pass the storage limit together. An upload may take
+  15 minutes, the one route whose time limit is longer than 30 seconds, and is given up on
+  once it sends nothing for 30 seconds. Each holds a part of its file in memory while it
+  runs, so one person runs 4 at once, their agents' included, and the server 32: one more is
+  refused with `503 busy`.
 - **Keys of the server's own.** The server keeps files under keys it makes from the
   workspace's id and the file's, so no name a client sends reaches a path on disk or a key in
   a bucket.
@@ -411,7 +433,19 @@ saved. It, and every setting that says where files go, changes only from a brows
 An import reads a file someone uploads, so it is bounded before it starts. The import route
 takes a body of at most 32 MiB and a form around it, larger than any other route. The server
 asks the rate limit and the rules before it reads the body, and holds one of four places
-for imports and exports while one runs, so a few people cannot fill its memory.
+for imports and exports while one runs, so a few people cannot fill its memory, and two
+turns of each person's, their agents' included. The work that runs off the async threads
+holds the place, and its person's turn, until it ends, even when the import's deadline has
+passed and its answer has gone. An export holds its turn until its file is sent whole, and
+its place for at most a minute of sending, so clients that read slowly keep their own turns
+but cannot keep every place. Every HTTP connection drops a client that takes nothing of
+what it is sent for 30 seconds, and with it what its answer held in memory, so a client that
+stops reading a large answer, an export or a page's markdown, does not keep it there. A
+client that reads, however slowly, is never cut off, so each has at most 8 answers of 256 KiB
+or more built in memory on their way at once: one more is refused with `503 busy` and a
+`Retry-After`, and its answer dropped. A client is the person a request authenticated as,
+their agents with them, or else the source it came from. Answers streamed as they are made,
+files and exports, hold little at once and are not counted.
 
 A zip is read in memory, as uploaded, and none of its files is ever written to disk. Before
 the server parses a zip's directory, it counts the entries the zip says it lists, taking the
@@ -421,9 +455,14 @@ a zip with an entry whose path starts at a root, `/` or a drive letter, or climb
 markdown files, at most 4 MiB each and 64 MiB together, and stops reading a file at its limit
 whatever size the zip states. The other files its pages link to are unpacked as uploads,
 each at most the largest file and all of them at most 256 MiB together, the budget left
-bounding each one as it is read. A page's document may be at most 16 MiB. The work that unpacks
-and parses runs off the async threads, and both imports and exports stop after 20 seconds.
-Nothing is made unless all of it can be.
+bounding each one as it is read. A page's document may be at most 16 MiB, and the server
+counts the parts of each page's markdown, its blocks, table rows and cells, runs of text,
+line breaks and mentions, before it writes any into the page's document: at most 100,000 for
+one page and 500,000 for the whole import. The work that unpacks, parses and writes runs off
+the async threads, checks the deadline between pages, and both imports and exports stop
+after 20 seconds. Nothing is made unless all of it can be. Work off the async threads that
+is still running when the server stops gets 5 seconds after the shutdown hooks before the
+process exits without it.
 
 Exports name their files after titles with the characters file systems refuse taken out, so
 a title cannot make a path either. They answer with `Cache-Control: no-store`. The full list

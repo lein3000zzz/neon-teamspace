@@ -772,7 +772,7 @@ export interface paths {
         put?: never;
         /**
          * Set a new password with a mailed link
-         * @description The link works once. It verifies the address and signs the account out of every session, but signs nobody in.
+         * @description The link works once. It verifies the address and signs the account out everywhere: its sessions end, its API tokens are revoked and the apps it connected over OAuth, as itself or as one of its agents, are disconnected. Its agents' own tokens stay. It signs nobody in.
          */
         post: operations["reset_password"];
         delete?: never;
@@ -1198,11 +1198,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read how one wants mail of the inbox */
+        /**
+         * Read how one wants mail of the inbox
+         * @description The account's own, for every workspace: a token bound to a workspace is refused.
+         */
         get: operations["get_notification_settings"];
         /**
          * Choose how one wants mail of the inbox
-         * @description For people; agents and integrations get no mail.
+         * @description For people; agents and integrations get no mail. The account's own, for every workspace: a token bound to a workspace is refused.
          */
         put: operations["put_notification_settings"];
         post?: never;
@@ -1495,7 +1498,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a file to a page
-         * @description Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second; an upload may take 15 minutes.
+         * @description Uploads a file for one of the page's image, video, audio or file blocks, or its cover, for those who edit the page, out of the trash. Its type comes from its bytes, whatever the client says, and must be one the kind takes. It streams to the file store as it comes, and counts against the workspace's storage limit, which refuses it once reached. Give the answer's `url` to the block, or its `id` to the page as `cover_image`. Each caller may upload 60 files at once, then one more a second, and runs 4 uploads at once; an upload may take 15 minutes, and is given up on once it sends nothing for 30 seconds.
          */
         post: operations["upload_file"];
         delete?: never;
@@ -2466,7 +2469,7 @@ export interface paths {
         put?: never;
         /**
          * Leave a workspace
-         * @description Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it.
+         * @description Leaves it and its teamspaces. The last owner cannot: they make another owner first, or delete the workspace. Nor can the last owner of one of its teamspaces, unless they own or administer the workspace: they make another owner of it first, or delete it. The invitations they sent that wait are revoked, and the invite links they made ended.
          */
         post: operations["leave_workspace"];
         delete?: never;
@@ -2507,14 +2510,14 @@ export interface paths {
         post?: never;
         /**
          * Remove a member
-         * @description Takes them out of the workspace and its teamspaces. Owners remove anyone, admins anyone but an owner. To remove yourself, leave.
+         * @description Takes them out of the workspace and its teamspaces. Owners remove anyone, admins anyone but an owner. To remove yourself, leave. The invitations they sent that wait are revoked, and the invite links they made ended.
          */
         delete: operations["remove_member"];
         options?: never;
         head?: never;
         /**
          * Change a member's role
-         * @description Owners change anyone's role, owner included; admins anyone's but an owner's, and make no owners. A member who becomes a guest leaves every teamspace; a guest who becomes more joins the default one.
+         * @description Owners change anyone's role, owner included; admins anyone's but an owner's, and make no owners. A member who becomes a guest leaves every teamspace; a guest who becomes more joins the default one. An owner or admin who becomes a member or guest has the invitations they sent that wait revoked, and the invite links they made ended.
          */
         patch: operations["change_member_role"];
         trace?: never;
@@ -6719,6 +6722,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8440,6 +8452,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description requests_full: 200 confirmed requests wait for the admins already; the link works again once they decide some. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description rate_limited, with Retry-After. */
             429: {
                 headers: {
@@ -8504,6 +8525,15 @@ export interface operations {
             };
             /** @description rate_limited, with Retry-After. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8658,6 +8688,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8720,6 +8759,15 @@ export interface operations {
             };
             /** @description rate_limited, with Retry-After. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10419,7 +10467,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10470,7 +10518,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: an agent or integration; or insufficient_scope. */
+            /** @description forbidden: an agent or integration; insufficient_scope; or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11586,7 +11634,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description storage_unavailable: the file store did not answer. */
+            /** @description storage_unavailable: the file store did not answer; or busy, with Retry-After: the caller runs 4 uploads already, or the server 32. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11762,7 +11810,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, or its blocks would go in so far into a long page that one edit's writes pass more than 4000000 blocks, or take longer than a second, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11807,7 +11855,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the page would grow past what it holds. */
+            /** @description document_too_large: the page would grow past what it holds, or the operations' markdown makes more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions together. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12628,7 +12676,7 @@ export interface operations {
                     "application/json": components["schemas"]["RestoredPage"];
                 };
             };
-            /** @description invalid_input: a database. */
+            /** @description invalid_input: a database; edit_refused: writing the version into the page would take longer than a second, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12673,7 +12721,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the page would grow past what it holds. */
+            /** @description document_too_large: the page would grow past what it holds, or the version makes more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16340,7 +16388,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the markdown makes a page larger than one holds. */
+            /** @description document_too_large: the markdown makes a page larger than one holds, or more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions. */
             413: {
                 headers: {
                     [name: string]: unknown;

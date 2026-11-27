@@ -276,6 +276,7 @@ impl Peer {
                 &self.fragment,
                 &[Block::paragraph(text)],
                 &mut self.ids,
+                neon_blocks::Deadline::NONE,
             )
             .expect("a document");
             txn.encode_update_v1()

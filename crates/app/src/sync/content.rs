@@ -71,6 +71,9 @@ pub enum ContentError {
     Database,
     #[error("the page would grow larger than {} bytes, the most a page holds", .0)]
     TooLarge(usize),
+    /// What is to be written makes more nodes than are written at once, this many.
+    #[error("{}", too_many_nodes(*.0))]
+    TooManyNodes(usize),
     #[error("too many edits of pages' content: slow down")]
     RateLimited { retry_after: Duration },
     /// The live document could not open, or the server is stopping.
@@ -89,7 +92,7 @@ impl ContentError {
             Self::Refused { .. } => "edit_refused",
             Self::NoBase => "base_required",
             Self::Conflict => "edit_conflict",
-            Self::TooLarge(_) => "document_too_large",
+            Self::TooLarge(_) | Self::TooManyNodes(_) => "document_too_large",
             Self::RateLimited { .. } => "rate_limited",
             Self::Unavailable(_) => "unavailable",
             Self::Load(_) => "internal",
@@ -104,6 +107,14 @@ impl ContentError {
             _ => true,
         }
     }
+}
+
+/// Why content past [`Limits::max_nodes`](super::Limits::max_nodes), `max`, is refused.
+pub(crate) fn too_many_nodes(max: usize) -> String {
+    format!(
+        "the content makes more than {max} blocks, table rows and cells, runs of text, line \
+         breaks and mentions, the most written into a page at once: write it in parts"
+    )
 }
 
 /// What an edit did: the page as it is now, and what each part did, in order.
@@ -174,6 +185,10 @@ impl SyncService {
             if base.is_none() && edits.iter().any(Edit::removes) {
                 return Err(ContentError::NoBase);
             }
+            let nodes = edits.iter().map(Edit::nodes).fold(0, usize::saturating_add);
+            self.inner
+                .within_nodes(nodes)
+                .map_err(ContentError::TooManyNodes)?;
             let view = self.editable(principal, page_id).await?;
             let parts: Vec<&'static str> = edits.iter().map(Edit::name).collect();
             let made = self
@@ -215,6 +230,9 @@ impl SyncService {
         base: String,
     ) -> Result<Edited, ContentError> {
         self.observe("restore", async {
+            self.inner
+                .within_nodes(neon_blocks::nodes(&blocks))
+                .map_err(ContentError::TooManyNodes)?;
             let view = self.editable(principal, page_id).await?;
             let user = principal.user.id.to_string();
             if let Err(limited) = self.inner.limiter.check(Bucket::PageRestore, &user).await {
@@ -324,12 +342,17 @@ impl SyncService {
     }
 
     /// The first snapshot of a new page's document, holding `document`: `None` for no
-    /// blocks. Refused when larger than a page may grow.
-    pub fn first_snapshot(
+    /// blocks. Refused when it makes more nodes than are written at once, before any is
+    /// written, and when larger than a page may grow. It is written in one of the turns of
+    /// [`Limits::parallel_writes`](super::Limits::parallel_writes), off the async threads.
+    pub async fn first_snapshot(
         &self,
         document: &Document,
     ) -> Result<Option<ImportedContent>, ContentError> {
-        let Some(content) = ImportedContent::of(document) else {
+        self.inner
+            .within_nodes(document.nodes())
+            .map_err(ContentError::TooManyNodes)?;
+        let Some(content) = self.inner.write(|| ImportedContent::of(document)).await else {
             return Ok(None);
         };
         let max = self.inner.limits.max_document;

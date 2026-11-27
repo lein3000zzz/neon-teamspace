@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM join_requests\n               WHERE token_hash = $1 AND confirmed_at IS NULL AND decided_at IS NULL\n                     AND link_expires_at > $2\n           ) AS \"works!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "works!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed2f1ed5fa6dc4e535c74c051baca1db34a9e7109c3dc1470aafe3251a64b3d3"
+}

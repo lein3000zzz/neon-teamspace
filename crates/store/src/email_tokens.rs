@@ -45,6 +45,24 @@ pub async fn count_since(
     .await
 }
 
+/// The account of the link of a token hash while it works at `now`, without using it.
+pub async fn working(
+    executor: impl PgExecutor<'_>,
+    token_hash: &[u8],
+    purpose: EmailTokenPurpose,
+    now: OffsetDateTime,
+) -> sqlx::Result<Option<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT user_id FROM email_tokens
+         WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > $3",
+        token_hash,
+        purpose.as_str(),
+        now,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
 /// Uses the link of a token hash, in one conditional update so it works once, and returns
 /// its account. `None` when it was used, expired, is for another purpose, or never existed.
 pub async fn take(

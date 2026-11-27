@@ -146,29 +146,45 @@ fn block_name(kind: &BlockKind) -> Option<&str> {
     }
 }
 
+/// How large a page's document may be: in bytes, and in the nodes written into it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Sizes {
+    pub(super) document: usize,
+    pub(super) nodes: usize,
+}
+
+/// How many nodes writing the pages' documents makes, as [`neon_blocks::nodes`] counts them,
+/// the pages under them included.
+pub(super) fn nodes(pages: &[Parsed]) -> usize {
+    pages
+        .iter()
+        .map(|page| page.document.as_ref().map_or(0, Document::nodes) + nodes(&page.children))
+        .fold(0, usize::saturating_add)
+}
+
 /// The pages to import, each with its document encoded and the pages under it: each link
 /// to a file of `made`, a block's or one of the text, by its path in the zip, becomes the
 /// path of the file made of it,
 /// which goes with the page that showed it first, by its place among the pages. A document
-/// that would be larger than `max_document` bytes refuses the import. Past `deadline`, it
-/// stops.
+/// that would make more nodes, or bytes, than `sizes` allows refuses the import. Past
+/// `deadline`, it stops.
 pub(super) fn finish(
     pages: Vec<Parsed>,
     made: &HashMap<String, (usize, File)>,
-    max_document: usize,
+    sizes: Sizes,
     deadline: Deadline,
 ) -> Result<Vec<ImportedPage>, TransferError> {
     let mut index = 0;
     pages
         .into_iter()
-        .map(|page| finish_page(page, made, max_document, deadline, &mut index))
+        .map(|page| finish_page(page, made, sizes, deadline, &mut index))
         .collect()
 }
 
 fn finish_page(
     page: Parsed,
     made: &HashMap<String, (usize, File)>,
-    max_document: usize,
+    sizes: Sizes,
     deadline: Deadline,
     index: &mut usize,
 ) -> Result<ImportedPage, TransferError> {
@@ -184,7 +200,7 @@ fn finish_page(
             };
             document.map_files(|_, url| made_of(url));
             document.map_links(made_of);
-            encode(&document, max_document, &page.path)?
+            encode(&document, sizes, &page.path)?
         }
         None => None,
     };
@@ -196,7 +212,7 @@ fn finish_page(
     let children = page
         .children
         .into_iter()
-        .map(|child| finish_page(child, made, max_document, deadline, index))
+        .map(|child| finish_page(child, made, sizes, deadline, index))
         .collect::<Result<_, _>>()?;
     Ok(ImportedPage {
         title: page.title,
@@ -328,19 +344,27 @@ fn take_title(document: &mut Document) -> Option<String> {
 
 /// A document as the first snapshot of a page's: written into a Yjs document as the editor
 /// would, each block given a fresh id. `None` for an empty document, which a page without a
-/// snapshot has already.
+/// snapshot has already. One that makes more nodes than a page's document is written with
+/// at once is refused before any is written.
 fn encode(
     document: &Document,
-    max_document: usize,
+    sizes: Sizes,
     path: &str,
 ) -> Result<Option<ImportedContent>, TransferError> {
+    if document.nodes() > sizes.nodes {
+        return Err(TransferError::too_large(format!(
+            "{path} makes more than {} blocks, table rows and cells, runs of text, line breaks \
+             and mentions, the most a page's content is written with at once",
+            sizes.nodes
+        )));
+    }
     let Some(content) = ImportedContent::of(document) else {
         return Ok(None);
     };
-    if content.state.len() > max_document {
+    if content.state.len() > sizes.document {
         return Err(TransferError::too_large(format!(
             "{path} makes a document larger than {}, the most a page holds",
-            size(max_document)
+            size(sizes.document)
         )));
     }
     Ok(Some(content))
@@ -440,7 +464,10 @@ mod tests {
         finish(
             parse(entries, deadline)?,
             &HashMap::new(),
-            max_document,
+            Sizes {
+                document: max_document,
+                nodes: 100_000,
+            },
             deadline,
         )
     }

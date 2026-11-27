@@ -2292,26 +2292,83 @@ async fn people_who_left_stay_on_rows_until_taken_off(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
-async fn a_row_shared_alone_does_not_name_its_database(pool: PgPool) {
-    let t = team(pool).await;
-    let row = t.made("Shared alone").await;
+async fn a_row_shared_alone_does_not_name_its_database_nor_show_its_properties(pool: PgPool) {
+    let mut t = team(pool).await;
+    t.add("Budget notes", spec(PropertyKind::Text), None).await;
+    t.add("Owner", spec(PropertyKind::Person), None).await;
+    let row = t
+        .row(
+            &t.ada,
+            json!({
+                "Name": "Shared alone",
+                "Budget notes": "budget is 999 tapir",
+                "Status": "In progress",
+                "Owner": [t.gus.user.id.to_string()],
+            }),
+        )
+        .await
+        .expect("a row");
+    // Gus, a guest, sees the row through its share alone.
     t.h.pages
         .share_page(&t.ada, row.id, t.gus.user.id, PageAccess::Edit)
         .await
         .expect("shared");
+    let title = t.property("Name").to_string();
+    let only_title =
+        |values: &Map<String, Value>| values.keys().cloned().collect::<Vec<_>>() == [title.clone()];
+
     assert_code(t.h.databases.database(&t.gus, t.db()).await, "not_found");
     let page = t.h.pages.page(&t.gus, row.id).await.expect("the page");
     assert_eq!(page.page.parent_id, None);
     let seen = t.h.databases.row(&t.gus, row.id).await.expect("the row");
     assert_eq!(seen.database_id, None);
+    assert!(only_title(&seen.values), "{:?}", seen.values);
+    let details =
+        t.h.databases
+            .row_details(&t.gus, row.id)
+            .await
+            .expect("the row");
+    assert!(details.properties.is_empty(), "{:?}", details.properties);
+    assert!(only_title(&details.row.values));
+    let exported =
+        t.h.databases
+            .export_row(&t.gus, row.id)
+            .await
+            .expect("exported");
+    assert!(exported.properties.is_empty(), "{:?}", exported.properties);
+    let tasks = t.h.databases.tasks(&t.gus, t.id).await.expect("listed");
+    assert_eq!(tasks.len(), 1);
+    assert_eq!((&tasks[0].database_title, &tasks[0].status), (&None, &None));
+    assert!(only_title(&tasks[0].row.values));
+    // Naming another property tells nothing of it, as one that does not exist.
+    for name in ["Budget notes", "Nothing such"] {
+        assert_code(
+            t.update(&t.gus, row.id, json!({ name: "x" })).await,
+            "invalid_input",
+        );
+    }
     let changed = t
         .update(&t.gus, row.id, json!({"Name": "Renamed"}))
         .await
         .expect("changed");
     assert_eq!(changed.database_id, None);
-    // Those who see the database read it.
+    assert!(only_title(&changed.values));
+
+    // Those who see the database read it all.
     let read = t.h.databases.row(&t.ada, row.id).await.expect("the row");
     assert_eq!(read.database_id, Some(t.db()));
+    assert_eq!(read.values.len(), 4);
+    let details =
+        t.h.databases
+            .row_details(&t.ada, row.id)
+            .await
+            .expect("the row");
+    assert!(
+        details
+            .properties
+            .iter()
+            .any(|(_, text)| text.as_deref() == Some("budget is 999 tapir"))
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

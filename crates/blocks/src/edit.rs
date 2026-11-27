@@ -47,16 +47,17 @@ use yrs::branch::{Branch, BranchID};
 use yrs::types::text::YChange;
 use yrs::types::{Attrs, Delta};
 use yrs::{
-    Any, OffsetKind, Out, ReadTxn, Text, TransactionMut, Xml, XmlElementPrelim, XmlElementRef,
-    XmlFragment, XmlFragmentRef, XmlOut, XmlTextRef,
+    Any, Out, ReadTxn, Text, TransactionMut, Xml, XmlElementPrelim, XmlElementRef, XmlFragment,
+    XmlFragmentRef, XmlOut, XmlTextRef,
 };
 
 use crate::ids::IdSource;
 use crate::markdown::{encode_id, holds_children, to_markdown};
 use crate::model::{Block, Document};
 use crate::ydoc::{
-    BLOCK_CONTAINER, BLOCK_GROUP, NotADocument, TABLE, TABLE_CELL, TABLE_HEADER, TABLE_PARAGRAPH,
-    TABLE_ROW, read_container, write_blocks_at,
+    BLOCK_CONTAINER, BLOCK_GROUP, Deadline, NotADocument, TABLE, TABLE_CELL, TABLE_HEADER,
+    TABLE_PARAGRAPH, TABLE_ROW, TooFar, read_container, units, walk, within, write_blocks_at,
+    write_blocks_first,
 };
 
 /// How many pairs of blocks replacing the body compares, at most, to find the ones that
@@ -104,6 +105,18 @@ impl Edit {
             self,
             Self::ReplaceRange { .. } | Self::ReplaceBody { .. } | Self::Restore { .. }
         )
+    }
+
+    /// How many nodes writing its blocks makes, as [`nodes`](crate::nodes) counts them.
+    pub fn nodes(&self) -> usize {
+        match self {
+            Self::Append { blocks }
+            | Self::InsertAfter { blocks, .. }
+            | Self::ReplaceRange { blocks, .. }
+            | Self::ReplaceBody { blocks }
+            | Self::Restore { blocks } => crate::nodes(blocks),
+            Self::FindReplace { .. } => 0,
+        }
     }
 
     /// A short name, for logs and metric labels.
@@ -180,32 +193,40 @@ pub enum EditError {
     #[error("the replacements would add more text than the page has room for")]
     TooLarge,
     #[error(transparent)]
+    TooFar(#[from] TooFar),
+    #[error(transparent)]
     NotADocument(#[from] NotADocument),
 }
 
 /// Applies an edit to the blocks of a fragment. New blocks get their ids from `ids`, parents
 /// before their children. `room` is how many bytes of text find and replace may add: one
-/// that would add more is refused before it changes anything. Nothing changes when it fails.
+/// that would add more is refused before it changes anything. Appending, inserting and
+/// replacing a range or the body are refused when their writes would walk past more than
+/// [`MAX_WALK`](crate::MAX_WALK) items. Nothing changes when it fails, but past `deadline`:
+/// writing blocks into a group that holds some already, restoring a version included, stops
+/// there and is refused with what it wrote left, so give a deadline only to an edit tried on
+/// a copy of a document.
 pub fn apply(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
     edit: &Edit,
     ids: &mut dyn IdSource,
     room: usize,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     match edit {
-        Edit::Append { blocks } => append(txn, fragment, blocks, ids),
+        Edit::Append { blocks } => append(txn, fragment, blocks, ids, deadline),
         Edit::InsertAfter { block_id, blocks } => {
-            insert_after(txn, fragment, block_id, blocks, ids)
+            insert_after(txn, fragment, block_id, blocks, ids, deadline)
         }
         Edit::ReplaceRange { from, to, blocks } => {
-            replace_range(txn, fragment, from, to, blocks, ids)
+            replace_range(txn, fragment, from, to, blocks, ids, deadline)
         }
         Edit::FindReplace { find, replace, all } => {
             find_replace(txn, fragment, find, replace, *all, room)
         }
-        Edit::ReplaceBody { blocks } => replace_body(txn, fragment, blocks, ids),
-        Edit::Restore { blocks } => restore::restore(txn, fragment, blocks, ids),
+        Edit::ReplaceBody { blocks } => replace_body(txn, fragment, blocks, ids, deadline),
+        Edit::Restore { blocks } => restore::restore(txn, fragment, blocks, ids, deadline),
     }
 }
 
@@ -330,7 +351,7 @@ fn tidy(txn: &mut TransactionMut, group: &XmlElementRef, ids: &mut dyn IdSource)
             }
         }
         _ => {
-            write_blocks_at(txn, group, 0, &[Block::paragraph("")], ids);
+            write_blocks_first(txn, group, &[Block::paragraph("")], ids);
         }
     }
 }
@@ -340,6 +361,7 @@ fn append(
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     if blocks.is_empty() {
         return Err(EditError::NoBlocks);
@@ -349,8 +371,9 @@ fn append(
         Some((index, last)) if is_empty_paragraph(txn, last) => *index,
         _ => group.len(txn),
     };
+    within(walk(blocks.len(), at))?;
     Ok(Applied {
-        added: write_blocks_at(txn, &group, at, blocks, ids),
+        added: write_blocks_at(txn, &group, at, blocks, ids, deadline)?,
         ..Applied::default()
     })
 }
@@ -361,13 +384,15 @@ fn insert_after(
     block_id: &str,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     if blocks.is_empty() {
         return Err(EditError::NoBlocks);
     }
     let place = find_block(txn, fragment, block_id)?;
+    within(walk(blocks.len(), place.index + 1))?;
     Ok(Applied {
-        added: write_blocks_at(txn, &place.group, place.index + 1, blocks, ids),
+        added: write_blocks_at(txn, &place.group, place.index + 1, blocks, ids, deadline)?,
         ..Applied::default()
     })
 }
@@ -379,6 +404,7 @@ fn replace_range(
     to: &str,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     let start = find_block(txn, fragment, from)?;
     let end = containers(txn, &start.group)
@@ -403,9 +429,13 @@ fn replace_range(
         .filter(|(index, _)| (start.index..=end).contains(index))
         .filter_map(|(_, container)| id_of(txn, &container))
         .collect();
+    within(walk(blocks.len(), end + 1).saturating_add(start.index as usize))?;
     // The new blocks go in first, so the group is never left empty between the two.
-    let added = write_blocks_at(txn, &start.group, end + 1, blocks, ids);
+    let added = write_blocks_at(txn, &start.group, end + 1, blocks, ids, deadline)?;
     let removed = end - start.index + 1;
+    if start.index > 0 {
+        deadline.check()?;
+    }
     start.group.remove_range(txn, start.index, removed);
     tidy(txn, &start.group, ids);
     Ok(Applied {
@@ -513,15 +543,6 @@ fn texts_of<T: ReadTxn>(txn: &T, element: &XmlElementRef, found: &mut Vec<Run>) 
             });
         }
     }
-}
-
-/// The length of `text` in the units the document counts offsets in.
-fn units(text: &str, kind: OffsetKind) -> u32 {
-    let len = match kind {
-        OffsetKind::Bytes => text.len(),
-        OffsetKind::Utf16 => text.encode_utf16().count(),
-    };
-    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 fn find_replace(
@@ -669,6 +690,7 @@ fn replace_body(
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     let Some(group) = top_group(fragment)? else {
         if blocks.is_empty() {
@@ -676,7 +698,7 @@ fn replace_body(
         }
         let group = group_or_new(txn, fragment)?;
         return Ok(Applied {
-            added: write_blocks_at(txn, &group, 0, blocks, ids),
+            added: write_blocks_first(txn, &group, blocks, ids),
             ..Applied::default()
         });
     };
@@ -767,37 +789,42 @@ fn replace_body(
         });
         groups[slot].1.push(change);
     }
+    let mut steps = Vec::with_capacity(groups.len());
     for (group, changes) in groups {
         let index: HashMap<BranchID, u32> = containers(txn, &group)
             .into_iter()
             .map(|(at, container)| (branch(&container), at))
             .collect();
         let at = |container: &XmlElementRef| index.get(&branch(container)).copied().unwrap_or(0);
-        let mut placed: Vec<(u32, u8, usize, Change)> = changes
+        let mut placed: Vec<Placed> = changes
             .into_iter()
             .map(|change| match &change {
-                Change::Remove(container) => (at(container), 0, 0, change),
+                Change::Remove(container) => (at(container), 0, 0),
                 Change::Insert(spot, run) => {
                     let position = match spot {
                         Spot::Before(container) => at(container),
                         Spot::After(container) => at(container) + 1,
                         Spot::Start => 0,
                     };
-                    (position, 1, *run, change)
+                    (position, 1, *run)
                 }
             })
             .collect();
         // From the last back, so the places of those before stay; at one place, what goes
         // before what comes, and the later run before the earlier, which then goes in front.
-        placed.sort_by_key(|(position, kind, run, _)| (Reverse(*position), *kind, Reverse(*run)));
-        for (position, _, run, change) in placed {
-            match change {
-                Change::Remove(_) => group.remove_range(txn, position, 1),
-                Change::Insert(..) => {
-                    write_blocks_at(txn, &group, position, &runs[run], ids);
-                }
-            }
-        }
+        placed.sort_by_key(|&(position, kind, run)| (Reverse(position), kind, Reverse(run)));
+        steps.push((group, placed));
+    }
+    // Every group's writes are weighed before any is made.
+    let walked = steps
+        .iter()
+        .map(|(_, placed)| walked(placed, |run| runs[run].len()))
+        .fold(0, usize::saturating_add);
+    within(walked)?;
+    for (group, placed) in steps {
+        make_placed(txn, &group, &placed, deadline, |txn, position, run| {
+            write_blocks_at(txn, &group, position, &runs[run], ids, deadline).map(drop)
+        })?;
         tidy(txn, &group, ids);
     }
     Ok(Applied {
@@ -806,6 +833,73 @@ fn replace_body(
         removed_ids,
         replaced: 0,
     })
+}
+
+/// A change to a group at a place: `(place, 0, _)` removes the block there, `(place, 1, run)`
+/// writes a run of blocks there.
+pub(crate) type Placed = (u32, u8, usize);
+
+/// The items making the changes of a group walks past, made as [`make_placed`] makes them:
+/// each run, of `len(run)` blocks, walks to its place once per block, and each removal of
+/// neighbours to its first place.
+pub(crate) fn walked(placed: &[Placed], len: impl Fn(usize) -> usize) -> usize {
+    let mut walked = 0usize;
+    let mut removing: Option<u32> = None;
+    for &(place, kind, run) in placed {
+        if kind == 0 {
+            match removing {
+                Some(start) if place + 1 == start => {}
+                _ => walked = walked.saturating_add(place as usize),
+            }
+            removing = Some(place);
+        } else {
+            removing = None;
+            walked = walked.saturating_add(walk(len(run), place));
+        }
+    }
+    walked
+}
+
+/// Makes the changes of a group, sorted from the last place back: removes the block at each
+/// removal's place, those of neighbours at once, and writes each run with `write`. Past
+/// `deadline`, it stops at the next removal past the group's first place, or as `write` does.
+pub(crate) fn make_placed(
+    txn: &mut TransactionMut,
+    group: &XmlElementRef,
+    placed: &[Placed],
+    deadline: Deadline,
+    mut write: impl FnMut(&mut TransactionMut, u32, usize) -> Result<(), TooFar>,
+) -> Result<(), TooFar> {
+    let remove = |txn: &mut TransactionMut, (start, len): (u32, u32)| {
+        if start > 0 {
+            deadline.check()?;
+        }
+        group.remove_range(txn, start, len);
+        Ok::<_, TooFar>(())
+    };
+    let mut removing: Option<(u32, u32)> = None;
+    for &(place, kind, run) in placed {
+        if kind == 0 {
+            removing = match removing {
+                Some((start, len)) if place + 1 == start => Some((place, len + 1)),
+                other => {
+                    if let Some(range) = other {
+                        remove(txn, range)?;
+                    }
+                    Some((place, 1))
+                }
+            };
+        } else {
+            if let Some(range) = removing.take() {
+                remove(txn, range)?;
+            }
+            write(txn, place, run)?;
+        }
+    }
+    if let Some(range) = removing {
+        remove(txn, range)?;
+    }
+    Ok(())
 }
 
 /// The pairs of indexes of `old` and `new` whose keys are the same: a longest common

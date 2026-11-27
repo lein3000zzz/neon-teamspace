@@ -223,16 +223,20 @@ impl From<AuthError> for ApiError {
             | AuthError::EmailTaken
             | AuthError::LastAdmin
             | AuthError::MailNotSetUp(_)
+            | AuthError::RequestsFull
             | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
             AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AuthError::Busy => StatusCode::SERVICE_UNAVAILABLE,
             AuthError::Database(_) | AuthError::Internal(_) => {
                 tracing::error!(error = %error, "an auth use case failed");
                 return Self::internal();
             }
         };
         let mut api = Self::new(status, error.code(), error.to_string());
-        if let AuthError::RateLimited { retry_after } = error {
-            api.retry_after = Some(retry_after);
+        match error {
+            AuthError::RateLimited { retry_after } => api.retry_after = Some(retry_after),
+            AuthError::Busy => api.retry_after = Some(AuthError::BUSY_RETRY),
+            _ => {}
         }
         api
     }
@@ -390,7 +394,9 @@ impl From<ContentError> for ApiError {
             .with_retry_after(retry_after),
             other => {
                 let status = match &other {
-                    ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::TooLarge(_) | ContentError::TooManyNodes(_) => {
+                        StatusCode::PAYLOAD_TOO_LARGE
+                    }
                     ContentError::Conflict => StatusCode::CONFLICT,
                     ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
                     _ => StatusCode::BAD_REQUEST,
@@ -505,6 +511,7 @@ impl From<AttachmentError> for ApiError {
             AttachmentError::TooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             AttachmentError::StorageLimit { .. } => StatusCode::CONFLICT,
             AttachmentError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AttachmentError::Busy => StatusCode::SERVICE_UNAVAILABLE,
             AttachmentError::Body(_) | AttachmentError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             AttachmentError::Store(BlobError::NotFound) => {
                 tracing::error!(error = %error, "a file's bytes are missing from the blob store");
@@ -520,8 +527,10 @@ impl From<AttachmentError> for ApiError {
             }
         };
         let mut api = Self::new(status, error.code(), error.to_string());
-        if let AttachmentError::RateLimited { retry_after } = error {
-            api.retry_after = Some(retry_after);
+        match error {
+            AttachmentError::RateLimited { retry_after } => api.retry_after = Some(retry_after),
+            AttachmentError::Busy => api.retry_after = Some(AttachmentError::BUSY_RETRY),
+            _ => {}
         }
         api
     }

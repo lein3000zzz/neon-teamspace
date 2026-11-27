@@ -47,16 +47,17 @@ const SUITE_RUN = process.env.E2E_SUITE_RUN ?? "0";
 
 /**
  * The address a spec's browsers say they come from, as X-Forwarded-For, which the e2e stack
- * believes. The server allows ten sign-ins at once from one address, and the specs run side
- * by side, so a spec that signs people in takes an address of its own, from the range kept
- * for documentation; and so does each `repetition` of it past the first, as `--repeat-each`
- * runs them, to show a test is stable. Each run of the suite takes addresses apart from those
- * of the runs before it, so a run straight after another is not refused the sign-ins the last
- * one spent. Each spec's addresses are a /64 of their own, as the server counts OAuth clients
- * by /64.
+ * believes. The server allows ten sign-ins at once from one source, an IPv4 address or an
+ * IPv6 /64, and the specs run side by side, so a spec that signs people in takes a /64 of its
+ * own, from the range kept for documentation; and so does each `repetition` of it past the
+ * first, as `--repeat-each` runs them, to show a test is stable. Each run of the suite takes
+ * sources apart from those of the runs before it, so a run straight after another is not
+ * refused the sign-ins the last one spent.
  */
 export function clientAddress(spec: number, repetition = 0): Record<string, string> {
-  return { "X-Forwarded-For": `2001:db8:${SUITE_RUN}:${spec}::${repetition + 1}` };
+  // The /64 is the run's group, then the spec's and the repetition's in one.
+  const network = (spec * 0x100 + repetition).toString(16);
+  return { "X-Forwarded-For": `2001:db8:${SUITE_RUN}:${network}::1` };
 }
 
 /**

@@ -175,6 +175,28 @@ pub async fn list_for_user(
     .await
 }
 
+/// The addresses the user's sessions not yet expired at `now` signed in from, at most
+/// `limit` of them, the most recent first.
+pub async fn addresses_of(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    now: OffsetDateTime,
+    limit: i64,
+) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT ip AS "ip!" FROM sessions
+           WHERE user_id = $1 AND expires_at > $2 AND absolute_expires_at > $2
+           GROUP BY ip
+           ORDER BY max(created_at) DESC
+           LIMIT $3"#,
+        user_id,
+        now,
+        limit,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Ends a session, and says whose it was; `None` when there was none.
 pub async fn delete(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Uuid>> {
     sqlx::query_scalar!("DELETE FROM sessions WHERE id = $1 RETURNING user_id", id)

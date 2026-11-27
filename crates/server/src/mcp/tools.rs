@@ -1231,6 +1231,7 @@ async fn create_page(
         Some(markdown) => s
             .sync
             .first_snapshot(&read_markdown(markdown)?)
+            .await
             .map_err(refused)?,
         None => None,
     };

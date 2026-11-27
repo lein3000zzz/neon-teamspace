@@ -101,9 +101,14 @@ for one with a note of up to 500 characters. The steps:
    `auth.request_denied_mail` on, the address is told so, and it may ask again in 30 days.
 
 Nothing is mailed to an address with an account, one whose request waits for the admins,
-or one denied in the last 30 days. An address has one open request at most, and the
-instance at most 200, so the form cannot fill the table. Requests nobody confirmed go a day
-after their link stopped working. Decided ones go after 30 days.
+or one denied in the last 30 days. An address has one open request at most. One source, an
+IPv4 address or an IPv6 /64, has at most 10 requests nobody confirmed yet whose links still
+work: past them, its new requests are dropped, with the same answer, so the form cannot fill
+the table and junk from one place takes no room from anyone else. A day after, as those
+links stop working, the source may ask again. At most 200 confirmed requests wait for the
+admins at once: past them, opening a link answers `requests_full`, and the link works again
+once the admins decide some, while it lasts. Requests nobody confirmed go a day after their
+link stopped working. Decided ones go after 30 days.
 
 ## Verifying addresses
 
@@ -124,9 +129,14 @@ With `auth.password_reset` on, the sign-in page can ask for a link that sets a n
 account, and mails nothing to a disabled one. The link works once, for an hour, with the
 same limit of one a minute and five a day.
 
-Setting the new password verifies the address, signs the account out of every session, and
-mails the account that its password changed. A password the rules refuse leaves the link
-working, to try again.
+Setting the new password verifies the address, signs the account out everywhere, and mails
+the account that its password changed. Signing out everywhere ends every session, revokes
+every API token of the account's own, and disconnects every app connected to it over OAuth,
+whether the app acts as the account or as one of its agents, so whoever knew the old
+password keeps nothing they made with it. The tokens made for the account's agents stay, as
+they work for their workspaces: after a reset because someone else knew the password, revoke
+those in each agent's settings too. A password the rules refuse leaves the link working, to
+try again.
 
 ## Passwords
 
@@ -136,6 +146,8 @@ keep working.
 
 Changing a password with `POST /api/v1/account/password` needs the current one and a browser
 session. It signs out every other session and mails the account that its password changed.
+API tokens and connected apps keep working: revoke them under **Account**, or reset the
+password by mail, which ends them all.
 
 ## Sessions
 

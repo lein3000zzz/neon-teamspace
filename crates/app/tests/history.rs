@@ -115,6 +115,7 @@ impl Team {
     async fn page(&self, sync: &SyncService, title: &str, markdown: &str) -> Uuid {
         let content = sync
             .first_snapshot(&from_markdown(markdown))
+            .await
             .expect("not too large");
         self.h
             .pages
@@ -430,6 +431,7 @@ async fn those_who_only_view_a_page_see_none_of_what_it_held_before(pool: PgPool
                     title: "Notes".to_owned(),
                     content: sync
                         .first_snapshot(&from_markdown("Draft figures\n"))
+                        .await
                         .expect("not too large"),
                     ..NewPage::default()
                 },

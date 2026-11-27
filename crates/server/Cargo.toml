@@ -69,6 +69,8 @@ rmcp = { workspace = true, features = ["client", "transport-streamable-http-clie
 # A self-signed certificate and a TLS listener, for the SMTP adapter's tests.
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+# Paused time, for the tests of timeouts.
+tokio = { workspace = true, features = ["test-util"] }
 # WebSocket clients for the real-time sync's tests, the version axum's server side uses.
 tokio-tungstenite = "0.30.0"
 tower = { workspace = true, features = ["util"] }

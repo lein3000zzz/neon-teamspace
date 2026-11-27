@@ -475,7 +475,9 @@ pub struct ChangeRole {
     summary = "Change a member's role",
     description = "Owners change anyone's role, owner included; admins anyone's but an owner's, \
                    and make no owners. A member who becomes a guest leaves every teamspace; a \
-                   guest who becomes more joins the default one.",
+                   guest who becomes more joins the default one. An owner or admin who becomes \
+                   a member or guest has the invitations they sent that wait revoked, and the \
+                   invite links they made ended.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("user_id" = Uuid, Path, description = "The member's account id."),
@@ -510,7 +512,8 @@ pub(super) async fn change_member_role(
     tag = "workspaces",
     summary = "Remove a member",
     description = "Takes them out of the workspace and its teamspaces. Owners remove anyone, \
-                   admins anyone but an owner. To remove yourself, leave.",
+                   admins anyone but an owner. To remove yourself, leave. The invitations they \
+                   sent that wait are revoked, and the invite links they made ended.",
     params(
         ("id" = Uuid, Path, description = "The workspace's id."),
         ("user_id" = Uuid, Path, description = "The member's account id."),
@@ -545,7 +548,8 @@ pub(super) async fn remove_member(
     description = "Leaves it and its teamspaces. The last owner cannot: they make another \
                    owner first, or delete the workspace. Nor can the last owner of one of its \
                    teamspaces, unless they own or administer the workspace: they make another \
-                   owner of it first, or delete it.",
+                   owner of it first, or delete it. The invitations they sent that wait are \
+                   revoked, and the invite links they made ended.",
     params(("id" = Uuid, Path, description = "The workspace's id.")),
     responses(
         (status = NO_CONTENT, description = "Left."),

@@ -72,6 +72,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
+use crate::http::answers::AnsweredFor;
 use crate::http::{ApiError, AppState, WebConfig};
 use server::Server;
 use sessions::{Activity, Sessions};
@@ -215,7 +216,12 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     let principal = match authenticate(&state, headers).await {
-        Ok(principal) => principal,
+        Ok(principal) => {
+            if let Some(answered_for) = parts.extensions.get::<AnsweredFor>() {
+                answered_for.note(principal.user.owner_id.unwrap_or(principal.user.id));
+            }
+            principal
+        }
         Err(refusal) => {
             if let Some(id) = &session
                 && !refusal.status().is_server_error()

@@ -271,6 +271,7 @@ impl Team {
             .export_page(&self.ada, page, children)
             .await
             .expect("exported")
+            .export
     }
 }
 
@@ -596,6 +597,63 @@ async fn imports_are_limited_by_rate_turn_place_and_time(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn imports_making_more_nodes_than_are_written_at_once_make_nothing(pool: PgPool) {
+    // Each file's three paragraphs and their runs make six nodes.
+    let page = "a\n\nb\n\nc\n";
+    let t = team_with(
+        pool,
+        Limits {
+            max_nodes: 10,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let refused = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "notes.zip",
+            zipped(&[("one.md", page), ("two.md", page)]),
+        )
+        .await
+        .expect_err("too many nodes together");
+    assert_eq!(refused.code(), "too_large");
+    assert!(refused.to_string().contains("more than 10"), "{refused}");
+    let pages: i64 = t.h.scalar("SELECT count(*) FROM pages").await;
+    assert_eq!(pages, 0);
+    t.import(
+        &t.ada,
+        Location::Teamspace(t.general),
+        "one.md",
+        Bytes::from_static(b"a\n\nb\n\nc\n"),
+    )
+    .await
+    .expect("few enough");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_page_making_more_nodes_than_its_content_is_written_with_is_not_imported(pool: PgPool) {
+    let t = team(pool).await;
+    let max = t.sync.limits().max_nodes;
+    let refused = t
+        .import(
+            &t.ada,
+            Location::Teamspace(t.general),
+            "long.md",
+            Bytes::from("a\n\n".repeat(max / 2 + 1)),
+        )
+        .await
+        .expect_err("too many nodes in one page");
+    assert_eq!(refused.code(), "too_large");
+    assert!(
+        refused
+            .to_string()
+            .starts_with(&format!("long.md makes more than {max}")),
+        "{refused}"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn uploads_past_a_limit_make_nothing(pool: PgPool) {
     let t = team_with(
         pool,
@@ -777,7 +835,8 @@ async fn a_database_exports_as_a_table_of_its_rows_and_a_file_per_row(pool: PgPo
         .transfer
         .export_teamspace(&t.dee, t.general)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     assert!(names(&unzipped(&general.bytes)).contains(&"Tasks/Fix login.md"));
     t.h.pages
         .share_page(&t.ada, db, t.gus.user.id, PageAccess::View)
@@ -787,7 +846,8 @@ async fn a_database_exports_as_a_table_of_its_rows_and_a_file_per_row(pool: PgPo
         .transfer
         .export_page(&t.gus, db, true)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     let files = unzipped(&guest.bytes);
     assert_eq!(
         files["Tasks/Fix login.md"],
@@ -813,7 +873,8 @@ async fn teamspaces_export_for_those_who_list_them(pool: PgPool) {
         .transfer
         .export_teamspace(&t.dee, t.general)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     assert_eq!(general.name, "General.zip");
     let files = unzipped(&general.bytes);
     assert_eq!(
@@ -833,7 +894,8 @@ async fn teamspaces_export_for_those_who_list_them(pool: PgPool) {
         .transfer
         .export_teamspace(&t.ada, t.secret)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     assert_eq!(
         unzipped(&secret.bytes).into_iter().collect::<Vec<_>>(),
         [("Hidden plans.md".to_owned(), "# Hidden plans\n".to_owned())]
@@ -888,6 +950,85 @@ async fn exports_keep_to_their_limits(pool: PgPool) {
     );
 }
 
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_export_keeps_its_turn_and_place_until_its_file_is_let_go_of(pool: PgPool) {
+    let t = team_with(
+        pool,
+        Limits {
+            per_user: 1,
+            parallel: 1,
+            ..Limits::default()
+        },
+    )
+    .await;
+    t.roadmap().await;
+    let roadmap = t.id_of(t.general, "Roadmap").await;
+    let held = t
+        .transfer
+        .export_page(&t.ada, roadmap, false)
+        .await
+        .expect("exported");
+    // While its file is being sent, the person's turn and the server's place stay taken.
+    let busy = t.transfer.export_page(&t.ada, roadmap, false).await;
+    assert!(matches!(busy, Err(TransferError::Busy)), "{busy:?}");
+    let others = t.transfer.export_page(&t.dee, roadmap, false).await;
+    assert!(matches!(others, Err(TransferError::Busy)), "{others:?}");
+    // Her agents take turns of hers.
+    let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
+    let (_, scout) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let agents = t
+        .transfer
+        .admit_import(&scout, t.workspace, Location::Teamspace(t.general))
+        .await;
+    assert!(
+        matches!(agents, Err(TransferError::Busy)),
+        "{:?}",
+        agents.err()
+    );
+    drop(held);
+    t.transfer
+        .export_page(&t.ada, roadmap, false)
+        .await
+        .expect("the turn came back");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_export_read_slowly_gives_its_place_back_after_a_while_and_keeps_its_turn(pool: PgPool) {
+    let t = team_with(
+        pool,
+        Limits {
+            per_user: 1,
+            parallel: 1,
+            place_while_sent: Duration::from_millis(50),
+            ..Limits::default()
+        },
+    )
+    .await;
+    t.roadmap().await;
+    let roadmap = t.id_of(t.general, "Roadmap").await;
+    let held = t
+        .transfer
+        .export_page(&t.ada, roadmap, false)
+        .await
+        .expect("exported");
+    // Ada's file is still on its way: the server's place comes back to the others after a
+    // while, and her turn stays hers.
+    let others = timeout(Duration::from_secs(5), async {
+        loop {
+            match t.transfer.export_page(&t.dee, roadmap, false).await {
+                Err(TransferError::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
+                other => break other,
+            }
+        }
+    })
+    .await
+    .expect("the place came back");
+    others.expect("another person exports");
+    let hers = t.transfer.export_page(&t.ada, roadmap, false).await;
+    assert!(matches!(hers, Err(TransferError::Busy)), "{hers:?}");
+    drop(held);
+}
+
 /// Opens a page's live document as a client, syncs, then adds a paragraph to it. The
 /// connection stays open, so the document stays live.
 async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
@@ -897,6 +1038,7 @@ async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
             fragment,
             &[Block::paragraph(text)],
             &mut SequentialIds::new("live"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
     })
@@ -966,6 +1108,7 @@ async fn blocks_that_do_not_read_are_left_out_of_exports(pool: PgPool) {
             fragment,
             &[Block::paragraph("After it.")],
             &mut SequentialIds::new("live"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
     })
@@ -980,7 +1123,8 @@ async fn blocks_that_do_not_read_are_left_out_of_exports(pool: PgPool) {
         .transfer
         .export_teamspace(&t.ada, t.general)
         .await
-        .expect("the teamspace exports");
+        .expect("the teamspace exports")
+        .export;
     assert!(
         unzipped(&zip.bytes)
             .values()
@@ -1017,7 +1161,8 @@ async fn exports_read_what_is_live_and_round_trip(pool: PgPool) {
         .transfer
         .export_teamspace(&t.ada, t.general)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     let copy = teamspace(&t.h, &t.ada, t.workspace, "Copy", TeamspaceAccess::Open).await;
     let report = t
         .import(
@@ -1037,7 +1182,8 @@ async fn exports_read_what_is_live_and_round_trip(pool: PgPool) {
         .transfer
         .export_teamspace(&t.ada, copy)
         .await
-        .expect("exported");
+        .expect("exported")
+        .export;
     assert_eq!(unzipped(&second.bytes), unzipped(&first.bytes));
 }
 

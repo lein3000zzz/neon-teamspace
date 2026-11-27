@@ -60,8 +60,9 @@ settings:
 
 Requests go over HTTP/1.1, and over TLS 1.2 or later for `https` endpoints. The server checks
 the store's certificate against the web PKI's roots, which it bundles. Connecting may take 5
-seconds, and an answer's headers 30. A file larger than 8 MiB goes up as a multipart upload,
-two parts of 8 MiB at a time, so an upload holds at most a few parts in memory. The access key
+seconds, and an answer's headers 30. A file larger than 5 MiB goes up as a multipart upload,
+two parts of 5 MiB at a time, the smallest S3 takes, so an upload holds at most a few parts
+in memory. On local disk, a file goes to the file it is written to 256 KiB at a time. The access key
 needs to read, write and delete objects in the bucket, and to make and finish multipart
 uploads. It needs no other right.
 
@@ -125,7 +126,7 @@ An upload cut off while the server runs, by its client, its time limit or a refu
 nothing: the server deletes what it wrote, and aborts a multipart upload, at once. A server
 that stops in the middle of an upload, killed or crashed, leaves bytes behind, which the
 cleanup deletes half an hour after the upload began: on local disk, the file the blob was
-being written to, beside where it would go. In an S3 bucket, a file larger than 8 MiB goes up
+being written to, beside where it would go. In an S3 bucket, a file larger than 5 MiB goes up
 in parts, and the parts of an upload no one aborted stay in the store, outside any
 workspace's storage, until something aborts it. Give the bucket a lifecycle rule that aborts
 incomplete multipart uploads after a day, `AbortIncompleteMultipartUpload` on Amazon S3,

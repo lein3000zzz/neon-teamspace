@@ -47,7 +47,7 @@ the inbox's live feed open while it shows.
 | `GET /api/v1/inbox/count` | `{"unread"}`, of one workspace with `workspace_id`, or all. |
 | `PATCH /api/v1/notifications/{id}` | Marks it read or unread, archived or not: `read`, `archived`. |
 | `POST /api/v1/inbox/read` | Marks every unread one read, of one workspace with `workspace_id`, or all; answers how many. |
-| `GET /api/v1/me/notifications`, `PUT` | How you want [mail of it](#notification-mail): `mail`, and whether the instance sends it now. |
+| `GET /api/v1/me/notifications`, `PUT` | How you want [mail of it](#notification-mail): `mail`, and whether the instance sends it now. The account's, for every workspace: a token bound to one answers `403 token_bound`. |
 
 Each notification has its `kind`, its `workspace`, the `actor` who did it, the `page` as you
 see it now, the `thread_id` and `comment_id` of a comment's, with an `excerpt` of the

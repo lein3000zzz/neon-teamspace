@@ -200,11 +200,16 @@ its certificates in the `caddy-data` volume. Over HTTPS, every answer also carri
 TLS can also end in front of Caddy instead, at a load balancer, a tunnel or another proxy.
 Leave `NEON_DOMAIN` unset, so Caddy serves plain HTTP, point the proxy at `NEON_HTTP_PORT`,
 and set `NEON_WEB_TRUSTED_PROXIES` to the proxy's addresses, such as `10.0.0.0/8`, so Caddy
-takes the client's address from the proxy's `X-Forwarded-For`. The server only ever sees the
-client's address, as Caddy works it out. `Strict-Transport-Security` is then the proxy's to
-set. The proxy must also pass WebSocket upgrades on, for the live editing at `/ws`, as most
-do by default, and pass the server-sent events of `/mcp` on as they come, without buffering
-them, for the notifications of MCP clients.
+takes the client's address from the proxy's `X-Forwarded-For`. Caddy reads that header from
+its end, skips the addresses of the proxies it trusts, and stops at the first that is none of
+theirs: that is the client, and whatever the client wrote into the header before it is never
+read. A proxy that appends the address it saw, as most do, works so; one that passes the
+header on as the client sent it, without its own entry, would let the client choose. The
+server only ever sees the client's address, as Caddy works it out.
+`Strict-Transport-Security` is then the proxy's to set. The proxy must also pass WebSocket
+upgrades on, for the live editing at `/ws`, as most do by default, and pass the server-sent
+events of `/mcp` on as they come, without buffering them, for the notifications of MCP
+clients.
 
 `NEON_SERVER__PUBLIC_URL` must be the address browsers use: the server refuses requests that
 change something, and WebSocket upgrades, whose `Origin` is another.

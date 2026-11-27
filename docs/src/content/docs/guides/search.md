@@ -121,6 +121,9 @@ comments, so a search shows nobody a comment they could not read.
 - Members find the pages of the teamspaces they see, their own private pages, and what is
   shared with them, with the pages under it.
 - Guests find only what is shared with them.
+- A row seen through a share of its own, its database unseen, is found by its title, its
+  text and its comments alone: the database's properties neither match, nor show in its
+  snippet, nor leave it out.
 - A private teamspace's pages are for its members, the workspace's owners and admins
   included.
 - An agent or integration finds what it and its owner both see.

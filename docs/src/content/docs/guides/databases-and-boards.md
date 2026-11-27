@@ -230,7 +230,8 @@ one to the database.
 
 Someone a single row is shared with, without its database, sees what every row has, its id
 and when it was made and last changed, then its body; not the database's properties, and
-nothing on the page leads to the database.
+nothing on the page leads to the database. Neither the API, MCP, an export, their tasks nor
+search shows them the properties.
 
 A row goes to the trash from its menu in a view, or from its page's menu, and comes back from
 the [trash](/docs/guides/editing-pages/#the-trash). It stays in its database: its page's menu

@@ -268,6 +268,7 @@ pub struct ChangePassword {
         (status = UNAUTHORIZED, description = "unauthenticated, or invalid_credentials: the current password is wrong.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: not a browser session.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []))

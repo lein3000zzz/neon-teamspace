@@ -1,6 +1,9 @@
 //! Writing a file to the blob store as its bytes come: its type from its first bytes, its
 //! size against the most it may have, its SHA-256 and an image's width and height on the
-//! way. Nothing of it is kept until its row is added.
+//! way. A body that sends nothing for the service's idle limit is given up on, with the part
+//! it filled. Nothing of it is kept until its row is added.
+
+use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt as _};
@@ -39,6 +42,22 @@ fn key(workspace_id: Uuid, id: Uuid) -> String {
     format!("{}/{}", workspace_id.simple(), id.simple())
 }
 
+/// The body's next chunk, unless nothing comes for `idle`.
+async fn next<S, E>(
+    body: &mut S,
+    idle: Duration,
+) -> Result<Option<Result<Bytes, E>>, AttachmentError>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+{
+    tokio::time::timeout(idle, body.next()).await.map_err(|_| {
+        AttachmentError::Body(format!(
+            "nothing of the file arrived for {} seconds",
+            idle.as_secs()
+        ))
+    })
+}
+
 /// Writes `body` to the store as a new file; see the module docs.
 pub(super) async fn write<S, E>(
     service: &AttachmentService,
@@ -51,11 +70,12 @@ where
     E: std::fmt::Display,
 {
     let unreadable = |error: E| AttachmentError::Body(error.to_string());
+    let idle = service.upload_idle();
     // The first bytes, enough to tell what the file is.
     let mut head = BytesMut::new();
     let mut ended = false;
     while head.len() < SNIFF_BYTES {
-        match body.next().await {
+        match next(&mut body, idle).await? {
             Some(chunk) => head.extend_from_slice(&chunk.map_err(unreadable)?),
             None => {
                 ended = true;
@@ -84,7 +104,7 @@ where
     let written = async {
         counted.write(writer.as_mut(), head.freeze()).await?;
         if !ended {
-            while let Some(chunk) = body.next().await {
+            while let Some(chunk) = next(&mut body, idle).await? {
                 counted
                     .write(writer.as_mut(), chunk.map_err(unreadable)?)
                     .await?;

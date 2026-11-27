@@ -42,6 +42,11 @@ impl Document {
         fill(&mut self.blocks, ids);
     }
 
+    /// How many nodes writing the document makes: see [`nodes`].
+    pub fn nodes(&self) -> usize {
+        nodes(&self.blocks)
+    }
+
     /// Every block, parents before their children, in document order.
     pub fn walk(&self) -> impl Iterator<Item = &Block> {
         let mut stack: Vec<&Block> = self.blocks.iter().rev().collect();
@@ -51,6 +56,45 @@ impl Document {
             Some(block)
         })
     }
+}
+
+/// How many nodes writing `blocks` into a Yjs document makes, the blocks under them
+/// included: one for each block, table row and cell, and one for each run of text, line
+/// break and mention in their content. The time writing takes, and the size of what it
+/// writes, grow with it, so it bounds what is written at once.
+pub fn nodes(blocks: &[Block]) -> usize {
+    fn inline(content: &[Inline]) -> usize {
+        // Each line break splits a run in two, with a break between.
+        let text = |run: &StyledText| 1 + 2 * run.text.matches('\n').count();
+        content
+            .iter()
+            .map(|node| match node {
+                Inline::Text(run) => text(run),
+                Inline::Link(link) => link.content.iter().map(text).sum(),
+                Inline::Mention(_) => 1,
+            })
+            .sum()
+    }
+    blocks
+        .iter()
+        .map(|block| {
+            let content = match &block.kind {
+                BlockKind::Table { content, .. } => content
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        1 + row
+                            .cells
+                            .iter()
+                            .map(|cell| 1 + inline(&cell.content))
+                            .sum::<usize>()
+                    })
+                    .sum(),
+                kind => kind.inline_content().map_or(0, inline),
+            };
+            1 + content + nodes(&block.children)
+        })
+        .sum()
 }
 
 /// One block: its type with its props and content, and the blocks nested under it.

@@ -192,7 +192,8 @@ impl DatabaseService {
     }
 
     /// A row's properties as text, for its export when its database is not exported with
-    /// it. A guest's leave out the people.
+    /// it. A guest's leave out the people. Someone who sees the row through its own share
+    /// alone, not its database, gets none.
     pub async fn export_row(
         &self,
         principal: &Principal,
@@ -202,6 +203,9 @@ impl DatabaseService {
             let mut conn = self.pages().pool().acquire().await?;
             let context = self.pages().context(&mut conn, principal, row_id).await?;
             context.check(Action::ViewPage)?;
+            if !context.parent_seen() {
+                return Ok(ExportRow::default());
+            }
             let Some(data) = repo::row(&mut *conn, row_id).await? else {
                 return Ok(ExportRow::default());
             };

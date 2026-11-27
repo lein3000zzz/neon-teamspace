@@ -22,6 +22,7 @@ use neon_app::auth::AuthError;
 use neon_domain::auth::{Principal, Scope};
 
 use super::AppState;
+use super::answers::AnsweredFor;
 use super::error::ApiError;
 
 /// Any authenticated user, with the scope the request's method needs.
@@ -129,8 +130,17 @@ impl Refusal {
     }
 }
 
-/// The principal of the bearer token, or else of the session cookie.
+/// The principal of the bearer token, or else of the session cookie, noted as the one the
+/// answer is for.
 async fn authenticate(parts: &Parts, state: &AppState) -> Result<Principal, Refusal> {
+    let principal = principal_of(parts, state).await?;
+    if let Some(answered_for) = parts.extensions.get::<AnsweredFor>() {
+        answered_for.note(principal.user.owner_id.unwrap_or(principal.user.id));
+    }
+    Ok(principal)
+}
+
+async fn principal_of(parts: &Parts, state: &AppState) -> Result<Principal, Refusal> {
     if let Some(header) = parts.headers.get(AUTHORIZATION) {
         return bearer(state, header).await.map_err(Refusal::new);
     }

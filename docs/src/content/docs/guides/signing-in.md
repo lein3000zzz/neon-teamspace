@@ -56,7 +56,8 @@ While the instance takes requests to join, the sign-in and sign-up pages link to
 It asks for an address and a note for the admins. Whatever the address, the page then says
 the same thing: if this address can ask, a link to confirm is on its way. Opening that link
 confirms the request, and only then do the admins see it. If they approve it, the invite
-arrives by mail.
+arrives by mail. While the admins have as many confirmed requests waiting as they take, the
+page says so instead and offers to try again: the link keeps working for its 24 hours.
 
 ## Mailed links
 
@@ -68,8 +69,8 @@ history. A link works once; an old or used one says so, and offers a new one.
 `/forgot` asks for a link to set a new password. Like the request to join, it says the same
 thing whether or not the address has an account. `/reset` without a token asks the same,
 as the mail saying a password changed links there for anyone who did not change it. Setting
-the new password signs the account out everywhere, then opens the sign-in form with the
-address filled in.
+the new password signs the account out everywhere, its API tokens and connected apps
+included, then opens the sign-in form with the address filled in.
 
 ## The account pages
 

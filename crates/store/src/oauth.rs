@@ -34,7 +34,7 @@ fn parse_audience(text: &str) -> sqlx::Result<Audience> {
 }
 
 /// Keeps a client that registered from `source`, as
-/// [`registration_source`](neon_domain::oauth::registration_source) names it.
+/// [`client_source`](neon_domain::network::client_source) names it.
 pub async fn insert_client(
     executor: impl PgExecutor<'_>,
     client: &Client,
@@ -255,6 +255,20 @@ pub async fn delete_grants_of_user(
         .execute(executor)
         .await?;
     Ok(result.rows_affected())
+}
+
+/// Deletes every grant `person_id` consented to, whether it acts as them or as one of their
+/// agents, with its codes and tokens, and gives whom each acted as.
+pub async fn delete_grants_of_person(
+    executor: impl PgExecutor<'_>,
+    person_id: Uuid,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "DELETE FROM oauth_grants WHERE person_id = $1 RETURNING user_id",
+        person_id
+    )
+    .fetch_all(executor)
+    .await
 }
 
 /// Removes the grants nothing can use any more, none of their codes or tokens unexpired at

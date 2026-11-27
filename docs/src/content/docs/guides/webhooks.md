@@ -477,7 +477,7 @@ curl -X POST "$HOOK_URL" \
 | `200` | | Done: `{"ok": true, "action", "row"}`. |
 | `400` | `invalid_body` | The body could not be read to its end. |
 | `400` | `invalid_payload` | The body is not JSON, or not a payload of this format for this target, or its markdown nests too deep. An unknown field is named with the fields its action takes. |
-| `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member; a block the page does not hold, or one without text, to comment on. |
+| `400` | `invalid_input` | A value its property does not take, a property the database lacks, a person who is not a member; a block the page does not hold, or one without text, to comment on; markdown to append that makes more than 100,000 blocks, table rows and cells, runs of text, line breaks and mentions, or that would take the server longer than a second to write into the page. |
 | `401` | `invalid_signature` | Signed requests only, and the signature is missing, stale or does not match. |
 | `403` | `hook_disabled` | The webhook is turned off. |
 | `403` | `integration_suspended` | Its owner is out of the workspace, a guest there or disabled. |

@@ -73,12 +73,15 @@ details.
 
 ## The client address
 
-Rate limits count by the client's address. The server takes it from the connection, unless
-the connection comes from one of `server.trusted_proxies`: then it takes the last entry of
-`X-Forwarded-For`. The default trusts loopback alone, `127.0.0.0/8` and `::1`, for a reverse
-proxy on the same machine. A proxy elsewhere is named by its address. Name as little as
-possible: a client whose address a range covers, and that reaches the server directly, could
-pick the address it is counted by. The variable takes the ranges separated by commas:
+Rate limits count by the client's address, an IPv6 address by its /64. The server takes it
+from the connection, unless the connection comes from one of `server.trusted_proxies`: then
+it takes the last entry of `X-Forwarded-For`, the one the proxy wrote, without a port when it
+has one. When that entry is no address, the proxy's own address counts, never an entry before
+it, which the client could have written. The default trusts loopback alone, `127.0.0.0/8`
+and `::1`, for a reverse proxy on the same machine. A proxy elsewhere is named by its
+address. Name as little as possible: a client whose address a range covers, and that reaches
+the server directly, could pick the address it is counted by. The variable takes the ranges
+separated by commas:
 
 ```sh
 NEON_SERVER__TRUSTED_PROXIES=10.1.0.4,192.168.10.0/24

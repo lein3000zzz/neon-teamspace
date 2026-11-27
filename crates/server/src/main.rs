@@ -8,7 +8,6 @@ use neon_server::cli::{self, Cli};
 #[global_allocator]
 static ALLOCATOR: neon_observability::profiling::Jemalloc = neon_observability::profiling::Jemalloc;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    cli::run(Cli::parse()).await
+fn main() -> anyhow::Result<()> {
+    cli::block_on(cli::run(Cli::parse()), cli::EXIT_GRACE)
 }

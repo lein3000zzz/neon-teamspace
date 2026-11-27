@@ -21,9 +21,17 @@ pub const MAIL_GAP: Duration = Duration::from_secs(60);
 /// How long a denied address waits before it may ask again.
 pub const DENIED_WAIT: Duration = Duration::from_secs(30 * 24 * 3600);
 
-/// The most requests open at once on the instance, confirmed or not. Past it, new requests
-/// are dropped, so the form cannot fill the table.
+/// The most requests confirmed and waiting for the admins at once on the instance. Past it,
+/// confirming one more is refused until the admins decide some, so the list they go through
+/// stays bounded. Requests nobody confirmed do not count: whoever can only send the form
+/// cannot fill it.
 pub const MAX_OPEN: i64 = 200;
+
+/// The most requests nobody confirmed yet from one source, an IPv4 address or an IPv6 /64,
+/// at once, their links still working. Past it, new requests from the source are dropped,
+/// so the form cannot fill the table, and a source sending junk takes no room from anyone
+/// else, and its own back once the links stop working, a day after they were mailed.
+pub const MAX_UNCONFIRMED_PER_SOURCE: i64 = 10;
 
 /// The longest note, in characters.
 pub const MAX_NOTE: usize = 500;

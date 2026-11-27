@@ -110,12 +110,16 @@ async fn files(pool: PgPool) -> Files {
 
 impl Files {
     async fn page(&self, title: &str, content: Option<Document>) -> Uuid {
-        let content = content.map(|document| {
-            self.sync
-                .first_snapshot(&document)
-                .expect("fits")
-                .expect("has blocks")
-        });
+        let content = match content {
+            Some(document) => Some(
+                self.sync
+                    .first_snapshot(&document)
+                    .await
+                    .expect("fits")
+                    .expect("has blocks"),
+            ),
+            None => None,
+        };
         self.h
             .pages
             .create_page(
@@ -904,4 +908,60 @@ async fn page_refs(pool: &PgPool, page: Uuid) -> sqlx::Result<Vec<Uuid>> {
         .bind(page)
         .fetch_all(pool)
         .await
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn uploads_run_a_few_at_once_and_one_that_stops_sending_is_given_up_on(pool: PgPool) {
+    let t = files(pool).await;
+    let attachments = AttachmentService::builder_with_store(
+        t.h.pool.clone(),
+        Arc::clone(&t.h.settings),
+        t.h.pages.clone(),
+        t.sync.clone(),
+        Arc::clone(&t.store) as Arc<dyn BlobStore>,
+    )
+    .limiter(Arc::clone(&t.h.limiter) as Arc<dyn neon_app::ratelimit::RateLimiter>)
+    .clock(t.h.time.clock())
+    .uploads_at_once(2, 3)
+    .upload_idle(Duration::from_millis(200))
+    .build();
+    let page = t.page("Uploads", None).await;
+    let admit = |who: Principal| {
+        let attachments = attachments.clone();
+        async move {
+            attachments
+                .admit_upload(&who, page, FileKind::Image, None, 0)
+                .await
+        }
+    };
+    let busy =
+        |admitted: Result<_, AttachmentError>| matches!(admitted, Err(AttachmentError::Busy));
+
+    let first = admit(t.ada.clone()).await.expect("one");
+    let second = admit(t.ada.clone()).await.expect("two");
+    assert!(
+        busy(admit(t.ada.clone()).await),
+        "a person runs two at once"
+    );
+    let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
+    let (_, scout) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    assert!(busy(admit(scout).await), "her agents' count as hers");
+    let _third = admit(t.dee.clone()).await.expect("someone else's");
+    assert!(
+        busy(admit(t.dee.clone()).await),
+        "the server runs three at once"
+    );
+    drop(first);
+    let _again = admit(t.ada.clone()).await.expect("a place came back");
+
+    // A client that sends the file's start, then nothing, is given up on, and the upload's
+    // place comes back.
+    let stalled = futures_util::stream::iter([Ok::<_, String>(Bytes::from(png()))])
+        .chain(futures_util::stream::pending());
+    let error = attachments
+        .upload(second, "stalled.png", stalled)
+        .await
+        .expect_err("given up on");
+    assert!(matches!(error, AttachmentError::Body(_)), "{error:?}");
+    admit(t.ada.clone()).await.expect("its place came back");
 }

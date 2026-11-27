@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO join_requests (id, email, email_normalized, note, token_hash,\n                                    link_expires_at, mails, mailed_at, created_at, source)\n         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10\n         WHERE (SELECT count(*) FROM join_requests\n                WHERE source = $10 AND confirmed_at IS NULL AND decided_at IS NULL\n                      AND link_expires_at > $9) < $11",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Timestamptz",
+        "Int4",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64dc1e555e1dbc196cdd8834c8a9221851ab5eb68356ad51cc8386043bd20869"
+}

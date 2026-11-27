@@ -69,4 +69,9 @@ account signed in. What the role in view may do:
   they [leave](/docs/workspace-settings/general/#leave-workspace). A removed member leaves
   every teamspace too.
 
+An owner or admin who leaves, is removed, or becomes a member or guest takes back the
+invitations they sent and the invite links they made: those invitations show as revoked to
+the accounts they went to, and the links as **Revoked**. A link another owner or admin made
+stays open, though its token may have been copied: **Revoke** it too if so.
+
 Members who are not owners or admins get no controls.

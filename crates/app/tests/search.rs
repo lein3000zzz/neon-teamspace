@@ -435,6 +435,49 @@ async fn titles_text_and_rows_values_are_found_as_they_are_written(pool: PgPool)
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_row_shared_alone_is_found_by_its_own_words_not_its_databases_properties(pool: PgPool) {
+    let t = team(pool).await;
+    let tasks = t.database("Tasks").await;
+    t.property(tasks, "Notes", PropertyKind::Text).await;
+    let row = t
+        .row(
+            tasks,
+            json!({"Name": "Fix login", "Notes": "budget is 999 tapir"}),
+        )
+        .await;
+    // Gus, a guest, sees the row through its share alone, not the database.
+    t.h.pages
+        .share_page(&t.ada, row, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    let snippet = |results: &SearchResults| {
+        results
+            .hits
+            .iter()
+            .flat_map(|hit| hit.snippet.iter().map(|part| part.text.clone()))
+            .collect::<String>()
+    };
+
+    // Its properties neither match, nor show, nor leave it out.
+    assert!(t.titles(&t.gus, "tapir").await.is_empty());
+    let found = t.find(&t.gus, "login").await;
+    assert_eq!(titles(&found), ["Fix login"]);
+    assert!(!snippet(&found).contains("tapir"), "{}", snippet(&found));
+    assert_eq!(t.titles(&t.gus, "login -tapir").await, ["Fix login"]);
+
+    // Whoever sees the database finds the row by them.
+    assert_eq!(t.titles(&t.dee, "tapir").await, ["Fix login"]);
+    assert!(snippet(&t.find(&t.dee, "tapir").await).contains("tapir"));
+    assert!(t.titles(&t.dee, "login -tapir").await.is_empty());
+    // And so does whoever the database is shared with.
+    t.h.pages
+        .share_page(&t.ada, tasks, t.gus.user.id, PageAccess::View)
+        .await
+        .expect("shared");
+    assert_eq!(t.titles(&t.gus, "tapir").await, ["Fix login"]);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn comments_find_their_pages_by_their_words_as_they_are_written(pool: PgPool) {
     let t = team(pool).await;
     let comments = CommentService::new(t.h.pages.clone(), t.sync());
@@ -1257,6 +1300,7 @@ async fn rebuilding_stores_the_text_of_documents_never_saved_as_snapshots(pool: 
             &fragment,
             &[Block::paragraph("A starboard entry")],
             &mut SequentialIds::new("b"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         txn.encode_update_v1()
@@ -1314,6 +1358,7 @@ async fn rebuilding_stores_what_a_server_stopped_before_saving_left(pool: PgPool
             &fragment,
             &[Block::paragraph("Albatross sighting logged")],
             &mut SequentialIds::new("c"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         (state, txn.encode_state_as_update_v1(&before))
