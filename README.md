@@ -87,8 +87,9 @@ docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0
 Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed in, can
 fetch the archive instead, with
 `gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'`,
-for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1` to unpack. A clone at the release's tag holds the same files, and its Compose file runs
-the same images. The [install page](docs/src/content/docs/self-hosting/install.md) covers
+for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1` to unpack. A clone
+at the release's tag holds the same files, and its Compose file runs the same images. The
+[install page](docs/src/content/docs/self-hosting/install.md) covers
 the archive, both files, the first run, a domain with TLS, stopping, and where the data
 lives; [backups](docs/src/content/docs/self-hosting/backups.md),
 [upgrading](docs/src/content/docs/self-hosting/upgrading.md) and

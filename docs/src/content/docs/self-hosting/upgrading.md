@@ -52,8 +52,8 @@ They are in two places:
 - The release's own page among the repository's
   [releases](https://github.com/lein3000zzz/neon-teamspace/releases). Its notes name the
   images, their platforms and their tags, say how to check their signatures, and link the
-  install page, this page and the changelog; the pull requests merged since the release before come
-  after, as GitHub lists them. The release's Compose archive is attached to it.
+  install page, this page and the changelog; the pull requests merged since the full release
+  before it come after, as GitHub lists them. The release's Compose archive is attached to it.
 
 ## Upgrading a Compose install
 

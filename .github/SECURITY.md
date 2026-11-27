@@ -27,8 +27,8 @@ Say in the report:
 - what it gives the attacker: reading or changing what they may not, taking over an account,
   running code, or stopping the instance.
 
-A report that names a dependency, a crate, a JS package or a base image, belongs with that
-project too; report it here when Neon Teamspace's use of it is what makes it exploitable.
+A flaw in a dependency, such as a crate, a JS package or a base image, goes to that project.
+Report it here too when Neon Teamspace's use of it is what makes it exploitable.
 
 ## Supported versions
 
