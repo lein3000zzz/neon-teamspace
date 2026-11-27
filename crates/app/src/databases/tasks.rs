@@ -284,6 +284,9 @@ impl DatabaseService {
                     let data = rows.get(&view.page.id)?;
                     let schema = schemas.get(&data.database_id)?;
                     let title = shown.get(&data.database_id).cloned();
+                    // Someone who does not see the database sees none of its properties,
+                    // the status among them.
+                    let status = title.as_ref().and_then(|_| status_of(schema, &data.cells));
                     let row = row_view(
                         schema,
                         title.is_some().then_some(data.database_id),
@@ -298,7 +301,7 @@ impl DatabaseService {
                     Some(Task {
                         row,
                         database_title: title,
-                        status: status_of(schema, &data.cells),
+                        status,
                     })
                 })
                 .collect())
@@ -308,7 +311,8 @@ impl DatabaseService {
 
     /// A row the caller sees, with its values, and each property of its database with the
     /// row's value of it as people read it: options and people by name, numbers in their
-    /// format. A guest's leave out the people.
+    /// format. A guest's leave out the people. Someone who sees the row through its own
+    /// share alone, not its database, gets none of the database's properties.
     pub async fn row_details(
         &self,
         principal: &Principal,
@@ -332,8 +336,12 @@ impl DatabaseService {
             if members_hidden {
                 row = row.without_people(&schema);
             }
-            let texts = schema
-                .properties
+            let shown = if context.parent_seen() {
+                schema.properties.as_slice()
+            } else {
+                &[]
+            };
+            let texts = shown
                 .iter()
                 .map(|property| {
                     let text = row
