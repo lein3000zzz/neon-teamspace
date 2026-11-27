@@ -21,6 +21,11 @@ use crate::servers::{ServerList, Store};
 /// The label of the app's window, which the picker's capability names.
 pub const MAIN_WINDOW: &str = "main";
 
+/// The script that, on iOS, opens what `window.open` asks for in the window, as the webview
+/// there has no new windows and drops the call.
+#[cfg(target_os = "ios")]
+const OPEN_IN_PLACE: &str = include_str!("open-in-place.js");
+
 /// What the app holds while it runs.
 pub struct Shell {
     pub store: Store,
@@ -143,6 +148,8 @@ fn main_window<R: Runtime>(
             }
         })
         .on_download(|webview, event| on_download(webview.app_handle(), event));
+    #[cfg(target_os = "ios")]
+    let builder = builder.initialization_script(OPEN_IN_PLACE);
     #[cfg(desktop)]
     let builder = {
         let new_window_app = app.clone();
