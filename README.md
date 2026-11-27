@@ -295,6 +295,8 @@ The cargo workspace's version, in `Cargo.toml`, is the release's. `make version-
 unless every other place that states it agrees:
 
 - the crates, which take it with `version.workspace = true`, and `Cargo.lock`;
+- the apps' crate in `apps/shell/src-tauri/`, a workspace of its own, with its `Cargo.lock`,
+  and the `apps/shell/` package;
 - `neon --version`, which prints the version the binary was built with, the one
   `/api/v1/meta` answers and the web app shows; a server test and the end-to-end tests check
   those two against the running server;
@@ -311,8 +313,9 @@ changelog's section must have its date. `make check` runs the check, and so does
 
 To release:
 
-1. On a branch into `dev`, set the version in `Cargo.toml`, then `make api-spec web-api` and
-   a build, which update the generated files and `Cargo.lock`. `make version-check` lists
+1. On a branch into `dev`, set the version in `Cargo.toml` and in the apps' crate,
+   `apps/shell/src-tauri/Cargo.toml`, then `make api-spec web-api`, a build and
+   `make app-check`, which update the generated files and both `Cargo.lock` files. `make version-check` lists
    every file that still states the old version. Write the release's section of
    `CHANGELOG.md` as the ones before it: what changed, by area, with the pull requests'
    numbers, and under **Breaking changes** what the release asks of whoever runs or calls
