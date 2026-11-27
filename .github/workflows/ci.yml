@@ -118,6 +118,9 @@ jobs:
               - Cargo.lock
               - crates/*/Cargo.toml
               - crates/server/src/cli.rs
+              - apps/shell/package.json
+              - apps/shell/src-tauri/Cargo.toml
+              - apps/shell/src-tauri/Cargo.lock
               - .claude-plugin/**
               - integrations/**
               - web/package.json

@@ -17,6 +17,9 @@ function repository(version: string, files: Record<string, string> = {}): string
         `[[package]]\nname = "neon-server"\nversion = "${version}"\n`,
         `[[package]]\nname = "serde"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n`,
       ].join("\n"),
+      "apps/shell/src-tauri/Cargo.toml": `[package]\nname = "neon-teamspace-shell"\nversion = "${version}"\n`,
+      "apps/shell/src-tauri/Cargo.lock": `[[package]]\nname = "neon-teamspace-shell"\nversion = "${version}"\n`,
+      "apps/shell/package.json": JSON.stringify({ version }),
       "integrations/claude-code/.claude-plugin/plugin.json": JSON.stringify({ version }),
       "web/package.json": JSON.stringify({ version }),
       "docs/package.json": JSON.stringify({ version }),
@@ -69,6 +72,22 @@ describe("checkVersions", () => {
       "docs/src/content/docs/self-hosting/upgrading.md:6: a checkout names 1.2.2",
       'neon --version: printed "neon 1.2.2"',
       "the tag v1.2.4 is not v1.2.3",
+    ]);
+  });
+
+  it("names the apps' crate, its Cargo.lock and their package when they state another", () => {
+    const root = repository("1.2.3", {
+      "apps/shell/src-tauri/Cargo.toml":
+        '[package]\nname = "neon-teamspace-shell"\nversion = "1.2.2"\n',
+      "apps/shell/src-tauri/Cargo.lock":
+        '[[package]]\nname = "neon-teamspace-shell"\nversion = "1.2.2"\n',
+      "apps/shell/package.json": JSON.stringify({ version: "0.0.0" }),
+    });
+
+    expect(checkVersions(root, "neon 1.2.3")).toEqual([
+      'apps/shell/src-tauri/Cargo.toml: its version is "1.2.2"',
+      "apps/shell/src-tauri/Cargo.lock: neon-teamspace-shell is 1.2.2: build once to update it",
+      'apps/shell/package.json: version is "0.0.0"',
     ]);
   });
 

@@ -1,6 +1,7 @@
 /**
  * Checks that every place stating Neon Teamspace's version states the one the cargo workspace
- * gives every crate, in the root Cargo.toml: the crates and Cargo.lock, the Claude Code plugin,
+ * gives every crate, in the root Cargo.toml: the crates and Cargo.lock, the apps' crate, its
+ * Cargo.lock and their package, the Claude Code plugin,
  * the packages of the web app and the docs, the API description, the Compose file's images,
  * the changelog, the docs, `neon --version`, and the release tag when there is one.
  *
@@ -93,14 +94,30 @@ function checkCrates(root: string): string[] {
     });
 }
 
-/** Cargo.lock's entries of the workspace's own crates, which have no source. */
-function checkLock(root: string, version: string): string[] {
-  const lock = Bun.TOML.parse(readFileSync(join(root, "Cargo.lock"), "utf8")) as {
+/** A Cargo.lock's entries of its workspace's own crates, which have no source. */
+function checkLock(root: string, file: string, version: string): string[] {
+  const lock = Bun.TOML.parse(readFileSync(join(root, file), "utf8")) as {
     package?: { name: string; version: string; source?: string }[];
   };
   return (lock.package ?? [])
     .filter((entry) => entry.source === undefined && entry.version !== version)
-    .map((entry) => `Cargo.lock: ${entry.name} is ${entry.version}: build once to update it`);
+    .map((entry) => `${file}: ${entry.name} is ${entry.version}: build once to update it`);
+}
+
+/** The apps' Rust side, a cargo workspace of its own, which builds with every release. */
+const APP_MANIFEST = "apps/shell/src-tauri/Cargo.toml";
+
+/** The apps' crate, its Cargo.lock and their package. */
+function checkApp(root: string, version: string): string[] {
+  const manifest = Bun.TOML.parse(readFileSync(join(root, APP_MANIFEST), "utf8")) as {
+    package?: { version?: unknown };
+  };
+  const stated = manifest.package?.version;
+  return [
+    ...(stated === version ? [] : [`${APP_MANIFEST}: its version is ${JSON.stringify(stated)}`]),
+    ...checkLock(root, "apps/shell/src-tauri/Cargo.lock", version),
+    ...checkJsonField(root, "apps/shell/package.json", ["version"], version),
+  ];
 }
 
 /** A JSON file's field, read by its path. */
@@ -187,7 +204,8 @@ export function checkVersions(root: string, neon: string, tag?: string): string[
   }
   const problems = [
     ...checkCrates(root),
-    ...checkLock(root, version),
+    ...checkLock(root, "Cargo.lock", version),
+    ...checkApp(root, version),
     ...checkJsonField(
       root,
       "integrations/claude-code/.claude-plugin/plugin.json",
