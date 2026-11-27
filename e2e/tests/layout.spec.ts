@@ -1,66 +1,11 @@
-import type { Browser, BrowserContextOptions, Page } from "@playwright/test";
-import { account, callApi, clientAddress, makeAccounts, PASSWORD } from "./accounts";
-import { ADMIN, expect, signIn, test } from "./fixtures";
+import { callApi, clientAddress } from "./accounts";
+import { ADMIN, expect, test } from "./fixtures";
+import { sprintOf, type Teamspace } from "./sprint";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
 // Each test signs the admin and a person of its own in: an address of the spec's own.
 test.use({ extraHTTPHeaders: clientAddress(20) });
-
-type Workspace = { id: string; slug: string };
-type Teamspace = { id: string; access: string };
-
-/** A database called Sprint in General: its page, and the ways to it. */
-type Sprint = { workspace: Workspace; pageId: string; api: string; path: string };
-
-/**
- * A person of this run, whom the admin makes, signed in on a page of a browser of their
- * own, with a workspace of theirs holding a database: on `page` when given, else on a
- * page of a context made with `options`.
- */
-async function sprintOf(
-  browser: Browser,
-  role: string,
-  options: { page?: Page; context?: BrowserContextOptions },
-): Promise<Sprint & { page: Page }> {
-  const run = String(Date.now());
-  const owner = account(role, run);
-  const adminContext = await browser.newContext();
-  try {
-    await makeAccounts(await adminContext.newPage(), [owner]);
-  } finally {
-    await adminContext.close();
-  }
-  const page = options.page ?? (await (await browser.newContext(options.context)).newPage());
-  await page.goto("/login");
-  await signIn(page, owner.email, PASSWORD);
-  await expect(page).not.toHaveURL(/\/login/);
-
-  const workspace = await callApi<Workspace>(
-    page,
-    "POST",
-    "/api/v1/workspaces",
-    { name: `${owner.name} desk` },
-    201,
-  );
-  const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
-  const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
-  const general = teamspaces.find((teamspace) => teamspace.access === "default");
-  const database = await callApi<{ page: { id: string } }>(
-    page,
-    "POST",
-    `/api/v1/workspaces/${workspace.id}/databases`,
-    { teamspace_id: general?.id, title: "Sprint" },
-    201,
-  );
-  return {
-    page,
-    workspace,
-    pageId: database.page.id,
-    api: `/api/v1/databases/${database.page.id}`,
-    path: `/w/${workspace.slug}/p/${database.page.id}`,
-  };
-}
 
 test("a database with four views fits a phone's screen, its tabs scrolling on their own", async ({
   browser,
@@ -243,4 +188,108 @@ test("an agent cut short in a table's column keeps its name, and tells the rest 
   const cut = (element: HTMLElement | SVGElement) => element.scrollWidth > element.clientWidth;
   expect(await cell.getByText(/^· via Namer /).evaluate(cut)).toBe(true);
   expect(await cell.getByText("Scout", { exact: true }).evaluate(cut)).toBe(false);
+});
+
+test("the sidebar keeps to its column with a long page title and its emoji, and a teamspace stays folded", async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { page, workspace } = await sprintOf(browser, "wirer", {
+    context: { viewport: { width: 1440, height: 900 } },
+  });
+  try {
+    const answer = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
+    const { teamspaces } = (await answer.json()) as { teamspaces: Teamspace[] };
+    const general = teamspaces.find((teamspace) => teamspace.access === "default");
+    await callApi(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Sensor wiring notes", icon: "🔌" },
+      201,
+    );
+    await callApi(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Kickoff notes", icon: "📝" },
+      201,
+    );
+    const plan = await callApi<{ id: string }>(
+      page,
+      "POST",
+      `/api/v1/workspaces/${workspace.id}/pages`,
+      { teamspace_id: general?.id, title: "Launch plan", icon: "🚀" },
+      201,
+    );
+
+    // The row of the page open shows its title whole, its actions coming over its end on hover
+    // as the other rows' do.
+    await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    const open = page.getByRole("complementary").getByRole("link", { name: "Launch plan" });
+    await expect(open).toHaveAttribute("aria-current", "page");
+    await page.getByRole("main").hover();
+    const actions = open.locator("xpath=following-sibling::*[@data-row-actions]");
+    await expect(actions).toHaveCSS("opacity", "0");
+    expect(
+      await open
+        .locator("span.truncate")
+        .evaluate((title) => title.scrollWidth <= title.clientWidth),
+      "Launch plan uncut where it is open",
+    ).toBe(true);
+    await open.hover();
+    await expect(actions).toHaveCSS("opacity", "1");
+
+    await page.goto("/inbox");
+    const sidebar = page.getByRole("complementary");
+    const row = sidebar.getByRole("link", { name: "Sensor wiring notes" });
+    await expect(row).toBeVisible();
+    const widths = () =>
+      sidebar.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    const fits = async () => {
+      const { scroll, client } = await widths();
+      expect(scroll, "nothing in the sidebar is wider than it").toBe(client);
+    };
+    await fits();
+    // Its emoji shows whole, inside the box its icon takes.
+    const icon = await row.evaluate((link) => {
+      const box = link.querySelector("span[aria-hidden]");
+      if (box === null) {
+        return "no icon";
+      }
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      const drawn = range.getBoundingClientRect();
+      const frame = box.getBoundingClientRect();
+      return drawn.left >= frame.left - 0.5 && drawn.right <= frame.right + 0.5
+        ? "whole"
+        : `${drawn.left}..${drawn.right} in ${frame.left}..${frame.right}`;
+    });
+    expect(icon).toBe("whole");
+    // A row's actions, hidden, take no room from its title, which shows whole when it fits.
+    const kickoff = sidebar.getByRole("link", { name: "Kickoff notes" }).locator("span.truncate");
+    expect(
+      await kickoff.evaluate((title) => title.scrollWidth <= title.clientWidth),
+      "Kickoff notes uncut",
+    ).toBe(true);
+    // The row's actions show on hover, inside the column.
+    await row.hover();
+    const more = sidebar.getByRole("button", { name: "More for Sensor wiring notes" });
+    await expect(more).toBeVisible();
+    const column = await sidebar.boundingBox();
+    const box = await more.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+      (column?.x ?? 0) + (column?.width ?? 0),
+    );
+    await fits();
+
+    // Folded, General stays folded after a reload.
+    await sidebar.getByRole("button", { name: "Collapse General" }).click();
+    await expect(row).toBeHidden();
+    await page.reload();
+    await expect(sidebar.getByRole("button", { name: "Expand General" })).toBeVisible();
+    await expect(row).toBeHidden();
+  } finally {
+    await page.context().close();
+  }
 });

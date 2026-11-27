@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { cn } from "cn";
 import { Check, MessageSquarePlus, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -27,7 +28,7 @@ import { useMe } from "@/components/shell/signed-in";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatShortDateTime } from "@/lib/format";
 import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { CommentComposer } from "./comment-composer";
@@ -44,7 +45,7 @@ export type CommentsPanelProps = {
   people: ReadonlyMap<string, Someone>;
   /** The thread open in the panel, highlighted in the page. */
   active: string | null;
-  /** A thread to move focus to, as when the keyboard opened it; each request a new object. */
+  /** A thread to move focus to, as when the keyboard or a link opened it; each request a new object. */
   focusRequest: { threadId: string } | null;
   onActive: (threadId: string | null) => void;
   /** The thread a link names, shown in its part of the list though that part is not read yet. */
@@ -161,7 +162,9 @@ export function CommentsPanel({
       ref={panel}
       aria-labelledby={headingId}
       data-comments-panel=""
-      className="fixed inset-y-0 right-0 z-30 flex w-[min(24rem,100vw)] flex-col gap-4 overflow-y-auto overscroll-contain border-l border-border bg-raised safe-top-3 safe-right-3 safe-bottom-4 pl-3"
+      // The whole width of a phone, which a 24rem panel would leave a strip of; beside the
+      // page from sm up.
+      className="fixed inset-y-0 right-0 z-30 flex w-full flex-col gap-4 overflow-y-auto overscroll-contain border-border bg-raised safe-top-3 safe-right-3 safe-bottom-4 pl-3 sm:w-96 sm:border-l"
     >
       <div className="flex items-center justify-between gap-2">
         <h2
@@ -174,16 +177,16 @@ export function CommentsPanel({
         </h2>
         <div className="flex items-center gap-1">
           {flags !== undefined && (
+            // Its name says how things stand, so it is no toggle with a name of its own.
             <Button
               variant="outline"
               size="sm"
-              aria-pressed={flags.following}
-              title={copy.followHint}
+              title={flags.following ? copy.followingHint : copy.followHint}
               disabled={follow.isPending}
               onClick={() => follow.mutate(!flags.following)}
             >
               {flags.following && <Check aria-hidden />}
-              {copy.follow}
+              {flags.following ? copy.following : copy.follow}
             </Button>
           )}
           <Button variant="ghost" size="icon" aria-label={copy.close} onClick={onClose}>
@@ -255,8 +258,12 @@ export function CommentsPanel({
                 <MessageSquarePlus aria-hidden />
                 {copy.onSelection}
               </Button>
+              {/* The shortcut is for a keyboard, which a touch screen as the main pointer lacks. */}
               <p
-                className="text-xs text-muted-foreground"
+                className={cn(
+                  "text-xs text-muted-foreground",
+                  !noSelection && "pointer-coarse:hidden",
+                )}
                 role={noSelection ? "status" : undefined}
               >
                 {noSelection ? copy.selectFirst : copy.shortcut}
@@ -417,6 +424,7 @@ function ThreadItem({
   );
   const { head, tail, hidden } = threadComments(thread, read);
   const item = useRef<HTMLElement>(null);
+  const quoteId = useId();
   const resolved = isResolved(thread);
   const anchor = thread.anchor ?? null;
   const first = thread.comments[0];
@@ -442,12 +450,17 @@ function ThreadItem({
         ref={item}
         tabIndex={-1}
         aria-label={copy.thread(someoneNamed(starter, copy.gone))}
+        // Read out with its name when focus comes to it, as a link to it moves focus here.
+        {...(anchor === null ? {} : { "aria-describedby": quoteId })}
         {...(active ? { "data-active": "" } : {})}
         className="grid gap-3 rounded-lg border border-border bg-card p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring data-active:border-primary"
       >
         {anchor !== null && (
           <div className="grid gap-1">
-            <blockquote className="line-clamp-3 border-l-2 border-primary pl-2 text-sm text-muted-foreground">
+            <blockquote
+              id={quoteId}
+              className="line-clamp-3 border-l-2 border-primary pl-2 text-sm text-muted-foreground"
+            >
               {anchor.quote}
             </blockquote>
             {anchor.detached ? (
@@ -605,10 +618,13 @@ function CommentItem({
     <li className="grid gap-1">
       {before}
       <div className="flex min-w-0 items-center justify-between gap-2">
+        {/* The time goes under the name only when a long one leaves it no room. */}
         <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <PersonLabel person={author} className="text-foreground" />
-          <time dateTime={comment.created_at}>{when}</time>
-          {edited && <span>({copy.edited})</span>}
+          <time dateTime={comment.created_at} title={when} className="shrink-0 whitespace-nowrap">
+            {formatShortDateTime(comment.created_at)}
+          </time>
+          {edited && <span className="shrink-0">({copy.edited})</span>}
         </p>
         {(mine || mayModerate) && !editing && (
           <div className="flex shrink-0">

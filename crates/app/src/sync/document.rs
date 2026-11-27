@@ -1248,6 +1248,7 @@ impl Document {
                 let mentions = Mentions {
                     page_id,
                     mentioned,
+                    document: &document,
                     at,
                 };
                 match mentions::page_text(&mut savepoint, pages, &mut notifier, mentions).await {

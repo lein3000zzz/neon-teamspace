@@ -5,7 +5,7 @@ import { COMMENT_IDS } from "@/test/comments";
 import { fakeInbox, notification, NOTIFICATION_IDS } from "@/test/inbox";
 import { fakePages, PAGE_IDS, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
-import { fakeWorkspaces, people, studioInvitation } from "@/test/workspaces";
+import { asPerson, fakeWorkspaces, people, scout, studioInvitation } from "@/test/workspaces";
 
 const roadmap = samplePages().find((each) => each.id === PAGE_IDS.roadmap);
 const launch = samplePages().find((each) => each.id === PAGE_IDS.launch);
@@ -67,6 +67,29 @@ describe("the inbox", () => {
         body: { read: true },
       },
     ]);
+  });
+
+  it("names an agent with whom it acts for, as mail does", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeInbox({
+      notifications: [
+        notification({
+          id: NOTIFICATION_IDS.first,
+          kind: "reply",
+          actor: asPerson(scout),
+          ...(roadmap ? { page: roadmap } : {}),
+          thread: COMMENT_IDS.thread,
+          comment: COMMENT_IDS.reply,
+          excerpt: "The chart card is not started.",
+        }),
+      ],
+    });
+    renderApp("/inbox");
+
+    expect(
+      await screen.findByRole("link", { name: "Scout via Ada replied to your comment on Roadmap" }),
+    ).toBeInTheDocument();
   });
 
   it("marks one unread again, archives one, and shows each where it went", async () => {

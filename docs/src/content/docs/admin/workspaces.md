@@ -27,9 +27,10 @@ it gets **Workspace not found**, as anyone outside would.
 - blank follows the instance default, the `workspaces.limits.*`
   [settings](/docs/reference/settings/), whose value each field names.
 
-Storage takes bytes, MB or GB, a thousand apart. A limit below what a workspace holds removes
-nobody: a workspace at its member limit takes in nobody new, by invitation or by link, until
-there is room. [Workspace rules and API](/docs/guides/workspace-rules/#limits) has the rules.
+Storage takes bytes, MiB or GiB, 1024 apart, and the app shows sizes in those units. A limit
+below what a workspace holds removes nobody: a workspace at its member limit takes in nobody
+new, by invitation or by link, until there is room.
+[Workspace rules and API](/docs/guides/workspace-rules/#limits) has the rules.
 
 ## Deleting a workspace
 

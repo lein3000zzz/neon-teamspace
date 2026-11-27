@@ -64,8 +64,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <WorkspaceSwitcher onNavigate={onNavigate} />
 
-      <nav aria-label={strings.nav.label} className="grid gap-5">
-        <ul className="grid gap-0.5">
+      <nav aria-label={strings.nav.label} className="grid grid-cols-1 gap-5">
+        <ul className="grid grid-cols-1 gap-0.5">
           <li>
             {current === undefined ? (
               <Link to="/" activeOptions={{ exact: true }} onClick={onNavigate} className={navLink}>
@@ -97,7 +97,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               >
                 <Search aria-hidden className="size-4" />
                 <span className="flex-1 text-left">{strings.search.open}</span>
-                <kbd aria-hidden className="font-mono text-[0.68rem] text-muted-foreground">
+                {/* The shortcut is for a keyboard, which a touch screen as the main pointer lacks. */}
+                <kbd
+                  aria-hidden
+                  className="font-mono text-[0.68rem] text-muted-foreground pointer-coarse:hidden"
+                >
                   {strings.search.shortcut(commandIsMeta())}
                 </kbd>
               </button>
@@ -157,11 +161,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <SharedNav workspace={current} onNavigate={onNavigate} />
           </>
         )}
-        <div className="grid gap-1">
+        <div className="grid grid-cols-1 gap-1">
           <p id={settingsId} className={navHeading}>
             {strings.nav.settings}
           </p>
-          <ul aria-labelledby={settingsId} className="grid gap-0.5">
+          <ul aria-labelledby={settingsId} className="grid grid-cols-1 gap-0.5">
             {current !== undefined && (
               <li>
                 <Link
@@ -193,7 +197,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </div>
       </nav>
 
-      <div className="mt-auto grid gap-3">
+      <div className="mt-auto grid grid-cols-1 gap-3">
         <Separator />
         <SignedInAs />
         <Separator />
@@ -210,7 +214,7 @@ function SignedInAs() {
   const me = useMe();
   const logout = useLogout();
   return (
-    <section aria-label={strings.nav.signedIn} className="grid gap-2 px-2.5">
+    <section aria-label={strings.nav.signedIn} className="grid grid-cols-1 gap-2 px-2.5">
       <div className="grid min-w-0 text-xs">
         <span className="truncate font-medium text-foreground">{me.display_name}</span>
         <span className="truncate text-muted-foreground">{me.email}</span>

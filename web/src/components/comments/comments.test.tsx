@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { FRAGMENT } from "@/components/editor/connection";
 import { COMMENT_IDS, comment, fakeComments, pageThread } from "@/test/comments";
-import { fakePages, PAGE_IDS, samplePages } from "@/test/pages";
+import { fakePages, PAGE_IDS, samplePage, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { commentsMessage, fakeSync } from "@/test/sync";
 import { fakeWorkspaces, people } from "@/test/workspaces";
@@ -44,6 +44,14 @@ function pageWith(parts: (string | Y.XmlElement)[]) {
   sync.doc.getXmlFragment(FRAGMENT).insert(0, [blocks]);
   blocks.insert(0, [paragraph("block-1", parts)]);
   return sync;
+}
+
+/** The text of the first paragraph of a page `pageWith` made. */
+function textOf(doc: Y.Doc): Y.XmlText {
+  const blocks = doc.getXmlFragment(FRAGMENT).get(0) as Y.XmlElement;
+  const container = blocks.get(0) as Y.XmlElement;
+  const inline = container.get(0) as Y.XmlElement;
+  return inline.get(0) as Y.XmlText;
 }
 
 /** Selects `text` where the editor shows it, as dragging over it would. */
@@ -194,6 +202,27 @@ describe("a page's comments", () => {
     );
   });
 
+  it("names each page it offers by its kind, a board's card as a row", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    const launch = samplePage(PAGE_IDS.launch);
+    fakeComments({
+      pages: [
+        launch,
+        { ...launch, id: PAGE_IDS.q1, title: "Launch checklist", kind: "row" },
+        { ...launch, id: PAGE_IDS.goals, title: "Launch tasks", kind: "database" },
+      ],
+    });
+    const { user } = renderApp(PATH);
+
+    const panel = await openPanel(user);
+    await user.type(panel.getByRole("combobox", { name: "A comment on the page" }), "@lau");
+    expect(await panel.findByRole("option", { name: "Launch Page" })).toBeInTheDocument();
+    expect(panel.getByRole("option", { name: "Launch checklist Row" })).toBeInTheDocument();
+    expect(panel.getByRole("option", { name: "Launch tasks Database" })).toBeInTheDocument();
+  });
+
   it("changes and deletes the user's own comments, and only those", async () => {
     fakeWorkspaces();
     fakePages();
@@ -266,12 +295,9 @@ describe("a page's comments", () => {
     const { user } = renderApp(PATH);
 
     const panel = await openPanel(user);
-    const follow = await panel.findByRole("button", { name: "Follow" });
-    expect(follow).toHaveAttribute("aria-pressed", "false");
-    await user.click(follow);
-    await waitFor(() => expect(follow).toHaveAttribute("aria-pressed", "true"));
-    await user.click(follow);
-    await waitFor(() => expect(follow).toHaveAttribute("aria-pressed", "false"));
+    await user.click(await panel.findByRole("button", { name: "Follow" }));
+    await user.click(await panel.findByRole("button", { name: "Following" }));
+    expect(await panel.findByRole("button", { name: "Follow" })).toBeInTheDocument();
 
     expect(api.changes.map((change) => change.body)).toEqual([
       { following: true },
@@ -499,6 +525,47 @@ describe("a page's comments", () => {
     expect(thread).toHaveAttribute("data-active");
     expect(panel.getByRole("radio", { name: "Resolved" })).toBeChecked();
     expect(within(thread).getByText(/Resolved by Bob/)).toBeInTheDocument();
+  });
+
+  it("opens at the text of the thread a link names, marked, focus on the thread, nothing selected", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const sync = pageWith(["Kick-off on Monday"]);
+    const at = (index: number) =>
+      btoa(
+        String.fromCharCode(
+          ...Y.encodeRelativePosition(
+            Y.createRelativePositionFromTypeIndex(textOf(sync.doc), index),
+          ),
+        ),
+      );
+    const thread = pageThread(PAGE_IDS.roadmap, "Which Monday?");
+    thread.anchor = { start: at(12), end: at(18), quote: "Monday", detached: false };
+    fakeComments({ threads: [thread] });
+    renderApp(`${PATH}?comment=${COMMENT_IDS.thread}`);
+    const editor = await content();
+
+    const panel = within(await screen.findByRole("complementary", { name: "Comments" }));
+    const article = await panel.findByRole("article", { name: "Thread by Ada" });
+    await waitFor(() => expect(article).toHaveFocus());
+    expect(article).toHaveAttribute("data-active");
+    expect(article).toHaveAccessibleDescription("Monday");
+    const highlight = editor.querySelector(`[data-thread="${COMMENT_IDS.thread}"]`);
+    expect(highlight).toHaveTextContent("Monday");
+    expect(highlight).toHaveClass("comment-highlight", "is-active");
+    expect(document.getSelection()?.toString() ?? "").toBe("");
+  });
+
+  it("opens at a thread on the page as a whole, focus on it", async () => {
+    fakeWorkspaces();
+    fakePages();
+    fakeSync();
+    fakeComments({ threads: [pageThread(PAGE_IDS.roadmap, "Looks good")] });
+    renderApp(`${PATH}?comment=${COMMENT_IDS.thread}`);
+
+    const panel = within(await screen.findByRole("complementary", { name: "Comments" }));
+    const article = await panel.findByRole("article", { name: "Thread by Ada" });
+    await waitFor(() => expect(article).toHaveFocus());
   });
 
   it("opens at the block a link names, the cursor in it", async () => {

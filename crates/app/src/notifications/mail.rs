@@ -293,7 +293,7 @@ impl InboxService {
                 Some(comment) => Some(comment_excerpt(&comment.body)),
                 None => return Ok(None),
             },
-            None => None,
+            None => notification.excerpt.clone(),
         };
         let mut path = format!("/w/{}/p/{}", workspace.slug, page.id);
         if let Some(thread) = notification.thread_id {

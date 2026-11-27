@@ -959,6 +959,120 @@ async fn titles_rank_first_and_matches_are_marked(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn snippets_keep_what_reads_as_markup_and_set_lines_apart(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page(
+        "Broker <topics>",
+        "Topic `plants/<id>/moisture` carries a moisture reading.\n\n\
+         - a sensor, a rule, an alert\n\n\
+         ## Live demo\n",
+    )
+    .await;
+
+    let found = t.find(&t.dee, "moisture").await;
+    let snippet: String = found.hits[0]
+        .snippet
+        .iter()
+        .map(|run| {
+            if run.highlight {
+                format!("[{}]", run.text)
+            } else {
+                run.text.clone()
+            }
+        })
+        .collect();
+    assert_eq!(
+        snippet,
+        "Topic plants/<id>/moisture carries a [moisture] reading. · a sensor, a rule, an alert \
+         · Live demo"
+    );
+    let found = t.find(&t.dee, "broker").await;
+    let title: String = found.hits[0]
+        .title
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(title, "Broker <topics>");
+
+    // Markup and entities are text, as written: nothing is taken out, decoded or escaped.
+    t.general_page(
+        "Escapes <b>here</b>",
+        "Paste `<script>popup(1)</script>` and `a &amp; b <img src=x>` as written.\n",
+    )
+    .await;
+    let found = t.find(&t.dee, "written").await;
+    let snippet: String = found.hits[0]
+        .snippet
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(
+        snippet,
+        "Paste <script>popup(1)</script> and a &amp; b <img src=x> as written"
+    );
+    let found = t.find(&t.dee, "escapes").await;
+    let title: String = found.hits[0]
+        .title
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(title, "Escapes <b>here</b>");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn loose_matches_of_each_word_keep_to_the_pages_the_caller_sees(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page("Launch plan", "").await;
+    t.page(
+        &t.cy,
+        Location::Teamspace(t.secret),
+        "Launch plan of Secret",
+        "",
+    )
+    .await;
+    t.page(&t.ada, Location::Private, "Launch plan of Ada's", "")
+        .await;
+    let warnings = Warnings::default();
+    let _logs = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(warnings.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish(),
+    );
+
+    // Both words misspelled, each found only among the pages the rules give the caller.
+    let sorted = |mut titles: Vec<String>| {
+        titles.sort();
+        titles
+    };
+    assert_eq!(
+        sorted(t.titles(&t.ada, "lanch plna").await),
+        ["Launch plan", "Launch plan of Ada's"]
+    );
+    assert_eq!(
+        sorted(t.titles(&t.dee, "lanch plna").await),
+        ["Launch plan", "Launch plan of Secret"]
+    );
+    assert_eq!(
+        t.titles(&t.bob, "lanch plna").await,
+        ["Launch plan"],
+        "an admin outside a private teamspace finds none of it"
+    );
+    assert!(t.titles(&t.gus, "lanch plna").await.is_empty());
+    assert_eq!(
+        t.titles(&t.ace, "lanch plna").await,
+        ["Launch plan"],
+        "an agent finds what its owner and its token both see"
+    );
+    let logged = warnings.text();
+    assert!(
+        !logged.contains("not one the caller may see"),
+        "the database found pages the rules refuse: {logged}"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn a_title_that_is_a_short_query_ranks_first(pool: PgPool) {
     let t = team(pool).await;
     t.general_page("Go", "").await;
@@ -1024,6 +1138,16 @@ async fn misspelled_titles_are_found_and_misspelled_text_is_not(pool: PgPool) {
         t.titles(&t.dee, "hirng plan").await.is_empty(),
         "too far from both"
     );
+    // Each word of several misspelled, each still like a word of the title.
+    t.general_page("Launch plan", "").await;
+    assert_eq!(t.titles(&t.dee, "lanch plna").await, ["Launch plan"]);
+    assert_eq!(t.titles(&t.dee, "lanch plan").await, ["Launch plan"]);
+    assert!(
+        t.titles(&t.dee, "hirng plna").await.is_empty(),
+        "one word like nothing in a title leaves it out"
+    );
+    // One word alone takes the stricter bar.
+    assert!(t.titles(&t.dee, "plna").await.is_empty());
     // Loose matches rank below exact ones.
     t.general_page("Quaterly", "").await;
     assert_eq!(t.titles(&t.dee, "quaterly").await[0], "Quaterly");

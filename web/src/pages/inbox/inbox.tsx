@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { InvitationList } from "@/components/workspaces/invitation-list";
 import { formatDateTime } from "@/lib/format";
 import { titleOf } from "@/lib/page-tree";
-import { attribution } from "@/lib/people";
+import { attributionInSentence } from "@/lib/people";
 import { strings } from "@/lib/strings";
 
 const copy = strings.inbox;
@@ -139,7 +139,7 @@ function summaryOf(notification: Notification): string {
   const who =
     notification.actor === undefined || notification.actor === null
       ? copy.someone
-      : attribution(notification.actor);
+      : attributionInSentence(notification.actor);
   const page =
     notification.page === undefined || notification.page === null
       ? strings.pages.untitled

@@ -230,6 +230,23 @@ export function showThreads(
   view.dispatch(view.state.tr.setMeta(key, { anchors, active }).setMeta("addToHistory", false));
 }
 
+/**
+ * Scrolls an open thread's text to the middle of the window, leaving the
+ * selection and focus where they are; false once its text is gone, or before
+ * the document holds it.
+ */
+export function scrollToThread(view: EditorView, anchor: Pick<ThreadAnchor, "start" | "end">) {
+  const range = rangeOf(view.state, anchor);
+  if (range === null) {
+    return false;
+  }
+  const { node, offset } = view.domAtPos(range.from, 1);
+  const at = node.nodeType === Node.TEXT_NODE ? node : (node.childNodes[offset] ?? node);
+  const element = at instanceof Element ? at : at.parentElement;
+  element?.scrollIntoView({ block: "center" });
+  return true;
+}
+
 /** Selects an open thread's text and scrolls it into view; false once it is gone. */
 export function revealThread(view: EditorView, anchor: Pick<ThreadAnchor, "start" | "end">) {
   const range = rangeOf(view.state, anchor);

@@ -22,7 +22,7 @@ import {
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { useQueryClient } from "@tanstack/react-query";
-import { Database, FileText, MessageSquarePlus, X } from "lucide-react";
+import { Database, FileText, MessageSquarePlus, Rows3, Table2, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -35,6 +35,7 @@ import {
 import { mentionsQuery } from "@/api/comments";
 import { useCreateDatabase } from "@/api/databases";
 import { fileKindOf, uploadFile } from "@/api/files";
+import type { PageKind } from "@/api/pages";
 import type { Person } from "@/api/workspaces";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { HueDot } from "@/components/nodes/hue-dot";
@@ -49,6 +50,7 @@ import {
   COMMENT_HIGHLIGHTS,
   commentHighlights,
   revealThread,
+  scrollToThread,
   selectionAnchor,
   showThreads,
   type CommentHandlers,
@@ -59,6 +61,7 @@ import { FRAGMENT, useSyncSession, type SyncSession } from "./connection";
 import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
 import { EditorPageContext, useEditorPage, type EditorPage } from "./editor-page";
+import { formattingToolbarOptions, suggestionMenuOptions } from "./floating";
 import { pasteFits } from "./paste";
 import { schema } from "./schema";
 
@@ -72,7 +75,10 @@ export type EditorHandle = {
   reveal: (anchor: Pick<ThreadAnchor, "start" | "end">) => boolean;
 };
 
-/** Where a link opens the page: at a thread's text, or at a block. */
+/**
+ * Where a link opens the page: at a thread's text, scrolled to without
+ * selecting it, or at a block, the caret in it.
+ */
 export type OpenAt =
   | { kind: "thread"; anchor: Pick<ThreadAnchor, "start" | "end"> }
   | { kind: "block"; blockId: string };
@@ -275,6 +281,11 @@ function LiveEditor({
     };
   }, [editor]);
 
+  const toolbarOptions = useMemo(
+    () => formattingToolbarOptions(() => editor.domElement ?? undefined),
+    [editor],
+  );
+
   useEffect(() => {
     focusRef.current = () => editor.focus();
     return () => {
@@ -292,8 +303,8 @@ function LiveEditor({
     };
   }, [editor, handleRef]);
 
-  // Before the page opens at a thread: the highlights first, so the text selected is
-  // drawn in them.
+  // Before the page opens at a thread: the highlights first, so the text scrolled to is
+  // marked.
   const { threads, active } = comments;
   useEffect(() => {
     showThreads(editor.prosemirrorView, threads, active);
@@ -313,7 +324,7 @@ function LiveEditor({
       }
       const opened =
         openAt.kind === "thread"
-          ? revealThread(editor.prosemirrorView, openAt.anchor)
+          ? scrollToThread(editor.prosemirrorView, openAt.anchor)
           : showBlock(editor, openAt.blockId);
       if (opened) {
         done = true;
@@ -405,10 +416,10 @@ function LiveEditor({
         })),
         ...found.pages.map((linked) => ({
           title: titleOf(linked),
-          subtext: mentionCopy.page,
+          subtext: strings.search.kinds[linked.kind],
           icon:
             linked.icon === undefined || linked.icon === null ? (
-              <FileText aria-hidden size={18} />
+              <PageKindGlyph kind={linked.kind} />
             ) : (
               <span aria-hidden>{linked.icon}</span>
             ),
@@ -491,9 +502,20 @@ function LiveEditor({
           slashMenu={false}
           formattingToolbar={false}
         >
-          <SuggestionMenuController triggerCharacter="/" getItems={slashItems} />
-          <SuggestionMenuController triggerCharacter="@" getItems={mentionItems} />
-          <FormattingToolbarController formattingToolbar={ToolbarWithComment} />
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={slashItems}
+            floatingUIOptions={suggestionMenuOptions}
+          />
+          <SuggestionMenuController
+            triggerCharacter="@"
+            getItems={mentionItems}
+            floatingUIOptions={suggestionMenuOptions}
+          />
+          <FormattingToolbarController
+            formattingToolbar={ToolbarWithComment}
+            floatingUIOptions={toolbarOptions}
+          />
         </BlockNoteView>
       </EditorPageContext>
     </section>
@@ -512,6 +534,12 @@ function showBlock(editor: ReturnType<typeof useCreateBlockNote>, blockId: strin
     ?.scrollIntoView({ block: "center" });
   editor.focus();
   return true;
+}
+
+/** A page's glyph in the mention menu, by its kind, for one without an icon. */
+function PageKindGlyph({ kind }: { kind: PageKind }) {
+  const Glyph = kind === "row" ? Rows3 : kind === "database" ? Table2 : FileText;
+  return <Glyph aria-hidden size={18} />;
 }
 
 /** BlockNote's formatting toolbar, and last the button to start a thread on the text selected. */

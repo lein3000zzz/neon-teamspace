@@ -1,6 +1,16 @@
 import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { cn } from "cn";
-import { History } from "lucide-react";
+import {
+  AudioLines,
+  ChevronRight,
+  File,
+  History,
+  Image,
+  Square,
+  SquareCheck,
+  Table2,
+  Video,
+} from "lucide-react";
 import { lazy, Suspense, useId, useRef, useState, type KeyboardEvent } from "react";
 import { hasCode } from "@/api/errors";
 import {
@@ -332,8 +342,8 @@ function Changes({ comparison }: { comparison: UseQueryResult<Comparison> }) {
         {changed ? copy.sinceThen(summaryOf(data)) : copy.sameAsNow}
       </p>
       <ol aria-label={copy.changesLabel} className="grid gap-1">
-        {keyed(data.changes).map(({ change, key }) => (
-          <ChangeLine key={key} change={change} />
+        {keyed(data.changes).map(({ change, key, number }) => (
+          <ChangeLine key={key} change={change} number={number} />
         ))}
       </ol>
     </div>
@@ -343,15 +353,23 @@ function Changes({ comparison }: { comparison: UseQueryResult<Comparison> }) {
 /**
  * Each change with a key of its own: its block's id, which a block moved
  * elsewhere has twice, once removed and once added, or for a block without
- * one, what it holds, counted when it repeats.
+ * one, what it holds, counted when it repeats. A numbered list's item comes
+ * with its number among the items in a row with it at its depth.
  */
-function keyed(changes: BlockChange[]): { change: BlockChange; key: string }[] {
+function keyed(
+  changes: BlockChange[],
+): { change: BlockChange; key: string; number: number | undefined }[] {
   const seen = new Map<string, number>();
+  // The items counted so far at each depth, down to the line before.
+  const counts: number[] = [];
   return changes.map((change) => {
     const base = `${change.change}:${change.block_id ?? change.after ?? change.before ?? ""}`;
     const count = seen.get(base) ?? 0;
     seen.set(base, count + 1);
-    return { change, key: `${base}:${count}` };
+    counts.length = change.depth + 1;
+    const number = change.kind === "numberedListItem" ? (counts[change.depth] ?? 0) + 1 : undefined;
+    counts[change.depth] = number ?? 0;
+    return { change, key: `${base}:${count}`, number };
   });
 }
 
@@ -362,9 +380,10 @@ const lineStyles: Record<BlockChange["change"], string> = {
   removed: "border-bad bg-bad/10",
 };
 
-function ChangeLine({ change }: { change: BlockChange }) {
-  const before = change.before?.trim() ?? "";
-  const after = change.after?.trim() ?? "";
+function ChangeLine({ change, number }: { change: BlockChange; number: number | undefined }) {
+  const before = change.before_text?.trim() ?? "";
+  const after = change.after_text?.trim() ?? "";
+  const block = { kind: change.kind, number };
   return (
     <li
       className={cn(
@@ -378,16 +397,114 @@ function ChangeLine({ change }: { change: BlockChange }) {
       </span>
       {change.change === "changed" && (
         <>
-          <del aria-label={copy.before}>{before}</del>
-          <ins aria-label={copy.after} className="no-underline">
-            {after}
-          </ins>
+          <BlockText
+            {...block}
+            text={before}
+            markdown={change.before}
+            mark="del"
+            label={copy.before}
+          />
+          <BlockText
+            {...block}
+            text={after}
+            markdown={change.after}
+            mark="ins"
+            label={copy.after}
+          />
         </>
       )}
-      {change.change === "removed" && <del>{before}</del>}
-      {change.change === "added" && <ins className="no-underline">{after}</ins>}
-      {change.change === "same" && <span>{after}</span>}
+      {change.change === "removed" && (
+        <BlockText {...block} text={before} markdown={change.before} mark="del" />
+      )}
+      {change.change === "added" && (
+        <BlockText {...block} text={after} markdown={change.after} mark="ins" />
+      )}
+      {change.change === "same" && (
+        <BlockText {...block} text={after} markdown={change.after} mark="span" />
+      )}
     </li>
+  );
+}
+
+/** How a block's text looks, by its type, as the page shows it. */
+const textStyles: Partial<Record<string, string>> = {
+  heading: "font-semibold",
+  quote: "italic",
+  codeBlock: "font-mono text-xs",
+  table: "font-mono text-xs",
+};
+
+/** The glyph before the text of a block that is a file, or a database shown in the page. */
+const glyphs: Partial<Record<string, typeof File>> = {
+  file: File,
+  image: Image,
+  video: Video,
+  audio: AudioLines,
+  database: Table2,
+  checkListItem: Square,
+  toggleListItem: ChevronRight,
+};
+
+/** Whether a to-do item, as its markdown has it, is ticked: `- [x] Book the room`. */
+function ticked(markdown: string | null | undefined): boolean {
+  return /^\s*[-*+] \[[xX]\]/.test(markdown ?? "");
+}
+
+type BlockTextProps = {
+  /** The block's type, as BlockNote names it. */
+  kind: string;
+  /** A numbered list's item's number. */
+  number: number | undefined;
+  text: string;
+  /** The block as markdown, which tells whether a to-do item is ticked. */
+  markdown: string | null | undefined;
+  /** Struck through as it was, set in as it is now, or neither. */
+  mark: "del" | "ins" | "span";
+  label?: string;
+};
+
+/**
+ * A block's text after what marks it in the page, such as a list's bullet, a
+ * to-do item's box, ticked or not, or a file's glyph, which stays outside the
+ * text struck through or set in.
+ */
+function BlockText({ kind, number, text, markdown, mark, label }: BlockTextProps) {
+  const todo = kind === "checkListItem";
+  const done = todo && ticked(markdown);
+  const Glyph = done ? SquareCheck : glyphs[kind];
+  const marker =
+    Glyph !== undefined ? (
+      <Glyph className="size-3.5" />
+    ) : kind === "bulletListItem" ? (
+      "•"
+    ) : number !== undefined ? (
+      `${number}.`
+    ) : null;
+  const Mark = mark;
+  const shown = text === "" && kind === "database" ? strings.search.kinds.database : text;
+  return (
+    <span className="flex min-w-0 items-start gap-2">
+      {marker !== null && (
+        <span
+          aria-hidden
+          className="flex h-5 min-w-4 shrink-0 items-center justify-center text-muted-foreground tabular-nums"
+        >
+          {marker}
+        </span>
+      )}
+      {todo && <span className="sr-only">{done ? copy.ticked : copy.unticked}</span>}
+      <Mark
+        {...(label === undefined ? {} : { "aria-label": label })}
+        className={cn(
+          "min-w-0",
+          mark === "ins" && "no-underline",
+          kind === "divider" && "my-2.5 block h-px w-16 bg-border",
+          textStyles[kind],
+        )}
+      >
+        {shown}
+      </Mark>
+    </span>
   );
 }
 
@@ -411,7 +528,10 @@ function Preview({ pageId, versionId }: { pageId: string; versionId: string }) {
     return <p className="text-sm text-muted-foreground">{copy.emptyVersion}</p>;
   }
   return (
-    <section aria-label={copy.previewLabel} className="rounded-lg border border-border py-4">
+    <section
+      aria-label={copy.previewLabel}
+      className="rounded-lg border border-border py-4 [--page-inset:1rem]"
+    >
       <Suspense fallback={<Loading />}>
         <VersionView blocks={version.data.blocks} slug={workspace.slug} people={people} />
       </Suspense>

@@ -41,7 +41,7 @@ text_enum! {
 /// The preference of someone who has not chosen one.
 pub const DEFAULT_MAIL: MailPreference = MailPreference::Each;
 
-/// The most characters of a comment a notification shows.
+/// The most characters of a comment, or of a block a mention is in, a notification shows.
 pub const MAX_EXCERPT: usize = 200;
 
 /// The most notifications a digest lists; it says how many more there are.
@@ -159,8 +159,8 @@ pub fn comment_audience(audience: CommentAudience<'_>) -> Vec<(Uuid, Notificatio
     told
 }
 
-/// An excerpt of a comment's text for a notification: its first [`MAX_EXCERPT`]
-/// characters on one line, with an ellipsis when it was cut.
+/// An excerpt of a comment's text, or of a block's, for a notification: its first
+/// [`MAX_EXCERPT`] characters on one line, with an ellipsis when it was cut.
 pub fn excerpt(text: &str) -> String {
     let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= MAX_EXCERPT {

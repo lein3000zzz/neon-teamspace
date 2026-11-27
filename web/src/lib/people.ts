@@ -24,15 +24,27 @@ export function assignable(person: Someone): boolean {
   return person.kind !== "integration" && person.deleted !== true;
 }
 
-/** How someone is named on one line, as exports and the server name them. */
-export function attribution(person: Someone): string {
-  const copy = strings.people;
+/** Someone by name, with whom they act for put as `via` puts it. */
+function named(person: Someone, via: (name: string, owner: string) => string): string {
   if (!actsForOwner(person)) {
     return person.display_name;
   }
   const owner = person.owner?.display_name;
-  const via = owner === undefined ? person.display_name : copy.via(person.display_name, owner);
-  return person.deleted === true ? copy.deleted(via) : via;
+  const both = owner === undefined ? person.display_name : via(person.display_name, owner);
+  return person.deleted === true ? strings.people.deleted(both) : both;
+}
+
+/** How someone is named on one line, as exports and the server name them. */
+export function attribution(person: Someone): string {
+  return named(person, strings.people.via);
+}
+
+/**
+ * How someone is named inside a sentence, as notification mail names them:
+ * "Scout via Ada replied to your comment".
+ */
+export function attributionInSentence(person: Someone): string {
+  return named(person, strings.people.viaInSentence);
 }
 
 /** An agent or integration as content names it, deleted or not. */

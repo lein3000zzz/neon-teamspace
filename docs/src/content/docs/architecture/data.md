@@ -227,7 +227,7 @@ person leaves the workspace.
 | `comments` | Each comment of a thread, in order, its markdown, its author, and when it was last changed. |
 | `page_follows` | Who follows a page's comments, or chose not to, `follows` true or false, so a choice made by hand holds. |
 | `page_mentions` | Whom a page's text mentions now, each with the first block they are in, as its last snapshot has it. |
-| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
+| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, for a mention in a page's text the text of its block then, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
 | `notification_preferences` | How each person who chose wants mail of their inbox, and when their last digest went. |
 
 Each goes with its page, its thread or comment, or its person. A notification is never
@@ -323,10 +323,14 @@ should the query and the rules ever differ, the rules win and the server logs th
 A test searches as every kind of caller and fails on any such log line, so a difference
 shows there rather than as short pages of results.
 Ranking is `ts_rank` of the vector, plus the title's word similarity to the query, plus one
-for a title that is the query's words, however short. Snippets are `ts_headline`, which
-costs more than in proportion to the text it reads, so it reads 5,000 characters of the
-values and the text, from 1,000 before the first place one of the query's words is, and
-only for the results answered, not the one read past them to tell whether more follow.
+for a title that is the query's words, however short. A title matches loosely when the
+query is like part of it, by `word_similarity` of 0.5, or, for a query of several words, when
+each word is, by 0.4, the threshold the title's trigram index is searched with. Snippets are
+`ts_headline`, which drops what reads as an HTML tag, so each `<` stands as a control
+character while it marks them. It costs more than in proportion to the text it reads, so it
+reads 5,000 characters of the values and the text, from 1,000 before the first place one of
+the query's words is, and only for the results answered, not the one read past them to tell
+whether more follow.
 
 A search holds a connection of the pool while it runs, so what it may take is bounded: each
 statement of its transaction runs 5 seconds at most, through `statement_timeout`, after

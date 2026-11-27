@@ -3194,13 +3194,26 @@ export interface components {
         BlockChange: {
             /** @description The block as the page has it, as markdown, unless it was removed. */
             after?: string | null;
+            /** @description `after` as plain text, likewise. */
+            after_text?: string | null;
             /** @description The block as the version has it, as markdown, when it changed or was removed. */
             before?: string | null;
+            /**
+             * @description `before` as plain text, as search reads it: without markdown's marks, a file's name and
+             *     caption each on a line, a table's cells apart by tabs.
+             */
+            before_text?: string | null;
             /** @description The block's id, on the page or else in the version. */
             block_id?: string | null;
             change: components["schemas"]["BlockChangeKind"];
             /** @description How deep the block is: 0 at the top of the page. */
             depth: number;
+            /**
+             * @description The block's type, as BlockNote names it, such as `paragraph`, `heading`,
+             *     `bulletListItem` or `file`: on the page, or else in the version.
+             * @example bulletListItem
+             */
+            kind: string;
         };
         /**
          * @description What happened to a block, from the version to the page as it is.
@@ -4527,7 +4540,10 @@ export interface components {
             comment_id?: string | null;
             /** Format: date-time */
             created_at: string;
-            /** @description The start of the comment it is about. */
+            /**
+             * @description The start of the comment it is about, or for a mention in a page's text, of the block
+             *     the mention is in as it was when told.
+             */
             excerpt?: string | null;
             /** Format: uuid */
             id: string;
@@ -5147,7 +5163,8 @@ export interface components {
             rank: number;
             /**
              * @description A few words of a row's property values and the text around the matches, in runs
-             *     that mark them; empty without a query, or without text.
+             *     that mark them, on one line: ` · ` stands between its lines, such as a page's blocks.
+             *     Empty without a query, or without text.
              */
             snippet: components["schemas"]["TextRun"][];
             /** @description Its title, in runs that mark what matched; empty without a query. */

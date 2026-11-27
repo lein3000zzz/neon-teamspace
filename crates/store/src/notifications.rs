@@ -22,6 +22,8 @@ pub struct Notification {
     pub thread_id: Option<Uuid>,
     pub comment_id: Option<Uuid>,
     pub block_id: Option<String>,
+    /// For a mention in a page's text, the text of its block when it was told.
+    pub excerpt: Option<String>,
     pub property_id: Option<Uuid>,
     pub invitation_id: Option<Uuid>,
     pub created_at: OffsetDateTime,
@@ -48,6 +50,7 @@ impl Notification {
             thread_id: None,
             comment_id: None,
             block_id: None,
+            excerpt: None,
             property_id: None,
             invitation_id: None,
             created_at: at,
@@ -94,9 +97,9 @@ pub async fn insert(
 ) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         "INSERT INTO notifications (id, user_id, workspace_id, kind, actor_id, page_id, thread_id,
-                                    comment_id, block_id, property_id, invitation_id, created_at,
-                                    read_at, archived_at, mailed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                                    comment_id, block_id, excerpt, property_id, invitation_id,
+                                    created_at, read_at, archived_at, mailed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          ON CONFLICT (user_id, comment_id) WHERE comment_id IS NOT NULL DO NOTHING",
         notification.id,
         notification.user_id,
@@ -107,6 +110,7 @@ pub async fn insert(
         notification.thread_id,
         notification.comment_id,
         notification.block_id,
+        notification.excerpt,
         notification.property_id,
         notification.invitation_id,
         notification.created_at,
@@ -154,6 +158,7 @@ struct Row {
     thread_id: Option<Uuid>,
     comment_id: Option<Uuid>,
     block_id: Option<String>,
+    excerpt: Option<String>,
     property_id: Option<Uuid>,
     invitation_id: Option<Uuid>,
     created_at: OffsetDateTime,
@@ -177,6 +182,7 @@ impl TryFrom<Row> for Notification {
             thread_id: row.thread_id,
             comment_id: row.comment_id,
             block_id: row.block_id,
+            excerpt: row.excerpt,
             property_id: row.property_id,
             invitation_id: row.invitation_id,
             created_at: row.created_at,
@@ -196,7 +202,8 @@ pub async fn get(
     sqlx::query_as!(
         Row,
         "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,
-                block_id, property_id, invitation_id, created_at, read_at, archived_at, mailed_at
+                block_id, excerpt, property_id, invitation_id, created_at, read_at, archived_at,
+                mailed_at
          FROM notifications WHERE id = $1 AND user_id = $2",
         id,
         user_id,
@@ -219,8 +226,8 @@ pub async fn list(
 ) -> sqlx::Result<Vec<Listed>> {
     sqlx::query!(
         r#"SELECT n.id, n.user_id, n.workspace_id, n.kind, n.actor_id, n.page_id, n.thread_id,
-                  n.comment_id, n.block_id, n.property_id, n.invitation_id, n.created_at,
-                  n.read_at, n.archived_at, n.mailed_at,
+                  n.comment_id, n.block_id, n.excerpt, n.property_id, n.invitation_id,
+                  n.created_at, n.read_at, n.archived_at, n.mailed_at,
                   a.kind AS "actor_kind?", a.display_name AS "actor_name?", a.email AS actor_email,
                   a.hue AS actor_hue, o.id AS "owner_id?", o.display_name AS "owner_name?",
                   o.hue AS owner_hue, c.body AS "comment_body?"
@@ -275,6 +282,7 @@ pub async fn list(
                 thread_id: row.thread_id,
                 comment_id: row.comment_id,
                 block_id: row.block_id,
+                excerpt: row.excerpt,
                 property_id: row.property_id,
                 invitation_id: row.invitation_id,
                 created_at: row.created_at,
@@ -428,7 +436,8 @@ pub async fn unmailed(
     sqlx::query_as!(
         Row,
         "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,
-                block_id, property_id, invitation_id, created_at, read_at, archived_at, mailed_at
+                block_id, excerpt, property_id, invitation_id, created_at, read_at, archived_at,
+                mailed_at
          FROM notifications
          WHERE user_id = $1 AND mailed_at IS NULL AND read_at IS NULL AND archived_at IS NULL
            AND created_at <= $2

@@ -131,6 +131,7 @@ impl PageService {
                 let mentions = Mentions {
                     page_id: page.id,
                     mentioned: &mentioned,
+                    document: &content.document,
                     at: now,
                 };
                 mentions::page_text(&mut tx, self, &mut notifier, mentions).await?;

@@ -1,11 +1,21 @@
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
-import { account, callApi, clientAddress, makeAccounts, PASSWORD, signedIn } from "./accounts";
+import {
+  account,
+  callApi,
+  clientAddress,
+  makeAccounts,
+  PASSWORD,
+  runOf,
+  signedIn,
+} from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
 import { listen, McpClient } from "./mcp-client";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
-test.use({ extraHTTPHeaders: clientAddress(21) });
+test.use({
+  extraHTTPHeaders: async ({}, use, testInfo) => use(clientAddress(21, testInfo.repeatEachIndex)),
+});
 
 type Workspace = { id: string; slug: string };
 type Teamspace = { id: string; access: string };
@@ -57,7 +67,7 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
   browser,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const ada = account("planner", run);
   const bob = account("reviewer", run);
   const contexts: BrowserContext[] = [];
@@ -130,18 +140,23 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
       bobPage.getByRole("complementary").first().getByRole("link", { name: "Inbox, 1 unread" }),
     ).toBeVisible();
 
-    // Its link opens the page at the thread, the passage selected and marked.
+    // Its link opens the page at the thread: the passage marked and in view, and focus on
+    // the thread in the panel. No text is selected, so no formatting toolbar shows.
     await bobPage.getByRole("link", { name: summary }).click();
     await expect(bobPage).toHaveURL(new RegExp(`/p/${plan.id}\\?comment=`));
     await live(bobPage);
     const bobsThread = panel(bobPage).getByRole("article", { name: `Thread by ${ada.name}` });
     await expect(bobsThread).toHaveAttribute("data-active", "");
-    await expect(content(bobPage).locator(".comment-highlight.is-active")).toHaveText("Friday");
-    await expect
-      .poll(() => bobPage.evaluate(() => document.getSelection()?.toString()), {
-        message: "the thread's passage is selected",
-      })
-      .toBe("Friday");
+    await expect(bobsThread).toBeFocused();
+    await expect(bobsThread).toHaveAccessibleDescription("Friday");
+    const passage = content(bobPage).locator(".comment-highlight.is-active");
+    await expect(passage).toHaveText("Friday");
+    await expect(passage).toBeInViewport();
+    expect(
+      await bobPage.evaluate(() => document.getSelection()?.toString() ?? ""),
+      "no text selected",
+    ).toBe("");
+    await expect(bobPage.locator(".bn-formatting-toolbar")).toHaveCount(0);
 
     // Bob replies; Ada sees the reply in her panel, and in her inbox's count.
     await bobsThread.getByRole("button", { name: "Reply" }).click();
@@ -179,7 +194,7 @@ test("a mention picked after @ in a page reaches the inbox once the text settles
   browser,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const ada = account("author", run);
   const bob = account("helper", run);
   const contexts: BrowserContext[] = [];
@@ -227,9 +242,13 @@ test("a mention picked after @ in a page reaches the inbox once the text settles
     await adaPage.getByRole("option", { name: new RegExp(bob.name) }).click();
     await expect(content(adaPage).locator(".mention")).toHaveText(`@${bob.name}`);
 
-    // Once the page's text settles, Bob is told, and the link opens the page at the block.
+    // Once the page's text settles, Bob is told, quoting the block, and the link opens the
+    // page at the block.
     const summary = `${ada.name} mentioned you on Handover`;
     await expect(bobPage.getByRole("link", { name: summary })).toBeVisible({ timeout: 30_000 });
+    await expect(bobPage.getByRole("listitem").filter({ hasText: summary })).toContainText(
+      `Owner: @${bob.name}`,
+    );
     await bobPage.getByRole("link", { name: summary }).click();
     await expect(bobPage).toHaveURL(new RegExp(`/p/${page.id}\\?block=`));
     await live(bobPage);
@@ -248,7 +267,7 @@ test("an agent hears of a mention over MCP, replies in the thread, and clears it
   playwright,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const owner = account("editor", run);
   const contexts: BrowserContext[] = [];
   const clients: APIRequestContext[] = [];
@@ -350,6 +369,8 @@ test("an agent hears of a mention over MCP, replies in the thread, and clears it
     await expect(thread.getByText("We decided to ship on")).toBeVisible();
     await expect(thread.getByText(`Scribe ${run}`, { exact: true })).toBeVisible();
     await expect(thread.getByText(`· via ${owner.name}`, { exact: true })).toBeVisible();
+    // The owner, who commented, follows the page's comments.
+    await expect(panel(ownerPage).getByRole("button", { name: "Following" })).toBeVisible();
 
     // Marked read, its inbox has nothing unread; the owner's tells of the reply.
     await client.tool("mark_read", { notification_ids: [mention?.id] });

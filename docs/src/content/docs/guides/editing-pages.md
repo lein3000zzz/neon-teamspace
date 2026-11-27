@@ -33,9 +33,10 @@ Each page is a row: the arrow before it opens and closes the pages under it, the
 the page, and the row's buttons add a page inside it and open its menu. A database shows with
 a table's glyph; its rows are in its views rather than the tree, and nothing else goes under
 it. [Databases and boards](/docs/guides/databases-and-boards/) is about them. A teamspace's row
-folds its tree away the same way. On a computer the buttons show as the pointer passes over
-a row or the keyboard reaches it; on a touch screen they always show. Opening a page opens
-the pages above it in the tree, so it shows there.
+folds its tree away the same way, and it stays folded in that browser, after a reload too,
+until you unfold it. On a computer the buttons show over the end of the title as the pointer
+passes over a row or the keyboard reaches it; on a touch screen they always show, beside it.
+Opening a page opens the pages above it in the tree, so it shows there.
 
 ## Making a page
 

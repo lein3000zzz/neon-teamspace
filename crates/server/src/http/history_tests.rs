@@ -34,7 +34,7 @@ async fn versions_are_listed_read_compared_and_restored(pool: PgPool) {
         .ada
         .post(
             &format!("/api/v1/workspaces/{ws}/pages"),
-            json!({"teamspace_id": general, "title": "Plan", "markdown": "# Goals\n\nShip it"}),
+            json!({"teamspace_id": general, "title": "Plan", "markdown": "# Goals\n\n- Ship it"}),
         )
         .await;
     assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
@@ -52,9 +52,9 @@ async fn versions_are_listed_read_compared_and_restored(pool: PgPool) {
 
     let read = t.dee.get(&format!("{versions}/{version}")).await;
     assert_eq!(read.status, StatusCode::OK, "{}", read.body);
-    assert_eq!(text(&read.body["markdown"]), "# Goals\n\nShip it");
+    assert_eq!(text(&read.body["markdown"]), "# Goals\n\n- Ship it");
     assert_eq!(read.body["blocks"][0]["type"], "heading");
-    assert_eq!(read.body["blocks"][1]["type"], "paragraph");
+    assert_eq!(read.body["blocks"][1]["type"], "bulletListItem");
 
     let markdown = format!("/api/v1/pages/{page}/markdown");
     let appended = t
@@ -69,24 +69,32 @@ async fn versions_are_listed_read_compared_and_restored(pool: PgPool) {
 
     let compared = t.dee.get(&format!("{versions}/{version}/compare")).await;
     assert_eq!(compared.status, StatusCode::OK, "{}", compared.body);
-    let changes: Vec<(&str, Option<&str>, Option<&str>)> = compared.body["changes"]
+    let changes: Vec<_> = compared.body["changes"]
         .as_array()
         .expect("changes")
         .iter()
         .map(|change| {
             (
                 change["change"].as_str().expect("a change"),
+                change["kind"].as_str().expect("a kind"),
                 change["before"].as_str(),
                 change["after"].as_str(),
+                change["after_text"].as_str(),
             )
         })
         .collect();
     assert_eq!(
         changes,
         [
-            ("same", None, Some("# Goals\n")),
-            ("same", None, Some("Ship it\n")),
-            ("added", None, Some("Later\n")),
+            ("same", "heading", None, Some("# Goals\n"), Some("Goals")),
+            (
+                "same",
+                "bulletListItem",
+                None,
+                Some("- Ship it\n"),
+                Some("Ship it")
+            ),
+            ("added", "paragraph", None, Some("Later\n"), Some("Later")),
         ]
     );
     assert_eq!(
@@ -107,7 +115,7 @@ async fn versions_are_listed_read_compared_and_restored(pool: PgPool) {
     assert_eq!(restored.body["version"]["id"], version.as_str());
     assert!(restored.body["revision"].is_string());
     let now = t.ada.get(&markdown).await;
-    assert_eq!(text(&now.body["markdown"]), "# Goals\n\nShip it");
+    assert_eq!(text(&now.body["markdown"]), "# Goals\n\n- Ship it");
     assert_eq!(now.body["revision"], restored.body["revision"]);
 
     // The same comparison again is stale: the page changed since.

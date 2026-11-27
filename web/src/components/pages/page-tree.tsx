@@ -27,7 +27,8 @@ const copy = strings.pages.tree;
 /**
  * A row of the sidebar: the line before or after it lights up, or the whole
  * row, while a dragged page would land there; its actions show on hover or
- * focus where every pointer hovers, and always on touch screens (index.css).
+ * focus where every pointer hovers, over the end of its title, and always on
+ * touch screens, beside it (index.css).
  */
 export const treeRow =
   "relative flex min-h-(--tap) items-center gap-0.5 rounded-md pr-0.5 text-sm text-muted-foreground transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary before:opacity-0 before:shadow-glow hover:bg-accent hover:text-foreground has-[[aria-current=page]]:bg-accent has-[[aria-current=page]]:text-foreground has-[[aria-current=page]]:before:opacity-100 data-[drop=after]:shadow-[inset_0_-2px_0_var(--primary)] data-[drop=before]:shadow-[inset_0_2px_0_var(--primary)] data-[drop=inside]:bg-neon-soft data-[drop=inside]:text-foreground";
@@ -58,7 +59,7 @@ type PageTreeProps = {
 export function PageTree({ workspace, space, pages, label, onNavigate, depth = 0 }: PageTreeProps) {
   const forest = useMemo(() => forestOf(pages.filter((page) => page.kind !== "row")), [pages]);
   return (
-    <ul aria-label={label} className="grid gap-px">
+    <ul aria-label={label} className="grid grid-cols-1 gap-px">
       {forest.roots.map((page) => (
         <TreeRow
           key={page.id}
@@ -215,7 +216,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </Link>
         )}
-        <div data-row-actions="" className="flex shrink-0 items-center">
+        <div data-row-actions="over" className="flex shrink-0 items-center">
           <PageMenu
             workspace={workspace}
             page={page}
@@ -247,7 +248,7 @@ function TreeRow({ workspace, space, forest, page, depth, onNavigate }: TreeRowP
         </div>
       </div>
       {open && (
-        <ul className="grid gap-px">
+        <ul className="grid grid-cols-1 gap-px">
           {children.map((child) => (
             <TreeRow
               key={child.id}
@@ -293,16 +294,19 @@ export function Disclosure({ expandable, open, title, onToggle }: DisclosureProp
 
 type PageGlyphProps = { icon?: string | null | undefined; kind?: PageKind | undefined };
 
-/** A page's icon in a list, or without one, a page's glyph, or a database's. */
+/**
+ * A page's icon in a list, or without one, a page's glyph, or a database's,
+ * centred in a box wide enough for an emoji; longer text is cut at its end.
+ */
 export function PageGlyph({ icon, kind }: PageGlyphProps) {
   const text = icon?.trim() ?? "";
-  if (text === "") {
-    const Glyph = kind === "database" ? Table2 : FileText;
-    return <Glyph aria-hidden className="size-4 shrink-0" />;
-  }
+  const Glyph = kind === "database" ? Table2 : FileText;
   return (
-    <span aria-hidden className="grid w-4 shrink-0 place-items-center overflow-hidden leading-none">
-      {text}
+    <span
+      aria-hidden
+      className="flex w-5 shrink-0 justify-center-safe overflow-hidden leading-none whitespace-nowrap"
+    >
+      {text === "" ? <Glyph className="size-4 shrink-0" /> : text}
     </span>
   );
 }

@@ -408,7 +408,8 @@ export const strings = {
       created: (when: string) => `Created ${when}`,
       limits: "Limits",
       kinds: { members: "Members", storage_bytes: "Storage", agents: "Agents" },
-      usage: (used: string, limit: string) => `${used} of ${limit}`,
+      usage: (used: string, limit: string | undefined) =>
+        limit === undefined ? `${used}, no limit` : `${used} of ${limit}`,
       unlimited: "no limit",
       own: "Set for this workspace",
       byDefault: "Instance default",
@@ -418,7 +419,7 @@ export const strings = {
       editHint:
         "Blank follows the instance default, the workspaces.limits settings. 0 is no limit. A lower limit removes nobody: it only stops new people joining.",
       followDefault: (value: string) => `Blank: the default, ${value}.`,
-      units: { B: "bytes", MB: "MB", GB: "GB" },
+      units: { B: "bytes", MiB: "MiB", GiB: "GiB" },
       unit: (kind: string) => `Unit of ${kind}`,
       save: "Save limits",
       saving: "Saving…",
@@ -611,6 +612,7 @@ export const strings = {
   people: {
     kinds: { agent: "Agent", integration: "Integration" },
     via: (name: string, owner: string) => `${name} · via ${owner}`,
+    viaInSentence: (name: string, owner: string) => `${name} via ${owner}`,
     viaOwner: (owner: string) => `· via ${owner}`,
     deleted: (name: string) => `${name} (deleted)`,
     deletedMark: "(deleted)",
@@ -1036,10 +1038,10 @@ export const strings = {
       limits: "Limits",
       limitsHint:
         "Instance admins set these. A workspace at its member limit takes in nobody new, and one at its storage limit takes no more uploads; its pages stay editable.",
-      memberLimit: (n: number, max: string) => `${n} of ${max}`,
       storage: "Storage",
-      storageUsed: (used: string, max: string) => `${used} of ${max}`,
-      noLimit: "no limit",
+      usage: (used: string, max: string | undefined) =>
+        max === undefined ? `${used}, no limit` : `${used} of ${max}`,
+      noLimit: "No limit",
       leave: "Leave workspace",
       leaveHint:
         "You leave its teamspaces too. To come back, you need a new invitation or invite link.",
@@ -1509,7 +1511,7 @@ export const strings = {
       teamspace: "Teamspace",
       anyTeamspace: "Any teamspace",
       kind: "Kind",
-      anyKind: "Pages, databases and rows",
+      anyKind: "Any kind",
       kinds: { page: "Pages", database: "Databases", row: "Rows" },
       createdBy: "Created by",
       editedBy: "Last edited by",
@@ -1556,6 +1558,8 @@ export const strings = {
     change: { same: "Same", changed: "Changed", added: "Added since", removed: "Removed since" },
     before: "Then",
     after: "Now",
+    ticked: "Done:",
+    unticked: "To do:",
     previewLabel: "This version, read-only",
     emptyVersion: "This version has no content.",
     restore: "Restore this version",
@@ -1904,7 +1908,6 @@ export const strings = {
     placeholder: "Write a comment. Type @ to mention someone or a page.",
     mentionList: "People and pages to mention",
     cannotSee: "Cannot see this page",
-    page: "Page",
     cancel: "Cancel",
     sending: "Sending…",
     send: "Comment",
@@ -1947,7 +1950,9 @@ export const strings = {
     gone: "An account that is gone",
     someone: "Someone",
     follow: "Follow",
-    followHint: "Told of every comment on this page in your inbox.",
+    followHint: "Be told of every comment on this page in your inbox.",
+    following: "Following",
+    followingHint: "You are told of every comment on this page in your inbox. Press to stop.",
     unseen: (names: string) =>
       `${names} cannot see this page, so a mention here tells them nothing. Share the page with them first.`,
     share: "Share",

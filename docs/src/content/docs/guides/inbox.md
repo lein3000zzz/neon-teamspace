@@ -30,7 +30,8 @@ lists them newest first:
 
 - **Unread**, **All** or **Archived** choose which;
 - each says who did what on which page, in which workspace, with the start of the comment
-  it is about. Its link opens the page there, at the thread or the block, and marks it read;
+  it is about, or for a mention in a page's text, the text of the block it is in as it was
+  then. Its link opens the page there, at the thread or the block, and marks it read;
 - **Mark read** or **Mark unread**, and **Archive** or **Back to the inbox**, on each;
 - **Mark all read** marks every one read.
 
@@ -50,7 +51,8 @@ the inbox's live feed open while it shows.
 
 Each notification has its `kind`, its `workspace`, the `actor` who did it, the `page` as you
 see it now, the `thread_id` and `comment_id` of a comment's, with an `excerpt` of the
-comment, the `block_id` of a mention in a page's text, or an invitation's `invitation`. A
+comment, the `block_id` of a mention in a page's text, with an `excerpt` of the block's text
+when the mention was told, or an invitation's `invitation`. A
 token bound to a workspace, an agent's say, reads that workspace's inbox alone and no
 invitation. Over MCP, `get_inbox`, `mark_read` and `neon://me/inbox` do the same; see
 [Agents over MCP](/docs/guides/agents-over-mcp/#comments-and-the-inbox).
@@ -88,8 +90,8 @@ than forty mails. One that lists several reads like a digest.
 
 Each mail is written when it goes, with only what its person may see then: a notification
 about a page they lost goes unmailed, and so does one read, archived or mailed since. It says
-who did what, on which page and in which workspace, with the start of the comment, and links
-to the page at the thread or block.
+who did what, on which page and in which workspace, with the start of the comment or the
+block's text, and links to the page at the thread or block.
 
 ### Stopping it
 

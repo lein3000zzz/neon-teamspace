@@ -383,8 +383,9 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
  * A page's comments as the page shows them: the panel, open or not, the
  * thread open in it and a range waiting for its first comment; the inline
  * threads its editor highlights; those a mention could not tell. A link to
- * a thread opens the panel at it and has the editor select its text once the
- * content came; a link to a block has it put the caret there.
+ * a thread opens the panel at it, marked in the page and scrolled to once the
+ * content came, then moves focus to it in the panel, selecting nothing; a
+ * link to a block has the editor put the caret there.
  */
 function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonElement | null>) {
   const workspace = useWorkspace();
@@ -473,6 +474,12 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
   const linkedAnchor = linked?.anchor ?? null;
   const { start, end } = linkedAnchor ?? { start: undefined, end: undefined };
   const reachable = linkedAnchor !== null && !linkedAnchor.detached;
+  // A thread on the page as a whole, or whose text is gone, has nothing in the page to
+  // scroll to: it takes focus in the panel as soon as it is known.
+  if (!opened && thread !== undefined && linked !== undefined && !reachable) {
+    setOpened(true);
+    setFocusRequest({ threadId: thread });
+  }
   const openAt: OpenAt | null = useMemo(() => {
     if (opened) {
       return null;
@@ -484,7 +491,12 @@ function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonE
     }
     return block === undefined ? null : { kind: "block", blockId: block };
   }, [opened, thread, block, reachable, start, end]);
-  const markOpened = useCallback(() => setOpened(true), []);
+  const markOpened = useCallback(() => {
+    setOpened(true);
+    if (thread !== undefined) {
+      setFocusRequest({ threadId: thread });
+    }
+  }, [thread]);
 
   return {
     editor,

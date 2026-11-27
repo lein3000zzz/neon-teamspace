@@ -157,6 +157,15 @@ test("restoring a version of a page puts it back in the open editor", async ({ p
     await expect(panel.getByRole("region", { name: "This version, read-only" })).not.toContainText(
       "Moved to April",
     );
+    // Its text keeps clear of the box's sides.
+    const inset = await panel
+      .getByRole("region", { name: "This version, read-only" })
+      .evaluate((box) => {
+        const frame = box.getBoundingClientRect();
+        const text = box.querySelector(".bn-inline-content")?.getBoundingClientRect();
+        return text === undefined ? 0 : Math.min(text.left - frame.left, frame.right - text.right);
+      });
+    expect(inset, "room inside the preview's sides").toBeGreaterThanOrEqual(12);
 
     await panel.getByRole("button", { name: "Restore this version" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Restore" }).click();

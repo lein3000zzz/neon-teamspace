@@ -17607,7 +17607,8 @@
         "description": "One block of a comparison, without the blocks under it, which follow it a level deeper.",
         "required": [
           "change",
-          "depth"
+          "depth",
+          "kind"
         ],
         "properties": {
           "after": {
@@ -17617,12 +17618,26 @@
             ],
             "description": "The block as the page has it, as markdown, unless it was removed."
           },
+          "after_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`after` as plain text, likewise."
+          },
           "before": {
             "type": [
               "string",
               "null"
             ],
             "description": "The block as the version has it, as markdown, when it changed or was removed."
+          },
+          "before_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`before` as plain text, as search reads it: without markdown's marks, a file's name and\ncaption each on a line, a table's cells apart by tabs."
           },
           "block_id": {
             "type": [
@@ -17638,6 +17653,11 @@
             "type": "integer",
             "description": "How deep the block is: 0 at the top of the page.",
             "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "The block's type, as BlockNote names it, such as `paragraph`, `heading`,\n`bulletListItem` or `file`: on the page, or else in the version.",
+            "example": "bulletListItem"
           }
         }
       },
@@ -20958,7 +20978,7 @@
               "string",
               "null"
             ],
-            "description": "The start of the comment it is about."
+            "description": "The start of the comment it is about, or for a mention in a page's text, of the block\nthe mention is in as it was when told."
           },
           "id": {
             "type": "string",
@@ -22406,7 +22426,7 @@
             "items": {
               "$ref": "#/components/schemas/TextRun"
             },
-            "description": "A few words of a row's property values and the text around the matches, in runs\nthat mark them; empty without a query, or without text."
+            "description": "A few words of a row's property values and the text around the matches, in runs\nthat mark them, on one line: ` · ` stands between its lines, such as a page's blocks.\nEmpty without a query, or without text."
           },
           "title": {
             "type": "array",

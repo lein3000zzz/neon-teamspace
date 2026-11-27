@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notifications (id, user_id, workspace_id, kind, actor_id, page_id, thread_id,\n                                    comment_id, block_id, excerpt, property_id, invitation_id,\n                                    created_at, read_at, archived_at, mailed_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)\n         ON CONFLICT (user_id, comment_id) WHERE comment_id IS NOT NULL DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "159b21acf759438338e0e3493a196bb84e1c7cbd260ef6fb35bad6a784c1cbaa"
+}
