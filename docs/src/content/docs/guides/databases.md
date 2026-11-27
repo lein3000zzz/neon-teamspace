@@ -53,7 +53,10 @@ views and every row; whoever edits it changes its properties and views and adds 
 edits every row. A share on a row adds to what that row gives, as a share does on any page,
 so a row shared to edit with someone who only views the database is theirs to change.
 Someone who sees a row only through its own share reads it without its `database_id`, as
-its page leaves out the page above it. Placing a row among the others by hand is a change to
+its page leaves out the page above it, and without the database's properties: its `values`
+hold its title's alone, its markdown and MCP's `read_page` list no properties, its export
+has none, their tasks show no status, search neither finds it by them nor shows them, and
+naming another property to change answers as for one that does not exist. Placing a row among the others by hand is a change to
 the database too, and needs edit access to both.
 [Permissions](/docs/reference/permissions/#databases-and-rows) has the table.
 

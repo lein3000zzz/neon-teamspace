@@ -14,6 +14,7 @@ import {
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
   getFormattingToolbarItems,
+  LinkToolbarController,
   SuggestionMenuController,
   useComponentsContext,
   useCreateBlockNote,
@@ -62,6 +63,7 @@ import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
 import { EditorPageContext, useEditorPage, type EditorPage } from "./editor-page";
 import { formattingToolbarOptions, suggestionMenuOptions } from "./floating";
+import { FileDownloadApart, LinkToolbarApart, openClickedLink } from "./open-apart";
 import { pasteFits } from "./paste";
 import { schema } from "./schema";
 
@@ -252,6 +254,9 @@ function LiveEditor({
           throw error;
         }
       },
+      // A link clicked in the text opens in a tab cut off from this one, which the page
+      // there cannot send elsewhere.
+      links: { onClick: openClickedLink },
       // The server refuses a message over its limit, and the paste would be lost.
       pasteHandler: ({ event, defaultPasteHandler }) => {
         if (event.clipboardData !== null && !pasteFits(event.clipboardData)) {
@@ -501,6 +506,7 @@ function LiveEditor({
           theme={mode}
           slashMenu={false}
           formattingToolbar={false}
+          linkToolbar={false}
         >
           <SuggestionMenuController
             triggerCharacter="/"
@@ -516,6 +522,7 @@ function LiveEditor({
             formattingToolbar={ToolbarWithComment}
             floatingUIOptions={toolbarOptions}
           />
+          <LinkToolbarController linkToolbar={LinkToolbarApart} />
         </BlockNoteView>
       </EditorPageContext>
     </section>
@@ -542,13 +549,20 @@ function PageKindGlyph({ kind }: { kind: PageKind }) {
   return <Glyph aria-hidden size={18} />;
 }
 
-/** BlockNote's formatting toolbar, and last the button to start a thread on the text selected. */
+/**
+ * BlockNote's formatting toolbar, its download button opening files in a tab
+ * cut off from this one, and last the button to start a thread on the text
+ * selected.
+ */
 function ToolbarWithComment(props: FormattingToolbarProps) {
   const Components = useComponentsContext();
   const page = useEditorPage();
+  const items = getFormattingToolbarItems(props.blockTypeSelectItems).map((item) =>
+    item.key === "fileDownloadButton" ? <FileDownloadApart key={item.key} /> : item,
+  );
   return (
     <FormattingToolbar {...props}>
-      {...getFormattingToolbarItems(props.blockTypeSelectItems)}
+      {...items}
       {Components !== undefined && (
         <Components.FormattingToolbar.Button
           label={strings.comments.toolbar}

@@ -1,8 +1,11 @@
 //! Requests to join.
 
 use neon_domain::auth::email_token::MAX_LINK_TOKEN;
-use neon_domain::auth::join_request::{DENIED_WAIT, LINK_TTL, MAX_OPEN, RETENTION, check_note};
+use neon_domain::auth::join_request::{
+    DENIED_WAIT, LINK_TTL, MAX_OPEN, MAX_UNCONFIRMED_PER_SOURCE, RETENTION, check_note,
+};
 use neon_domain::auth::{Email, JoinRequest, JoinRequestStatus, Principal};
+use neon_domain::network::client_source;
 use neon_domain::settings::Secret;
 use neon_store::{is_unique_violation, join_requests, users};
 use tracing::{info, warn};
@@ -19,8 +22,8 @@ impl AuthService {
     /// same whatever comes of it, and as fast, so the form tells nobody which addresses
     /// have accounts or requests: the work is done after the answer. Nothing is mailed to
     /// an address with an account, one with a request waiting for the admins, one denied in
-    /// the last 30 days, or one past its links; and nothing is kept past the cap on open
-    /// requests.
+    /// the last 30 days, or one past its links; and nothing is kept from a source with
+    /// [`MAX_UNCONFIRMED_PER_SOURCE`] requests nobody confirmed yet.
     pub async fn request_to_join(
         &self,
         email: &str,
@@ -28,28 +31,34 @@ impl AuthService {
         ip: &str,
     ) -> Result<(), AuthError> {
         self.observe("request_to_join", async {
-            self.limit(Bucket::Join, ip).await?;
+            self.limit_source(Bucket::Join, ip).await?;
             if !self.requests_open() {
                 return Err(AuthError::RequestsOff);
             }
             let email = Email::parse(email)?;
             let note = check_note(note).map_err(AuthError::invalid)?;
             let service = self.clone();
+            let source = client_source(ip);
             self.background("join_request", async move {
-                service.take_request(email, note).await;
+                service.take_request(email, note, source).await;
             });
             Ok(())
         })
         .await
     }
 
-    async fn take_request(&self, email: Email, note: String) {
-        if let Err(error) = self.take_request_inner(&email, note).await {
+    async fn take_request(&self, email: Email, note: String, source: String) {
+        if let Err(error) = self.take_request_inner(&email, note, &source).await {
             warn!(%error, "request to join not taken");
         }
     }
 
-    async fn take_request_inner(&self, email: &Email, note: String) -> Result<(), AuthError> {
+    async fn take_request_inner(
+        &self,
+        email: &Email,
+        note: String,
+        source: &str,
+    ) -> Result<(), AuthError> {
         let now = self.now();
         let mut tx = self.pool().begin().await?;
         if let Some((user, _)) = users::by_email(&mut *tx, email.normalized()).await?
@@ -93,20 +102,22 @@ impl AuthService {
                     mails: 1,
                     mailed_at: now,
                 };
+                join_requests::lock_source(&mut *tx, source).await?;
                 let kept = join_requests::insert_capped(
                     &mut *tx,
                     &request,
                     email.normalized(),
                     &hash_secret(&token),
-                    MAX_OPEN,
+                    source,
+                    MAX_UNCONFIRMED_PER_SOURCE,
                 )
                 .await;
                 match kept {
                     Ok(true) => info!(request_id = %request.id, "request to join taken"),
                     Ok(false) => {
                         warn!(
-                            max_open = MAX_OPEN,
-                            "request to join dropped: too many are open"
+                            max_unconfirmed = MAX_UNCONFIRMED_PER_SOURCE,
+                            "request to join dropped: its source has too many unconfirmed"
                         );
                         return Ok(());
                     }
@@ -133,18 +144,35 @@ impl AuthService {
 
     /// Confirms the request of a mailed link. The admins see it from now, and each active
     /// one is told by mail, queued with the confirmation, while `mail.notifications` is on
-    /// and mail is set up.
+    /// and mail is set up. While [`MAX_OPEN`] confirmed requests wait for the admins, a link
+    /// that works is refused with [`AuthError::RequestsFull`], and works again once they
+    /// decide some.
     pub async fn confirm_join(&self, token: &Secret, ip: &str) -> Result<(), AuthError> {
         self.observe("confirm_join", async {
-            self.limit(Bucket::JoinConfirm, ip).await?;
+            self.limit_source(Bucket::JoinConfirm, ip).await?;
             let token = token.expose().trim();
             if token.is_empty() || token.len() > MAX_LINK_TOKEN {
                 return Err(AuthError::InvalidLink);
             }
             let mut tx = self.pool().begin().await?;
-            let request = join_requests::confirm(&mut *tx, &hash_secret(token), self.now())
-                .await?
-                .ok_or(AuthError::InvalidLink)?;
+            join_requests::lock_confirming(&mut *tx).await?;
+            let token_hash = hash_secret(token);
+            let now = self.now();
+            let Some(request) =
+                join_requests::confirm(&mut *tx, &token_hash, now, MAX_OPEN).await?
+            else {
+                return Err(
+                    if join_requests::link_works(&mut *tx, &token_hash, now).await? {
+                        warn!(
+                            max_open = MAX_OPEN,
+                            "request to join not confirmed: too many wait"
+                        );
+                        AuthError::RequestsFull
+                    } else {
+                        AuthError::InvalidLink
+                    },
+                );
+            };
             if *self.settings().get(mail_keys::NOTIFICATIONS) && self.mail_configured() {
                 for admin in users::active_admin_emails(&mut *tx).await? {
                     let mail = Mail {

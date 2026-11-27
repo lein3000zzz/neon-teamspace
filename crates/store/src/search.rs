@@ -15,7 +15,9 @@
 //! typed loosely: the query as a whole like part of the title by [`FUZZY_THRESHOLD`], or each
 //! of its words, when it has several, by [`FUZZY_WORD_THRESHOLD`], which
 //! `pg_trgm.word_similarity_threshold` is set to, so the title's trigram index finds both.
-//! Pages in the trash are left out.
+//! Pages in the trash are left out. A row seen through a share of its own, whose database
+//! the searcher does not see, matches, ranks and shows by its title, text and comments
+//! alone: its database's properties are not theirs to know.
 //!
 //! What a search costs stays bounded however large the pages are: only the pages answered
 //! get their matches marked, the one read past them to tell whether more follow does not;
@@ -137,6 +139,18 @@ macro_rules! search_sql {
                  UNION
                    SELECT c.id FROM owner_shared d JOIN pages c ON c.parent_id = d.id
                ),
+               -- The rows seen through a share whose database is not seen: their properties
+               -- are none of the searcher's business, so neither match nor show.
+               hidden_rows (id) AS (
+                   SELECT p.id FROM mine_shared m JOIN pages p ON p.id = m.id
+                   WHERE p.kind = 'row' AND NOT EXISTS (
+                       SELECT 1 FROM pages d
+                       WHERE d.id = p.parent_id
+                         AND (d.teamspace_id = ANY($4) OR d.owner_id = $5
+                              OR d.id IN (SELECT id FROM mine_shared))
+                         AND (NOT $7 OR d.teamspace_id = ANY($8) OR d.owner_id = $9
+                              OR d.id IN (SELECT id FROM owner_shared)))
+               ),
                found (id) AS (
                    SELECT p.id FROM pages p
                    WHERE p.workspace_id = $1 AND p.teamspace_id = ANY($4)
@@ -183,6 +197,11 @@ macro_rules! search_sql {
                           OR p.id IN (SELECT id FROM owner_shared))
                  UNION
                    SELECT p.id FROM mine_shared m JOIN pages p ON p.id = m.id
+                   CROSS JOIN LATERAL (
+                       SELECT CASE WHEN p.id IN (SELECT id FROM hidden_rows)
+                                   THEN ts_filter(p.search_vector, '{a,c,d}')
+                                   ELSE p.search_vector END AS vector
+                   ) v
                    WHERE p.workspace_id = $1 AND p.trashed_at IS NULL
                      AND ($11::uuid IS NULL OR p.teamspace_id = $11)
                      AND ($12::text IS NULL OR p.kind = $12)
@@ -190,7 +209,7 @@ macro_rules! search_sql {
                      AND ($14::uuid IS NULL OR p.last_edited_by = $14)
                      AND ($15::timestamptz IS NULL
                           OR GREATEST(p.updated_at, p.content_updated_at) >= $15)
-                     AND ($2::text IS NULL OR p.search_vector @@ to_tsquery('simple', $2)
+                     AND ($2::text IS NULL OR v.vector @@ to_tsquery('simple', $2)
                           OR ($3::text IS NOT NULL
                               AND ($3 <% p.title OR p.title %> ANY($19::text[]))
                               AND (word_similarity($3, p.title) >= $22::real
@@ -199,14 +218,20 @@ macro_rules! search_sql {
                                            SELECT 1 FROM unnest($19::text[]) AS w (word)
                                            WHERE NOT w.word <% p.title)))
                               AND ($18::text IS NULL
-                                   OR p.search_vector @@ to_tsquery('simple', $18))))
+                                   OR v.vector @@ to_tsquery('simple', $18))))
                      AND (NOT $7 OR p.teamspace_id = ANY($8) OR p.owner_id = $9
                           OR p.id IN (SELECT id FROM owner_shared))
                ),
                ranked AS (
-                   SELECT p.id, p.title, p.property_text, p.search_text, p.comment_text,
+                   SELECT p.id, p.title,
+                          CASE WHEN p.id IN (SELECT id FROM hidden_rows) THEN NULL
+                               ELSE p.property_text END AS property_text,
+                          p.search_text, p.comment_text,
                           (CASE WHEN $2::text IS NULL THEN 0
-                                ELSE ts_rank(p.search_vector, to_tsquery('simple', $2)) END
+                                ELSE ts_rank(CASE WHEN p.id IN (SELECT id FROM hidden_rows)
+                                                  THEN ts_filter(p.search_vector, '{a,c,d}')
+                                                  ELSE p.search_vector END,
+                                             to_tsquery('simple', $2)) END
                            + CASE WHEN $3::text IS NULL THEN 0
                                   ELSE word_similarity($3, p.title) END
                            + CASE WHEN $2::text IS NOT NULL

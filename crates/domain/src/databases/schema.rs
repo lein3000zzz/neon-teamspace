@@ -37,6 +37,14 @@ impl Schema {
         self.of_kind(PropertyKind::Title)
     }
 
+    /// The schema with its title property alone: what someone who sees a row but not its
+    /// database knows of it, the row's title being its page's.
+    pub fn title_only(&self) -> Schema {
+        Schema {
+            properties: self.title().cloned().into_iter().collect(),
+        }
+    }
+
     /// The unique id property, if the database has one.
     pub fn unique_id(&self) -> Option<&Property> {
         self.of_kind(PropertyKind::UniqueId)

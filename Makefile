@@ -17,11 +17,20 @@ E2E_WEB_IMAGE     ?= neon-teamspace-web:local
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# The port of 127.0.0.1 the e2e stack's web origin is on: one free when make e2e starts it,
+# unless set.
+E2E_WEB_PORT      ?=
 # The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
 S3_TEST_CONTAINER ?= neon-s3-test
 # The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
 SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
+# The version of every crate, and so of a release: the cargo workspace's, in Cargo.toml.
+VERSION       := $(shell sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"$$/\1/p' Cargo.toml)
+# The files of the Compose archive a release attaches: what a stack of the published images
+# needs beside them, at the paths the install docs give.
+COMPOSE_FILES := LICENSE deployments/docker-compose.yml deployments/.env.example \
+	deployments/server.env.example deployments/grafana
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
 # A fixed project name, so db-down stops what db-up started whatever COMPOSE_PROJECT_NAME says.
@@ -35,8 +44,8 @@ BUILD_COMPOSE := $(STACK_COMPOSE) -f deployments/docker-compose.build.yml
 # POSTGRES_PASSWORD still needs one.
 NO_DATABASE   := POSTGRES_PASSWORD=unused
 # A throwaway stack for e2e, built from this checkout, beside any other: a project of its own,
-# a free port on loopback, and neither deployments/.env nor deployments/server.env, so the
-# tests see the defaults.
+# a free port on loopback, Mailpit for its mail, and neither deployments/.env nor
+# deployments/server.env, so the tests see the defaults.
 E2E_COMPOSE   := docker compose -p $(E2E_PROJECT) --env-file /dev/null -f deployments/docker-compose.yml \
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
 # Builds the e2e stack's images as docker-compose.build.yml describes them, with bake rather
@@ -248,22 +257,25 @@ e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e
 	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
 
 .PHONY: e2e
-# Under make -j the images build while e2e-install runs. The trap removes the stack, its
-# volumes too, however the run ends, after printing the containers' logs when it failed, and
-# keeps the run's exit status.
+# Under make -j the images build while e2e-install runs. The server's public URL names the web
+# origin's port, so the port is picked before the stack starts, from those free then. The trap
+# removes the stack, its volumes too, however the run ends, after printing the containers'
+# logs when it failed, and keeps the run's exit status.
 e2e: e2e-install e2e-images ## Build both images, test a throwaway stack of them in Chromium, then remove it
 	@set -e; \
+	port="$(E2E_WEB_PORT)"; if [ -z "$$port" ]; then port="$$($(BUN) e2e/free-port.ts)"; fi; \
 	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
 		E2E_ADMIN_EMAIL="$(E2E_ADMIN)" E2E_ADMIN_PASSWORD="$$(openssl rand -hex 16)" \
-		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)" \
+		E2E_SECRET_KEYS="e2e:$$(openssl rand -base64 32)" E2E_WEB_PORT="$$port" \
 		E2E_SERVER_IMAGE="$(E2E_SERVER_IMAGE)" E2E_WEB_IMAGE="$(E2E_WEB_IMAGE)"; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(E2E_COMPOSE) logs --no-color --tail=100; fi; \
 		$(E2E_COMPOSE) down --volumes --remove-orphans >/dev/null 2>&1; exit $$status' EXIT; \
 	$(E2E_COMPOSE) up --detach --no-build --wait; \
-	address="$$($(E2E_COMPOSE) port web 80)"; \
 	receiver="$$($(E2E_COMPOSE) port receiver 8080)"; \
-	echo "testing http://$$address; the report goes to e2e/playwright-report/"; \
-	(cd e2e && E2E_BASE_URL="http://$$address" E2E_RECEIVER_URL="http://$$receiver" $(BUN) run test)
+	mail="$$($(E2E_COMPOSE) port mailpit 8025)"; \
+	echo "testing http://127.0.0.1:$$port; the report goes to e2e/playwright-report/"; \
+	(cd e2e && E2E_BASE_URL="http://127.0.0.1:$$port" E2E_RECEIVER_URL="http://$$receiver" \
+		E2E_MAIL_URL="http://$$mail" $(BUN) run test)
 
 ## Block fixtures (tools/blocknote-fixtures/)
 
@@ -293,6 +305,23 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 		$(CLAUDE) plugin validate --strict . && $(CLAUDE) plugin validate --strict integrations/claude-code; \
 	else echo "$(CLAUDE) is not installed: skipped claude plugin validate"; fi
 
+## Releases
+
+.PHONY: version-check
+# The release workflow passes the tag it runs for as TAG, which the recipe reads from the
+# environment rather than pasted into the command.
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+
+.PHONY: compose-archive
+# From the commit checked out, not the working tree, so the archive holds what the tag holds.
+compose-archive: ## Write dist/neon-teamspace-compose-VERSION.tar.gz, the Compose file and its settings a release attaches
+	@mkdir -p dist
+	git archive --format=tar.gz --prefix=neon-teamspace-$(VERSION)/ \
+		-o dist/neon-teamspace-compose-$(VERSION).tar.gz HEAD -- $(COMPOSE_FILES)
+	@echo "wrote dist/neon-teamspace-compose-$(VERSION).tar.gz"
+
 ## Checks
 
 .PHONY: licenses
@@ -312,10 +341,10 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
 	@echo "all checks passed"
 
 .PHONY: clean
-clean: ## Remove build output: target/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
+clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
 	$(CARGO) clean
-	rm -rf "$(OFFLINE_TARGET_DIR)" web/dist docs/dist docs/.astro docs/csp.caddy
+	rm -rf "$(OFFLINE_TARGET_DIR)" dist web/dist docs/dist docs/.astro docs/csp.caddy

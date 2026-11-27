@@ -1,4 +1,11 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+  type Cookie,
+  type Page,
+} from "@playwright/test";
 import { ADMIN, signIn } from "./fixtures";
 
 /** The password of every account the tests make. */
@@ -32,24 +39,62 @@ export function account(role: string, run: string): Account {
 }
 
 /**
+ * What tells this run of the suite from the runs before it against one stack, whose sign-ins
+ * the server still counts: playwright.config.ts sets it once as the run starts, and every
+ * worker reads it.
+ */
+const SUITE_RUN = process.env.E2E_SUITE_RUN ?? "0";
+
+/**
  * The address a spec's browsers say they come from, as X-Forwarded-For, which the e2e stack
- * believes. The server allows ten sign-ins at once from one address, and the specs run side
- * by side, so a spec that signs several people in takes an address of its own, from the
- * ranges kept for documentation; and so does each `repetition` of it past the first, as
- * `--repeat-each` runs them, to show a test is stable.
+ * believes. The server allows ten sign-ins at once from one source, an IPv4 address or an
+ * IPv6 /64, and the specs run side by side, so a spec that signs people in takes a /64 of its
+ * own, from the range kept for documentation; and so does each `repetition` of it past the
+ * first, as `--repeat-each` runs them, to show a test is stable. Each run of the suite takes
+ * sources apart from those of the runs before it, so a run straight after another is not
+ * refused the sign-ins the last one spent.
  */
 export function clientAddress(spec: number, repetition = 0): Record<string, string> {
-  return {
-    "X-Forwarded-For": repetition === 0 ? `203.0.113.${spec}` : `2001:db8::${spec}:${repetition}`,
-  };
+  // The /64 is the run's group, then the spec's and the repetition's in one.
+  const network = (spec * 0x100 + repetition).toString(16);
+  return { "X-Forwarded-For": `2001:db8:${SUITE_RUN}:${network}::1` };
 }
 
-/** Signs the first admin in on `page`, and makes each account through the admin API. */
-export async function makeAccounts(page: Page, list: Account[]) {
+/**
+ * The first admin's session cookies, which each worker signs in for once and the tests it
+ * runs then share: the server allows one account fifty sign-ins at once, and one more every 6
+ * seconds, and nearly every test makes its people through the admin. No test signs the admin
+ * out.
+ */
+let adminSession: Promise<Cookie[]> | undefined;
+
+async function signInAdmin(page: Page): Promise<Cookie[]> {
   const { email, password } = admin();
   await page.goto("/login");
   await signIn(page, email, password);
   await expect(page.getByRole("complementary")).toBeVisible();
+  return page.context().cookies();
+}
+
+/** Signs `page` in as the first admin, in the session the worker shares, at the app's home. */
+export async function asAdmin(page: Page) {
+  if (adminSession === undefined) {
+    const signingIn = signInAdmin(page);
+    adminSession = signingIn;
+    signingIn.catch(() => {
+      adminSession = undefined;
+    });
+    await signingIn;
+    return;
+  }
+  await page.context().addCookies(await adminSession);
+  await page.goto("/");
+  await expect(page.getByRole("complementary")).toBeVisible();
+}
+
+/** Signs the first admin in on `page`, and makes each account through the admin API. */
+export async function makeAccounts(page: Page, list: Account[]) {
+  await asAdmin(page);
   for (const entry of list) {
     const response = await page.request.post("/api/v1/admin/users", {
       headers: { Origin: originOf(page) },

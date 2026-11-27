@@ -478,3 +478,64 @@ async fn consenting_again_tells_the_connections_of_whom_the_grant_acts_as(pool: 
         [AccessChange::Account { user_id: scout.id }]
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_password_reset_revokes_the_accounts_tokens_and_disconnects_its_apps(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let oauth = oauth(&h);
+    let ada = h.person("ada@example.com").await;
+    let design = h.workspace(&ada, "Design").await.workspace.id;
+    let scout = h.agent(&ada, design, "Scout").await;
+    let (token, _) = h
+        .auth
+        .create_api_token(&ada, "laptop", None, &["read", "write"], None)
+        .await
+        .expect("made");
+    let (agent_token, _) = h.agent_token(&ada, &scout, &["read"]).await;
+    let (client, request) = client(&oauth).await;
+    let mut apps = Vec::new();
+    for identity in [Identity::Person, Identity::Agent(scout.id)] {
+        let code = approve(&oauth, &ada, &request, design, identity).await;
+        let tokens = oauth
+            .token(&exchange(client, &code), &endpoints())
+            .await
+            .expect("issued");
+        apps.push(tokens.access_token);
+    }
+
+    h.auth
+        .request_password_reset("ada@example.com", IP)
+        .await
+        .expect("answers");
+    let link = h.token_of("password_reset").await;
+    h.changes.take();
+    h.auth
+        .reset_password(&link, &support::secret("a brand new passphrase"), IP)
+        .await
+        .expect("reset");
+
+    // Whatever was made with the old password stops working.
+    for gone in std::iter::once(&token).chain(&apps) {
+        assert!(matches!(
+            h.auth.authenticate_token(gone.expose()).await,
+            Err(AuthError::Unauthenticated)
+        ));
+    }
+    assert_eq!(grants(&h).await, 0);
+    // The connections of the account and of the agent an app acted as look again.
+    let mut told = h.changes.take();
+    told.sort_by_key(|change| format!("{change:?}"));
+    let mut want = vec![
+        AccessChange::Account {
+            user_id: ada.user.id,
+        },
+        AccessChange::Account { user_id: scout.id },
+    ];
+    want.sort_by_key(|change| format!("{change:?}"));
+    assert_eq!(told, want);
+    // The agent's own token works for its workspace still.
+    h.auth
+        .authenticate_token(agent_token.expose())
+        .await
+        .expect("an agent's token stays");
+}

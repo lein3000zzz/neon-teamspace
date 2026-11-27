@@ -941,3 +941,129 @@ async fn the_cleanup_removes_what_ended_a_month_ago(pool: PgPool) {
         "members stay"
     );
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn nobody_joins_on_the_word_of_someone_who_may_invite_nobody_any_more(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    let [vic, wes, ola] = [
+        h.person("vic@example.com").await,
+        h.person("wes@example.com").await,
+        h.person("ola@example.com").await,
+    ];
+    let [eve, zed, kim, cy, dee] = [
+        h.person("eve@example.com").await,
+        h.person("zed@example.com").await,
+        h.person("kim@example.com").await,
+        h.person("cy@example.com").await,
+        h.person("dee@example.com").await,
+    ];
+    for admin in [&vic, &wes, &ola] {
+        h.bring_in(&ada, id, admin, WorkspaceRole::Admin).await;
+    }
+    let invite = |by: &Principal, who: &Principal| {
+        let (by, who) = (by.clone(), who.user.address().to_owned());
+        let workspaces = h.workspaces.clone();
+        async move {
+            workspaces
+                .invite(&by, id, &who, WorkspaceRole::Admin)
+                .await
+                .expect("invited")
+                .invitation
+                .id
+        }
+    };
+    let make_link = |by: &Principal| {
+        let by = by.clone();
+        let workspaces = h.workspaces.clone();
+        async move {
+            workspaces
+                .create_invite_link(&by, id, link(WorkspaceRole::Member))
+                .await
+                .expect("created")
+                .token
+        }
+    };
+    let removed = invite(&vic, &eve).await;
+    let removed_link = make_link(&vic).await;
+    let demoted = invite(&wes, &zed).await;
+    let demoted_link = make_link(&wes).await;
+    let left = invite(&ola, &kim).await;
+    // What an owner made stays.
+    let kept = make_link(&ada).await;
+
+    h.workspaces
+        .remove_member(&ada, id, vic.user.id)
+        .await
+        .expect("removed");
+    h.workspaces
+        .change_member_role(&ada, id, wes.user.id, WorkspaceRole::Member)
+        .await
+        .expect("demoted");
+    h.workspaces.leave_workspace(&ola, id).await.expect("left");
+
+    for (who, invitation) in [(&eve, removed), (&zed, demoted), (&kim, left)] {
+        let accepted = h.workspaces.accept_invitation(who, invitation).await;
+        assert!(
+            matches!(accepted, Err(WorkspaceError::NotFound(_))),
+            "{accepted:?}"
+        );
+        assert!(
+            h.workspaces
+                .my_invitations(who)
+                .await
+                .expect("listed")
+                .is_empty()
+        );
+    }
+    for token in [&removed_link, &demoted_link] {
+        let joined = h.workspaces.join_with_link(&cy, token).await;
+        assert!(
+            matches!(joined, Err(WorkspaceError::InvalidInviteLink)),
+            "{joined:?}"
+        );
+    }
+    let revoked_by: Vec<Option<Uuid>> = sqlx::query_scalar(
+        "SELECT revoked_by FROM workspace_invite_links WHERE created_by = ANY($1) ORDER BY created_at",
+    )
+    .bind(vec![vic.user.id, wes.user.id])
+    .fetch_all(&h.pool)
+    .await
+    .expect("read");
+    assert_eq!(revoked_by, [Some(ada.user.id), Some(ada.user.id)]);
+    h.workspaces
+        .join_with_link(&dee, &kept)
+        .await
+        .expect("an owner's link still admits");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_admin_who_stays_one_keeps_what_they_sent(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    let ada = h.person("ada@example.com").await;
+    let vic = h.person("vic@example.com").await;
+    let eve = h.person("eve@example.com").await;
+    let id = h.workspace(&ada, "Design").await.workspace.id;
+    h.bring_in(&ada, id, &vic, WorkspaceRole::Admin).await;
+    let sent = h
+        .workspaces
+        .invite(&vic, id, eve.user.address(), WorkspaceRole::Member)
+        .await
+        .expect("invited");
+
+    // An admin made owner, and an owner made admin, both invite still.
+    h.workspaces
+        .change_member_role(&ada, id, vic.user.id, WorkspaceRole::Owner)
+        .await
+        .expect("promoted");
+    h.workspaces
+        .change_member_role(&vic, id, ada.user.id, WorkspaceRole::Admin)
+        .await
+        .expect("made admin");
+
+    h.workspaces
+        .accept_invitation(&eve, sent.invitation.id)
+        .await
+        .expect("accepted");
+}

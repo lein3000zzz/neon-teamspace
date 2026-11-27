@@ -495,7 +495,8 @@ impl DatabaseService {
 
     /// Sets the values `values` names, by property id or name, and leaves the others: the
     /// title property's is the row's title, `null` clears a value, and computed properties
-    /// take none. For those who edit the row.
+    /// take none. For those who edit the row; someone who sees the row through its own share
+    /// alone, not its database, sets its title alone.
     pub async fn update_row(
         &self,
         principal: &Principal,
@@ -513,7 +514,14 @@ impl DatabaseService {
             row_check(&context, Action::EditPage)?;
             let data = lock_row(&mut tx, &context).await?;
             let schema = schema_of(&mut tx, data.database_id).await?;
-            let changes = parse_values(&schema, &values)?;
+            // Someone who does not see the database knows of no property but the title, and
+            // learns of none from what is refused.
+            let named = if context.parent_seen() {
+                parse_values(&schema, &values)
+            } else {
+                parse_values(&schema.title_only(), &values)
+            };
+            let changes = named?;
             check_people(&mut tx, &context, &changes, Some(&data.cells)).await?;
             let mut page = context.page().clone();
             page.last_edited_by = Some(principal.user.id);

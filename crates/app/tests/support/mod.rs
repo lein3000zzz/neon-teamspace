@@ -31,6 +31,7 @@ use neon_domain::workspaces::WorkspaceRole;
 use serde_json::{Value as Json, json};
 use sqlx::{PgPool, Row as _};
 use time::OffsetDateTime;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 /// Every test account's password.
@@ -156,6 +157,8 @@ pub struct Options {
     pub settings: Vec<(&'static str, Json)>,
     /// Where mail links point. Without it, mail cannot go, though the settings set it up.
     pub public_url: Option<&'static str>,
+    /// The turns the auth service hashes passwords in, for a test to take them all.
+    pub hash_turns: Option<Arc<Semaphore>>,
 }
 
 impl Default for Options {
@@ -165,6 +168,7 @@ impl Default for Options {
             params: CHEAP,
             settings: Vec::new(),
             public_url: Some(PUBLIC_URL),
+            hash_turns: None,
         }
     }
 }
@@ -220,7 +224,11 @@ impl Harness {
             .clock(time.clock())
             .build();
         let databases = DatabaseService::builder(pages.clone()).build();
-        let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
+        let mut auth = AuthService::builder(pool.clone(), Arc::clone(&settings));
+        if let Some(turns) = options.hash_turns {
+            auth = auth.hash_turns(turns);
+        }
+        let auth = auth
             .password_params(options.params)
             .limiter(Arc::clone(&limiter) as Arc<dyn RateLimiter>)
             .mail(mail.clone())

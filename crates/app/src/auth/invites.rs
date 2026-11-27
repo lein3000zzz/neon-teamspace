@@ -192,7 +192,7 @@ impl AuthService {
     /// address it is bound to.
     pub async fn invite_for(&self, code: &Secret, ip: &str) -> Result<Invite, AuthError> {
         self.observe("invite_for", async {
-            self.limit(Bucket::InviteLookup, ip).await?;
+            self.limit_source(Bucket::InviteLookup, ip).await?;
             let code = code.expose().trim();
             if code.is_empty() || code.len() > MAX_CODE_INPUT {
                 return Err(AuthError::InvalidInvite);

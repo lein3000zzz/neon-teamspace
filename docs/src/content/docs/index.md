@@ -8,17 +8,18 @@ hero:
     - text: Read the introduction
       link: /docs/guides/introduction/
       icon: right-arrow
-    - text: Run it locally
+    - text: Install it
       link: /docs/self-hosting/install/
       variant: secondary
 ---
 
-:::note[Early development]
-Neon Teamspace is before its first release. Accounts, workspaces and teamspaces, pages
-edited together in real time with their history, databases with their boards, comments,
-mentions and the inbox, search, agents over MCP and the API, OAuth for their clients,
-webhooks both ways and attachments exist, in the API and the web app, with the Docker images
-that serve them. Pages say what exists today and mark the rest of the design as
+:::note[0.1.0, the first release]
+Accounts, workspaces and teamspaces, pages edited together in real time with their history,
+databases with their boards, comments, mentions and the inbox, search, agents over MCP and
+the API, OAuth for their clients, webhooks both ways and attachments work, in the API and
+the web app, with the Docker images that serve them. The
+[changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
+each release brings. Pages say what exists today and mark the rest of the design as
 **Planned**.
 :::
 
@@ -40,6 +41,9 @@ that serve them. Pages say what exists today and mark the rest of the design as
 - **[Install](/docs/self-hosting/install/)**: the Docker deployment, and the development setup.
 - **[Configuration](/docs/self-hosting/configuration/)**: `neon.yaml`, `NEON_` variables, and
   which value wins.
+- **[Backups and restore](/docs/self-hosting/backups/)**, **[Upgrading](/docs/self-hosting/upgrading/)**
+  and **[Troubleshooting](/docs/self-hosting/troubleshooting/)**: keeping an instance
+  running from one release to the next.
 
 ## Reference
 
@@ -60,4 +64,7 @@ settings registry, and a test fails while the committed page differs from it.
 - **[Key decisions](/docs/architecture/decisions/)**: the choices that shape the project, such
   as one Yjs document per page and agents as workspace members, and why.
 - The rest of **Architecture**: [data](/docs/architecture/data/),
+  [page documents](/docs/architecture/documents/),
+  [real-time sync](/docs/architecture/realtime/),
+  [security](/docs/architecture/security/),
   [observability](/docs/architecture/observability/) and [the web app](/docs/architecture/web/).

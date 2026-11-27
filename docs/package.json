@@ -1,7 +1,7 @@
 {
   "name": "neon-teamspace-docs",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "bun --bun astro dev",
@@ -27,6 +27,7 @@
     "typescript": "^6"
   },
   "overrides": {
-    "form-data": "^4.0.6"
+    "form-data": "^4.0.6",
+    "katex": "^0.18.2"
   }
 }

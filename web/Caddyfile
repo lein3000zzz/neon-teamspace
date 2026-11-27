@@ -10,12 +10,16 @@
 #   NEON_WEB_TRUSTED_PROXIES  Address ranges, separated by spaces, of proxies in front whose
 #                             X-Forwarded-For Caddy believes, such as a load balancer's. None
 #                             unless set: the client is where the connection comes from.
+#                             Caddy reads the header from its end, skipping the addresses of
+#                             those proxies, and takes the first that is none of theirs: the
+#                             entries before it are the client's to write.
 #   NEON_API_UPSTREAM         The server's HTTP API, server:8080 unless set. Never its admin
 #                             listener, which stays internal.
 {
 	admin off
 	servers {
 		trusted_proxies static {$NEON_WEB_TRUSTED_PROXIES}
+		trusted_proxies_strict
 	}
 }
 

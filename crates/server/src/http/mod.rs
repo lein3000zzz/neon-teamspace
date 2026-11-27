@@ -5,6 +5,7 @@ pub(crate) mod account;
 mod admin;
 mod admin_workspaces;
 mod agents;
+pub(crate) mod answers;
 mod auth;
 pub(crate) mod comments;
 pub(crate) mod content;
@@ -453,7 +454,14 @@ fn app(
                 // Around the routes' methods and the fallback that refuses the others, so
                 // that it answers the preflights of OAuth's endpoints for clients.
                 .layer(middleware::from_fn(oauth::cors))
-                .layer(middleware::from_fn_with_state(web, web::same_origin_only))
+                .layer(middleware::from_fn_with_state(
+                    Arc::clone(&web),
+                    web::same_origin_only,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    (Arc::new(answers::LargeAnswers::default()), web),
+                    answers::hold_large_answers,
+                ))
                 .layer(DefaultBodyLimit::max(limits.body)),
         )
 }

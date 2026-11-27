@@ -3,10 +3,11 @@
 
 use neon_domain::agents::{Agent, AgentStatus, IdentityMode};
 use neon_domain::auth::{Principal, Scope, UserKind};
+use neon_domain::network::client_source;
 use neon_domain::oauth::{
     AuthorizationRequest, CODE_TTL, CheckedRequest, Client, ClientMetadata, Endpoints, ErrorCode,
     Identity, Modes, RequestProblem, check_registration, check_request, chosen_scopes,
-    offered_scopes, parse_client_id, redirect_host, registration_source,
+    offered_scopes, parse_client_id, redirect_host,
 };
 use neon_domain::workspaces::{Action, Resource, Workspace, WorkspaceRole};
 use neon_store::agents::{self as agent_store, Stored};
@@ -66,7 +67,7 @@ pub struct Approval {
 impl OAuthService {
     /// Registers a client as it describes itself, public, with no secret: PKCE stands in
     /// for one. While `oauth.registration` is on, at most a few at a time from one source,
-    /// an IPv4 address or an IPv6 /64 as [`registration_source`] names it, while fewer than
+    /// an IPv4 address or an IPv6 /64 as [`client_source`] names it, while fewer than
     /// `oauth.max_unused_clients_per_source` clients of that source wait unconnected, and
     /// fewer than `oauth.max_unused_clients` of all.
     pub async fn register(
@@ -78,7 +79,7 @@ impl OAuthService {
             if !self.registration_open() {
                 return Err(OAuthError::RegistrationOff);
             }
-            let source = registration_source(ip);
+            let source = client_source(ip);
             self.limit(Bucket::OAuthRegister, &source).await?;
             let registered = check_registration(metadata).map_err(OAuthError::Protocol)?;
             let settings = self.settings();

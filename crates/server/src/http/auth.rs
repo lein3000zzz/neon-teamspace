@@ -112,6 +112,7 @@ pub struct Registered {
         (status = FORBIDDEN, description = "registration_closed.", body = ErrorBody),
         (status = CONFLICT, description = "email_taken.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]
@@ -177,6 +178,7 @@ pub struct SignedIn {
         (status = UNAUTHORIZED, description = "invalid_credentials.", body = ErrorBody),
         (status = FORBIDDEN, description = "user_disabled or email_not_verified.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]
@@ -339,14 +341,17 @@ pub struct ResetPasswordRequest {
     path = "/auth/password-reset/confirm",
     tag = "auth",
     summary = "Set a new password with a mailed link",
-    description = "The link works once. It verifies the address and signs the account out of \
-                   every session, but signs nobody in.",
+    description = "The link works once. It verifies the address and signs the account out \
+                   everywhere: its sessions end, its API tokens are revoked and the apps it \
+                   connected over OAuth, as itself or as one of its agents, are disconnected. \
+                   Its agents' own tokens stay. It signs nobody in.",
     request_body = ResetPasswordRequest,
     responses(
         (status = OK, description = "The password is set.", body = Verified),
         (status = BAD_REQUEST, description = "invalid_link or weak_password.", body = ErrorBody),
         (status = FORBIDDEN, description = "password_reset_off.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]
@@ -443,6 +448,7 @@ pub(super) async fn request_to_join(
     responses(
         (status = NO_CONTENT, description = "Confirmed."),
         (status = BAD_REQUEST, description = "invalid_link: used already, or too old.", body = ErrorBody),
+        (status = CONFLICT, description = "requests_full: 200 confirmed requests wait for the admins already; the link works again once they decide some.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )

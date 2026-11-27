@@ -6,24 +6,53 @@ import { useUpdatePage } from "./pages";
 export type UploadedFile = Schemas["File"];
 export type FileKind = Schemas["FileKind"];
 
+/** How many uploads this tab runs at once: as many as the server runs of one person's. */
+export const UPLOADS_AT_ONCE = 4;
+
+let uploading = 0;
+const waitingToUpload: (() => void)[] = [];
+
+/** Runs `upload` once fewer than UPLOADS_AT_ONCE run, the others waiting their turn in order. */
+async function inTurn<T>(upload: () => Promise<T>): Promise<T> {
+  if (uploading >= UPLOADS_AT_ONCE) {
+    await new Promise<void>((resolve) => waitingToUpload.push(resolve));
+  } else {
+    uploading += 1;
+  }
+  try {
+    return await upload();
+  } finally {
+    // The turn goes to the next one waiting, or back.
+    const next = waitingToUpload.shift();
+    if (next === undefined) {
+      uploading -= 1;
+    } else {
+      next();
+    }
+  }
+}
+
 /**
  * Uploads a file to a page, for one of its blocks of `kind`, or its cover, as
  * a form of one part. The server says what the file is from its bytes and
  * refuses a type the kind does not take, a file past the largest it takes,
- * and one the workspace has no room for.
+ * and one the workspace has no room for. A few go at once, as the server runs
+ * a few of one person's: dropping a folder of images queues the rest.
  */
 export function uploadFile(pageId: string, kind: FileKind, file: File): Promise<UploadedFile> {
-  return call(
-    api.POST("/api/v1/pages/{id}/files", {
-      params: { path: { id: pageId }, query: { kind } },
-      // The schema writes the part as a string, as OpenAPI writes binary; the form carries the file.
-      body: { file: file.name },
-      bodySerializer: () => {
-        const form = new FormData();
-        form.append("file", file, file.name);
-        return form;
-      },
-    }),
+  return inTurn(() =>
+    call(
+      api.POST("/api/v1/pages/{id}/files", {
+        params: { path: { id: pageId }, query: { kind } },
+        // The schema writes the part as a string, as OpenAPI writes binary; the form carries the file.
+        body: { file: file.name },
+        bodySerializer: () => {
+          const form = new FormData();
+          form.append("file", file, file.name);
+          return form;
+        },
+      }),
+    ),
   );
 }
 

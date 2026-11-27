@@ -481,11 +481,20 @@ async fn assignments_and_status_changes_are_delivered_signed(pool: PgPool) {
     );
     assert_eq!(body["row"]["status"]["name"], "In progress");
 
+    // The two deliveries are separate jobs, and the log lists attempts as they end, so
+    // either may come first.
     let attempts = log_until(&t.cy, ws, &hook, |attempts| attempts.len() == 2).await;
     assert_eq!(outcomes(&attempts), ["delivered", "delivered"]);
-    assert_eq!(attempts[0]["status_code"], 200);
-    assert_eq!(attempts[0]["event_type"], "row.status_changed");
-    assert!(attempts[0]["latency_ms"].is_number());
+    let mut events: Vec<&str> = attempts
+        .iter()
+        .map(|attempt| attempt["event_type"].as_str().expect("an event type"))
+        .collect();
+    events.sort_unstable();
+    assert_eq!(events, ["row.assigned", "row.status_changed"]);
+    for attempt in &attempts {
+        assert_eq!(attempt["status_code"], 200);
+        assert!(attempt["latency_ms"].is_number());
+    }
     // A delivery's job is deleted once it is done, after its attempt is logged.
     let deadline = Instant::now() + PATIENCE;
     while queued(&pool).await != 0 {

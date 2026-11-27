@@ -22,7 +22,7 @@ use super::dto::{Person, WorkspaceRole};
 use super::error::{ApiError, ErrorBody};
 use super::extract::{Json, Path, Query};
 use super::pages::Page;
-use super::principal::Authenticated;
+use super::principal::{Account, Authenticated};
 
 /// What a notification tells of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -396,17 +396,19 @@ impl From<MailSettings> for NotificationSettings {
     path = "/me/notifications",
     tag = "notifications",
     summary = "Read how one wants mail of the inbox",
+    description = "The account's own, for every workspace: a token bound to a workspace is \
+                   refused.",
     responses(
         (status = OK, description = "The preference.", body = NotificationSettings),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "insufficient_scope, or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn get_notification_settings(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
 ) -> Result<Json<NotificationSettings>, ApiError> {
     let settings = state.inbox.mail_settings(&principal).await?;
     Ok(Json(settings.into()))
@@ -423,19 +425,20 @@ pub struct NotificationSettingsChange {
     path = "/me/notifications",
     tag = "notifications",
     summary = "Choose how one wants mail of the inbox",
-    description = "For people; agents and integrations get no mail.",
+    description = "For people; agents and integrations get no mail. The account's own, for \
+                   every workspace: a token bound to a workspace is refused.",
     request_body = NotificationSettingsChange,
     responses(
         (status = OK, description = "The preference.", body = NotificationSettings),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
-        (status = FORBIDDEN, description = "forbidden: an agent or integration; or insufficient_scope.", body = ErrorBody),
+        (status = FORBIDDEN, description = "forbidden: an agent or integration; insufficient_scope; or token_bound: a token bound to a workspace.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
 )]
 pub(super) async fn put_notification_settings(
     State(state): State<AppState>,
-    Authenticated(principal): Authenticated,
+    Account(principal): Account,
     Json(body): Json<NotificationSettingsChange>,
 ) -> Result<Json<NotificationSettings>, ApiError> {
     let settings = state.inbox.set_mail(&principal, body.mail.into()).await?;

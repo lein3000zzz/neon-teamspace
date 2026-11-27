@@ -60,8 +60,9 @@ settings:
 
 Requests go over HTTP/1.1, and over TLS 1.2 or later for `https` endpoints. The server checks
 the store's certificate against the web PKI's roots, which it bundles. Connecting may take 5
-seconds, and an answer's headers 30. A file larger than 8 MiB goes up as a multipart upload,
-two parts of 8 MiB at a time, so an upload holds at most a few parts in memory. The access key
+seconds, and an answer's headers 30. A file larger than 5 MiB goes up as a multipart upload,
+two parts of 5 MiB at a time, the smallest S3 takes, so an upload holds at most a few parts
+in memory. On local disk, a file goes to the file it is written to 256 KiB at a time. The access key
 needs to read, write and delete objects in the bucket, and to make and finish multipart
 uploads. It needs no other right.
 
@@ -104,21 +105,11 @@ a separate program under Apache-2.0, not linked with Neon Teamspace's code.
 
 ## Backups
 
-A backup is a `pg_dump` of the database and a copy of the files, taken together. Take the dump
-first. A file uploaded between the two is then in the copy without a row, which does no harm,
-while in the other order a row could name a file the copy lacks.
-
-| Store | Copying the files |
-|---|---|
-| Local disk, in Docker | `docker run --rm -v neon_server-data:/data -v "$PWD":/backup busybox tar czf /backup/files.tar.gz -C /data attachments` |
-| Local disk, from source | A copy of `server.data_dir`'s `attachments` folder, with `rsync -a` or `tar`. |
-| S3 | `aws s3 sync s3://neon ./files`, or `rclone sync`, or the store's own snapshots or replication. |
-
-To restore, put both back, the files under the same keys, before starting the server. Files
-deleted since the backup come back, rows and bytes. A file deleted between the dump and the
-copy comes back as a row without bytes, which answers `404 file_missing` until the cleanup
-deletes it, once no page shows it. The
-[install page](/docs/self-hosting/install/#where-the-data-lives) shows the `pg_dump` commands.
+A backup is a `pg_dump` of the database and a copy of the files, taken together, the dump
+first, so that no row names a file the copy lacks. The files go back under the same keys
+before the server starts, and files deleted since the backup come back, rows and bytes.
+[Backups and restore](/docs/self-hosting/backups/#attachments) has the commands: for local
+disk, for SeaweedFS's bucket or its own data, and for other stores.
 
 ## What the server deletes
 
@@ -135,7 +126,7 @@ An upload cut off while the server runs, by its client, its time limit or a refu
 nothing: the server deletes what it wrote, and aborts a multipart upload, at once. A server
 that stops in the middle of an upload, killed or crashed, leaves bytes behind, which the
 cleanup deletes half an hour after the upload began: on local disk, the file the blob was
-being written to, beside where it would go. In an S3 bucket, a file larger than 8 MiB goes up
+being written to, beside where it would go. In an S3 bucket, a file larger than 5 MiB goes up
 in parts, and the parts of an upload no one aborted stay in the store, outside any
 workspace's storage, until something aborts it. Give the bucket a lifecycle rule that aborts
 incomplete multipart uploads after a day, `AbortIncompleteMultipartUpload` on Amazon S3,

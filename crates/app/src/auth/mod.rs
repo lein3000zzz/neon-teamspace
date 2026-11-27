@@ -11,9 +11,12 @@
 //!
 //! - Secrets that prove who someone is, session and API tokens, invite codes, mailed
 //!   links, are random 256-bit values kept only as their SHA-256.
-//! - Passwords are argon2id, checked off the async runtime. An unknown address is checked
-//!   against a dummy hash, so it takes as long as a wrong password, and a disabled or
-//!   unverified account is only revealed after the right password.
+//! - Passwords are argon2id, checked off the async runtime, as many at once as the machine
+//!   has processors: each takes its memory, 19 MiB by default, while it runs. One that
+//!   gets no turn within [`HASH_WAIT`] is refused as [`AuthError::Busy`]. An unknown
+//!   address is checked against a dummy hash, so it takes as long as a wrong password and
+//!   waits for a turn the same way, and a disabled or unverified account is only revealed
+//!   after the right password.
 //! - The forms anyone can send, asking for a reset link or to join, answer the same
 //!   whatever comes of them, and do the work after the answer.
 //! - Mail is queued on the transaction of the change it tells of, sealed, so a link exists
@@ -32,6 +35,7 @@ mod tokens;
 mod verification;
 
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,10 +43,12 @@ use neon_domain::auth::{
     PasswordPolicy, Principal, RegistrationMode, SessionPolicy,
     password::DEFAULT_MIN_PASSWORD_LENGTH,
 };
+use neon_domain::network::client_source;
 use neon_domain::settings::{Secret, Snapshot};
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::red::Red;
 use sqlx::{PgConnection, PgPool};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::task::TaskTracker;
 use tracing::{Instrument as _, info_span, warn};
 
@@ -66,6 +72,9 @@ pub const SUBSYSTEM: &str = "auth";
 
 /// How long work done after an answer, such as mailing a reset link, may take.
 const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long a password waits for a turn to be hashed or checked before it is refused.
+pub const HASH_WAIT: Duration = Duration::from_secs(2);
 
 /// The password the dummy hash is made of. Nobody signs in with it: no account has it.
 const DUMMY_PASSWORD: &str = "neon-dummy-password";
@@ -96,6 +105,8 @@ struct Inner {
     pool: PgPool,
     settings: Arc<SettingsService>,
     hasher: PasswordHasher,
+    /// The turns to hash or check a password, one per hash running.
+    hashing: Arc<Semaphore>,
     /// Checked against when an address is unknown, so a miss costs a full hash too.
     dummy_hash: String,
     limiter: Arc<dyn RateLimiter>,
@@ -108,12 +119,14 @@ struct Inner {
 }
 
 /// Puts an [`AuthService`] together. Without being told otherwise it limits rates in
-/// memory, sends no mail, hashes with [`Argon2Params::DEFAULT`], seals nothing, tells
-/// nobody of sessions and tokens that end, and reads the system clock.
+/// memory, sends no mail, hashes with [`Argon2Params::DEFAULT`], as many passwords at once
+/// as the machine has processors, seals nothing, tells nobody of sessions and tokens that
+/// end, and reads the system clock.
 pub struct AuthServiceBuilder {
     pool: PgPool,
     settings: Arc<SettingsService>,
     params: Argon2Params,
+    hash_turns: Option<Arc<Semaphore>>,
     limiter: Option<Arc<dyn RateLimiter>>,
     mail: Option<MailQueue>,
     envelope: Envelope,
@@ -159,6 +172,13 @@ impl AuthServiceBuilder {
         self
     }
 
+    /// The turns passwords are hashed and checked in, one per hash running, which the
+    /// service may share with whoever made them.
+    pub fn hash_turns(mut self, turns: Arc<Semaphore>) -> Self {
+        self.hash_turns = Some(turns);
+        self
+    }
+
     /// Makes the dummy hash, which takes as long as any password hash. Call it after
     /// telemetry is installed, as it creates the RED metrics.
     pub async fn build(self) -> Result<AuthService, AuthError> {
@@ -182,6 +202,11 @@ impl AuthServiceBuilder {
                 pool: self.pool,
                 settings: self.settings,
                 hasher,
+                hashing: self.hash_turns.unwrap_or_else(|| {
+                    let processors =
+                        std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
+                    Arc::new(Semaphore::new(processors))
+                }),
                 dummy_hash,
                 limiter: self
                     .limiter
@@ -203,6 +228,7 @@ impl AuthService {
             pool,
             settings,
             params: Argon2Params::DEFAULT,
+            hash_turns: None,
             limiter: None,
             mail: None,
             envelope: Envelope::default(),
@@ -306,6 +332,12 @@ impl AuthService {
             && self.mail_configured()
     }
 
+    /// Takes an attempt from the bucket of the client at `ip`, counted by its
+    /// [`client_source`]: an IPv4 address, or the /64 an IPv6 address is in.
+    async fn limit_source(&self, bucket: Bucket, ip: &str) -> Result<(), AuthError> {
+        self.limit(bucket, &client_source(ip)).await
+    }
+
     async fn limit(&self, bucket: Bucket, key: &str) -> Result<(), AuthError> {
         self.inner
             .limiter
@@ -320,9 +352,14 @@ impl AuthService {
     }
 
     async fn hash_password(&self, password: &Secret) -> Result<String, AuthError> {
+        let turn = self.hash_turn().await?;
         let hasher = self.inner.hasher.clone();
         let password = password.clone();
-        blocking(move || hasher.hash(password.expose())).await
+        blocking(move || {
+            let _turn = turn;
+            hasher.hash(password.expose())
+        })
+        .await
     }
 
     async fn verify_password(
@@ -330,16 +367,41 @@ impl AuthService {
         password: &Secret,
         hash: String,
     ) -> Result<Verified, AuthError> {
+        let turn = self.hash_turn().await?;
         let hasher = self.inner.hasher.clone();
         let password = password.clone();
-        blocking(move || hasher.verify(password.expose(), &hash)).await
+        blocking(move || {
+            let _turn = turn;
+            hasher.verify(password.expose(), &hash)
+        })
+        .await
     }
 
-    /// Costs what checking a real password does, and finds nothing.
-    async fn verify_dummy(&self, password: &Secret) {
+    /// A turn to hash or check a password, which the work holds until it ends, even when
+    /// its caller is gone; [`AuthError::Busy`] when none comes within [`HASH_WAIT`].
+    async fn hash_turn(&self) -> Result<OwnedSemaphorePermit, AuthError> {
+        let hashing = Arc::clone(&self.inner.hashing);
+        match tokio::time::timeout(HASH_WAIT, hashing.acquire_owned()).await {
+            Ok(Ok(turn)) => Ok(turn),
+            // The semaphore is never closed; a password waiting too long is refused.
+            Ok(Err(_)) | Err(_) => {
+                warn!("too many passwords being checked at once");
+                Err(AuthError::Busy)
+            }
+        }
+    }
+
+    /// Costs what checking a real password does, waits for a turn as one does, and finds
+    /// nothing.
+    async fn verify_dummy(&self, password: &Secret) -> Result<(), AuthError> {
         let dummy = self.inner.dummy_hash.clone();
-        if let Err(error) = self.verify_password(password, dummy).await {
-            warn!(%error, "checking against the dummy hash failed");
+        match self.verify_password(password, dummy).await {
+            Ok(_) => Ok(()),
+            Err(AuthError::Busy) => Err(AuthError::Busy),
+            Err(error) => {
+                warn!(%error, "checking against the dummy hash failed");
+                Ok(())
+            }
         }
     }
 

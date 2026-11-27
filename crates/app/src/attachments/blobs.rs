@@ -4,7 +4,9 @@
 //!
 //! A blob is written as a stream, a part at a time, and never held whole in memory: a blob
 //! that ends within its first part goes up in one request, and a longer one as a multipart
-//! upload, a few parts at once. Reading streams it too, the whole blob or a range of it.
+//! upload, a few parts at once. A part is as small as the store takes: [`PART_BYTES`] for
+//! S3, which takes none smaller, and [`LOCAL_PART_BYTES`] on local disk, where each goes
+//! straight into the file being written. Reading streams it too, the whole blob or a range of it.
 //! Deleting a blob that is not there is no error, so a deletion tried twice does no harm,
 //! and it deletes what a server that stopped while writing the blob left of it on local
 //! disk too.
@@ -26,9 +28,12 @@ use object_store::{
     PutPayloadMut,
 };
 
-/// How much of a blob is sent at once: what one part of a multipart upload holds, and what
-/// a blob shorter than that is sent whole as. S3 takes parts of 5 MiB and more.
-pub const PART_BYTES: usize = 8 * 1024 * 1024;
+/// How much of a blob is sent to S3 at once: what one part of a multipart upload holds, and
+/// what a blob shorter than that is sent whole as. S3 takes no part smaller but the last.
+pub const PART_BYTES: usize = 5 * 1024 * 1024;
+
+/// How much of a blob is written to local disk at once, as [`PART_BYTES`] is to S3.
+pub const LOCAL_PART_BYTES: usize = 256 * 1024;
 
 /// How many parts of one blob go up at once.
 const PARTS_AT_ONCE: usize = 2;
@@ -134,11 +139,18 @@ pub struct ObjectBlobs {
     /// On local disk, the directory, where a blob is written to a file beside its own, its
     /// name and `#` and a number, before it takes the blob's place.
     dir: Option<PathBuf>,
+    /// How much of a blob goes to the store at once.
+    part: usize,
 }
 
 impl ObjectBlobs {
+    /// Blobs in `store`, sent [`PART_BYTES`] at once, as S3 takes them.
     pub fn new(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store, dir: None }
+        Self {
+            store,
+            dir: None,
+            part: PART_BYTES,
+        }
     }
 
     /// Blobs as files under `dir`, which is made if it is missing.
@@ -149,6 +161,7 @@ impl ObjectBlobs {
         Ok(Self {
             store: Arc::new(store),
             dir: Some(dir.to_owned()),
+            part: LOCAL_PART_BYTES,
         })
     }
 
@@ -229,6 +242,7 @@ impl BlobStore for ObjectBlobs {
         Ok(Box::new(ObjectWriter {
             store: Arc::clone(&self.store),
             path: path(key)?,
+            part: self.part,
             buffer: PutPayloadMut::new(),
             upload: None,
         }))
@@ -261,6 +275,8 @@ impl BlobStore for ObjectBlobs {
 struct ObjectWriter {
     store: Arc<dyn ObjectStore>,
     path: Path,
+    /// How much a part holds.
+    part: usize,
     buffer: PutPayloadMut,
     upload: Option<Upload>,
 }
@@ -352,7 +368,7 @@ impl ObjectWriter {
 impl BlobWriter for ObjectWriter {
     async fn write(&mut self, mut bytes: Bytes) -> Result<(), BlobError> {
         while !bytes.is_empty() {
-            let room = PART_BYTES - self.buffer.content_length();
+            let room = self.part - self.buffer.content_length();
             if bytes.len() < room {
                 self.buffer.push(bytes);
                 return Ok(());
@@ -388,5 +404,53 @@ impl BlobWriter for ObjectWriter {
             Some(upload) => upload.abort().await,
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// The bytes written so far to the files a blob under `name` in `dir` is staged in.
+    fn staged(dir: &LocalPath, name: &str) -> u64 {
+        std::fs::read_dir(dir)
+            .expect("listed")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{name}#"))
+            })
+            .filter_map(|entry| entry.metadata().ok())
+            .map(|metadata| metadata.len())
+            .sum()
+    }
+
+    #[tokio::test]
+    async fn on_local_disk_a_blob_goes_to_its_file_a_small_part_at_a_time() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let blobs = ObjectBlobs::local(dir.path()).expect("a store");
+        let mut writer = blobs.create("blob").await.expect("created");
+
+        // A part's worth, and a little more: the part goes to the file being written, rather
+        // than waiting in memory for more.
+        writer
+            .write(Bytes::from(vec![7u8; LOCAL_PART_BYTES + 10]))
+            .await
+            .expect("written");
+        let on_disk = tokio::time::timeout(Duration::from_secs(5), async {
+            while staged(dir.path(), "blob") < LOCAL_PART_BYTES as u64 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(on_disk.is_ok(), "the part stayed in memory");
+
+        writer.finish().await.expect("finished");
+        let read = blobs.read("blob", None).await.expect("read");
+        assert_eq!(read.size, LOCAL_PART_BYTES as u64 + 10);
     }
 }

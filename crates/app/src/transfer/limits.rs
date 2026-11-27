@@ -20,6 +20,10 @@ pub struct Limits {
     pub max_depth: usize,
     /// The most pages one import makes, folders included.
     pub max_pages: usize,
+    /// The most nodes, as [`neon_blocks::nodes`] counts them, the pages of one import make
+    /// together: what writing their documents takes, in time and in memory, grows with them.
+    /// Each page's makes at most what a page's content is written with at once, too.
+    pub max_nodes: usize,
     /// The most pages one export holds, rows of databases aside.
     pub max_export_pages: usize,
     /// The most rows of databases one export holds besides its pages: by default as many
@@ -41,9 +45,14 @@ pub struct Limits {
     /// How many imports and exports run at once on the server, once their file is
     /// uploaded; one more is refused until one ends.
     pub parallel: usize,
-    /// How many imports and exports one person runs at once, an import's upload included;
-    /// one more is refused until one ends.
+    /// How many imports and exports one person runs at once, an import's upload included,
+    /// their agents' with theirs; one more is refused until one ends. An export runs until
+    /// its file is sent whole.
     pub per_user: usize,
+    /// How long an export keeps its place among [`parallel`](Self::parallel) once its file
+    /// is made, while it is sent: past that, a client that reads it slowly holds only its
+    /// person's turn, so a few slow readers cannot take every place.
+    pub place_while_sent: Duration,
 }
 
 impl Default for Limits {
@@ -55,6 +64,7 @@ impl Default for Limits {
             max_entries: 2000,
             max_depth: 32,
             max_pages: 1000,
+            max_nodes: 500_000,
             max_export_pages: 5000,
             max_export_rows: neon_domain::databases::MAX_ROWS,
             export_rows_at_once: 250,
@@ -64,6 +74,7 @@ impl Default for Limits {
             time_limit: Duration::from_secs(20),
             parallel: 4,
             per_user: 2,
+            place_while_sent: Duration::from_secs(60),
         }
     }
 }

@@ -91,7 +91,8 @@ pub struct DatabaseView {
 pub struct RowView {
     pub id: Uuid,
     /// Its database; `None` for someone who sees the row only through its own share, as
-    /// its page leaves out the page above it then.
+    /// its page leaves out the page above it then. They see none of the database's
+    /// properties either: the row's values are its title's alone.
     pub database_id: Option<Uuid>,
     /// Its number in the database.
     pub number: i64,
@@ -407,7 +408,9 @@ pub(crate) struct StoredRow<'a> {
     pub(crate) cells: &'a Json,
 }
 
-/// A row as the caller sees it. `members_hidden` leaves out the people its values name.
+/// A row as the caller sees it. `members_hidden` leaves out the people its values name;
+/// without `database_id`, for someone who does not see the database, its values are its
+/// title's alone.
 pub(crate) fn row_view(
     schema: &Schema,
     database_id: Option<Uuid>,
@@ -420,6 +423,13 @@ pub(crate) fn row_view(
         number,
         cells,
     } = stored;
+    let title_only;
+    let schema = if database_id.is_some() {
+        schema
+    } else {
+        title_only = schema.title_only();
+        &title_only
+    };
     let prefix = schema.unique_id().and_then(|property| property.ty.prefix());
     let mut row = domain_row(schema, page, number, cells);
     if members_hidden {

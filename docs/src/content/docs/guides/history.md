@@ -169,9 +169,10 @@ deeper: as markdown, as plain text, which `before_text` and `after_text` hold, a
 type as BlockNote names it, in `kind`. A version of another page, or of none, answers `404
 not_found`, a database `400 invalid_input`, and every route `403 forbidden` to those who
 only view the page. A restore answers as an edit of the page's content does: `409
-edit_conflict` when the page changed since `base`, and `429 rate_limited` past the edits a
-user may make. Restores also count on their own, 10 at once, then one every 30 seconds, as
-each keeps a whole copy of the page.
+edit_conflict` when the page changed since `base`, `400 edit_refused` when writing the version
+into the page would take the server longer than a second, as on a page that lost many
+blocks, and `429 rate_limited` past the edits a user may make. Restores also count on their
+own, 10 at once, then one every 30 seconds, as each keeps a whole copy of the page.
 
 [Agents over MCP](/docs/guides/agents-over-mcp/#pages) list a page's versions with
 `list_versions` and read one with `read_page` and its `version_id`.

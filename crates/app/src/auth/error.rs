@@ -64,6 +64,12 @@ pub enum AuthError {
     InviteEmailOff,
     #[error("requests to join are off here")]
     RequestsOff,
+    /// As many confirmed requests to join wait for the admins as may at once.
+    #[error(
+        "too many requests to join are waiting for the admins: open the link again later, \
+         while it works"
+    )]
+    RequestsFull,
     /// With what is missing, for admins; the forms anyone can send say only that.
     #[error("mail is not set up{}", .0.as_deref().map(|why| format!(": {why}")).unwrap_or_default())]
     MailNotSetUp(Option<String>),
@@ -73,6 +79,9 @@ pub enum AuthError {
     LastAdmin,
     #[error("too many attempts: try again in {}", duration::format(*retry_after))]
     RateLimited { retry_after: Duration },
+    /// Every turn to check a password was taken for longer than a request waits.
+    #[error("the server is checking too many passwords at once: try again in a moment")]
+    Busy,
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("{0}")]
@@ -80,6 +89,9 @@ pub enum AuthError {
 }
 
 impl AuthError {
+    /// When to try again after [`Busy`](Self::Busy).
+    pub const BUSY_RETRY: Duration = Duration::from_secs(1);
+
     /// A stable code for programs, as the API's error shape carries it.
     pub fn code(&self) -> &'static str {
         match self {
@@ -103,10 +115,12 @@ impl AuthError {
             Self::PasswordResetOff => "password_reset_off",
             Self::InviteEmailOff => "invite_email_off",
             Self::RequestsOff => "requests_off",
+            Self::RequestsFull => "requests_full",
             Self::MailNotSetUp(_) => "mail_not_set_up",
             Self::NotFound(_) => "not_found",
             Self::LastAdmin => "last_admin",
             Self::RateLimited { .. } => "rate_limited",
+            Self::Busy => "busy",
             Self::Database(_) | Self::Internal(_) => "internal",
         }
     }

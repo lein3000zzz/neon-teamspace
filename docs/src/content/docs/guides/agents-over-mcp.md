@@ -335,7 +335,8 @@ the page once, and a text found twice answers `edit_refused` saying how many tim
 People edit a page while an agent thinks about it, and an agent takes seconds or minutes
 between reading a page and writing to it. `replace_range` and `replace_body` remove the
 blocks they do not keep, so made from a stale read they would remove what someone added or
-changed since, and the page keeps no history yet to bring it back from. So:
+changed since, which only a restore from the page's [history](/docs/guides/history/) would
+bring back. So:
 
 - `read_page`, the page resource and `GET /api/v1/pages/{id}/markdown` answer the
   `revision` of what they show, which changes whenever it does.
@@ -365,7 +366,15 @@ the blocks under it are written anew after it.
 A page always keeps a block, so removing every one leaves an empty paragraph. A request
 holds at most 2 MiB, its markdown included, so large content goes in several `append`
 operations, each in a call of its own. A page holds at
-most 16 MiB, and an edit past that answers `document_too_large`. The server weighs what
+most 16 MiB, and an edit past that answers `document_too_large`, as does markdown, an edit's
+or `create_page`'s, that makes more than 100,000 blocks, table rows and cells, runs of text,
+line breaks and mentions: the server counts them before it writes any. Writing blocks far
+into a long page takes the server time for every block before the place, so one edit's
+writes may pass at most 4 million blocks in all, counted once for each block written: 2000
+blocks appended to a page of 2000 do, and are refused with `edit_refused`, while the same
+blocks in two edits, or nearer the top, go in. Blocks removed from a page count as well, as
+the server passes them too, so an edit whose writes would take longer than a second is
+refused the same way, before anything changes. The server weighs what
 `find_replace` would add before it adds any of it, so replacements that would grow the page
 past that are refused at once. Markdown, an edit's or `create_page`'s, nests blocks at most
 32 levels deep, as [Page documents](/docs/architecture/documents/) describes; deeper answers

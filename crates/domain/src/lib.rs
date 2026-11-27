@@ -16,6 +16,7 @@ pub mod history;
 pub mod hue;
 pub mod jobs;
 pub mod mail;
+pub mod network;
 pub mod notifications;
 pub mod oauth;
 pub mod pages;
