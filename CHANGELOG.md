@@ -20,8 +20,8 @@ releases will be measured against, and calls out when they change:
 - The REST API under `/api/v1`, described by `api/openapi.json` and served at
   `/api/v1/openapi.json`. Every error is `{"error": {"code", "message"}}`, and `code` is the
   stable part.
-- Token prefixes: `nw_` for API tokens, `nwo_` for OAuth access tokens, `nwh_` in incoming
-  webhooks' URLs and `whsec_` for webhook signing secrets.
+- Token prefixes: `nw_` for API tokens, `nwo_` and `nwr_` for OAuth access and refresh
+  tokens, `nwh_` in incoming webhooks' URLs and `whsec_` for webhook signing secrets.
 - Version 1 of the outgoing webhook payload and of the incoming webhook payload, and the
   `Neon-Webhook-Signature` scheme, `v1=` and an HMAC-SHA256.
 - The MCP server's 23 tools and its `neon://` resources.
@@ -49,9 +49,9 @@ releases will be measured against, and calls out when they change:
   transaction; `database.auto_migrate: false` leaves them to `neon migrate`. (#3)
 - Secrets the database keeps, invite codes' copies, secret settings, queued mail and
   webhooks' signing secrets, are sealed with the keys of `secrets.keys`, which rotate. (#11)
-- Logs as JSON or pretty text with trace ids, Prometheus metrics, OpenTelemetry traces over
-  OTLP/HTTP, CPU and heap profiles to pull or push, all on an internal admin listener with
-  `/livez` and `/readyz`, and an ordered shutdown on SIGTERM. (#2, #6)
+- Logs as JSON or pretty text with trace ids, OpenTelemetry traces over OTLP/HTTP, and CPU
+  and heap profiles to pull or push; Prometheus metrics, pulled profiles, `/livez` and
+  `/readyz` on an internal admin listener; and an ordered shutdown on SIGTERM. (#2, #6)
 - A Postgres job queue for mail, webhook deliveries and notification mail, queued in the same
   transaction as the change that causes them and retried with backoff. (#3, #11, #30, #39)
 - Docs at `/docs`, with the API reference generated from the server, and pages on
@@ -99,8 +99,9 @@ releases will be measured against, and calls out when they change:
 - Full-text search of pages, databases, rows and comments, with Postgres's `simple`
   configuration and `pg_trgm`, among what the searcher may see. (#40)
 - Comments on whole pages and on passages, replies, resolving, mentions of people, agents and
-  pages, and an inbox, live in the app. Notification mail, each, batched or as a digest, once
-  an admin turns `notifications.mail` on. (#39)
+  pages, and an inbox, live in the app. Notification mail once an admin turns
+  `notifications.mail` on: a mail for each notification left unread, with those close
+  together in one, or a digest, as each person chooses. (#39)
 - Attachments: images, video, audio and other files in pages, and image covers, kept on local
   disk or in an S3-compatible store, within each workspace's storage limit. (#41)
 
