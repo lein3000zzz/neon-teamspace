@@ -4,7 +4,7 @@ use neon_domain::auth::EmailTokenPurpose;
 use neon_domain::auth::email::normalize;
 use neon_domain::auth::email_token::MAX_LINK_TOKEN;
 use neon_domain::settings::Secret;
-use neon_store::{email_tokens, sessions, users};
+use neon_store::{api_tokens, email_tokens, oauth, sessions, users};
 use tracing::{info, warn};
 
 use super::verification::recipient;
@@ -65,9 +65,12 @@ impl AuthService {
     }
 
     /// Sets the password of the account a mailed link is for, and returns its address for
-    /// the sign-in form. The link works once. It verifies the address, signs the account
-    /// out of every session, and the account is told by mail, queued with the change. A
-    /// weak password leaves the link working.
+    /// the sign-in form. The link works once. It verifies the address, and signs the account
+    /// out everywhere: every session ends, every API token of its own is revoked, and every
+    /// app it connected over OAuth, as itself or as one of its agents, is disconnected, so
+    /// whoever knew the old password keeps nothing it made with it. The tokens of its agents
+    /// stay, as they work for their workspaces. The account is told by mail, queued with the
+    /// change. A weak password leaves the link working.
     pub async fn reset_password(
         &self,
         token: &Secret,
@@ -109,11 +112,25 @@ impl AuthService {
             users::set_email_verified(&mut *tx, user_id, now).await?;
             email_tokens::use_all(&mut *tx, user_id, EmailTokenPurpose::Reset, now).await?;
             let ended = sessions::delete_for_user(&mut *tx, user_id, None).await?;
+            let revoked = api_tokens::delete_for_user(&mut *tx, user_id).await?;
+            let mut disconnected = oauth::delete_grants_of_person(&mut *tx, user_id).await?;
             self.tell_password_changed(&mut tx, &user, now).await?;
             tx.commit().await?;
-            info!(%user_id, ip, sessions_ended = ended, "password reset");
-            if ended > 0 {
-                self.ended(user_id);
+            info!(
+                %user_id,
+                ip,
+                sessions_ended = ended,
+                tokens_revoked = revoked,
+                apps_disconnected = disconnected.len(),
+                "password reset"
+            );
+            // Whom the apps acted as: the account, or its agents, whose connections look
+            // again at the grant they came with.
+            disconnected.push(user_id);
+            disconnected.sort_unstable();
+            disconnected.dedup();
+            for identity in disconnected {
+                self.ended(identity);
             }
             Ok(user.address().to_owned())
         })

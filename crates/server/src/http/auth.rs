@@ -341,8 +341,10 @@ pub struct ResetPasswordRequest {
     path = "/auth/password-reset/confirm",
     tag = "auth",
     summary = "Set a new password with a mailed link",
-    description = "The link works once. It verifies the address and signs the account out of \
-                   every session, but signs nobody in.",
+    description = "The link works once. It verifies the address and signs the account out \
+                   everywhere: its sessions end, its API tokens are revoked and the apps it \
+                   connected over OAuth, as itself or as one of its agents, are disconnected. \
+                   Its agents' own tokens stay. It signs nobody in.",
     request_body = ResetPasswordRequest,
     responses(
         (status = OK, description = "The password is set.", body = Verified),

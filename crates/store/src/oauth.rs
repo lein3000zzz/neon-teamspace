@@ -257,6 +257,20 @@ pub async fn delete_grants_of_user(
     Ok(result.rows_affected())
 }
 
+/// Deletes every grant `person_id` consented to, whether it acts as them or as one of their
+/// agents, with its codes and tokens, and gives whom each acted as.
+pub async fn delete_grants_of_person(
+    executor: impl PgExecutor<'_>,
+    person_id: Uuid,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "DELETE FROM oauth_grants WHERE person_id = $1 RETURNING user_id",
+        person_id
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Removes the grants nothing can use any more, none of their codes or tokens unexpired at
 /// `now`, last consented to before `before`, and says how many.
 pub async fn delete_spent_grants(

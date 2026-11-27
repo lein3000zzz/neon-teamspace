@@ -124,9 +124,14 @@ With `auth.password_reset` on, the sign-in page can ask for a link that sets a n
 account, and mails nothing to a disabled one. The link works once, for an hour, with the
 same limit of one a minute and five a day.
 
-Setting the new password verifies the address, signs the account out of every session, and
-mails the account that its password changed. A password the rules refuse leaves the link
-working, to try again.
+Setting the new password verifies the address, signs the account out everywhere, and mails
+the account that its password changed. Signing out everywhere ends every session, revokes
+every API token of the account's own, and disconnects every app connected to it over OAuth,
+whether the app acts as the account or as one of its agents, so whoever knew the old
+password keeps nothing they made with it. The tokens made for the account's agents stay, as
+they work for their workspaces: after a reset because someone else knew the password, revoke
+those in each agent's settings too. A password the rules refuse leaves the link working, to
+try again.
 
 ## Passwords
 
@@ -136,6 +141,8 @@ keep working.
 
 Changing a password with `POST /api/v1/account/password` needs the current one and a browser
 session. It signs out every other session and mails the account that its password changed.
+API tokens and connected apps keep working: revoke them under **Account**, or reset the
+password by mail, which ends them all.
 
 ## Sessions
 
