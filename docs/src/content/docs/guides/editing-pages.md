@@ -114,7 +114,8 @@ menu of blocks, or the usual markdown shortcuts, such as `#` and a space for a h
 `-` and a space for a list. **Database**, in that menu, makes a database inside the page, with
 its views shown where it was typed; see [Inside a
 page](/docs/guides/databases-and-boards/#inside-a-page). Select text for its formatting toolbar. The handle beside a block
-drags it or opens its menu.
+drags it or opens its menu. On a touch screen, a toolbar above the keyboard does both; see
+[On a phone or a tablet](#on-a-phone-or-a-tablet).
 
 Everyone with the page open edits the same document at once. Each change reaches the
 others as it is made, and each person's cursor shows to the others in that person's own
@@ -197,10 +198,43 @@ for good** asks first, then deletes the page and everything under it, for everyo
 days in the trash, or the time `pages.trash_retention` sets, the server deletes a page
 itself.
 
-## On a phone
+## On a phone or a tablet
 
-Everything above works on a phone. The sidebar is a drawer, every row's buttons show, and
-each control is a full touch target. Pages do not drag on a touch screen: **Move to…**,
-**Move up** and **Move down** do the same. The editor works with the phone's keyboard, but
-its block handles and menus assume a mouse; a toolbar above the keyboard for editing on a
-phone is **planned**.
+Everything above works on a touch screen. The sidebar is a drawer on a phone, every row's
+buttons show, and each control is a full touch target, 44 pixels or more. Pages do not drag
+on a touch screen: **Move to…**, **Move up** and **Move down** do the same.
+
+### The editing toolbar
+
+Where a finger is the main pointer, the editor has no block handles to hover and no toolbar
+that follows a selection. Instead, while you edit, a toolbar sits along the bottom of the
+screen, on top of the keyboard, and the line you type on scrolls to stay above it. It is
+there in phone and tablet browsers and in the apps alike. Its buttons, from the left:
+
+| Button | What it does |
+|---|---|
+| **Block type** | Names the type of the block the cursor is in, and turns it, or every block selected, into text, a heading of level 1 to 3, a bulleted, numbered or to-do list, a quote or code. |
+| **Bold**, **Italic**, **Strikethrough**, **Code** | Formats the text selected, or what you type next. Each shows pressed while it is on. |
+| **Link** | With text selected, asks for an address and links it; in a link, changes its address or, with **Remove link**, takes it away. An address without `https://` gets it. |
+| **Indent**, **Outdent** | Nests the block under the one before it, or takes it back out. |
+| **Insert** | **Mention** opens the menu `@` opens, **Image** and **File** pick one on the device and upload it into a new block, **Divider** adds a line, and **Other blocks** opens the menu `/` opens. |
+| **Block menu** | **Move up** and **Move down** move the block past its neighbours, or out of the block it is nested in. **Turn into** changes its type, **Duplicate** puts a copy after it, and **Delete** deletes it. On an image, a video, audio or a file, **Replace file** picks another or links one, **Download** opens it in a new tab, and **Caption** writes its caption. |
+| **Comment** | Starts a [comment](/docs/guides/comments-and-mentions/#in-the-web-app) on the text selected. |
+| **Undo**, **Redo** | Undoes your last change, or puts it back. |
+| **Done editing** | Puts the keyboard away, and the toolbar with it. |
+
+**Block type**, **Insert** and **Block menu** open a row of their own in the toolbar's place;
+**Back** returns to the first. The toolbar scrolls sideways where the screen is too narrow for
+all of it. Taps on it leave the cursor, and so the keyboard, where they were.
+
+Select text as the phone does, with a long press and the handles; the toolbar's buttons then
+work on the selection. The menus `/` and `@` open, typed or from **Insert**, stay above the
+toolbar and the keyboard; type to narrow them, and tap an item to pick it.
+A to-do's checkbox takes a tap anywhere across its line's height and the margin before it.
+
+The toolbar follows the part of the page the screen shows, with the browser's
+[VisualViewport API](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport), so it
+sits on the keyboard whether the browser lays the keyboard over the page, as iOS does, or
+shrinks the page for it, as Android can, and keeps its size when you zoom in. A tablet with a
+mouse or a trackpad, whose main pointer is precise, gets the block handles and the formatting
+toolbar instead.

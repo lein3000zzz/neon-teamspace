@@ -45,6 +45,7 @@ import { HueDot } from "@/components/nodes/hue-dot";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
+import { COARSE_QUERY, useMediaQuery } from "@/lib/media";
 import { titleOf } from "@/lib/page-tree";
 import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
@@ -65,6 +66,7 @@ import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
 import { EditorPageContext, useEditorPage, type EditorPage } from "./editor-page";
 import { formattingToolbarOptions, suggestionMenuOptions } from "./floating";
+import { MobileToolbar } from "./mobile-toolbar";
 import { FileDownloadApart, LinkToolbarApart, openClickedLink } from "./open-apart";
 import { pasteFits } from "./paste";
 import { schema } from "./schema";
@@ -220,6 +222,10 @@ function LiveEditor({
   onOpened,
 }: LiveEditorProps) {
   const { mode } = useTheme();
+  // A touch screen has no pointer to hover a block's handle or select with: a
+  // toolbar above the keyboard does what the side menu and the formatting
+  // toolbar do with a mouse.
+  const touch = useMediaQuery(COARSE_QUERY);
   const workspace = useWorkspace();
   const queryClient = useQueryClient();
   const createDatabase = useCreateDatabase(workspace.id);
@@ -513,6 +519,7 @@ function LiveEditor({
           slashMenu={false}
           formattingToolbar={false}
           linkToolbar={false}
+          sideMenu={!touch}
         >
           <SuggestionMenuController
             triggerCharacter="/"
@@ -524,10 +531,14 @@ function LiveEditor({
             getItems={mentionItems}
             floatingUIOptions={suggestionMenuOptions}
           />
-          <FormattingToolbarController
-            formattingToolbar={ToolbarWithComment}
-            floatingUIOptions={toolbarOptions}
-          />
+          {touch ? (
+            <MobileToolbar editor={asSchemaless(editor)} />
+          ) : (
+            <FormattingToolbarController
+              formattingToolbar={ToolbarWithComment}
+              floatingUIOptions={toolbarOptions}
+            />
+          )}
           <LinkToolbarController linkToolbar={LinkToolbarApart} />
         </BlockNoteView>
       </EditorPageContext>
