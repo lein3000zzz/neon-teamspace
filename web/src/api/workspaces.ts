@@ -307,6 +307,7 @@ export function useJoinWithLink() {
       call(api.POST("/api/v1/workspace-invite-links/join", { body: { token } })),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+      void queryClient.invalidateQueries({ queryKey: keys.inbox });
       return queryClient.invalidateQueries({ queryKey: keys.workspaces });
     },
   });
@@ -328,6 +329,7 @@ export const myInvitationsQuery = queryOptions({
 function forgetEnded(queryClient: QueryClient, error: unknown) {
   if (hasCode(error, "not_found", "already_member")) {
     void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+    void queryClient.invalidateQueries({ queryKey: keys.inbox });
   }
 }
 
@@ -341,6 +343,7 @@ export function useAcceptInvitation() {
     mutationFn: (id: string) => call(api.POST("/api/v1/account/invitations/{id}/accept", path(id))),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+      void queryClient.invalidateQueries({ queryKey: keys.inbox });
       void queryClient.invalidateQueries({ queryKey: keys.workspaces });
     },
     onError: (error) => forgetEnded(queryClient, error),
@@ -354,6 +357,7 @@ export function useDeclineInvitation() {
       send(api.POST("/api/v1/account/invitations/{id}/decline", path(id))),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.myInvitations });
+      void queryClient.invalidateQueries({ queryKey: keys.inbox });
     },
     onError: (error) => forgetEnded(queryClient, error),
   });

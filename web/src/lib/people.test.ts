@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@/api/agents";
 import type { Member } from "@/api/workspaces";
-import { actsForOwner, assignable, attribution, peopleById } from "./people";
+import { actsForOwner, assignable, attribution, attributionInSentence, peopleById } from "./people";
 
 const ada = { id: "a", kind: "human", display_name: "Ada", hue: 1 } as const;
 const owner = { id: "a", display_name: "Ada", hue: 1 };
@@ -28,6 +28,11 @@ describe("naming people and agents", () => {
     expect(
       attribution({ id: "s", kind: "agent", display_name: "Scout", hue: 2, owner, deleted: true }),
     ).toBe("Scout · via Ada (deleted)");
+    // Inside a sentence, as notification mail says it.
+    expect(
+      attributionInSentence({ ...ada, id: "s", kind: "agent", display_name: "Scout", owner }),
+    ).toBe("Scout via Ada");
+    expect(attributionInSentence(ada)).toBe("Ada");
     expect(actsForOwner(ada)).toBe(false);
     expect(actsForOwner({ kind: "integration" })).toBe(true);
   });

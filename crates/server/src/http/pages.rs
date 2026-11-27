@@ -27,8 +27,10 @@ use super::principal::Authenticated;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageAccess {
-    /// Read it and the pages under it.
+    /// Read it and the pages under it, and their comments.
     View,
+    /// Also comment on it.
+    Comment,
     /// Also change it, add pages under it, move it and trash it.
     Edit,
 }
@@ -37,13 +39,14 @@ impl From<domain::PageAccess> for PageAccess {
     fn from(access: domain::PageAccess) -> Self {
         match access {
             domain::PageAccess::View => Self::View,
+            domain::PageAccess::Comment => Self::Comment,
             domain::PageAccess::Edit => Self::Edit,
         }
     }
 }
 
 /// What a page is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PageKind {
     /// A document of blocks, which may have subpages.
@@ -53,6 +56,16 @@ pub enum PageKind {
     /// A row of the database it is under: a document of blocks with the database's
     /// properties; see `/rows/{id}`.
     Row,
+}
+
+impl From<PageKind> for domain::PageKind {
+    fn from(kind: PageKind) -> Self {
+        match kind {
+            PageKind::Page => Self::Page,
+            PageKind::Database => Self::Database,
+            PageKind::Row => Self::Row,
+        }
+    }
 }
 
 impl From<domain::PageKind> for PageKind {
@@ -239,6 +252,9 @@ pub struct Page {
     pub title: String,
     pub icon: Option<String>,
     pub cover: Option<Cover>,
+    /// An image uploaded to the page, shown as its cover in place of `cover`, whose bytes
+    /// are at `/api/v1/files/{cover_image}`.
+    pub cover_image: Option<Uuid>,
     pub style: PageStyle,
     pub access: PageAccess,
     /// Absent for guests, as are `last_edited_by` and `trashed_by`.
@@ -277,6 +293,7 @@ impl From<PageView> for Page {
             title: page.title,
             icon: page.icon,
             cover: page.cover.map(Into::into),
+            cover_image: page.cover_image,
             style: PageStyle {
                 font: page.style.font.into(),
                 small_text: page.style.small_text,
@@ -436,10 +453,15 @@ pub struct UpdatePage {
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<String>)]
     pub icon: Option<Option<String>>,
-    /// Null removes it.
+    /// Null removes it. Setting it takes `cover_image` off.
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Cover>)]
     pub cover: Option<Option<Cover>>,
+    /// An image uploaded to the page, with `kind=image`, to show as its cover; null removes
+    /// it. Setting it takes `cover` off.
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Uuid>)]
+    pub cover_image: Option<Option<Uuid>>,
     #[serde(default)]
     pub style: StyleChange,
 }
@@ -454,7 +476,7 @@ pub struct UpdatePage {
     request_body = UpdatePage,
     responses(
         (status = OK, description = "The page.", body = Page),
-        (status = BAD_REQUEST, description = "invalid_input.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: a title or icon out of bounds, both covers at once, or a cover_image that is not an image uploaded to the page.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views it and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),
@@ -472,6 +494,7 @@ pub(super) async fn update_page(
         title: body.title,
         icon: body.icon,
         cover: body.cover.map(|cover| cover.map(Into::into)),
+        cover_image: body.cover_image,
         font: body.style.font.map(Into::into),
         small_text: body.style.small_text,
         full_width: body.style.full_width,

@@ -6,6 +6,7 @@ mod admin;
 mod admin_workspaces;
 mod agents;
 mod auth;
+pub(crate) mod comments;
 pub(crate) mod content;
 mod database_live;
 pub(crate) mod database_rows;
@@ -14,7 +15,11 @@ pub(crate) mod dto;
 mod error;
 mod extract;
 mod favorites;
+mod files;
+pub(crate) mod history;
 mod hooks;
+pub(crate) mod inbox;
+mod inbox_live;
 mod incoming_webhooks;
 mod meta;
 mod oauth;
@@ -22,6 +27,7 @@ mod openapi;
 mod page_shares;
 pub(crate) mod pages;
 pub(crate) mod principal;
+pub(crate) mod search;
 mod sync;
 pub(crate) mod teamspaces;
 mod transfer;
@@ -35,16 +41,21 @@ use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Request};
+use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::http::StatusCode;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
+use neon_app::attachments::{AttachmentService, UPLOAD_TIME_LIMIT};
 use neon_app::auth::AuthService;
+use neon_app::comments::CommentService;
 use neon_app::databases::{DatabaseService, LiveDatabases};
+use neon_app::history::HistoryService;
+use neon_app::notifications::{InboxFeeds, InboxService};
 use neon_app::oauth::OAuthService;
 use neon_app::pages::PageService;
+use neon_app::search::SearchService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
@@ -81,9 +92,15 @@ pub struct AppState {
     pub oauth: OAuthService,
     pub pages: PageService,
     pub sync: SyncService,
+    pub history: HistoryService,
+    pub search: SearchService,
     pub databases: DatabaseService,
     pub live: LiveDatabases,
+    pub comments: CommentService,
+    pub inbox: InboxService,
+    pub inbox_feeds: InboxFeeds,
     pub transfer: TransferService,
+    pub attachments: AttachmentService,
     pub webhooks: WebhookService,
     pub web: Arc<WebConfig>,
     pub mcp: crate::mcp::Mcp,
@@ -118,6 +135,15 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(account::list_my_invitations))
         .routes(routes!(account::accept_invitation))
         .routes(routes!(account::decline_invitation))
+        .routes(routes!(
+            inbox::get_notification_settings,
+            inbox::put_notification_settings
+        ))
+        .routes(routes!(inbox::list_inbox))
+        .routes(routes!(inbox::inbox_count))
+        .routes(routes!(inbox::mark_all_read))
+        .routes(routes!(inbox::change_notification))
+        .routes(routes!(inbox::unsubscribe))
         .routes(routes!(admin::list_users, admin::create_user))
         .routes(routes!(admin::update_user))
         .routes(routes!(admin::send_verification))
@@ -169,6 +195,7 @@ fn api() -> OpenApiRouter<AppState> {
             agents::delete_agent
         ))
         .routes(routes!(agents::transfer_agent))
+        .routes(routes!(agents::list_agent_teamspaces))
         .routes(routes!(
             agents::list_agent_tokens,
             agents::create_agent_token
@@ -236,7 +263,22 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(pages::restore_page))
         .routes(routes!(pages::page_breadcrumbs))
         .routes(routes!(content::get_markdown, content::edit_markdown))
+        .routes(routes!(history::list_versions))
+        .routes(routes!(history::get_version))
+        .routes(routes!(history::compare_version))
+        .routes(routes!(history::restore_version))
+        .routes(routes!(comments::list_comments, comments::start_thread))
+        .routes(routes!(comments::list_thread_comments, comments::reply))
+        .routes(routes!(
+            comments::get_thread,
+            comments::change_thread,
+            comments::delete_thread
+        ))
+        .routes(routes!(comments::edit_comment, comments::delete_comment))
+        .routes(routes!(comments::follow_page))
+        .routes(routes!(comments::mention_candidates))
         .routes(routes!(pages::recent_pages))
+        .routes(routes!(search::search_workspace))
         .routes(routes!(pages::teamspace_pages))
         .routes(routes!(pages::private_pages))
         .routes(routes!(pages::shared_pages))
@@ -277,6 +319,13 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(database_rows::list_tasks))
         .routes(routes!(transfer::export_page))
         .routes(routes!(transfer::export_teamspace))
+        .routes(routes!(files::read_file))
+        // An upload streams, its largest file bounding it as it comes.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(files::upload_file))
+                .layer(files::upload_body_limit()),
+        )
         // Uploads are larger than the bodies of other routes.
         .merge(
             OpenApiRouter::new()
@@ -314,6 +363,7 @@ fn api() -> OpenApiRouter<AppState> {
             "/ws/databases/{database_id}",
             get(database_live::follow_database),
         )
+        .route("/ws/inbox", get(inbox_live::follow_inbox))
         .route("/hooks/in/{token}", post(hooks::receive_hook))
         // MCP speaks JSON-RPC over Streamable HTTP; the docs describe its tools and
         // resources.
@@ -334,8 +384,10 @@ struct Limits {
     /// The largest body an extractor reads. Larger ones are refused with 413.
     body: usize,
     /// How long a handler may take to answer. Responses that stream, like server-sent
-    /// events, are only bound until their headers are sent.
+    /// events and files, are only bound until their headers are sent.
     timeout: Duration,
+    /// How long an upload of a file may take, its body included.
+    upload: Duration,
 }
 
 impl Default for Limits {
@@ -343,6 +395,7 @@ impl Default for Limits {
         Self {
             body: 2 * 1024 * 1024,
             timeout: Duration::from_secs(30),
+            upload: UPLOAD_TIME_LIMIT,
         }
     }
 }
@@ -386,7 +439,16 @@ fn app(
                 .layer(SetSensitiveResponseHeadersLayer::new([SET_COOKIE]))
                 .layer(CatchPanicLayer::custom(error::panicked))
                 .layer(middleware::from_fn(move |request: Request, next: Next| {
-                    time_limit(limits.timeout, request, next)
+                    let uploads = request
+                        .extensions()
+                        .get::<MatchedPath>()
+                        .is_some_and(|path| path.as_str() == files::UPLOAD_ROUTE);
+                    let timeout = if uploads {
+                        limits.upload
+                    } else {
+                        limits.timeout
+                    };
+                    time_limit(timeout, request, next)
                 }))
                 // Around the routes' methods and the fallback that refuses the others, so
                 // that it answers the preflights of OAuth's endpoints for clients.
@@ -434,9 +496,15 @@ mod agents_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod comments_tests;
+#[cfg(test)]
 mod content_tests;
 #[cfg(test)]
 mod databases_tests;
+#[cfg(test)]
+mod files_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod incoming_tests;
 #[cfg(test)]
@@ -445,6 +513,8 @@ mod mcp_tests;
 mod oauth_tests;
 #[cfg(test)]
 mod pages_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

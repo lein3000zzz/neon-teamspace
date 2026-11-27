@@ -8,15 +8,19 @@
 //!   zip each markdown file is one and each folder holding some is one too, a folder and a
 //!   markdown file of its name beside it being the same page. A file's first heading, or
 //!   else its name, is the title. The pages are made in one transaction, each with its
-//!   markdown, as blocks, for the first snapshot of its document. Other files of a zip are
-//!   left out, and the answer lists them.
+//!   markdown, as blocks, for the first snapshot of its document. Other files of a zip that
+//!   a page's blocks or the links of its text lead to by a relative path become files of
+//!   the first page that shows them, as uploads do, their links the files' paths; the rest
+//!   are left out, and the answer lists them.
 //! - **Exporting** writes a page's markdown file, its title as its first heading; a zip of a
 //!   page's file and those of the pages under it, each page's in the folder of the page it
 //!   is under; or a zip of a teamspace's pages. Content comes from the live document when
 //!   the page is open, else from what is saved. A database's file ends with a table of its
 //!   rows, their titles and the properties its first view shows; in a zip, each row is a
 //!   file of its own in the database's folder, its properties listed under its title, the
-//!   rows read whole a batch at a time.
+//!   rows read whole a batch at a time. In a zip, the files a page's blocks show, or its
+//!   text links to, that the caller may read go in the page's folder, its links to them
+//!   made relative.
 //! - **Limits** bound everything: the upload, what a zip unpacks to, its entries and how
 //!   deep they go, the pages one import makes and the pages and rows one export holds, the
 //!   time each takes, and how many run at once, on the server and for each person; see
@@ -50,6 +54,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{Instrument as _, info, info_span, warn};
 use uuid::Uuid;
 
+use crate::attachments::{AttachmentError, AttachmentService, Prepared, shown_files};
 use crate::databases::{DatabaseService, ExportRow};
 use crate::pages::{Location, OutlinePage, PageService, PageView};
 use crate::ratelimit::{Bucket, MemoryLimiter, RateLimiter};
@@ -74,8 +79,12 @@ pub struct Upload {
 /// Why a file of a zip was not imported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
-    /// Not a markdown file, such as an image: attachments are not imported yet.
+    /// Not a markdown file, such as an image, and no page links to it.
     Attachment,
+    /// A file a page links to whose type its block does not take.
+    UnsupportedType,
+    /// A file a page links to that is larger than an upload may be.
+    TooLarge,
     /// Hidden: its name, or a folder's it is in, starts with a dot.
     Hidden,
     /// A symbolic link.
@@ -95,6 +104,8 @@ impl SkipReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Attachment => "attachment",
+            Self::UnsupportedType => "unsupported_type",
+            Self::TooLarge => "too_large",
             Self::Hidden => "hidden",
             Self::Link => "link",
             Self::Encrypted => "encrypted",
@@ -195,6 +206,7 @@ struct Inner {
     pages: PageService,
     sync: SyncService,
     databases: DatabaseService,
+    attachments: AttachmentService,
     limiter: Arc<dyn RateLimiter>,
     limits: Limits,
     places: Arc<Semaphore>,
@@ -209,6 +221,7 @@ pub struct TransferServiceBuilder {
     pages: PageService,
     sync: SyncService,
     databases: DatabaseService,
+    attachments: AttachmentService,
     limiter: Option<Arc<dyn RateLimiter>>,
     limits: Limits,
 }
@@ -231,6 +244,7 @@ impl TransferServiceBuilder {
                 pages: self.pages,
                 sync: self.sync,
                 databases: self.databases,
+                attachments: self.attachments,
                 limiter: self
                     .limiter
                     .unwrap_or_else(|| Arc::new(MemoryLimiter::new())),
@@ -244,17 +258,20 @@ impl TransferServiceBuilder {
 }
 
 impl TransferService {
-    /// Imports and exports of `pages`, reading the content of pages through `sync` and the
-    /// rows of databases through `databases`.
+    /// Imports and exports of `pages`, reading the content of pages through `sync`, the
+    /// rows of databases through `databases`, and the files pages show through
+    /// `attachments`.
     pub fn builder(
         pages: PageService,
         sync: SyncService,
         databases: DatabaseService,
+        attachments: AttachmentService,
     ) -> TransferServiceBuilder {
         TransferServiceBuilder {
             pages,
             sync,
             databases,
+            attachments,
             limiter: None,
             limits: Limits::default(),
         }
@@ -302,26 +319,52 @@ impl TransferService {
             let deadline = Deadline::after(limits.time_limit);
             let max_document = self.inner.sync.limits().max_document;
             let work = async {
-                let (skipped, pages) = blocking(move || {
-                    let contents = archive::read(&upload, &limits, deadline)?;
-                    let pages = convert::pages(contents.entries, max_document, deadline)?;
-                    Ok((contents.skipped, pages))
+                let bytes = upload.bytes.clone();
+                let read_limits = limits.clone();
+                let (mut contents, parsed) = blocking(move || {
+                    let mut contents = archive::read(&upload, &read_limits, deadline)?;
+                    let parsed = convert::parse(std::mem::take(&mut contents.entries), deadline)?;
+                    Ok((contents, parsed))
                 })
                 .await?;
-                let imported = self
-                    .inner
-                    .pages
-                    .import_pages(
-                        &ticket.principal,
-                        ticket.workspace_id,
-                        ticket.location,
-                        pages,
-                    )
+                let links = convert::links(&parsed, &contents.files);
+                let prepared = self
+                    .import_files(&ticket, &bytes, &mut contents, links, deadline)
                     .await?;
+                let made: HashMap<String, (usize, neon_domain::attachments::File)> = prepared
+                    .iter()
+                    .map(|(link, file)| (link.path.clone(), (link.owner, file.file.clone())))
+                    .collect();
+                let imported = async {
+                    let pages =
+                        blocking(move || convert::finish(parsed, &made, max_document, deadline))
+                            .await?;
+                    Ok::<_, TransferError>(
+                        self.inner
+                            .pages
+                            .import_pages(
+                                &ticket.principal,
+                                ticket.workspace_id,
+                                ticket.location,
+                                pages,
+                            )
+                            .await?,
+                    )
+                }
+                .await;
+                let imported = match imported {
+                    Ok(imported) => imported,
+                    Err(error) => {
+                        let files: Vec<Prepared> =
+                            prepared.into_iter().map(|(_, file)| file).collect();
+                        self.inner.attachments.discard(&files).await;
+                        return Err(error);
+                    }
+                };
                 Ok(ImportReport {
                     pages: imported.pages,
                     count: imported.count,
-                    skipped,
+                    skipped: contents.skipped,
                 })
             };
             let report = deadline.bound(work).await?;
@@ -335,6 +378,90 @@ impl TransferService {
             Ok(report)
         })
         .await
+    }
+
+    /// Writes the files of an upload its pages link to to the blob store, each as a file of
+    /// the kind its first block shows, within the limits of an upload and of what an import
+    /// unpacks. A file refused for its type or size is listed as left out for that; one
+    /// imported leaves the list. Any other failure discards what was written.
+    async fn import_files(
+        &self,
+        ticket: &ImportTicket,
+        upload: &Bytes,
+        contents: &mut archive::Contents,
+        links: Vec<convert::Link>,
+        deadline: Deadline,
+    ) -> Result<Vec<(convert::Link, Prepared)>, TransferError> {
+        let attachments = &self.inner.attachments;
+        let max_file = attachments.max_file_bytes();
+        let most = u64::try_from(self.inner.limits.max_files_unpacked).unwrap_or(u64::MAX);
+        let mut made: Vec<(convert::Link, Prepared)> = Vec::new();
+        let mut unpacked: u64 = 0;
+        let written = async {
+            for link in links {
+                deadline.check()?;
+                let Some(&index) = contents.files.get(&link.path) else {
+                    continue;
+                };
+                let bytes = upload.clone();
+                let budget = most.saturating_sub(unpacked);
+                let data =
+                    blocking(move || archive::unpack(bytes, index, max_file, budget)).await?;
+                let refused = match data {
+                    archive::Unpacked::TooLarge => Some(SkipReason::TooLarge),
+                    archive::Unpacked::OverBudget => {
+                        return Err(TransferError::too_large(format!(
+                            "the files the pages show unpack to more than {}, the most one \
+                             import takes",
+                            size(self.inner.limits.max_files_unpacked)
+                        )));
+                    }
+                    archive::Unpacked::Data(data) => {
+                        unpacked =
+                            unpacked.saturating_add(u64::try_from(data.len()).unwrap_or(u64::MAX));
+                        let prepared = attachments
+                            .prepare(
+                                &ticket.principal,
+                                ticket.workspace_id,
+                                link.kind,
+                                &link.name,
+                                data,
+                            )
+                            .await;
+                        match prepared {
+                            Ok(prepared) => {
+                                made.push((link.clone(), prepared));
+                                None
+                            }
+                            Err(AttachmentError::UnsupportedType { .. }) => {
+                                Some(SkipReason::UnsupportedType)
+                            }
+                            Err(AttachmentError::TooLarge { .. }) => Some(SkipReason::TooLarge),
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+                };
+                let path = archive::shown(&link.path);
+                match refused {
+                    None => contents.skipped.retain(|skipped| skipped.path != path),
+                    Some(reason) => {
+                        for skipped in &mut contents.skipped {
+                            if skipped.path == path {
+                                skipped.reason = reason;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = written {
+            let files: Vec<Prepared> = made.into_iter().map(|(_, file)| file).collect();
+            attachments.discard(&files).await;
+            return Err(error);
+        }
+        Ok(made)
     }
 
     /// A page the caller sees as a markdown file, or with `children`, as a zip holding its
@@ -440,6 +567,9 @@ impl TransferService {
     ) -> Result<Export, TransferError> {
         // Boxed, as it moves to a thread and back for each page.
         let mut zip = Box::new(ZipExport::new(self.inner.limits.max_export_bytes));
+        // The path in the zip of each file added, and how many bytes they take.
+        let mut paths: HashMap<Uuid, String> = HashMap::new();
+        let mut file_bytes: u64 = 0;
         // The properties of the batch of rows read last, by row.
         let mut rows: HashMap<Uuid, ExportRow> = HashMap::new();
         for (index, page) in pages.iter().enumerate() {
@@ -476,11 +606,28 @@ impl TransferService {
                     },
                 }),
             };
+            let files = self
+                .files_to_add(principal, &document, &paths, &mut file_bytes)
+                .await?;
             let page = page.clone();
-            zip = blocking(move || {
+            (zip, paths) = blocking(move || {
+                let placed = zip.place(&page);
+                for (file, bytes) in files {
+                    let path = zip.attach(page.id, &file, &bytes)?;
+                    paths.insert(file.id, path);
+                }
+                let mut document = document;
+                let folder: Vec<&str> = placed.folder.iter().map(String::as_str).collect();
+                let in_zip = |url: &str| {
+                    neon_domain::attachments::file_id(url)
+                        .and_then(|id| paths.get(&id))
+                        .map(|path| convert::relative(&folder, path))
+                };
+                document.map_files(|_, url| in_zip(url));
+                document.map_links(in_zip);
                 let markdown = convert::markdown(&page.title, document, &extra);
-                zip.add(&page, &markdown)?;
-                Ok(zip)
+                zip.write(&placed, &markdown)?;
+                Ok((zip, paths))
             })
             .await?;
         }
@@ -489,6 +636,49 @@ impl TransferService {
             format: Format::Zip,
             bytes: blocking(move || zip.finish()).await?,
         })
+    }
+
+    /// The files a page's document shows that the caller may read and the zip lacks yet,
+    /// with their bytes, read whole: within [`Limits::max_export_files`] for the whole
+    /// export, which `file_bytes` counts.
+    async fn files_to_add(
+        &self,
+        principal: &Principal,
+        document: &neon_blocks::Document,
+        added: &HashMap<Uuid, String>,
+        file_bytes: &mut u64,
+    ) -> Result<Vec<(neon_domain::attachments::File, Vec<u8>)>, TransferError> {
+        let ids: Vec<Uuid> = shown_files(document)
+            .into_iter()
+            .filter(|id| !added.contains_key(id))
+            .collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let attachments = &self.inner.attachments;
+        let readable = attachments.readable(principal, &ids).await?;
+        let most = u64::try_from(self.inner.limits.max_export_files).unwrap_or(u64::MAX);
+        let mut files = Vec::with_capacity(readable.len());
+        for id in ids {
+            let Some(readable) = readable.get(&id) else {
+                continue;
+            };
+            *file_bytes = file_bytes.saturating_add(readable.file().size);
+            if *file_bytes > most {
+                return Err(TransferError::too_large(format!(
+                    "the pages show more than {} of files, the most one export holds: export \
+                     fewer at once",
+                    size(self.inner.limits.max_export_files)
+                )));
+            }
+            let mut bytes = Vec::with_capacity(usize::try_from(readable.file().size).unwrap_or(0));
+            let mut read = attachments.read(readable, None).await?.bytes;
+            while let Some(chunk) = futures_util::StreamExt::next(&mut read).await {
+                bytes.extend_from_slice(&chunk.map_err(AttachmentError::from)?);
+            }
+            files.push((readable.file().clone(), bytes));
+        }
+        Ok(files)
     }
 
     /// What a page's file holds besides its title and blocks, exported alone: a database's

@@ -270,25 +270,26 @@ pub async fn lock_open(
     .transpose()
 }
 
-/// Answers or revokes an invitation that is pending. False when it is not.
+/// Answers or revokes an invitation that is pending. Returns whom it invites, or `None`
+/// when it is not pending.
 pub async fn decide(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
     id: Uuid,
     state: InvitationState,
     at: OffsetDateTime,
-) -> sqlx::Result<bool> {
-    let result = sqlx::query!(
+) -> sqlx::Result<Option<Uuid>> {
+    sqlx::query_scalar!(
         "UPDATE workspace_invitations SET state = $3, decided_at = $4
-         WHERE workspace_id = $1 AND id = $2 AND state = 'pending'",
+         WHERE workspace_id = $1 AND id = $2 AND state = 'pending'
+         RETURNING user_id",
         workspace_id,
         id,
         state.as_str(),
         at,
     )
-    .execute(executor)
-    .await?;
-    Ok(result.rows_affected() == 1)
+    .fetch_optional(executor)
+    .await
 }
 
 /// Deletes the invitations answered, revoked or expired before `before`.

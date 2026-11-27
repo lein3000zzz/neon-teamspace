@@ -196,8 +196,9 @@ agent to the MCP server, 200 at once, then four a second, since agents work in b
 then ten a second, so agents of one person do not multiply their rate.
 `page-edit:user:` counts one person's or agent's edits of pages' content, through the
 markdown API and MCP's `edit_page` together, 100 at once, then two a second, since each may
-go over the whole page. A request over a limit gets `429` with the code `rate_limited` and a
-`Retry-After` header.
+go over the whole page. `file-upload:user:` counts one person's or agent's uploads of
+attachments, 60 at once, then one a second, as dropping a folder of images uploads each. A
+request over a limit gets `429` with the code `rate_limited` and a `Retry-After` header.
 
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.
@@ -253,6 +254,14 @@ only to this host. The mail password, and the settings that say where it goes, c
 from a browser session, so an API token that leaked cannot point the password, or the reset
 links, at another server. Errors carry the relay's answer, never the password, and logs
 name a mail by its kind, never its recipient or link. See [Mail](/docs/self-hosting/mail/).
+
+The link that stops someone's [notification mail](/docs/guides/inbox/#notification-mail)
+works without signing in, so it proves itself: its token is the person's id and an
+HMAC-SHA256 of it, with a key derived from the instance's key for that purpose alone, which
+the server checks in constant time and keeps nothing for. It does one thing, setting their
+mail to none, which they undo in their account; it opens nothing else. The page it opens
+waits for a click, so a scanner that follows links stops nothing. A notification mail says
+only what its person may see when it is written.
 
 ## OAuth
 
@@ -351,6 +360,46 @@ a teamspace's members its row too, so concurrent changes run one at a time: a wo
 keeps its last owner, and stays within its member limit, however many changes arrive at
 once.
 
+## Attachments
+
+The server serves uploaded files from the app's own origin, so it keeps each one from acting
+as a page of that origin, whatever its bytes are.
+
+- **Types from the bytes.** The server reads a file's type from its first bytes, never from
+  its name or the type its client sent. Each kind of block takes only the types it shows, as
+  [Attachments](/docs/guides/attachments/#what-each-block-takes) lists. The server serves the
+  file as that type, with `X-Content-Type-Options: nosniff`.
+- **Downloads but for media.** Only images, video and audio that run no script come
+  `inline`. HTML, SVG, PDF, text and every other type come as `attachment`, a download.
+- **A sandbox of its own.** Every answer with a file carries
+  `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`. A file a
+  browser shows as a page anyway runs no script and loads nothing. It gets an origin of its
+  own, never the app's, so it reads no cookie and calls no API. The web image's Caddy adds the
+  app's own policy beside it, and a browser holds the page to both.
+  `Cross-Origin-Resource-Policy: same-origin` keeps other sites from embedding a file.
+- **SVG in `<img>` alone.** An SVG image shows in its block through `<img>`, where browsers run
+  none of its script and load nothing it names; opened by its own URL, it downloads.
+- **Rules on every read.** Each request for a file asks the rules about its page, as reading
+  the page would, so shares, guests, the trash and agents' bounds hold. A file the caller may
+  not see answers `404`, as one that does not exist. Answers say `Cache-Control: private,
+  no-cache`, so no shared cache keeps one and a browser asks again each time. An `ETag`
+  spares the bytes while the file is the same.
+- **Bounded uploads.** The rules, the caller's rate and a full workspace refuse an upload
+  before the server reads its body. The upload then streams to the store, and the server
+  counts its bytes as they come, whatever the client declared, stopping at the largest file a
+  setting allows. The form around the file is bounded too: its file must start within its
+  first 64 KiB, so a body that never gets to its boundary or ends its part headers is refused
+  with `413` once past them, rather than held. The server adds its row with the workspace's
+  row locked, so uploads at once cannot pass the storage limit together. An upload may take 15 minutes, the one route whose
+  time limit is longer than 30 seconds.
+- **Keys of the server's own.** The server keeps files under keys it makes from the
+  workspace's id and the file's, so no name a client sends reaches a path on disk or a key in
+  a bucket.
+
+Logs and spans name a file by its id, type, size and its name's extension, never its name or
+its bytes. The S3 store's secret is a secret setting, sealed with the instance's key when
+saved. It, and every setting that says where files go, changes only from a browser session.
+
 ## Imports and exports
 
 An import reads a file someone uploads, so it is bounded before it starts. The import route
@@ -364,7 +413,9 @@ largest count of every end record a reader might use, and refuses more than 2000
 a zip with an entry whose path starts at a root, `/` or a drive letter, or climbs out with
 `..`, or holds a NUL, with backslashes taken as slashes. It reads only the deflated or stored
 markdown files, at most 4 MiB each and 64 MiB together, and stops reading a file at its limit
-whatever size the zip states. A page's document may be at most 16 MiB. The work that unpacks
+whatever size the zip states. The other files its pages link to are unpacked as uploads,
+each at most the largest file and all of them at most 256 MiB together, the budget left
+bounding each one as it is read. A page's document may be at most 16 MiB. The work that unpacks
 and parses runs off the async threads, and both imports and exports stop after 20 seconds.
 Nothing is made unless all of it can be.
 
@@ -381,4 +432,7 @@ link stopped working. It also removes workspace invitations answered, revoked or
 days before, invite links that expired or were revoked 30 days before, and pages that have
 been in the trash for `pages.trash_retention`, 30 days unless set, with the pages under
 them. OAuth's expired codes and tokens go too, with the grants none of whose codes or tokens
-works any more, and the clients nobody connected within `oauth.unused_client_ttl`.
+works any more, and the clients nobody connected within `oauth.unused_client_ttl`. So do the
+attachments no page's content or cover shows for `attachments.orphan_grace`, and the bytes of
+every file deleted, as [Attachments](/docs/guides/attachments/#when-files-are-deleted)
+describes.

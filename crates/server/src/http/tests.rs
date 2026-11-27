@@ -7,14 +7,19 @@ use axum::routing::{get, post};
 use http_body_util::BodyExt as _;
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use neon_app::attachments::{AttachmentService, BlobStore, ObjectBlobs};
 use neon_app::auth::AuthService;
 use neon_app::clock::Clock;
+use neon_app::comments::CommentService;
 use neon_app::crypto::{Argon2Params, Envelope};
 use neon_app::databases::{DatabaseService, LiveDatabases, LiveLimits};
+use neon_app::history::HistoryService;
 use neon_app::mail::MailQueue;
+use neon_app::notifications::{FeedLimits, InboxFeeds, InboxService};
 use neon_app::oauth::OAuthService;
 use neon_app::pages::{AccessChanges, Fanout, PageService};
 use neon_app::ratelimit::{MemoryLimiter, RateLimiter};
+use neon_app::search::SearchService;
 use neon_app::settings::{Change, SettingsService, registry};
 use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
@@ -122,15 +127,40 @@ pub(crate) async fn state_with_mcp(
     build_state(pool, Envelope::default(), web, setup).await
 }
 
+/// The state, its files kept in `blobs` and its attachments' time read from `clock`.
+pub(super) async fn state_with_blobs(
+    pool: PgPool,
+    blobs: Arc<dyn BlobStore>,
+    limiter: Arc<dyn RateLimiter>,
+    clock: Clock,
+) -> AppState {
+    let setup = Setup {
+        blobs,
+        limiter,
+        clock,
+        ..Setup::default()
+    };
+    build_state(
+        pool,
+        Envelope::default(),
+        WebConfig::new(None, Vec::new()),
+        setup,
+    )
+    .await
+}
+
 /// What a test's state is built with, beside its database, key and web configuration.
 struct Setup {
     sync: SyncLimits,
     feeds: LiveLimits,
+    inboxes: FeedLimits,
     transport: Arc<dyn WebhookTransport>,
     /// Where every use case's attempts are counted.
     limiter: Arc<dyn RateLimiter>,
-    /// The time sessions, tokens, OAuth and webhooks read.
+    /// The time sessions, tokens, OAuth, webhooks and attachments read.
     clock: Clock,
+    /// Where files are kept: in memory unless a test says.
+    blobs: Arc<dyn BlobStore>,
 }
 
 impl Default for Setup {
@@ -138,9 +168,13 @@ impl Default for Setup {
         Self {
             sync: SyncLimits::default(),
             feeds: LiveLimits::default(),
+            inboxes: FeedLimits::default(),
             transport: Arc::new(crate::webhooks::HttpTransport::default()),
             limiter: Arc::new(MemoryLimiter::new()),
             clock: Clock::system(),
+            blobs: Arc::new(ObjectBlobs::new(Arc::new(
+                object_store::memory::InMemory::new(),
+            ))),
         }
     }
 }
@@ -149,9 +183,11 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     let Setup {
         sync: limits,
         feeds,
+        inboxes: inbox_limits,
         transport,
         limiter,
         clock,
+        blobs,
     } = setup;
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -171,15 +207,16 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     );
     let (documents, feed) = access_feed();
     let (followers, databases_feed) = access_feed();
+    let (inboxes, inbox_feed) = access_feed();
     let (sessions, mcp_feed) = crate::mcp::access_feed();
     let listener: Arc<dyn AccessChanges> =
-        Arc::new(Fanout::new(vec![documents, followers, sessions]));
+        Arc::new(Fanout::new(vec![documents, followers, inboxes, sessions]));
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalBroadcaster::new());
     let auth = AuthService::builder(pool.clone(), Arc::clone(&settings))
         .password_params(CHEAP)
         .envelope(envelope.clone())
         .clock(clock.clone())
-        .mail(mail)
+        .mail(mail.clone())
         .access_changes(Arc::clone(&listener))
         .build()
         .await
@@ -187,6 +224,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
     let workspaces = WorkspaceService::builder(pool.clone(), Arc::clone(&settings))
         .envelope(envelope.clone())
         .access_changes(Arc::clone(&listener))
+        .broadcaster(Arc::clone(&broadcaster))
         .build();
     let agents = AgentService::new(workspaces.clone());
     let oauth = OAuthService::builder(pool.clone(), Arc::clone(&settings))
@@ -202,11 +240,46 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         .broadcaster(Arc::clone(&broadcaster))
         .limiter(Arc::clone(&limiter))
         .build();
+    let history = HistoryService::builder(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        sync.clone(),
+    )
+    .build();
+    let search = SearchService::builder(pool.clone())
+        .clock(clock.clone())
+        .limiter(Arc::clone(&limiter))
+        .build();
     let databases = DatabaseService::builder(pages.clone()).build();
     let live = LiveDatabases::builder(databases.clone(), auth.clone(), databases_feed)
         .limits(feeds)
         .build();
-    let transfer = TransferService::builder(pages.clone(), sync.clone(), databases.clone()).build();
+    let attachments = AttachmentService::builder_with_store(
+        pool.clone(),
+        Arc::clone(&settings),
+        pages.clone(),
+        sync.clone(),
+        blobs,
+    )
+    .limiter(Arc::clone(&limiter))
+    .clock(clock.clone())
+    .build();
+    let transfer = TransferService::builder(
+        pages.clone(),
+        sync.clone(),
+        databases.clone(),
+        attachments.clone(),
+    )
+    .build();
+    let comments = CommentService::new(pages.clone(), sync.clone());
+    let inbox = InboxService::new(pages.clone(), mail, envelope.clone());
+    let inbox_feeds = InboxFeeds::new(
+        auth.clone(),
+        Arc::clone(&broadcaster),
+        inbox_feed,
+        inbox_limits,
+    );
     let webhooks = WebhookService::builder(
         pool.clone(),
         Arc::clone(&settings),
@@ -216,6 +289,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
             pages: pages.clone(),
             databases: databases.clone(),
             sync: sync.clone(),
+            comments: comments.clone(),
         },
         transport,
     )
@@ -230,7 +304,11 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
             workspaces: workspaces.clone(),
             pages: pages.clone(),
             sync: sync.clone(),
+            history: history.clone(),
+            search: search.clone(),
             databases: databases.clone(),
+            comments: comments.clone(),
+            inbox: inbox.clone(),
             broadcaster,
         },
         limiter,
@@ -244,9 +322,15 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         oauth,
         pages,
         sync,
+        history,
+        search,
         databases,
         live,
+        comments,
+        inbox,
+        inbox_feeds,
         transfer,
+        attachments,
         webhooks,
         web: Arc::new(web),
         mcp,
@@ -282,7 +366,7 @@ async fn sensitive_headers(headers: header::HeaderMap) -> impl IntoResponse {
 }
 
 /// The API plus routes that exercise the extractors and the middleware.
-fn test_app(state: AppState, limits: Limits) -> Router {
+pub(super) fn test_app(state: AppState, limits: Limits) -> Router {
     let routes = OpenApiRouter::new()
         .route("/api/v1/test/echo", post(echo))
         .route(

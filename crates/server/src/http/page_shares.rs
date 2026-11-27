@@ -1,5 +1,5 @@
-//! `/api/v1/pages/{id}/shares`: who a page is shared with, to view or to edit it and every
-//! page under it.
+//! `/api/v1/pages/{id}/shares`: who a page is shared with, to view it, comment on it or edit
+//! it and every page under it.
 //!
 //! Every route needs a browser session or an API token: `read` for `GET`, `write` for the
 //! rest. Guests, who know no other member, neither list shares nor share.
@@ -23,15 +23,21 @@ use super::principal::Authenticated;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareAccess {
-    CanView,
-    CanEdit,
+    #[serde(rename = "can_view")]
+    View,
+    /// Also comment on it.
+    #[serde(rename = "can_comment")]
+    Comment,
+    #[serde(rename = "can_edit")]
+    Edit,
 }
 
 impl From<domain::PageAccess> for ShareAccess {
     fn from(access: domain::PageAccess) -> Self {
         match access {
-            domain::PageAccess::View => Self::CanView,
-            domain::PageAccess::Edit => Self::CanEdit,
+            domain::PageAccess::View => Self::View,
+            domain::PageAccess::Comment => Self::Comment,
+            domain::PageAccess::Edit => Self::Edit,
         }
     }
 }
@@ -39,8 +45,9 @@ impl From<domain::PageAccess> for ShareAccess {
 impl From<ShareAccess> for domain::PageAccess {
     fn from(access: ShareAccess) -> Self {
         match access {
-            ShareAccess::CanView => Self::View,
-            ShareAccess::CanEdit => Self::Edit,
+            ShareAccess::View => Self::View,
+            ShareAccess::Comment => Self::Comment,
+            ShareAccess::Edit => Self::Edit,
         }
     }
 }

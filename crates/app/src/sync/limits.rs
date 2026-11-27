@@ -67,6 +67,9 @@ pub struct Limits {
     /// it: whether its session or token still holds, and what the rules let it do now.
     /// It catches what no change tells of, such as a session expiring.
     pub revalidate_interval: Duration,
+    /// How long a document must go without changes for its mentions to settle: then, when
+    /// it mentions someone it did not before, it is saved as a snapshot, which tells them.
+    pub mention_settle: Duration,
 }
 
 impl Default for Limits {
@@ -94,6 +97,7 @@ impl Default for Limits {
             awareness_per_second: 20,
             awareness_burst: 100,
             revalidate_interval: Duration::from_secs(300),
+            mention_settle: Duration::from_secs(10),
         }
     }
 }

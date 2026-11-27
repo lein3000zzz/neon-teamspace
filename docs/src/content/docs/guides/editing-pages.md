@@ -24,16 +24,19 @@ Under the workspace switcher, the sidebar lists a workspace's pages in sections:
 | **Private** | Your private pages, which nobody else sees. Not for guests, who have none. |
 | **Shared with you** | Pages shared with you from places you do not otherwise reach, with the pages under them. Shown while there are any. For a guest, it is everything. |
 
-**Trash**, at the top with **Home**, opens the [trash](#the-trash). On a phone the sidebar is
+**Search**, at the top with **Home**, opens the [quick search](/docs/guides/search/#in-the-web-app),
+as **⌘K** or **Ctrl+K** does anywhere. **Inbox** opens your [inbox](/docs/guides/inbox/), with
+the number unread beside it, and **Trash** the [trash](#the-trash). On a phone the sidebar is
 a drawer, opened from the button at the top left.
 
 Each page is a row: the arrow before it opens and closes the pages under it, the title opens
 the page, and the row's buttons add a page inside it and open its menu. A database shows with
 a table's glyph; its rows are in its views rather than the tree, and nothing else goes under
 it. [Databases and boards](/docs/guides/databases-and-boards/) is about them. A teamspace's row
-folds its tree away the same way. On a computer the buttons show as the pointer passes over
-a row or the keyboard reaches it; on a touch screen they always show. Opening a page opens
-the pages above it in the tree, so it shows there.
+folds its tree away the same way, and it stays folded in that browser, after a reload too,
+until you unfold it. On a computer the buttons show over the end of the title as the pointer
+passes over a row or the keyboard reaches it; on a touch screen they always show, beside it.
+Opening a page opens the pages above it in the tree, so it shows there.
 
 ## Making a page
 
@@ -87,12 +90,15 @@ their access from where they land.
 
 Above the page, the way down to it: its teamspace, or **Private**, then each page above it
 you can see. A guest's starts at the page shared with them. Beside it are the state of the
-[live connection](#the-live-connection), the favorite star, **Share**, the **Style** menu
-and the page's menu.
+[live connection](#the-live-connection), **Comments**, which opens the page's
+[comments](/docs/guides/comments-and-mentions/#in-the-web-app) beside it, **History**, the
+favorite star, **Share**, the **Style** menu and the page's menu. **History** opens the page's
+earlier versions, to see what changed since one and to restore it, as
+[Page history](/docs/guides/history/#in-the-web-app) describes.
 
 | Part | What it does |
 |---|---|
-| **Cover** | **Add cover** picks one of 14 presets drawn from the theme: the accent, eight hues and four gradients. Each follows the reader's palette and mode, so it suits both light and dark. **Change cover** picks another or removes it. |
+| **Cover** | **Add cover** picks one of 14 presets drawn from the theme: the accent, eight hues and four gradients. Each follows the reader's palette and mode, so it suits both light and dark. **Upload an image** makes an image of yours the cover instead, kept with the page as its [attachments](/docs/guides/attachments/#covers) are. **Change cover** picks another or removes it. |
 | **Icon** | **Add icon** opens a picker of emoji, by category or searched by name, which come with the app, so nothing is fetched elsewhere. A short text works too, up to 16 characters. The icon also shows in the sidebar and the way down to the page. |
 | **Title** | Typed in place. The sidebar shows it as it is typed, and it is saved once typing pauses, or as you leave it. Enter goes on to the page's content. A page without a title shows as Untitled. |
 | **Style** | The page's font, Default, Serif or Mono, as in Notion; small text, a step down; and full width, which lets the page take the whole width beside the sidebar. It holds for everyone who opens the page. |
@@ -156,8 +162,9 @@ Markdown comes in and goes out:
 - **Import into this page…**, in a page's menu, **Import** on a teamspace's page, and **Import
   markdown** on the workspace's home take a `.md` or `.markdown` file, or a `.zip` of them,
   up to 32 MiB. A file becomes a page, and a zip becomes pages, each folder a page with the
-  pages of its files under it. The dialog then links to what it made and lists what of a zip
-  it left out, such as images, as attachments come later.
+  pages of its files under it, and the images and other files its pages link to become their
+  [attachments](/docs/guides/attachments/). The dialog then links to what it made and lists
+  what of a zip it left out, such as a file no page links to.
 - **Export as markdown** and **Export with subpages**, in a page's menu, and **Export** on a
   teamspace's page save a `.md` file or a zip of them.
 
@@ -169,7 +176,7 @@ keeps of a page, and the limits.
 **Share**, in a page's header or its menu, opens the page's shares:
 
 - **Share with someone** picks a person in the workspace and what the share gives, **Can
-  view** or **Can edit**, and adds it.
+  view**, **Can comment** or **Can edit**, and adds it.
 - Each share on the page itself has its access, which changes on the spot, and **Remove**.
 - Shares set on a page above hold here too. They are listed after the page's own, with the
   page they come from, and change on that page.

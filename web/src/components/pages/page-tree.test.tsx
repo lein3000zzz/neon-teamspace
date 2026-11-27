@@ -5,6 +5,7 @@ import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { fakePages, page, PAGE_IDS } from "@/test/pages";
 import { server } from "@/test/server";
+import { blockStorage } from "@/test/storage";
 import { fakeWorkspaces, TEAMSPACE_IDS } from "@/test/workspaces";
 
 /** The sidebar's column, once the signed-in shell is up. */
@@ -53,6 +54,36 @@ describe("the page trees in the sidebar", () => {
 
     // A teamspace folds its pages away too.
     await user.click(side.getByRole("button", { name: "Collapse General" }));
+    expect(side.queryByRole("list", { name: "Pages of General" })).toBeNull();
+  });
+
+  it("keeps a folded teamspace folded in this browser, for its user", async () => {
+    fakeWorkspaces();
+    fakePages();
+    const first = renderApp("/w/design");
+    await first.user.click(
+      await (await sidebar()).findByRole("button", { name: "Collapse General" }),
+    );
+    first.unmount();
+
+    // Opened again, as after a reload: General stays folded until unfolded.
+    const { user } = renderApp("/w/design");
+    const side = await sidebar();
+    const expand = await side.findByRole("button", { name: "Expand General" });
+    expect(side.queryByRole("list", { name: "Pages of General" })).toBeNull();
+    await user.click(expand);
+    expect(await side.findByRole("list", { name: "Pages of General" })).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(`neon.folded.${ada.id}`) ?? "")).toEqual([]);
+  });
+
+  it("folds teamspaces for the session where the browser keeps nothing", async () => {
+    blockStorage();
+    fakeWorkspaces();
+    fakePages();
+    const { user } = renderApp("/w/design");
+    const side = await sidebar();
+
+    await user.click(await side.findByRole("button", { name: "Collapse General" }));
     expect(side.queryByRole("list", { name: "Pages of General" })).toBeNull();
   });
 

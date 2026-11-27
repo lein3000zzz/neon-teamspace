@@ -15,6 +15,8 @@ export type IncomingRequest = Schemas["IncomingRequest"];
 export const WEBHOOK_EVENTS = [
   "row.assigned",
   "row.status_changed",
+  "page.mentioned",
+  "comment.replied",
 ] as const satisfies readonly WebhookEvent[];
 
 const one = (id: string, webhookId: string) => ({

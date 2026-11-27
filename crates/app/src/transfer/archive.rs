@@ -5,8 +5,9 @@
 //! In a zip, each markdown file is a page and each folder holding one is too. A folder and
 //! a markdown file of the same name beside it, `Notes/` and `Notes.md`, are one page: the
 //! file's content with the folder's pages under it, which is how an export writes them.
-//! Siblings keep the order of the zip, by the first entry of each. Other files are left
-//! out and reported, as are hidden ones and links; the folders and files archivers add for
+//! Siblings keep the order of the zip, by the first entry of each. Other files are kept
+//! aside, unread, for the pages that show them, and reported as left out until one does;
+//! hidden ones and links are left out and reported; the folders and files archivers add for
 //! their own use are left out without a word.
 
 use std::collections::HashMap;
@@ -36,6 +37,9 @@ pub(super) struct Entry {
     pub(super) path: String,
     /// The file's text; `None` for a folder without a file of its name.
     pub(super) markdown: Option<String>,
+    /// The folders the file is in, from the top of the zip, which its links to other files
+    /// start from.
+    pub(super) folder: Vec<String>,
     pub(super) children: Vec<Entry>,
     /// Each child's index among them, by name.
     pub(super) index: HashMap<String, usize>,
@@ -66,9 +70,13 @@ impl Entry {
 pub(super) struct Contents {
     /// The pages to be at the top, in order, each with the pages to be under it.
     pub(super) entries: Vec<Entry>,
+    /// What is left out, in the zip's order: the files kept aside among them, until a page
+    /// shows one.
     pub(super) skipped: Vec<Skipped>,
     /// How many pages the entries make.
     pub(super) pages: usize,
+    /// The other files a page may show, by their path in the zip, with their index in it.
+    pub(super) files: HashMap<String, usize>,
 }
 
 /// Reads an upload: a markdown file, by its extension `.md` or `.markdown`, or a zip of
@@ -103,8 +111,8 @@ pub(super) fn read(
         };
         return Ok(Contents {
             entries: vec![entry],
-            skipped: Vec::new(),
             pages: 1,
+            ..Contents::default()
         });
     }
     if extension(name).is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
@@ -164,8 +172,6 @@ fn unzip(bytes: Bytes, limits: &Limits, deadline: Deadline) -> Result<Contents, 
             Some(SkipReason::Hidden)
         } else if entry.is_symlink() {
             Some(SkipReason::Link)
-        } else if markdown_stem(file).is_none() {
-            Some(SkipReason::Attachment)
         } else if entry.encrypted() {
             Some(SkipReason::Encrypted)
         } else if !matches!(
@@ -178,6 +184,14 @@ fn unzip(bytes: Bytes, limits: &Limits, deadline: Deadline) -> Result<Contents, 
         };
         if let Some(reason) = skip {
             contents.skipped.push(Skipped { path, reason });
+            continue;
+        }
+        if markdown_stem(file).is_none() {
+            contents.files.insert(parts.join("/"), i);
+            contents.skipped.push(Skipped {
+                path,
+                reason: SkipReason::Attachment,
+            });
             continue;
         }
         let declared = usize::try_from(entry.size()).unwrap_or(usize::MAX);
@@ -241,6 +255,7 @@ fn unzip(bytes: Bytes, limits: &Limits, deadline: Deadline) -> Result<Contents, 
         }
         page.markdown = Some(markdown);
         page.path = path;
+        page.folder = folders;
         if contents.pages > limits.max_pages {
             return Err(TransferError::too_large(format!(
                 "the zip makes more than {} pages, the most one import makes",
@@ -255,6 +270,54 @@ fn unzip(bytes: Bytes, limits: &Limits, deadline: Deadline) -> Result<Contents, 
     }
     contents.entries = root.children;
     Ok(contents)
+}
+
+/// What unpacking an entry a page shows gave.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Unpacked {
+    Data(Bytes),
+    /// More than a file may be, which leaves it out.
+    TooLarge,
+    /// More than what is left of what an import's files may unpack to, which refuses it.
+    OverBudget,
+}
+
+/// The bytes of a zip's entry kept aside for the pages that show it: at most `max`, what a
+/// file may be, and `budget`, what is left of what the import's files may unpack to. The
+/// size the zip states is checked against both before anything is read, and no more than
+/// the smaller of the two and a byte is read whatever it states.
+pub(super) fn unpack(
+    bytes: Bytes,
+    index: usize,
+    max: u64,
+    budget: u64,
+) -> Result<Unpacked, TransferError> {
+    let unreadable = |error: zip::result::ZipError| {
+        TransferError::invalid(format!("the zip cannot be read: {error}"))
+    };
+    let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(unreadable)?;
+    let entry = zip.by_index(index).map_err(unreadable)?;
+    if entry.size() > max {
+        return Ok(Unpacked::TooLarge);
+    }
+    if entry.size() > budget {
+        return Ok(Unpacked::OverBudget);
+    }
+    let path = shown(&entry.name().map_err(unreadable)?);
+    let most = max.min(budget);
+    let mut data = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+    entry
+        .take(most.saturating_add(1))
+        .read_to_end(&mut data)
+        .map_err(|error| TransferError::invalid(format!("{path} cannot be unpacked: {error}")))?;
+    let read = u64::try_from(data.len()).unwrap_or(u64::MAX);
+    Ok(if read > max {
+        Unpacked::TooLarge
+    } else if read > budget {
+        Unpacked::OverBudget
+    } else {
+        Unpacked::Data(Bytes::from(data))
+    })
 }
 
 /// The most entries any end-of-directory record of a zip says it lists, before its
@@ -330,7 +393,7 @@ fn is_system(parts: &[&str]) -> bool {
 }
 
 /// A name from an upload as messages show it: control characters as U+FFFD.
-fn shown(name: &str) -> String {
+pub(super) fn shown(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_control() { '\u{fffd}' } else { c })
         .collect()
@@ -611,6 +674,24 @@ mod tests {
         assert!(
             matches!(error.code(), "too_large" | "invalid_input"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn a_file_a_page_shows_unpacks_within_its_limit_and_the_budget() {
+        let content = "x".repeat(4096);
+        let bytes = Bytes::from(zipped(&[("a.png", &content)]));
+        let unpacked = |max, budget| unpack(bytes.clone(), 0, max, budget).expect("read");
+        assert_eq!(
+            unpacked(4096, 4096),
+            Unpacked::Data(Bytes::from(content.clone()))
+        );
+        assert_eq!(unpacked(4095, 1 << 20), Unpacked::TooLarge);
+        assert_eq!(unpacked(1 << 20, 4095), Unpacked::OverBudget);
+        assert_eq!(
+            unpacked(4095, 100),
+            Unpacked::TooLarge,
+            "too large either way"
         );
     }
 

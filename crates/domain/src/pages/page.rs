@@ -24,8 +24,8 @@ text_enum! {
 
 text_enum! {
     /// A cover drawn from the theme's tokens: a hue, or a gradient between two, at the
-    /// lightness and chroma the reader's palette and mode set, like the accent. Image covers
-    /// are not built yet.
+    /// lightness and chroma the reader's palette and mode set, like the accent. A page may
+    /// have an image of its own as its cover instead, [`Page::cover_image`].
     Cover {
         /// The reader's accent.
         Accent => "accent",
@@ -73,10 +73,13 @@ text_enum! {
 
 text_enum! {
     /// What someone may do with a page: what a share gives, and what the rules work out
-    /// for a person. Edit includes view.
+    /// for a person. Each includes the ones before it: edit includes comment, which
+    /// includes view.
     PageAccess {
-        /// Read it, its subpages and its place in the tree.
+        /// Read it, its subpages, its place in the tree and its comments.
         View => "view",
+        /// Also comment on it: start threads, reply, resolve and reopen them.
+        Comment => "comment",
         /// Also change it, add subpages, move it and trash it.
         Edit => "edit",
     }
@@ -159,6 +162,9 @@ pub struct Page {
     pub title: String,
     pub icon: Option<String>,
     pub cover: Option<Cover>,
+    /// One of the page's own files, an image, shown as its cover in place of `cover`: at
+    /// most one of the two is set.
+    pub cover_image: Option<Uuid>,
     pub style: PageStyle,
     pub created_by: Option<Uuid>,
     /// Who changed it last, its content included.
@@ -291,6 +297,7 @@ mod tests {
             title: String::new(),
             icon: None,
             cover: None,
+            cover_image: None,
             style: PageStyle::default(),
             created_by: None,
             last_edited_by: None,

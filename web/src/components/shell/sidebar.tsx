@@ -4,6 +4,7 @@ import {
   House,
   Inbox,
   LogOut,
+  Search,
   Settings,
   Shapes,
   ShieldCheck,
@@ -12,8 +13,9 @@ import {
 } from "lucide-react";
 import { useId } from "react";
 import { useLogout } from "@/api/auth";
-import { myInvitationsQuery } from "@/api/workspaces";
+import { inboxCountQuery } from "@/api/inbox";
 import { ErrorNotice } from "@/components/feedback/error-notice";
+import { commandIsMeta, useQuickSearch } from "@/components/search/quick-search";
 import { HueDot } from "@/components/nodes/hue-dot";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -37,15 +39,17 @@ type SidebarProps = {
  * Brand, the workspace switcher, navigation, who is signed in, and the
  * instance footer. Rendered as a column beside the page on wide screens and
  * inside the drawer on narrow ones. The admin pages are listed for admins
- * only; the server refuses them to anyone else whatever the menu shows.
+ * only; the server refuses them to anyone else whatever the menu shows. The
+ * styleguide, for whoever works on the app, is listed in a development build,
+ * and for instance admins in any.
  */
 export function Sidebar({ onNavigate }: SidebarProps) {
   // The column and the open drawer are mounted together, so ids must be unique per copy.
   const settingsId = useId();
   const me = useMe();
   const { current } = useCurrentWorkspace();
-  const invitations = useQuery(myInvitationsQuery);
-  const waiting = invitations.data?.length ?? 0;
+  const unread = useQuery(inboxCountQuery).data ?? 0;
+  const quickSearch = useQuickSearch();
 
   return (
     <div className="flex min-h-full flex-col gap-6">
@@ -60,8 +64,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <WorkspaceSwitcher onNavigate={onNavigate} />
 
-      <nav aria-label={strings.nav.label} className="grid gap-5">
-        <ul className="grid gap-0.5">
+      <nav aria-label={strings.nav.label} className="grid grid-cols-1 gap-5">
+        <ul className="grid grid-cols-1 gap-0.5">
           <li>
             {current === undefined ? (
               <Link to="/" activeOptions={{ exact: true }} onClick={onNavigate} className={navLink}>
@@ -81,25 +85,47 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             )}
           </li>
-          {waiting > 0 && (
+          {current !== undefined && quickSearch.available && (
             <li>
-              <Link
-                to="/account/invitations"
-                onClick={onNavigate}
-                aria-label={strings.nav.pending(waiting)}
-                className={navLink}
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.();
+                  quickSearch.open();
+                }}
+                className={`${navLink} w-full`}
               >
-                <Inbox aria-hidden className="size-4" />
-                <span className="flex-1">{strings.nav.invitations}</span>
+                <Search aria-hidden className="size-4" />
+                <span className="flex-1 text-left">{strings.search.open}</span>
+                {/* The shortcut is for a keyboard, which a touch screen as the main pointer lacks. */}
+                <kbd
+                  aria-hidden
+                  className="font-mono text-[0.68rem] text-muted-foreground pointer-coarse:hidden"
+                >
+                  {strings.search.shortcut(commandIsMeta())}
+                </kbd>
+              </button>
+            </li>
+          )}
+          <li>
+            <Link
+              to="/inbox"
+              onClick={onNavigate}
+              {...(unread > 0 ? { "aria-label": strings.nav.unread(unread) } : {})}
+              className={navLink}
+            >
+              <Inbox aria-hidden className="size-4" />
+              <span className="flex-1">{strings.nav.inbox}</span>
+              {unread > 0 && (
                 <span
                   aria-hidden
                   className="grid h-5 min-w-5 place-items-center rounded-full border border-primary px-1.5 font-mono text-[0.68rem] text-primary tabular-nums"
                 >
-                  {waiting}
+                  {unread > 99 ? "99+" : unread}
                 </span>
-              </Link>
-            </li>
-          )}
+              )}
+            </Link>
+          </li>
           {current !== undefined && (
             <li>
               <Link
@@ -113,12 +139,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </Link>
             </li>
           )}
-          <li>
-            <Link to="/styleguide" onClick={onNavigate} className={navLink}>
-              <Shapes aria-hidden className="size-4" />
-              {strings.nav.styleguide}
-            </Link>
-          </li>
+          {(import.meta.env.DEV || me.role === "admin") && (
+            <li>
+              <Link to="/styleguide" onClick={onNavigate} className={navLink}>
+                <Shapes aria-hidden className="size-4" />
+                {strings.nav.styleguide}
+              </Link>
+            </li>
+          )}
         </ul>
         {current !== undefined && (
           <>
@@ -133,11 +161,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <SharedNav workspace={current} onNavigate={onNavigate} />
           </>
         )}
-        <div className="grid gap-1">
+        <div className="grid grid-cols-1 gap-1">
           <p id={settingsId} className={navHeading}>
             {strings.nav.settings}
           </p>
-          <ul aria-labelledby={settingsId} className="grid gap-0.5">
+          <ul aria-labelledby={settingsId} className="grid grid-cols-1 gap-0.5">
             {current !== undefined && (
               <li>
                 <Link
@@ -169,7 +197,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </div>
       </nav>
 
-      <div className="mt-auto grid gap-3">
+      <div className="mt-auto grid grid-cols-1 gap-3">
         <Separator />
         <SignedInAs />
         <Separator />
@@ -186,7 +214,7 @@ function SignedInAs() {
   const me = useMe();
   const logout = useLogout();
   return (
-    <section aria-label={strings.nav.signedIn} className="grid gap-2 px-2.5">
+    <section aria-label={strings.nav.signedIn} className="grid grid-cols-1 gap-2 px-2.5">
       <div className="grid min-w-0 text-xs">
         <span className="truncate font-medium text-foreground">{me.display_name}</span>
         <span className="truncate text-muted-foreground">{me.email}</span>

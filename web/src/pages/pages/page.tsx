@@ -1,8 +1,27 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ImagePlus, Maximize2, Smile, Star, UserPlus } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ImagePlus, Maximize2, MessageSquare, Smile, Star, UserPlus } from "lucide-react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  isResolved,
+  refreshComments,
+  refreshThread,
+  threadQuery,
+  threadsQuery,
+  type Thread,
+} from "@/api/comments";
 import { databaseQuery } from "@/api/databases";
+import { useUploadCover } from "@/api/files";
 import { hasCode } from "@/api/errors";
 import { keys } from "@/api/keys";
 import {
@@ -14,16 +33,27 @@ import {
   useRemoveFavorite,
   useRestorePage,
   useUpdatePage,
+  type Cover,
   type Page,
   type UpdatePage,
 } from "@/api/pages";
 import { teamspacesQuery } from "@/api/teamspaces";
+import type { Person } from "@/api/workspaces";
+import { CommentsPanel } from "@/components/comments/comments-panel";
+import { UnseenNotice } from "@/components/comments/unseen-notice";
+import type {
+  CommentHandlers,
+  DraftAnchor,
+  ThreadAnchor,
+} from "@/components/editor/comment-highlights";
 import { ConnectionClosed, ConnectionIndicator } from "@/components/editor/connection-indicator";
 import { STARTING, type Connection } from "@/components/editor/connection-state";
+import type { EditorComments, EditorHandle, OpenAt } from "@/components/editor/page-editor";
 import { DatabaseView } from "@/components/databases/database-view";
 import { RowProperties } from "@/components/databases/row-properties";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorNotice, Loading } from "@/components/feedback/error-notice";
+import { HistoryButton } from "@/components/history/history-panel";
 import { CoverBand, CoverPicker } from "@/components/pages/cover-picker";
 import { IconPicker } from "@/components/pages/icon-picker";
 import { PageMenu } from "@/components/pages/page-menu";
@@ -49,10 +79,11 @@ const PageEditor = lazy(() => import("@/components/editor/page-editor"));
 const copy = strings.pages.page;
 
 /**
- * What a page's address says beside the page: the view a database shows, and
- * the row shown beside it, a peek, when one is open.
+ * What a page's address says beside the page: the view a database shows, the
+ * row shown beside it, a peek, when one is open, and the thread of comments
+ * or the block to open the page at, as the inbox links to them.
  */
-export type PageSearch = { view?: string; peek?: string };
+export type PageSearch = { view?: string; peek?: string; comment?: string; block?: string };
 
 const ROUTE = "/_app/w/$slug/p/$pageId";
 
@@ -115,9 +146,23 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
   // Bumped to open the live connection afresh, after the server closed it.
   const [generation, setGeneration] = useState(0);
   const focusContent = useRef<(() => void) | null>(null);
+  const editorHandle = useRef<EditorHandle | null>(null);
   const trashed = (page.trashed_at ?? null) !== null;
   const editable = edits(page.access) && !trashed;
   const set = (body: UpdatePage) => update.mutate(body);
+  const coverUpload = useUploadCover(workspace.id, page.id);
+  const covered = Boolean(page.cover ?? page.cover_image);
+  // A preset takes an image's place, which the server takes off; none removes either. Either
+  // way, why an upload failed is no longer news.
+  const pickCover = (cover: Cover | null) => {
+    coverUpload.reset();
+    set(cover === null ? { cover: null, cover_image: null } : { cover });
+  };
+  const people = useWorkspacePeople(workspace.id, seesTeamspaces(workspace.role));
+  // A peek shows the row's content alone: its comments open with the full page.
+  const commented = !peek && !trashed;
+  const commentsButton = useRef<HTMLButtonElement>(null);
+  const comments = useComments(page, commented, commentsButton);
 
   useEffect(() => {
     if (peek) {
@@ -140,7 +185,9 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
       data-page-font={page.style.font}
       {...(page.style.small_text ? { "data-small-text": "" } : {})}
       {...(page.style.full_width || page.kind === "database" ? { "data-page-width": "full" } : {})}
-      className="grid gap-6"
+      // One column as wide as the page, whatever is inside: a database's views scroll
+      // sideways within it rather than widen it past a phone's screen.
+      className="grid grid-cols-1 gap-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <Breadcrumbs page={page} />
@@ -159,6 +206,30 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
               readOnly={!editable || connection.access === "view"}
             />
           )}
+          {commented && (
+            <Button
+              ref={commentsButton}
+              variant="ghost"
+              size="sm"
+              aria-pressed={comments.panelOpen}
+              aria-label={
+                comments.openCount > 0
+                  ? strings.comments.openCount(comments.openCount)
+                  : strings.comments.open
+              }
+              onClick={() => (comments.panelOpen ? comments.close() : comments.openPanel())}
+            >
+              <MessageSquare aria-hidden />
+              {comments.openCount > 0 && (
+                <span aria-hidden className="tabular-nums">
+                  {comments.openCount}
+                </span>
+              )}
+            </Button>
+          )}
+          {page.kind !== "database" && !peek && edits(page.access) && (
+            <HistoryButton page={page} editable={editable} />
+          )}
           {!trashed && <FavoriteToggle page={page} />}
           {!trashed && mayShare(workspace.role, page.access) && <ShareButton page={page} />}
           {editable && (
@@ -174,16 +245,38 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
       </div>
 
       {trashed && <TrashedBanner page={page} />}
+      {comments.unseen.length > 0 && (
+        <UnseenNotice people={comments.unseen} page={page} onDismiss={comments.dismissUnseen} />
+      )}
       {update.isError && <ErrorNotice error={update.error} />}
       <ConnectionClosed connection={connection} onReconnect={reconnect} />
 
       <header className="grid gap-3">
-        {page.cover && (
-          <CoverBand cover={page.cover}>
+        {coverUpload.isError && (
+          <ErrorNotice error={coverUpload.error} title={copy.coverNotUploaded}>
+            <div>
+              <Button variant="ghost" size="sm" onClick={() => coverUpload.reset()}>
+                {copy.dismissCover}
+              </Button>
+            </div>
+          </ErrorNotice>
+        )}
+        {covered && (
+          <CoverBand cover={page.cover} image={page.cover_image}>
             {editable && (
-              <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
-                <Button variant="outline" size="sm" className="bg-background">
-                  {copy.changeCover}
+              <CoverPicker
+                cover={page.cover}
+                covered={covered}
+                onPick={pickCover}
+                onUpload={(file) => coverUpload.mutate(file)}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-background"
+                  disabled={coverUpload.isPending}
+                >
+                  {coverUpload.isPending ? copy.uploadingCover : copy.changeCover}
                 </Button>
               </CoverPicker>
             )}
@@ -193,7 +286,7 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
           {page.icon && (
             <PageIcon page={page} editable={editable} onPick={(icon) => set({ icon })} />
           )}
-          {editable && (!page.icon || !page.cover) && (
+          {editable && (!page.icon || !covered) && (
             <div className="flex flex-wrap gap-1">
               {!page.icon && (
                 <IconPicker icon={page.icon} onPick={(icon) => set({ icon })}>
@@ -203,11 +296,16 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
                   </Button>
                 </IconPicker>
               )}
-              {!page.cover && (
-                <CoverPicker cover={page.cover} onPick={(cover) => set({ cover })}>
-                  <Button variant="ghost" size="sm">
+              {!covered && (
+                <CoverPicker
+                  cover={page.cover}
+                  covered={covered}
+                  onPick={pickCover}
+                  onUpload={(file) => coverUpload.mutate(file)}
+                >
+                  <Button variant="ghost" size="sm" disabled={coverUpload.isPending}>
                     <ImagePlus aria-hidden />
-                    {copy.addCover}
+                    {coverUpload.isPending ? copy.uploadingCover : copy.addCover}
                   </Button>
                 </CoverPicker>
               )}
@@ -246,11 +344,178 @@ function PageScreen({ page, peek = false }: PageScreenProps) {
             onConnection={setConnection}
             onAccessChanged={onAccessChanged}
             focusRef={focusContent}
+            handleRef={editorHandle}
+            comments={comments.editor}
+            people={people}
+            onUnseen={comments.unseenOne}
+            openAt={comments.openAt}
+            onOpened={comments.opened}
           />
         </Suspense>
       )}
+      {comments.panelOpen && (
+        <CommentsPanel
+          page={page}
+          people={people}
+          active={comments.active}
+          focusRequest={comments.focusRequest}
+          onActive={comments.setActive}
+          linked={comments.linked}
+          draft={comments.draft}
+          onDraft={comments.setDraft}
+          selection={
+            page.kind === "database" ? undefined : () => editorHandle.current?.selection() ?? null
+          }
+          onReveal={(thread: Thread) => {
+            const anchor = thread.anchor ?? null;
+            if (anchor !== null) {
+              editorHandle.current?.reveal(anchor);
+            }
+          }}
+          onClose={comments.close}
+        />
+      )}
     </article>
   );
+}
+
+/**
+ * A page's comments as the page shows them: the panel, open or not, the
+ * thread open in it and a range waiting for its first comment; the inline
+ * threads its editor highlights; those a mention could not tell. A link to
+ * a thread opens the panel at it, marked in the page and scrolled to once the
+ * content came, then moves focus to it in the panel, selecting nothing; a
+ * link to a block has the editor put the caret there.
+ */
+function useComments(page: Page, enabled: boolean, button: RefObject<HTMLButtonElement | null>) {
+  const workspace = useWorkspace();
+  const queryClient = useQueryClient();
+  const { comment: linkedThread, block: linkedBlock } = useSearch({ from: ROUTE });
+  const thread = enabled ? linkedThread : undefined;
+  const block = enabled ? linkedBlock : undefined;
+  const open = useInfiniteQuery({ ...threadsQuery(workspace.id, page.id, false), enabled });
+  // Every open thread is read, a part at a time, so the editor highlights each.
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = open;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
+      void fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  // The thread a link names, which may be resolved, or not read yet.
+  const linkedQuery = useQuery({
+    ...threadQuery(workspace.id, page.id, thread ?? ""),
+    enabled: thread !== undefined,
+  });
+  const [panelOpen, setPanelOpen] = useState(thread !== undefined);
+  const [active, setActive] = useState<string | null>(thread ?? null);
+  const [focusRequest, setFocusRequest] = useState<{ threadId: string } | null>(null);
+  const [draft, setDraft] = useState<DraftAnchor | null>(null);
+  const [unseen, setUnseen] = useState<readonly Person[]>([]);
+  // Whether the editor opened the page where the link says, which it does once.
+  const [opened, setOpened] = useState(false);
+
+  const threads = useMemo(() => open.data?.pages.flatMap((part) => part.threads), [open.data]);
+  const anchors = useMemo(
+    () =>
+      (threads ?? []).flatMap((each): ThreadAnchor[] => {
+        const anchor = each.anchor ?? null;
+        return anchor === null || anchor.detached || isResolved(each)
+          ? []
+          : [{ id: each.id, start: anchor.start, end: anchor.end }];
+      }),
+    [threads],
+  );
+  const handlers: CommentHandlers = useMemo(
+    () => ({
+      open: (threadId, fromKeyboard) => {
+        setPanelOpen(true);
+        setDraft(null);
+        setActive(threadId);
+        if (fromKeyboard) {
+          setFocusRequest({ threadId });
+        }
+      },
+      draft: (anchor) => {
+        setPanelOpen(true);
+        setActive(null);
+        setDraft(anchor);
+      },
+    }),
+    [],
+  );
+  const changed = useCallback(
+    (threadId?: string) =>
+      threadId === undefined
+        ? refreshComments(queryClient, workspace.id, page.id)
+        : void refreshThread(queryClient, workspace.id, page.id, threadId),
+    [queryClient, workspace.id, page.id],
+  );
+  const editor: EditorComments = useMemo(
+    () => ({ threads: anchors, active, handlers, changed }),
+    [anchors, active, handlers, changed],
+  );
+
+  const close = useCallback(() => {
+    setPanelOpen(false);
+    setDraft(null);
+    setActive(null);
+    button.current?.focus();
+  }, [button]);
+  const unseenOne = useCallback(
+    (person: Person) =>
+      setUnseen((current) =>
+        current.some((each) => each.id === person.id) ? current : [...current, person],
+      ),
+    [],
+  );
+
+  // Where the editor opens the page: the linked thread's text, while it has some, or the block.
+  const linked = threads?.find((each) => each.id === thread) ?? linkedQuery.data;
+  const linkedAnchor = linked?.anchor ?? null;
+  const { start, end } = linkedAnchor ?? { start: undefined, end: undefined };
+  const reachable = linkedAnchor !== null && !linkedAnchor.detached;
+  // A thread on the page as a whole, or whose text is gone, has nothing in the page to
+  // scroll to: it takes focus in the panel as soon as it is known.
+  if (!opened && thread !== undefined && linked !== undefined && !reachable) {
+    setOpened(true);
+    setFocusRequest({ threadId: thread });
+  }
+  const openAt: OpenAt | null = useMemo(() => {
+    if (opened) {
+      return null;
+    }
+    if (thread !== undefined) {
+      return reachable && start !== undefined && end !== undefined
+        ? { kind: "thread", anchor: { start, end } }
+        : null;
+    }
+    return block === undefined ? null : { kind: "block", blockId: block };
+  }, [opened, thread, block, reachable, start, end]);
+  const markOpened = useCallback(() => {
+    setOpened(true);
+    if (thread !== undefined) {
+      setFocusRequest({ threadId: thread });
+    }
+  }, [thread]);
+
+  return {
+    editor,
+    panelOpen,
+    active,
+    setActive,
+    focusRequest,
+    draft,
+    setDraft,
+    unseen,
+    openCount: open.data?.pages[0]?.open_threads ?? 0,
+    linked,
+    openPanel: () => setPanelOpen(true),
+    close,
+    openAt,
+    opened: markOpened,
+    unseenOne,
+    dismissUnseen: () => setUnseen([]),
+  };
 }
 
 /**
@@ -316,8 +581,14 @@ function DatabaseBody({ page }: { page: Page }) {
       <DatabaseView
         database={{ ...database.data, page }}
         viewId={view}
+        // The router puts back no scroll as the view changes, which would undo the row of
+        // tabs scrolling the chosen one into sight.
         onViewChange={(next) =>
-          void navigate({ search: (previous) => ({ ...previous, view: next }), replace: true })
+          void navigate({
+            search: (previous) => ({ ...previous, view: next }),
+            replace: true,
+            resetScroll: false,
+          })
         }
       />
     </div>

@@ -215,7 +215,11 @@ pub fn is_page_gone(error: &sqlx::Error) -> bool {
         db.kind() == sqlx::error::ErrorKind::ForeignKeyViolation
             && matches!(
                 db.constraint(),
-                Some("page_updates_page_id_fkey" | "page_snapshots_page_id_fkey")
+                Some(
+                    "page_updates_page_id_fkey"
+                        | "page_snapshots_page_id_fkey"
+                        | "page_versions_page_id_fkey"
+                )
             )
     })
 }

@@ -10,7 +10,7 @@ viewing a database. Several people edit a page at the same time and see each oth
 Agents are members of a workspace too. An agent is a program driven by a language model,
 owned by one person. It connects over [MCP](https://modelcontextprotocol.io), reads the pages
 and boards it may see, takes a task and writes its results into the page, as a person would,
-and will comment once comments exist. Its edits merge with the typing of the people on the
+and comments on it. Its edits merge with the typing of the people on the
 same page.
 
 ## Who it is for
@@ -76,6 +76,19 @@ Neon Teamspace is in early development, before its first release. What exists:
   included, and the same over REST; see [Agents over MCP](/docs/guides/agents-over-mcp/).
 - Outgoing webhooks, signed and retried, and incoming webhooks that make rows and add to
   pages; see [Webhooks](/docs/guides/webhooks/).
+- Comments on pages and on passages of them, mentions of people, agents and pages, and an
+  inbox, mailed as each person wants; see
+  [Comments and mentions](/docs/guides/comments-and-mentions/) and
+  [The inbox](/docs/guides/inbox/).
+- Page history: versions kept as pages are saved, compared block by block and restored
+  through the live document; see [Page history](/docs/guides/history/).
+- Search of pages, databases and rows by their titles, text, values and comments, among
+  what the searcher may see, in the quick search, a search page, the API and MCP; see
+  [Search](/docs/guides/search/).
+- Attachments: images, video, audio and other files in pages and as covers, pasted or
+  dropped in the editor, kept on local disk or in an S3-compatible store, within each
+  workspace's storage limit; see [Attachments](/docs/guides/attachments/) and
+  [File storage](/docs/self-hosting/storage/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
 - These docs.
@@ -87,10 +100,8 @@ Neon Teamspace is in early development, before its first release. What exists:
 These pages describe the design beyond what exists too, and mark it **Planned**. Roughly
 in the order it is built:
 
-1. Comments, mentions and an inbox, page history, search and attachments, with the MCP
-   tools and webhook events that need them.
-2. Signed releases and the first version, 0.1.0.
-3. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
+1. Signed releases and the first version, 0.1.0.
+2. Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
    from the server a person names.
 
 ## What it is not

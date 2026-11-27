@@ -7,12 +7,15 @@
 
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { BlockNoteSchema, createBlockSpec } from "@blocknote/core";
+import { BlockNoteSchema, createBlockSpec, createInlineContentSpec } from "@blocknote/core";
 import { ServerBlockNoteEditor } from "@blocknote/server-util";
 import { getDocument } from "@blocknote/server-util/dom";
 import { yXmlFragmentToProseMirrorRootNode } from "y-prosemirror";
 import * as Y from "yjs";
-import { databaseBlockConfig } from "../../../web/src/components/editor/custom-blocks.ts";
+import {
+  databaseBlockConfig,
+  mentionInlineConfig,
+} from "../../../web/src/components/editor/custom-blocks.ts";
 
 /** The name of the fragment that holds a page's blocks; neon-blocks has the same. */
 export const FRAGMENT = "document-store";
@@ -25,15 +28,20 @@ export const FIXTURES = resolve(import.meta.dir, "../../../crates/blocks/tests/f
 const dom = getDocument();
 
 /**
- * The editor's schema: BlockNote's default blocks, and the app's own from the configs the web
- * app's editor uses. This tool converts blocks and never draws them, so each of the app's
- * blocks draws as an empty element here.
+ * The editor's schema: BlockNote's default blocks and inline content, and the app's own from
+ * the configs the web app's editor uses. This tool converts blocks and never draws them, so
+ * each of the app's blocks and inline contents draws as an empty element here.
  */
 const schema = BlockNoteSchema.create().extend({
   blockSpecs: {
     [databaseBlockConfig.type]: createBlockSpec(databaseBlockConfig, {
       render: () => ({ dom: dom.createElement("div") }),
     })(),
+  },
+  inlineContentSpecs: {
+    [mentionInlineConfig.type]: createInlineContentSpec(mentionInlineConfig, {
+      render: () => ({ dom: dom.createElement("span") }),
+    }),
   },
 });
 

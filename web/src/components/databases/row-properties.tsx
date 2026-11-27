@@ -120,7 +120,7 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
   return (
     <div className="contents">
       <dt className="flex min-h-(--tap-sm) items-center text-sm text-muted-foreground">{term}</dt>
-      <dd className="flex min-h-(--tap-sm) items-center text-sm">{children}</dd>
+      <dd className="flex min-h-(--tap-sm) items-center px-1.5 text-sm">{children}</dd>
     </div>
   );
 }

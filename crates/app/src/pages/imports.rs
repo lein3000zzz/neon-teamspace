@@ -1,9 +1,11 @@
 //! Importing: a tree of pages made in one go, each with its content as the first snapshot of
-//! its document, under a page, at the top of a teamspace or among the caller's private
-//! pages.
+//! its document and the files its blocks show, under a page, at the top of a teamspace or
+//! among the caller's private pages.
 
 use neon_blocks::Document;
+use neon_domain::attachments::File;
 use neon_domain::auth::Principal;
+use neon_domain::notifications::{TextMention, page_mentions};
 use neon_domain::pages::{
     MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, check_title, position,
 };
@@ -15,6 +17,7 @@ use yrs::{Doc, ReadTxn as _, StateVector, Transact as _};
 
 use super::operations::{Target, in_workspace, save_content};
 use super::{Location, PageError, PageService, PageView};
+use crate::notifications::mentions;
 
 /// A page to import, with the pages to import under it.
 #[derive(Debug, Clone, Default)]
@@ -22,6 +25,8 @@ pub struct ImportedPage {
     pub title: String,
     /// Its document, or `None` for a page without content.
     pub content: Option<ImportedContent>,
+    /// Files written to the blob store for it, kept as its own once it is made.
+    pub files: Vec<File>,
     pub children: Vec<ImportedPage>,
 }
 
@@ -40,10 +45,19 @@ impl ImportedPage {
     pub fn count(&self) -> usize {
         1 + self.children.iter().map(Self::count).sum::<usize>()
     }
+
+    /// How many bytes its files take, and those of the pages under it.
+    pub fn file_bytes(&self) -> u64 {
+        self.files
+            .iter()
+            .map(|file| file.size)
+            .chain(self.children.iter().map(Self::file_bytes))
+            .fold(0, u64::saturating_add)
+    }
 }
 
 /// A page's document, ready to be its first snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportedContent {
     /// The whole Yjs document, encoded as one update.
     pub state: Vec<u8>,
@@ -51,24 +65,37 @@ pub struct ImportedContent {
     pub state_vector: Vec<u8>,
     /// Its plain text, for search.
     pub text: String,
+    /// The files it shows, by the ids in their paths.
+    pub files: Vec<Uuid>,
+    /// Its blocks, with the ids they were written with: the page's first version.
+    pub document: Document,
+    /// Whom its text mentions, each in its block, recorded as the page is made.
+    pub mentions: Vec<TextMention>,
 }
 
 impl ImportedContent {
-    /// The blocks written into a Yjs document as the editor would, each given a fresh id;
-    /// `None` for no blocks, which a page without a snapshot has already.
+    /// The blocks written into a Yjs document as the editor would, each without an id given
+    /// a fresh one; `None` for no blocks, which a page without a snapshot has already.
     pub fn of(document: &Document) -> Option<Self> {
         if document.is_empty() {
             return None;
         }
+        // Its ids given first, so its first version and whom it mentions are known by block.
+        let mut document = document.clone();
+        document.fill_ids(&mut || Uuid::now_v7().to_string());
         let doc = Doc::new();
         let fragment = neon_blocks::fragment(&doc);
         let mut txn = doc.transact_mut();
-        let mut ids = || Uuid::now_v7().to_string();
-        neon_blocks::replace(&mut txn, &fragment, document, &mut ids);
+        neon_blocks::replace(&mut txn, &fragment, &document, &mut || {
+            Uuid::now_v7().to_string()
+        });
         Some(Self {
             state: txn.encode_state_as_update_v1(&StateVector::default()),
             state_vector: txn.state_vector().encode_v1(),
             text: document.plain_text(),
+            files: crate::attachments::shown_files(&document),
+            mentions: mentions::in_document(&document),
+            document,
         })
     }
 }
@@ -104,7 +131,8 @@ impl PageService {
 
     /// Makes `pages`, each with the pages under it, last at `location`, in one transaction,
     /// with the rules of [`create_page`](Self::create_page). A page's content becomes the
-    /// first snapshot of its document, and its text the page's search text.
+    /// first snapshot of its document, and its text the page's search text. Its files, already
+    /// in the blob store, become its own, within the workspace's storage limit.
     pub async fn import_pages(
         &self,
         principal: &Principal,
@@ -117,11 +145,25 @@ impl PageService {
                 return Err(PageError::InvalidInput("nothing to import".to_owned()));
             }
             let height = pages.iter().map(ImportedPage::height).max().unwrap_or(1);
+            let bytes = pages
+                .iter()
+                .map(ImportedPage::file_bytes)
+                .fold(0, u64::saturating_add);
             let user = principal.user.id;
             let mut tx = self.pool().begin().await?;
             let standing = in_workspace(&mut tx, principal, workspace_id).await?;
             let members_hidden = standing.members_hidden();
             repo::lock_tree(&mut *tx, workspace_id).await?;
+            if bytes > 0 {
+                neon_store::workspaces::lock(&mut *tx, workspace_id).await?;
+                let settings = self.inner.settings.current();
+                if let Some(limit) =
+                    crate::attachments::storage_full(&mut tx, &settings, workspace_id, bytes)
+                        .await?
+                {
+                    return Err(PageError::StorageLimit { limit });
+                }
+            }
             let Target {
                 space,
                 parent_id,
@@ -165,6 +207,7 @@ impl PageService {
                     title: check_title(&imported.title).map_err(PageError::invalid)?,
                     icon: None,
                     cover: None,
+                    cover_image: None,
                     style: PageStyle::default(),
                     created_by: Some(user),
                     last_edited_by: Some(user),
@@ -176,8 +219,20 @@ impl PageService {
                     trashed_with: None,
                 };
                 repo::insert(&mut *tx, &page).await?;
+                for file in &imported.files {
+                    let file = File {
+                        page_id: page.id,
+                        ..file.clone()
+                    };
+                    neon_store::files::insert(&mut *tx, &file).await?;
+                    neon_store::files::keep_blob(&mut *tx, &file.key).await?;
+                }
                 if let Some(content) = &imported.content {
-                    save_content(&mut tx, page.id, content, now).await?;
+                    save_content(&mut tx, page.id, content, now, user).await?;
+                    // Imported text was written elsewhere, before: whom it mentions is
+                    // recorded, so it tells nobody now nor at the next edit.
+                    let mentioned = page_mentions(content.mentions.iter().cloned());
+                    mentions::record(&mut tx, page.id, &mentioned).await?;
                 }
                 count += 1;
                 let keys = position::sequence(imported.children.len());
@@ -202,6 +257,7 @@ impl PageService {
                 user_id = %user,
                 workspace_id = %workspace_id,
                 pages = count,
+                file_bytes = bytes,
                 "pages imported"
             );
             Ok(Imported { pages: made, count })

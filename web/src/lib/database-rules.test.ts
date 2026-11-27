@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Database, ViewRows } from "@/api/databases";
 import { DB, properties, row, sampleRows, tasksPage, views } from "@/test/databases";
-import { people } from "@/test/workspaces";
+import type { Someone } from "@/lib/people";
+import { asPerson, people, scout } from "@/test/workspaces";
 import {
   columnsOf,
   conditionCount,
@@ -22,6 +23,8 @@ import {
   startingValue,
   valueOf,
   valuesMeeting,
+  valueText,
+  widthOf,
 } from "./database-rules";
 
 const database: Database = {
@@ -34,6 +37,15 @@ const database: Database = {
 const status = properties()[1];
 if (status === undefined) {
   throw new Error("the sample has a status");
+}
+
+/** A property of the sample, by its id. */
+function sampleProperty(id: string) {
+  const found = properties().find((entry) => entry.id === id);
+  if (found === undefined) {
+    throw new Error(`the sample has ${id}`);
+  }
+  return found;
 }
 
 /** The board's rows, grouped by status as the server lists them. */
@@ -201,6 +213,18 @@ describe("a view's columns", () => {
       "Status",
     ]);
   });
+
+  it("are as wide as the view keeps them, within the bounds, else as their type starts", () => {
+    const [title, , points] = properties();
+    if (title === undefined || points === undefined) {
+      throw new Error("the sample has a title and a number");
+    }
+    expect(widthOf({ property: title, visible: true })).toBe(260);
+    expect(widthOf({ property: points, visible: true, width: null })).toBe(180);
+    expect(widthOf({ property: title, visible: true, width: 250 })).toBe(250);
+    expect(widthOf({ property: points, visible: true, width: 40 })).toBe(80);
+    expect(widthOf({ property: points, visible: true, width: 5000 })).toBe(2000);
+  });
 });
 
 describe("values", () => {
@@ -217,6 +241,26 @@ describe("values", () => {
     expect(formatNumber(0.25, "percent")).toMatch(/25\s?%/);
     expect(formatNumber(1234.567, "integer")).toMatch(/1.?235/);
     expect(formatNumber(12.5, "currency", "EUR")).toMatch(/12[.,]50/);
+  });
+
+  it("read in full as plain text, people and options by name", () => {
+    const named = new Map<string, Someone>([
+      [people.ada.id, people.ada],
+      [scout.id, asPerson(scout)],
+    ]);
+    expect(valueText(sampleProperty(DB.name), "Write the docs", named)).toBe("Write the docs");
+    expect(valueText(sampleProperty(DB.status), DB.inProgress, named)).toBe("In progress");
+    expect(valueText(sampleProperty(DB.tags), [DB.bug, DB.idea], named)).toBe("Bug, Idea");
+    expect(valueText(sampleProperty(DB.owner), [people.ada.id, scout.id], named)).toBe(
+      "Ada, Scout · via Ada",
+    );
+    expect(valueText(sampleProperty(DB.owner), ["someone-gone"], named)).toBe("Someone");
+    expect(valueText(sampleProperty(DB.due), { start: "2026-11-22" }, named, "numeric")).toBe(
+      "2026-11-22",
+    );
+    expect(valueText(sampleProperty(DB.points), 3, named)).toBe("3");
+    expect(valueText(sampleProperty(DB.done), true, named)).toBeUndefined();
+    expect(valueText(sampleProperty(DB.link), null, named)).toBeUndefined();
   });
 
   it("show days without shifting them, and ranges with an arrow", () => {

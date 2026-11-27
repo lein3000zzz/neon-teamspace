@@ -10,29 +10,97 @@ import {
 } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
+  FormattingToolbar,
+  FormattingToolbarController,
   getDefaultReactSlashMenuItems,
+  getFormattingToolbarItems,
   SuggestionMenuController,
+  useComponentsContext,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
+  type FormattingToolbarProps,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Database, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Database, FileText, MessageSquarePlus, Rows3, Table2, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { mentionsQuery } from "@/api/comments";
 import { useCreateDatabase } from "@/api/databases";
+import { fileKindOf, uploadFile } from "@/api/files";
+import type { PageKind } from "@/api/pages";
+import type { Person } from "@/api/workspaces";
 import { ErrorNotice } from "@/components/feedback/error-notice";
+import { HueDot } from "@/components/nodes/hue-dot";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/components/workspaces/workspace-context";
+import { titleOf } from "@/lib/page-tree";
+import { attribution, type Someone } from "@/lib/people";
 import { strings } from "@/lib/strings";
 import { useTheme } from "@/theme/theme-provider";
+import {
+  COMMENT_HIGHLIGHTS,
+  commentHighlights,
+  revealThread,
+  scrollToThread,
+  selectionAnchor,
+  showThreads,
+  type CommentHandlers,
+  type DraftAnchor,
+  type ThreadAnchor,
+} from "./comment-highlights";
 import { FRAGMENT, useSyncSession, type SyncSession } from "./connection";
 import type { Connection } from "./connection-state";
 import { collaborator, renderCursor, type Collaborator } from "./cursor";
-import { EditorPageContext, type EditorPage } from "./editor-page";
+import { EditorPageContext, useEditorPage, type EditorPage } from "./editor-page";
+import { formattingToolbarOptions, suggestionMenuOptions } from "./floating";
 import { pasteFits } from "./paste";
 import { schema } from "./schema";
 
 const copy = strings.pages.editor;
+
+/** What the page asks of its editor, for its comments. */
+export type EditorHandle = {
+  /** The text selected, as an anchor to start a thread on; `null` without any. */
+  selection: () => DraftAnchor | null;
+  /** Selects a thread's text and scrolls to it; false once its text is gone. */
+  reveal: (anchor: Pick<ThreadAnchor, "start" | "end">) => boolean;
+};
+
+/**
+ * Where a link opens the page: at a thread's text, scrolled to without
+ * selecting it, or at a block, the caret in it.
+ */
+export type OpenAt =
+  | { kind: "thread"; anchor: Pick<ThreadAnchor, "start" | "end"> }
+  | { kind: "block"; blockId: string };
+
+/** The page's comments, as its editor shows them and tells of them. */
+export type EditorComments = {
+  /** The open inline threads, each highlighted on its text. */
+  threads: readonly ThreadAnchor[];
+  /** The thread open in the comments panel, its highlight marked. */
+  active: string | null;
+  /**
+   * A highlight was clicked, or Mod-Alt-M pressed on one; or a range chosen to
+   * comment on. New ones register the highlights afresh, so they should keep their
+   * identity; `changed` likewise, as a new one opens the connection afresh.
+   */
+  handlers: CommentHandlers;
+  /**
+   * A thread of the page changed, as its connection tells, by its id; without
+   * one, any may have.
+   */
+  changed: (threadId?: string) => void;
+};
 
 export type PageEditorProps = {
   pageId: string;
@@ -48,6 +116,16 @@ export type PageEditorProps = {
   onAccessChanged: () => void;
   /** Filled with a way to put the cursor in the content, for Enter in the title. */
   focusRef: RefObject<(() => void) | null>;
+  /** Filled with what the page asks of the editor for its comments. */
+  handleRef: RefObject<EditorHandle | null>;
+  comments: EditorComments;
+  /** Everyone mentions may name, by id; empty for a guest. */
+  people: ReadonlyMap<string, Someone>;
+  /** Someone was mentioned who may not see the page, and so is told nothing. */
+  onUnseen: (person: Person) => void;
+  /** Where to open the page once its content is in the editor; `onOpened` runs once it did. */
+  openAt: OpenAt | null;
+  onOpened: () => void;
 };
 
 /**
@@ -68,8 +146,15 @@ export default function PageEditor({
   onConnection,
   onAccessChanged,
   focusRef,
+  handleRef,
+  comments,
+  people,
+  onUnseen,
+  openAt,
+  onOpened,
 }: PageEditorProps) {
-  const { session, connection } = useSyncSession(pageId, user.id, onAccessChanged);
+  const { changed } = comments;
+  const { session, connection } = useSyncSession(pageId, user.id, onAccessChanged, changed);
 
   useEffect(() => onConnection(connection), [connection, onConnection]);
 
@@ -90,6 +175,12 @@ export default function PageEditor({
       }
       self={collaborator(user.id, user.name, user.hue)}
       focusRef={focusRef}
+      handleRef={handleRef}
+      comments={comments}
+      people={people}
+      onUnseen={onUnseen}
+      openAt={connection.loaded ? openAt : null}
+      onOpened={onOpened}
     />
   );
 }
@@ -101,6 +192,13 @@ type LiveEditorProps = {
   editable: boolean;
   self: Collaborator;
   focusRef: RefObject<(() => void) | null>;
+  handleRef: RefObject<EditorHandle | null>;
+  comments: EditorComments;
+  people: ReadonlyMap<string, Someone>;
+  onUnseen: (person: Person) => void;
+  /** Where to open the page, once the document came from the server. */
+  openAt: OpenAt | null;
+  onOpened: () => void;
 };
 
 function LiveEditor({
@@ -110,13 +208,24 @@ function LiveEditor({
   editable,
   self,
   focusRef,
+  handleRef,
+  comments,
+  people,
+  onUnseen,
+  openAt,
+  onOpened,
 }: LiveEditorProps) {
   const { mode } = useTheme();
   const workspace = useWorkspace();
+  const queryClient = useQueryClient();
   const createDatabase = useCreateDatabase(workspace.id);
   const [refused, setRefused] = useState(false);
   const [creating, setCreating] = useState<ReadonlySet<string>>(() => new Set());
   const [notMade, setNotMade] = useState<unknown>(null);
+  const [notUploaded, setNotUploaded] = useState<unknown>(null);
+  // The editor, for the upload hook, which BlockNote takes before it makes the editor.
+  const editorRef = useRef<{ getBlock: (id: string) => { type: string } | undefined } | null>(null);
+  const { handlers } = comments;
   const editor = useCreateBlockNote(
     {
       schema,
@@ -129,6 +238,20 @@ function LiveEditor({
           showCursorLabels: "activity",
         },
       }),
+      // Images, videos, audio and other files, picked in a block's panel, dropped or
+      // pasted, go to the server as files of the page, and their blocks keep the path it
+      // serves them at. What the server refuses leaves the block empty, and says why.
+      uploadFile: async (file: File, blockId?: string) => {
+        const block = blockId === undefined ? undefined : editorRef.current?.getBlock(blockId);
+        setNotUploaded(null);
+        try {
+          const uploaded = await uploadFile(pageId, fileKindOf(block?.type, file), file);
+          return uploaded.url;
+        } catch (error) {
+          setNotUploaded(error);
+          throw error;
+        }
+      },
       // The server refuses a message over its limit, and the paste would be lost.
       pasteHandler: ({ event, defaultPasteHandler }) => {
         if (event.clipboardData !== null && !pasteFits(event.clipboardData)) {
@@ -139,7 +262,28 @@ function LiveEditor({
         return defaultPasteHandler();
       },
     },
-    [session],
+    [session, pageId],
+  );
+
+  // Registered once the editor is made: given among its options, an extension
+  // keeps the hook from inferring the editor's schema.
+  useEffect(() => {
+    editor.registerExtension(commentHighlights(handlers));
+    return () => {
+      editor.unregisterExtension(COMMENT_HIGHLIGHTS);
+    };
+  }, [editor, handlers]);
+
+  useEffect(() => {
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor]);
+
+  const toolbarOptions = useMemo(
+    () => formattingToolbarOptions(() => editor.domElement ?? undefined),
+    [editor],
   );
 
   useEffect(() => {
@@ -148,6 +292,57 @@ function LiveEditor({
       focusRef.current = null;
     };
   }, [editor, focusRef]);
+
+  useEffect(() => {
+    handleRef.current = {
+      selection: () => selectionAnchor(editor.prosemirrorView),
+      reveal: (anchor) => revealThread(editor.prosemirrorView, anchor),
+    };
+    return () => {
+      handleRef.current = null;
+    };
+  }, [editor, handleRef]);
+
+  // Before the page opens at a thread: the highlights first, so the text scrolled to is
+  // marked.
+  const { threads, active } = comments;
+  useEffect(() => {
+    showThreads(editor.prosemirrorView, threads, active);
+  }, [editor, threads, active]);
+
+  // The document may reach the editor after it came from the server, as the editor's
+  // chunk loads: the page opens where the link says as soon as what it names is there.
+  useEffect(() => {
+    if (openAt === null) {
+      return;
+    }
+    let done = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const open = () => {
+      if (done) {
+        return;
+      }
+      const opened =
+        openAt.kind === "thread"
+          ? scrollToThread(editor.prosemirrorView, openAt.anchor)
+          : showBlock(editor, openAt.blockId);
+      if (opened) {
+        done = true;
+        onOpened();
+      }
+    };
+    open();
+    // Not from inside the change itself, which a new selection would be dispatched in.
+    const stop = editor.onChange(() => {
+      clearTimeout(pending);
+      pending = setTimeout(open, 0);
+    });
+    return () => {
+      done = true;
+      clearTimeout(pending);
+      stop();
+    };
+  }, [editor, openAt, onOpened]);
 
   const { mutateAsync: makeDatabase } = createDatabase;
   /** Makes an inline database under the page, and has the block show it once it is made. */
@@ -171,12 +366,76 @@ function LiveEditor({
   const page: EditorPage = useMemo(
     () => ({
       pageId,
+      slug: workspace.slug,
+      people,
       editable,
       holdsDatabases,
       creating,
       createIn: (blockId: string) => void createIn(blockId),
+      commentOnSelection: () => {
+        const anchor = selectionAnchor(editor.prosemirrorView);
+        if (anchor !== null) {
+          handlers.draft(anchor);
+        }
+      },
     }),
-    [pageId, editable, holdsDatabases, creating, createIn],
+    [
+      pageId,
+      workspace.slug,
+      people,
+      editable,
+      holdsDatabases,
+      creating,
+      createIn,
+      editor,
+      handlers,
+    ],
+  );
+  /** The people and pages `@` may mention, as the server finds them for what follows it. */
+  const mentionItems = useCallback(
+    async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+      const found = await queryClient.fetchQuery(mentionsQuery(workspace.id, pageId, query));
+      const mentionCopy = strings.comments;
+      return [
+        ...found.people.map(({ person, sees_page }) => ({
+          title: attribution(person),
+          ...(sees_page ? {} : { subtext: mentionCopy.cannotSee }),
+          icon: <HueDot hue={person.hue} className="size-2" />,
+          onItemClick: () => {
+            editor.insertInlineContent([
+              {
+                type: "mention",
+                props: { kind: "user", target: person.id, label: person.display_name },
+              },
+              " ",
+            ]);
+            if (!sees_page) {
+              onUnseen(person);
+            }
+          },
+        })),
+        ...found.pages.map((linked) => ({
+          title: titleOf(linked),
+          subtext: strings.search.kinds[linked.kind],
+          icon:
+            linked.icon === undefined || linked.icon === null ? (
+              <PageKindGlyph kind={linked.kind} />
+            ) : (
+              <span aria-hidden>{linked.icon}</span>
+            ),
+          onItemClick: () => {
+            editor.insertInlineContent([
+              {
+                type: "mention",
+                props: { kind: "page", target: linked.id, label: titleOf(linked) },
+              },
+              " ",
+            ]);
+          },
+        })),
+      ];
+    },
+    [editor, queryClient, workspace.id, pageId, onUnseen],
   );
   const slashItems = useCallback(
     async (query: string) => {
@@ -226,17 +485,79 @@ function LiveEditor({
           <ErrorNotice error={notMade} title={copy.databaseFailed} />
         </div>
       )}
+      {notUploaded !== null && (
+        <div style={{ paddingInline: "var(--page-inset)" }}>
+          <ErrorNotice error={notUploaded} title={copy.uploadFailed}>
+            <Button variant="ghost" size="sm" onClick={() => setNotUploaded(null)}>
+              {copy.dismiss}
+            </Button>
+          </ErrorNotice>
+        </div>
+      )}
       <EditorPageContext value={page}>
         <BlockNoteView
           editor={asSchemaless(editor)}
           editable={editable}
           theme={mode}
           slashMenu={false}
+          formattingToolbar={false}
         >
-          <SuggestionMenuController triggerCharacter="/" getItems={slashItems} />
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={slashItems}
+            floatingUIOptions={suggestionMenuOptions}
+          />
+          <SuggestionMenuController
+            triggerCharacter="@"
+            getItems={mentionItems}
+            floatingUIOptions={suggestionMenuOptions}
+          />
+          <FormattingToolbarController
+            formattingToolbar={ToolbarWithComment}
+            floatingUIOptions={toolbarOptions}
+          />
         </BlockNoteView>
       </EditorPageContext>
     </section>
+  );
+}
+
+/** Puts the caret at a block's start and scrolls to it; false while the page holds none such. */
+function showBlock(editor: ReturnType<typeof useCreateBlockNote>, blockId: string): boolean {
+  if (editor.getBlock(blockId) === undefined) {
+    return false;
+  }
+  editor.setTextCursorPosition(blockId, "start");
+  const blocks = editor.domElement?.querySelectorAll("[data-node-type='blockOuter']") ?? [];
+  [...blocks]
+    .find((block) => block.getAttribute("data-id") === blockId)
+    ?.scrollIntoView({ block: "center" });
+  editor.focus();
+  return true;
+}
+
+/** A page's glyph in the mention menu, by its kind, for one without an icon. */
+function PageKindGlyph({ kind }: { kind: PageKind }) {
+  const Glyph = kind === "row" ? Rows3 : kind === "database" ? Table2 : FileText;
+  return <Glyph aria-hidden size={18} />;
+}
+
+/** BlockNote's formatting toolbar, and last the button to start a thread on the text selected. */
+function ToolbarWithComment(props: FormattingToolbarProps) {
+  const Components = useComponentsContext();
+  const page = useEditorPage();
+  return (
+    <FormattingToolbar {...props}>
+      {...getFormattingToolbarItems(props.blockTypeSelectItems)}
+      {Components !== undefined && (
+        <Components.FormattingToolbar.Button
+          label={strings.comments.toolbar}
+          mainTooltip={strings.comments.toolbar}
+          icon={<MessageSquarePlus aria-hidden size={18} />}
+          onClick={page.commentOnSelection}
+        />
+      )}
+    </FormattingToolbar>
   );
 }
 

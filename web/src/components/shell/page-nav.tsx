@@ -29,11 +29,11 @@ export function FavoritesNav({ workspace, onNavigate }: SectionProps) {
     return null;
   }
   return (
-    <div className="grid gap-1">
+    <div className="grid grid-cols-1 gap-1">
       <p id={headingId} className={navHeading}>
         {strings.nav.favorites}
       </p>
-      <ul aria-labelledby={headingId} className="grid gap-px">
+      <ul aria-labelledby={headingId} className="grid grid-cols-1 gap-px">
         {favorites.data.map((page) => (
           <li key={page.id}>
             <div data-row="" className={treeRow}>
@@ -46,7 +46,7 @@ export function FavoritesNav({ workspace, onNavigate }: SectionProps) {
                 <PageGlyph icon={page.icon} kind={page.kind} />
                 <span className="min-w-0 flex-1 truncate">{titleOf(page)}</span>
               </Link>
-              <div data-row-actions="" className="flex shrink-0 items-center">
+              <div data-row-actions="over" className="flex shrink-0 items-center">
                 <PageMenu workspace={workspace} page={page} onNavigate={onNavigate} />
               </div>
             </div>
@@ -67,7 +67,7 @@ export function PrivateNav({ workspace, onNavigate }: SectionProps) {
   const drop = useSpaceDrop(workspace, { kind: "private" });
   const newPage = useNewPage(workspace, onNavigate);
   return (
-    <div className="grid gap-1">
+    <div className="grid grid-cols-1 gap-1">
       <div
         data-row=""
         {...(drop.over ? { "data-drop": "inside" } : {})}
@@ -123,7 +123,7 @@ export function SharedNav({ workspace, onNavigate }: SectionProps) {
     return null;
   }
   return (
-    <div className="grid gap-1">
+    <div className="grid grid-cols-1 gap-1">
       <p id={headingId} className={navHeading}>
         {strings.nav.shared}
       </p>

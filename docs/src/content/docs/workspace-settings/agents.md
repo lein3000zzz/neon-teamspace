@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: The workspace's agents and integrations, making one, renaming and recolouring it, handing it over, deleting it, its tokens, and adding it to teamspaces.
+description: The workspace's agents and integrations, making one, renaming and recolouring it, handing it over, deleting it, its tokens, and the teamspaces it is in.
 ---
 
 **Agents**, at `/w/{slug}/settings/agents`, lists the workspace's agents and integrations,
@@ -30,6 +30,9 @@ owner, **Yours** for the caller's own, when it was made, and its status:
 - **Turned off**: agents are off, on the instance or in the workspace.
 - **Deleted**: it is out of the workspace, and what it made still names it.
 
+An agent's card lists its **Teamspaces**: those it is in that the reader sees, General
+first, a private one marked, and never a private one the reader is not in.
+
 What the card offers depends on who looks:
 
 - Its owner and the workspace's owners and admins open its **Webhooks**: its outgoing
@@ -46,6 +49,8 @@ What the card offers depends on who looks:
   they are in, whatever their role in the workspace; owners and admins someone else's agent
   to any teamspace but General, which it is in already. It joins as a member. An
   integration joins no teamspace, so its card offers none.
+- A teamspace's owners and the workspace's owners and admins **take it out** of a
+  teamspace other than General, from the list, after a question.
 
 ## Tokens
 

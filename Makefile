@@ -17,6 +17,10 @@ E2E_WEB_IMAGE     ?= neon-teamspace-web:local
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
+S3_TEST_CONTAINER ?= neon-s3-test
+# The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
+SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
 API_SPEC      := api/openapi.json
 SETTINGS_PAGE := docs/src/content/docs/reference/settings.md
@@ -128,6 +132,38 @@ lint: ## Run clippy on every target, warnings as errors
 .PHONY: test
 test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
 	$(CARGO) test --workspace
+
+.PHONY: test-s3
+# SeaweedFS on a free port of loopback, with a key and secret for the run alone, run as the
+# seaweedfs profile of deployments/docker-compose.yml runs it; the trap removes its container
+# however the run ends, and prints its log first when the run failed. The tests build with the
+# whole workspace's features, as make test does, so the build make test left is used again
+# instead of a second one for neon-server alone.
+# The S3 port answers its health check before the filer and a volume server can take a write,
+# so the run waits until a signed write of a probe object goes through, and gives up after a
+# minute.
+test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (Docker)
+	@set -e; \
+	trap 'status=$$?; if [ $$status -ne 0 ]; then echo "SeaweedFS log:"; docker logs --tail 200 $(S3_TEST_CONTAINER) 2>&1; fi; docker container rm --force $(S3_TEST_CONTAINER) >/dev/null 2>&1; exit $$status' EXIT; \
+	docker run -d --name $(S3_TEST_CONTAINER) -p 127.0.0.1::8333 \
+		-e AWS_ACCESS_KEY_ID=neon-test -e AWS_SECRET_ACCESS_KEY=neon-test-secret \
+		$(SEAWEEDFS_IMAGE) server -s3 -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3.ip.bind=0.0.0.0 \
+		-s3.port.iceberg=0 -s3.port.lance=0 >/dev/null; \
+	address="$$(docker port $(S3_TEST_CONTAINER) 8333/tcp | head -n 1)"; \
+	signed="--aws-sigv4 aws:amz:us-east-1:s3 --user neon-test:neon-test-secret"; \
+	ready=no; \
+	for _ in $$(seq 1 60); do \
+		curl -fsS $$signed -X PUT "http://$$address/neon-test" >/dev/null 2>&1 || true; \
+		if curl -fsS $$signed -X PUT --data probe "http://$$address/neon-test/ready-probe" >/dev/null 2>&1; then \
+			ready=yes; break; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ "$$ready" != yes ]; then echo "SeaweedFS took no write within a minute"; exit 1; fi; \
+	curl -fsS $$signed -X DELETE "http://$$address/neon-test/ready-probe" >/dev/null; \
+	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
+		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
+		$(CARGO) test --workspace --test blobs
 
 ## Generated files
 

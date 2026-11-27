@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO blob_deletions (storage_key, due_at) VALUES ($1, $2)\n         ON CONFLICT (storage_key) DO UPDATE SET due_at = EXCLUDED.due_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "226b42a4f123dd172dbc06dece85c5f705d61fa3477b4f835c4b4c12e84e03a0"
+}

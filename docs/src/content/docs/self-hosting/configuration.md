@@ -21,7 +21,7 @@ instead. It has six sections:
 
 | Section | What it holds |
 |---|---|
-| `server` | `listen`, the address the app's port binds, `0.0.0.0:8080` unless set; `public_url`, the address people use to reach the instance; `trusted_proxies`, see [below](#the-client-address). |
+| `server` | `listen`, the address the app's port binds, `0.0.0.0:8080` unless set; `public_url`, the address people use to reach the instance; `trusted_proxies`, see [below](#the-client-address); `data_dir`, where the server keeps what is not in Postgres, attachments on local disk, `data` unless set, see [File storage](/docs/self-hosting/storage/). |
 | `database` | `url`, the Postgres connection URL; `max_connections`, the size of the connection pool; `auto_migrate`, whether the server updates the schema as it starts, `true` unless set. |
 | `admin` | `email` and `password` of the first admin; see [below](#the-first-admin). |
 | `secrets` | `keys`, the keys that seal secrets kept in the database; see [below](#secret-keys). |

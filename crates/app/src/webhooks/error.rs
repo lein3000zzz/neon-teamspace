@@ -4,6 +4,7 @@ use neon_domain::duration;
 use neon_domain::workspaces::Denied;
 
 use super::signature::SignatureError;
+use crate::comments::CommentError;
 use crate::databases::DatabaseError;
 use crate::pages::PageError;
 use crate::workspaces::WorkspaceError;
@@ -242,6 +243,35 @@ impl From<DatabaseError> for IncomingError {
 impl From<PageError> for IncomingError {
     fn from(error: PageError) -> Self {
         DatabaseError::Page(error).into()
+    }
+}
+
+impl From<CommentError> for IncomingError {
+    fn from(error: CommentError) -> Self {
+        let code = error.code();
+        let refusal = match &error {
+            CommentError::Database(_) | CommentError::Internal(_) => None,
+            CommentError::RateLimited { retry_after } => {
+                return Self::RateLimited {
+                    retry_after: *retry_after,
+                };
+            }
+            CommentError::NotFound(_) => Some(Refusal::NotFound),
+            CommentError::Forbidden(_) => Some(Refusal::Forbidden),
+            CommentError::InvalidInput(_) => Some(Refusal::BadRequest),
+            CommentError::TooManyThreads
+            | CommentError::TooManyReplies
+            | CommentError::TooManyComments => Some(Refusal::Conflict),
+        };
+        match (refusal, error) {
+            (Some(refusal), error) => Self::Refused {
+                refusal,
+                code,
+                message: error.to_string(),
+            },
+            (None, CommentError::Database(error)) => Self::Database(error),
+            (None, error) => Self::Internal(error.to_string()),
+        }
     }
 }
 

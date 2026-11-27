@@ -135,7 +135,10 @@ A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
   itself, even once the menu that asked is gone.
 - `web/src/lib/page-rules.ts` repeats the page rules only to decide which controls show.
 - The page trees' open pages, folded sections and the page being dragged are kept while the
-  app runs, shared by the sidebar's column and its drawer.
+  app runs, shared by the sidebar's column and its drawer. The folded sections are also kept
+  in the browser's local storage, under `neon.folded.` and the account's id, so each person
+  sharing a browser finds theirs folded after a reload; where storage is refused, they stay
+  folded for the session.
 
 The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
 about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
@@ -170,12 +173,48 @@ document, to the `XmlFragment` named `document-store` that
   changes kept until the connection is back.
 - A paste whose text, with what its blocks cost, comes to more than 3 MiB is refused
   before it reaches the document (`paste.ts`), as the server takes 4 MiB at once.
+- Files go through BlockNote's `uploadFile` hook, whether picked in a block's panel, pasted
+  or dropped: each is uploaded to the page as the kind of its block (`api/files.ts`), and
+  the block keeps the path the server answers, `/api/v1/files/{id}`, which the editor loads
+  on the same origin with the session. An upload the server refuses leaves its block empty
+  and shows why above the editor. A cover image is uploaded the same way, then set as the
+  page's `cover_image`, and drawn as the band's background.
 - The editor's schema (`schema.ts`) is BlockNote's default blocks and the app's database
-  block, made from its config in `custom-blocks.ts`, as
-  [Page documents](/docs/architecture/documents/#block-types) describes. The block draws the
+  block, and its default inline content and the app's mention, each made from its config in
+  `custom-blocks.ts`, as [Page documents](/docs/architecture/documents/#block-types)
+  describes. A mention draws someone by the name the workspace's members list gives them
+  now, an agent with its owner, and a page as a link. The block draws the
   database it names with the same views as its own page, compact; see
   [Databases](#databases). The slash menu is BlockNote's, with a **Database** item beside its
   table that makes an inline database under the page and gives its id to a new block.
+
+The page's comments live beside the editor (`web/src/components/comments/`), read from
+`GET /api/v1/pages/{id}/comments` a part at a time: every part of the open threads, so each
+is highlighted, and the resolved ones a part at a time as the panel shows them. When the
+page's connection, opened with `?comments=true`, says a thread changed, in its message of type
+`100`, the app reads that thread alone, `GET /api/v1/threads/{id}`, and puts it in its place
+in the lists, or takes it out once it is gone; a change made here puts the thread it answers
+with in place the same way. Once the connection comes back after a break, every list is read
+again, as what changed meanwhile went untold. A long thread shows its first comment and its
+latest; the replies between come from `GET /api/v1/threads/{id}/comments` on asking.
+
+- The highlights are a ProseMirror plugin (`comment-highlights.ts`), registered on the
+  editor once it is made. It turns each open inline thread's two Yjs relative positions into
+  a decoration, through y-prosemirror's binding, whenever the threads or the document change
+  from elsewhere, and maps the decorations through the user's own edits in between. A new
+  thread's positions come from the selection the same way, or from the browser's selection in
+  an editor that takes no input.
+- The panel is an `aside` beside the page rather than a dialog, so the page stays usable;
+  focus moves into it as it opens and back to its button as it closes. The field of a
+  comment is a combobox: `@` opens the list of people and pages to mention, which
+  `aria-activedescendant` walks without leaving the field.
+- `@` in the editor is a BlockNote suggestion menu over the same search, which inserts the
+  mention as inline content.
+
+The inbox's live feed, `/ws/inbox` (`inbox-feed.ts`), stays open while the signed-in shell
+shows. Each message reads the inbox again, its parts, its count and the invitations, as the
+feed tells only that something changed; it reconnects as the page's connection does, and
+stops once the session ended.
 
 BlockNote's own colours are replaced with the theme's in `web/src/styles/editor.css`, for
 every palette and mode: its `--bn-` variables take the palette's tokens, its text and

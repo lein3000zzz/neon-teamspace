@@ -38,7 +38,7 @@ pub struct WorkspaceLimits {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct WorkspaceUsage {
     pub members: i64,
-    /// Always 0 until attachments exist.
+    /// The bytes its attachments take together, as its storage limit counts them.
     pub storage_bytes: i64,
     /// Its agents and integrations together, deleted ones left out, as its agent limit
     /// counts them.

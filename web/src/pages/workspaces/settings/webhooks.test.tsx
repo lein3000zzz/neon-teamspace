@@ -38,6 +38,20 @@ async function incomingCard(name: string) {
   return within(await incoming.findByRole("listitem", { name }));
 }
 
+describe("the webhooks tab", () => {
+  it("opens on the outgoing webhooks, whose rule the tabs' own stands for", async () => {
+    fakeWorkspaces();
+    fakeWebhooks({ webhooks: [adaHook], incoming: [ciHook] });
+    renderApp("/w/design/settings/webhooks");
+
+    const outgoing = await screen.findByRole("region", { name: "Outgoing webhooks" });
+    // The tabs drop the rule of what comes first after them, which must be this part.
+    expect(outgoing.parentElement?.firstElementChild).toBe(outgoing);
+    expect(outgoing.parentElement?.parentElement?.firstElementChild).toBe(outgoing.parentElement);
+    expect(screen.getByRole("navigation", { name: "Workspace settings" })).toBeInTheDocument();
+  });
+});
+
 describe("outgoing webhooks", () => {
   it("lists each with whose it is, where it goes and what it asks for, and why one is off", async () => {
     fakeWorkspaces({ agents: [scout] });
@@ -69,6 +83,8 @@ describe("outgoing webhooks", () => {
     await user.click(
       form.getByRole("checkbox", { name: "Status changed on a row they are assigned to" }),
     );
+    await user.click(form.getByRole("checkbox", { name: "Mentioned on a page or in a comment" }));
+    await user.click(form.getByRole("checkbox", { name: "A reply to their comment" }));
     await user.click(form.getByRole("button", { name: "Register webhook" }));
     expect(form.getByLabelText("For")).toHaveAccessibleDescription(/Fill this in./);
     expect(form.getByText("Choose at least one event.")).toBeInTheDocument();
@@ -241,8 +257,9 @@ describe("outgoing webhooks", () => {
     );
     const dialog = within(await screen.findByRole("alertdialog", { name: "Delete this webhook?" }));
     await user.click(dialog.getByRole("button", { name: "Delete" }));
-    expect(await screen.findByText("Webhook deleted.")).toBeInTheDocument();
-    expect(await screen.findByText("No outgoing webhooks yet.")).toBeInTheDocument();
+    const outgoing = await section("Outgoing webhooks");
+    expect(await outgoing.findByText("Webhook deleted.")).toBeInTheDocument();
+    expect(await outgoing.findByText("No outgoing webhooks yet.")).toBeInTheDocument();
 
     expect(api.changes).toEqual([
       { method: "PATCH", path: `${base}/webhooks/${adaHook.id}`, body: { enabled: false } },
@@ -440,6 +457,34 @@ describe("incoming webhooks", () => {
     ]);
   });
 
+  it("says whether it is on, and its integration's state only when that stops it, with why", async () => {
+    fakeWorkspaces();
+    fakeWebhooks({
+      incoming: [
+        ciHook,
+        {
+          ...ciHook,
+          id: "0193a5b2-0000-7000-8000-00000000e0ff",
+          name: "Nightly",
+          integration: { ...ciHook.integration, status: "deleted" },
+        },
+      ],
+    });
+    renderApp("/w/design/settings/webhooks");
+
+    const working = await incomingCard("CI");
+    expect(working.getByText("On")).toBeInTheDocument();
+    expect(working.queryByText("Active")).toBeNull();
+    expect(working.queryByText(/^Integration (suspended|turned off|deleted)$/)).toBeNull();
+
+    const stopped = await incomingCard("Nightly");
+    expect(stopped.getByText("On")).toBeInTheDocument();
+    expect(stopped.getByText("Integration deleted")).toBeInTheDocument();
+    expect(
+      stopped.getByText("Its integration is deleted: it refuses what is sent."),
+    ).toBeInTheDocument();
+  });
+
   it("shows its last requests, and why a suspended one refuses", async () => {
     fakeWorkspaces();
     fakeWebhooks({
@@ -449,6 +494,7 @@ describe("incoming webhooks", () => {
     const { user } = renderApp("/w/design/settings/webhooks");
 
     const card = await incomingCard("CI");
+    expect(card.getByText("Integration suspended")).toBeInTheDocument();
     expect(card.getByText(/it refuses what is sent until that ends/)).toBeInTheDocument();
     await user.click(card.getByRole("button", { name: "Requests of CI" }));
     const log = within(await card.findByRole("region", { name: "Requests of CI" }));
@@ -478,7 +524,8 @@ describe("incoming webhooks", () => {
     await user.click(card.getByRole("button", { name: "Delete Builds" }));
     const dialog = within(await screen.findByRole("alertdialog", { name: "Delete Builds?" }));
     await user.click(dialog.getByRole("button", { name: "Delete" }));
-    expect(await screen.findByText("Builds is deleted.")).toBeInTheDocument();
+    const incoming = await section("Incoming webhooks");
+    expect(await incoming.findByText("Builds is deleted.")).toBeInTheDocument();
     expect(api.changes).toEqual([
       { method: "PATCH", path: `${base}/incoming-webhooks/${ciHook.id}`, body: { name: "Builds" } },
       { method: "PATCH", path: `${base}/incoming-webhooks/${ciHook.id}`, body: { enabled: false } },

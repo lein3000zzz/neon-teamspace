@@ -233,6 +233,7 @@ fn hello() -> Outgoing {
         subject: "Hello".into(),
         text: "Plain words.".into(),
         html: "<p>HTML words.</p>".into(),
+        unsubscribe: None,
     }
 }
 
@@ -270,6 +271,43 @@ async fn a_plain_send_writes_both_parts_and_the_headers(pool: PgPool) {
     assert!(data.contains("text/plain") && data.contains("Plain words."));
     assert!(data.contains("text/html") && data.contains("<p>HTML words.</p>"));
     assert!(header("Date").len() > "Date: ".len());
+    assert!(
+        !data.contains("List-Unsubscribe"),
+        "mail people may not stop has no way to: {data}"
+    );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn mail_people_may_stop_says_where_in_one_click(pool: PgPool) {
+    let (port, fake) = plain().start().await;
+    let url = "https://neon.example.com/api/v1/unsubscribe?token=u.k.m";
+    let mail = Outgoing {
+        unsubscribe: Some(url.to_owned()),
+        ..hello()
+    };
+
+    mailer(pool, port, "none", None)
+        .await
+        .send(&mail)
+        .await
+        .expect("sent");
+
+    let seen = fake.seen().clone();
+    let data = &seen.messages[0];
+    let header = |name: &str| {
+        data.lines()
+            .find(|line| line.starts_with(&format!("{name}: ")))
+            .unwrap_or_else(|| panic!("no {name} header in {data}"))
+            .to_owned()
+    };
+    assert_eq!(
+        header("List-Unsubscribe"),
+        format!("List-Unsubscribe: <{url}>")
+    );
+    assert_eq!(
+        header("List-Unsubscribe-Post"),
+        "List-Unsubscribe-Post: List-Unsubscribe=One-Click"
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

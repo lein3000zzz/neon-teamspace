@@ -1,5 +1,7 @@
 # Build output
 /target
+# The server's data directory as make run keeps it: attachments on local disk.
+/data
 node_modules/
 dist/
 .astro/

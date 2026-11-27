@@ -33,6 +33,7 @@ pub(crate) struct PageColumns {
     pub(crate) title: String,
     pub(crate) icon: Option<String>,
     pub(crate) cover: Option<String>,
+    pub(crate) cover_file_id: Option<Uuid>,
     pub(crate) font: String,
     pub(crate) small_text: bool,
     pub(crate) full_width: bool,
@@ -76,6 +77,7 @@ impl TryFrom<PageColumns> for Page {
                         .ok_or_else(|| decode_error(format!("unknown cover {cover:?}")))
                 })
                 .transpose()?,
+            cover_image: row.cover_file_id,
             style: PageStyle {
                 font: Font::parse(&row.font)
                     .ok_or_else(|| decode_error(format!("unknown font {:?}", row.font)))?,
@@ -100,10 +102,11 @@ pub(crate) fn page_of(columns: PageColumns) -> sqlx::Result<Page> {
 }
 
 /// What a share's access ranks as in the queries that take the most of several: 1 to
-/// view, 2 to edit, 0 or nothing for none.
+/// view, 2 to comment, 3 to edit, 0 or nothing for none.
 fn from_rank(rank: Option<i32>) -> Option<PageAccess> {
     match rank {
-        Some(2) => Some(PageAccess::Edit),
+        Some(3) => Some(PageAccess::Edit),
+        Some(2) => Some(PageAccess::Comment),
         Some(1) => Some(PageAccess::View),
         _ => None,
     }
@@ -132,10 +135,11 @@ pub async fn lock_tree(executor: impl PgExecutor<'_>, workspace_id: Uuid) -> sql
 pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO pages (id, workspace_id, kind, teamspace_id, owner_id, parent_id, position,
-                            title, icon, cover, font, small_text, full_width, created_by,
-                            last_edited_by, created_at, updated_at, content_updated_at)
+                            title, icon, cover, cover_file_id, font, small_text, full_width,
+                            created_by, last_edited_by, created_at, updated_at,
+                            content_updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                 $18)",
+                 $18, $19)",
         page.id,
         page.workspace_id,
         page.kind.as_str(),
@@ -146,6 +150,7 @@ pub async fn insert(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<
         page.title,
         page.icon,
         page.cover.map(Cover::as_str),
+        page.cover_image,
         page.style.font.as_str(),
         page.style.small_text,
         page.style.full_width,
@@ -164,8 +169,8 @@ pub async fn get(executor: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option
     sqlx::query_as!(
         PageColumns,
         "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
-                cover, font, small_text, full_width, created_by, last_edited_by, created_at,
-                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
+                cover, cover_file_id, font, small_text, full_width, created_by, last_edited_by,
+                created_at, updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages WHERE id = $1",
         id,
     )
@@ -191,9 +196,8 @@ pub async fn chain(
                WHERE c.depth < $3
            )
            SELECT p.id, p.workspace_id, p.kind, p.teamspace_id, p.owner_id, p.parent_id,
-                  p.position, p.title, p.icon, p.cover, p.font, p.small_text, p.full_width,
-                  p.created_by,
-                  p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,
+                  p.position, p.title, p.icon, p.cover, p.cover_file_id, p.font, p.small_text,
+                  p.full_width, p.created_by, p.last_edited_by, p.created_at, p.updated_at, p.content_updated_at,
                   p.trashed_at, p.trashed_by, p.trashed_with, s.access AS "shared?"
            FROM chain c
            JOIN pages p ON p.id = c.id
@@ -219,6 +223,7 @@ pub async fn chain(
             title: row.title,
             icon: row.icon,
             cover: row.cover,
+            cover_file_id: row.cover_file_id,
             font: row.font,
             small_text: row.small_text,
             full_width: row.full_width,
@@ -263,14 +268,15 @@ pub async fn facts(
                FROM up u JOIN pages p ON p.id = u.id
                WHERE p.parent_id IS NOT NULL AND u.depth < $3
            ), best AS (
-               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 END) AS rank
+               SELECT u.start, max(CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 END) AS rank
                FROM up u JOIN page_shares s ON s.page_id = u.id AND s.user_id = $2
                GROUP BY u.start
            )
            SELECT p.id AS "id!", p.workspace_id AS "workspace_id!", p.kind AS "kind!",
                   p.teamspace_id,
                   p.owner_id, p.parent_id, p.position AS "position!", p.title AS "title!",
-                  p.icon, p.cover, p.font AS "font!", p.small_text AS "small_text!",
+                  p.icon, p.cover, p.cover_file_id, p.font AS "font!",
+                  p.small_text AS "small_text!",
                   p.full_width AS "full_width!", p.created_by, p.last_edited_by,
                   p.created_at AS "created_at!", p.updated_at AS "updated_at!",
                   p.content_updated_at AS "content_updated_at!", p.trashed_at, p.trashed_by,
@@ -301,6 +307,7 @@ pub async fn facts(
             title: row.title,
             icon: row.icon,
             cover: row.cover,
+            cover_file_id: row.cover_file_id,
             font: row.font,
             small_text: row.small_text,
             full_width: row.full_width,
@@ -343,8 +350,8 @@ pub async fn facts(
 pub async fn update(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         "UPDATE pages
-         SET title = $2, icon = $3, cover = $4, font = $5, small_text = $6, full_width = $7,
-             last_edited_by = $8, updated_at = $9
+         SET title = $2, icon = $3, cover = $4, cover_file_id = $10, font = $5,
+             small_text = $6, full_width = $7, last_edited_by = $8, updated_at = $9
          WHERE id = $1",
         page.id,
         page.title,
@@ -355,6 +362,7 @@ pub async fn update(executor: impl PgExecutor<'_>, page: &Page) -> sqlx::Result<
         page.style.full_width,
         page.last_edited_by,
         page.updated_at,
+        page.cover_image,
     )
     .execute(executor)
     .await?;
@@ -598,6 +606,68 @@ pub async fn recent(
     .await
 }
 
+/// Of a workspace's pages out of the trash that `user_id`'s space or shares let them see,
+/// those whose titles hold `text`, ignoring case, rows and databases included, the most
+/// recently changed first, at most `limit`. Empty text takes every title.
+///
+/// What they may see is narrowed first, as the rules give it: the pages of a teamspace
+/// they are in, of one open to every member unless it is private, their own private
+/// pages, and every page shared with them and those under it; for a `guest`, only those
+/// shared. The title is matched among those alone, so neither the pages found nor the
+/// work of finding them turns on what they may not see. The rules still have the last
+/// word, as an agent sees only what its owner sees too.
+pub async fn titled_for(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+    guest: bool,
+    text: &str,
+    limit: i64,
+) -> sqlx::Result<Vec<Uuid>> {
+    let pattern = format!(
+        "%{}%",
+        text.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+    sqlx::query_scalar!(
+        r#"WITH RECURSIVE shared (id, depth) AS (
+               SELECT s.page_id, 0 FROM page_shares s
+               JOIN pages r ON r.id = s.page_id
+               WHERE s.user_id = $2 AND r.workspace_id = $1
+             UNION
+               SELECT c.id, d.depth + 1 FROM shared d
+               JOIN pages c ON c.parent_id = d.id
+               WHERE d.depth < $6
+           ),
+           visible AS MATERIALIZED (
+               SELECT p.id FROM pages p
+               LEFT JOIN teamspaces t ON t.id = p.teamspace_id
+               WHERE p.workspace_id = $1 AND p.trashed_at IS NULL
+                 AND ((NOT $3 AND p.teamspace_id IS NOT NULL
+                       AND (t.access <> 'private'
+                            OR EXISTS (SELECT 1 FROM teamspace_members m
+                                       WHERE m.teamspace_id = p.teamspace_id
+                                         AND m.user_id = $2)))
+                      OR (NOT $3 AND p.owner_id = $2)
+                      OR p.id IN (SELECT id FROM shared))
+           )
+           SELECT p.id FROM pages p
+           JOIN visible v ON v.id = p.id
+           WHERE p.title ILIKE $4 ESCAPE '\'
+           ORDER BY GREATEST(p.updated_at, p.content_updated_at) DESC, p.id
+           LIMIT $5"#,
+        workspace_id,
+        user_id,
+        guest,
+        pattern,
+        limit,
+        WALK_LIMIT,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Which of `ids` are `root` or under it, or no longer exist: the pages a change to
 /// `root` and the pages under it may concern, of those open.
 pub async fn within(
@@ -637,8 +707,8 @@ pub async fn trashed(
     sqlx::query_as!(
         PageColumns,
         "SELECT id, workspace_id, kind, teamspace_id, owner_id, parent_id, position, title, icon,
-                cover, font, small_text, full_width, created_by, last_edited_by, created_at,
-                updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
+                cover, cover_file_id, font, small_text, full_width, created_by, last_edited_by,
+                created_at, updated_at, content_updated_at, trashed_at, trashed_by, trashed_with
          FROM pages
          WHERE workspace_id = $1 AND trashed_at IS NOT NULL AND trashed_with = id
            AND ($2::timestamptz IS NULL OR (trashed_at, id) < ($2, $3::uuid))
@@ -700,7 +770,7 @@ pub async fn space_tree(
     sqlx::query!(
         r#"WITH RECURSIVE tree (id, path, shared, depth) AS (
                SELECT p.id, p.position COLLATE "C",
-                      CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
+                      CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
                FROM pages p
                LEFT JOIN page_shares s ON s.page_id = p.id AND s.user_id = $3
                WHERE p.workspace_id = $1 AND COALESCE(p.parent_id, p.teamspace_id, p.owner_id) = $2
@@ -708,7 +778,7 @@ pub async fn space_tree(
              UNION ALL
                SELECT c.id, (t.path || '!' || c.position) COLLATE "C",
                       GREATEST(t.shared,
-                               CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
+                               CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
                JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'
@@ -787,13 +857,13 @@ pub async fn shared_tree(
                )
            ), tree (id, path, shared, depth) AS (
                SELECT r.id, r.id::text COLLATE "C",
-                      CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
+                      CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END, 1
                FROM roots r
                JOIN page_shares s ON s.page_id = r.id AND s.user_id = $2
              UNION ALL
                SELECT c.id, (t.path || '!' || c.position) COLLATE "C",
                       GREATEST(t.shared,
-                               CASE s.access WHEN 'edit' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
+                               CASE s.access WHEN 'edit' THEN 3 WHEN 'comment' THEN 2 WHEN 'view' THEN 1 ELSE 0 END),
                       t.depth + 1
                FROM tree t
                JOIN pages c ON c.parent_id = t.id AND c.trashed_at IS NULL AND c.kind <> 'row'

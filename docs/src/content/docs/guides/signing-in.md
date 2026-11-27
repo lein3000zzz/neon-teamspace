@@ -73,13 +73,15 @@ address filled in.
 
 ## The account pages
 
-**Account**, in the sidebar, opens `/account`, in five parts:
+**Account**, in the sidebar, opens `/account`, in its parts:
 
 - **Profile**: the address, the role, and the display name, which can change. A blank name
   goes back to the part of the address before the `@`. Under it, the password: the current
   one and a new one, twice. Changing it signs out every other session.
 - **Invitations**: the invitations into workspaces waiting for an answer, to accept or
   decline; see [Workspaces and teamspaces](/docs/guides/workspaces/#invitations).
+- **Notifications**: whether the inbox mails you, for each notification or as a digest, or
+  not at all; see [notification mail](/docs/guides/inbox/#notification-mail).
 - **Sessions**: each browser signed in, with its address and when it was last active. Any
   of them can be signed out from here, this one included, or every other one at once.
 - **API tokens**: tokens for scripts and tools, each with a name, its scopes and an optional

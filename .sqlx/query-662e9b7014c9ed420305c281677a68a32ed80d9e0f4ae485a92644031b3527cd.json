@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM files f\n         WHERE f.id = ANY($1) AND f.unreferenced_since < $2\n           AND NOT EXISTS (SELECT 1 FROM page_file_refs r WHERE r.file_id = f.id)\n           AND NOT EXISTS (SELECT 1 FROM version_file_refs v WHERE v.file_id = f.id)\n           AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.cover_file_id = f.id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "662e9b7014c9ed420305c281677a68a32ed80d9e0f4ae485a92644031b3527cd"
+}

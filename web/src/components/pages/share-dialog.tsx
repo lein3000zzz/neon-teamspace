@@ -25,13 +25,15 @@ import { attribution } from "@/lib/people";
 import { strings } from "@/lib/strings";
 
 const copy = strings.pages.share;
-const ACCESSES = ["can_edit", "can_view"] as const satisfies readonly ShareAccess[];
+const ACCESSES = ["can_edit", "can_comment", "can_view"] as const satisfies readonly ShareAccess[];
 
 type ShareDialogProps = {
   workspace: WorkspaceSummary;
   page: { id: string; title: string };
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Whom the form to add a share starts with: someone a mention could not tell. */
+  suggested?: string;
 };
 
 /**
@@ -40,7 +42,7 @@ type ShareDialogProps = {
  * marked, as they reach nothing else in the workspace. Only those who edit a
  * page, and are not guests, open it.
  */
-export function ShareDialog({ workspace, page, open, onOpenChange }: ShareDialogProps) {
+export function ShareDialog({ workspace, page, open, onOpenChange, suggested }: ShareDialogProps) {
   const title = titleOf(page);
   const shares = useQuery({ ...sharesQuery(workspace.id, page.id), enabled: open });
   const members = useQuery({ ...membersQuery(workspace.id), enabled: open });
@@ -70,6 +72,7 @@ export function ShareDialog({ workspace, page, open, onOpenChange }: ShareDialog
             pageId={page.id}
             members={members.data}
             taken={new Set(own.map((share) => share.user.id))}
+            {...(suggested === undefined ? {} : { suggested })}
             onShared={(name) => setDone(copy.shared(name))}
           />
         )}
@@ -197,18 +200,28 @@ type AddShareFormProps = {
   members: Member[];
   /** Who has a share on this page already. */
   taken: ReadonlySet<string>;
+  suggested?: string;
   onShared: (name: string) => void;
 };
 
-function AddShareForm({ workspaceId, pageId, members, taken, onShared }: AddShareFormProps) {
+function AddShareForm({
+  workspaceId,
+  pageId,
+  members,
+  taken,
+  suggested,
+  onShared,
+}: AddShareFormProps) {
   const me = useMe();
   const add = useAddShare(workspaceId, pageId);
-  const [userId, setUserId] = useState("");
-  const [access, setAccess] = useState<ShareAccess>("can_view");
-  const [missing, setMissing] = useState(false);
   const candidates = members.filter(
     (member) => member.user.id !== me.id && !taken.has(member.user.id),
   );
+  const [userId, setUserId] = useState(() =>
+    candidates.some((member) => member.user.id === suggested) ? (suggested ?? "") : "",
+  );
+  const [access, setAccess] = useState<ShareAccess>("can_view");
+  const [missing, setMissing] = useState(false);
 
   if (candidates.length === 0) {
     return <p className="text-sm text-muted-foreground">{copy.nobody}</p>;

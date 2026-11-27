@@ -3,7 +3,9 @@ use std::fmt;
 use aes_gcm::aead::{Aead as _, KeyInit as _, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use hmac::{Hmac, Mac as _};
+use sha2::Sha256;
 use zeroize::Zeroizing;
 
 /// Bytes in a master key and in each data key: AES-256.
@@ -180,6 +182,46 @@ impl Envelope {
         Ok(out)
     }
 
+    /// A signature that proves the server made it for `purpose` and `subject`, which it
+    /// need not keep: an HMAC-SHA256 of both with a key derived from the current master key,
+    /// after that key's id, both base64url, `<id>.<mac>`. `None` without a key.
+    pub fn sign(&self, purpose: &str, subject: &str) -> Option<String> {
+        let keys = self.keys.as_ref()?;
+        let (id, master) = keys.current();
+        let mac = signature(master, purpose, subject)?;
+        Some(format!(
+            "{}.{}",
+            URL_SAFE_NO_PAD.encode(id),
+            URL_SAFE_NO_PAD.encode(mac)
+        ))
+    }
+
+    /// Whether `signed` is a signature [`sign`](Self::sign) made for `purpose` and
+    /// `subject` with any key of the keyring, compared in constant time.
+    pub fn verify(&self, purpose: &str, subject: &str, signed: &str) -> bool {
+        let Some(keys) = self.keys.as_ref() else {
+            return false;
+        };
+        let Some((id, mac)) = signed.split_once('.') else {
+            return false;
+        };
+        let id = URL_SAFE_NO_PAD
+            .decode(id)
+            .ok()
+            .and_then(|id| String::from_utf8(id).ok());
+        let (Some(id), Ok(mac)) = (id, URL_SAFE_NO_PAD.decode(mac)) else {
+            return false;
+        };
+        let Some(master) = keys.get(&id) else {
+            return false;
+        };
+        let Ok(mut expected) = signer(master) else {
+            return false;
+        };
+        expected.update(&message(purpose, subject));
+        expected.verify_slice(&mac).is_ok()
+    }
+
     pub fn open(&self, sealed: &[u8], aad: &[u8]) -> Result<Zeroizing<Vec<u8>>, OpenError> {
         let keys = self.keys.as_ref().ok_or(OpenError::NoKey)?;
         let parts = Parts::read(sealed).ok_or(OpenError::Malformed)?;
@@ -194,6 +236,32 @@ impl Envelope {
             .map_err(|_| OpenError::Malformed)?;
         gcm_open(data_key, parts.sealed, aad).map(Zeroizing::new)
     }
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// The MAC of `purpose` and `subject` under a key derived from `master`.
+fn signature(master: &[u8; KEY_BYTES], purpose: &str, subject: &str) -> Option<Vec<u8>> {
+    let mut mac = signer(master).ok()?;
+    mac.update(&message(purpose, subject));
+    Some(mac.finalize().into_bytes().to_vec())
+}
+
+/// A MAC keyed with the signing key derived from `master`, which is kept for signing alone,
+/// apart from the keys that seal.
+fn signer(master: &[u8; KEY_BYTES]) -> Result<HmacSha256, hmac::digest::InvalidLength> {
+    let mut derive = HmacSha256::new_from_slice(master)?;
+    derive.update(b"neon signing key v1");
+    let key = Zeroizing::new(derive.finalize().into_bytes().to_vec());
+    HmacSha256::new_from_slice(&key)
+}
+
+fn message(purpose: &str, subject: &str) -> Vec<u8> {
+    let mut message = Vec::with_capacity(purpose.len() + subject.len() + 1);
+    message.extend_from_slice(purpose.as_bytes());
+    message.push(0);
+    message.extend_from_slice(subject.as_bytes());
+    message
 }
 
 /// The fields of a sealed value.
@@ -286,6 +354,29 @@ mod tests {
     }
 
     #[test]
+    fn signatures_hold_for_their_purpose_and_subject_under_any_key_of_the_ring() {
+        let old = envelope(&[format!("k1:{}", key(1))]);
+        let signed = old.sign("unsubscribe", "ada").expect("signs");
+        assert!(old.verify("unsubscribe", "ada", &signed));
+        assert!(!old.verify("unsubscribe", "bea", &signed));
+        assert!(!old.verify("other", "ada", &signed));
+        assert!(!old.verify("unsubscribe", "ada", &signed[..signed.len() - 2]));
+        assert!(!old.verify("unsubscribe", "ada", "not a signature"));
+
+        // After a rotation, the old key's signatures still hold while it is in the ring.
+        let rotated = envelope(&[format!("k2:{}", key(2)), format!("k1:{}", key(1))]);
+        assert!(rotated.verify("unsubscribe", "ada", &signed));
+        let new = rotated.sign("unsubscribe", "ada").expect("signs");
+        assert_ne!(new, signed);
+        assert!(
+            !old.verify("unsubscribe", "ada", &new),
+            "k2 is not in the old ring"
+        );
+        let dropped = envelope(&[format!("k2:{}", key(2))]);
+        assert!(!dropped.verify("unsubscribe", "ada", &signed));
+    }
+
+    #[test]
     fn sealed_values_open_with_the_same_associated_data() {
         let envelope = envelope(&[format!("k1:{}", key(1))]);
 
@@ -366,6 +457,8 @@ mod tests {
 
         assert!(!envelope.has_key());
         assert_eq!(envelope.seal(b"x", b"aad"), Err(SealError::NoKey));
+        assert_eq!(envelope.sign("purpose", "subject"), None);
+        assert!(!envelope.verify("purpose", "subject", "a.b"));
         assert_eq!(envelope.open(b"x", b"aad"), Err(OpenError::NoKey));
         assert!(
             Keyring::parse::<&str>(&[])

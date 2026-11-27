@@ -36,7 +36,7 @@ export function TeamspaceNav({ workspace, onNavigate }: TeamspaceNavProps) {
   const joined = teamspaces.data?.teamspaces.filter((teamspace) => teamspace.role) ?? [];
 
   return (
-    <div className="grid gap-1">
+    <div className="grid grid-cols-1 gap-1">
       <p id={headingId} className={navHeading}>
         {strings.nav.teamspaces}
       </p>
@@ -53,7 +53,7 @@ export function TeamspaceNav({ workspace, onNavigate }: TeamspaceNavProps) {
           </Button>
         </div>
       )}
-      <ul aria-labelledby={headingId} className="grid gap-0.5">
+      <ul aria-labelledby={headingId} className="grid grid-cols-1 gap-0.5">
         {joined.map((teamspace) => (
           <TeamspaceSection
             key={teamspace.id}
@@ -119,7 +119,7 @@ function TeamspaceSection({ workspace, teamspace, onNavigate }: TeamspaceSection
           <span className="min-w-0 flex-1 truncate">{teamspace.name}</span>
           {teamspace.access === "private" && <Lock aria-hidden className="size-3.5 shrink-0" />}
         </Link>
-        <div data-row-actions="" className="flex shrink-0 items-center">
+        <div data-row-actions="over" className="flex shrink-0 items-center">
           <Button
             variant="ghost"
             size="icon-sm"

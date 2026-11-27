@@ -7,8 +7,8 @@ use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
-use super::auth_tests::{Answer, admin, call};
-use super::pages_tests::{create, general};
+use super::auth_tests::{Answer, admin, call, user};
+use super::pages_tests::{create, general, guest};
 use super::tests::state;
 use super::workspaces_tests::{Browser, id, team};
 use super::*;
@@ -184,6 +184,125 @@ async fn agents_are_made_listed_renamed_handed_over_and_deleted(pool: PgPool) {
     assert_eq!(off.body["agents"]["creation"], "admins");
     let refused = team.ada.post(&agents, json!({"name": "Late"})).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.body);
+}
+
+/// The names of the teamspaces an agent's teamspaces list, in its order, each with whether
+/// the caller may take the agent out of it.
+fn teamspaces_of(answer: &Answer) -> Vec<(String, bool)> {
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
+    answer.body["teamspaces"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|teamspace| {
+            (
+                teamspace["name"].as_str().expect("a name").to_owned(),
+                teamspace["removable"].as_bool().expect("a flag"),
+            )
+        })
+        .collect()
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_agent_s_teamspaces_show_as_far_as_each_caller_sees_them(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let team = team(&state, &app).await;
+    let ws = &team.workspace;
+    let scout = agent(&team.cy, ws, "Scout").await;
+    let teamspaces = format!("/api/v1/workspaces/{ws}/teamspaces");
+    let of_scout = format!("/api/v1/workspaces/{ws}/agents/{scout}/teamspaces");
+    let mut made = Vec::new();
+    for (name, access) in [("Ops", "closed"), ("Vault", "private")] {
+        let teamspace = team
+            .ada
+            .post(&teamspaces, json!({"name": name, "access": access}))
+            .await;
+        assert_eq!(teamspace.status, StatusCode::CREATED, "{}", teamspace.body);
+        let added = team
+            .ada
+            .post(
+                &format!("{teamspaces}/{}/members", id(&teamspace)),
+                json!({"user_id": scout, "role": "member"}),
+            )
+            .await;
+        assert_eq!(added.status, StatusCode::CREATED, "{}", added.body);
+        made.push(id(&teamspace));
+    }
+    let named = |list: &[(&str, bool)]| -> Vec<(String, bool)> {
+        list.iter()
+            .map(|(name, removable)| ((*name).to_owned(), *removable))
+            .collect()
+    };
+
+    // Ada, in every one, owns those she made; nobody leaves the default one.
+    assert_eq!(
+        teamspaces_of(&team.ada.get(&of_scout).await),
+        named(&[("General", false), ("Ops", true), ("Vault", true)])
+    );
+    // Bob, an admin outside the private one, and Cy, its owner, a member, never see it.
+    assert_eq!(
+        teamspaces_of(&team.bob.get(&of_scout).await),
+        named(&[("General", false), ("Ops", true)])
+    );
+    assert_eq!(
+        teamspaces_of(&team.cy.get(&of_scout).await),
+        named(&[("General", false), ("Ops", false)])
+    );
+    // Dee, another member, sees as much, and takes it out of Ops once she owns it.
+    assert_eq!(
+        teamspaces_of(&team.dee.get(&of_scout).await),
+        named(&[("General", false), ("Ops", false)])
+    );
+    let dee = id(&team.dee.get("/api/v1/account/me").await);
+    let owner = team
+        .ada
+        .post(
+            &format!("{teamspaces}/{}/members", made[0]),
+            json!({"user_id": dee, "role": "owner"}),
+        )
+        .await;
+    assert_eq!(owner.status, StatusCode::CREATED, "{}", owner.body);
+    assert_eq!(
+        teamspaces_of(&team.dee.get(&of_scout).await),
+        named(&[("General", false), ("Ops", true)])
+    );
+    // A guest knows of no agent, nor of its teamspaces.
+    user(&state, "gus@example.com").await;
+    let gus = guest(&app, &team.ada, ws, "gus@example.com").await;
+    let hidden = gus.get(&of_scout).await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND, "{}", hidden.body);
+    // Nor does Scout itself, while its owner is outside it.
+    let worker = Bearer::new(&app, agent_token(&team.cy, ws, &scout, &["read"]).await);
+    assert_eq!(
+        teamspaces_of(&worker.get(&of_scout).await),
+        named(&[("General", false), ("Ops", false)])
+    );
+
+    // Taken out of one, it lists the rest.
+    let removed = team
+        .bob
+        .send(
+            Method::DELETE,
+            &format!("{teamspaces}/{}/members/{scout}", made[0]),
+            None,
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
+    assert_eq!(
+        teamspaces_of(&team.ada.get(&of_scout).await),
+        named(&[("General", false), ("Vault", true)])
+    );
+
+    // An agent nobody has answers as one that does not exist.
+    let unknown = team
+        .ada
+        .get(&format!(
+            "/api/v1/workspaces/{ws}/agents/{}/teamspaces",
+            uuid::Uuid::now_v7()
+        ))
+        .await;
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{}", unknown.body);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

@@ -59,7 +59,7 @@ describe("the start page", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "You are in no workspace yet" }),
     ).toBeVisible();
-    expect(screen.getByText("No invitations wait for you.")).toBeInTheDocument();
+    expect(await screen.findByText("No invitations wait for you.")).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Create a workspace" }));
     expect(router.state.location.pathname).toBe("/workspaces/new");
   });

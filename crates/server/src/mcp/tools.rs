@@ -12,7 +12,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use neon_app::comments::{Placing, ThreadQuery};
 use neon_app::databases::{NewDatabase, NewRow, QueryInput};
+use neon_app::notifications::InboxQuery;
 use neon_app::pages::NewPage;
 use neon_blocks::edit::Edit;
 use neon_domain::auth::{Principal, Scope};
@@ -27,13 +29,17 @@ use uuid::Uuid;
 
 use super::Services;
 use crate::http::ApiError;
+use crate::http::comments::{CommentList, PostedComment, ThreadList};
 use crate::http::content::{EditOperation, EditedPage, page_markdown, read_markdown};
 use crate::http::database_rows::{QueryAnswer, Row};
 use crate::http::databases::{
     AddProperty, Database, Filter, NumberFormat, OptionChange, Property, PropertyKind, Sort,
     embed_in, embedding,
 };
+use crate::http::history::{PageVersion, VersionList};
+use crate::http::inbox::{Marked, NotificationList};
 use crate::http::pages::{Page, Placement, TreePage, location};
+use crate::http::search::{SearchParams, SearchResults};
 use crate::http::teamspaces::TeamspaceList;
 use crate::http::whoami::WhoAmI;
 use crate::http::workspaces::{Member, MemberList};
@@ -151,7 +157,7 @@ fn schema<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 }
 
 /// Every tool, in the order tools/list gives them.
-pub(crate) const TOOLS: [Spec; 17] = [
+pub(crate) const TOOLS: [Spec; 23] = [
     Spec {
         name: "whoami",
         title: "Who am I",
@@ -195,17 +201,56 @@ pub(crate) const TOOLS: [Spec; 17] = [
         schema: schema::<TreeArguments>,
     },
     Spec {
+        name: "search",
+        title: "Search the workspace",
+        description: "Pages, databases and rows this connection sees whose title, text, rows' \
+                      text values or comments match the query, the best first, each with a \
+                      snippet whose runs mark the matches; a part at a time: pass `next` back \
+                      as `after`. Words must all be there (two characters or more also find \
+                      the words they start), \"quoted words\" in that order, -word leaves out, \
+                      OR between two terms finds either; titles also match misspelled. \
+                      Filters: teamspace_id, kind (page, database or row), created_by, \
+                      edited_by (who changed it last), edited_within such as 7d. Without a \
+                      query, the filters list what changed last. Text is found once the \
+                      server saved the page, a moment after an edit; comments as they are \
+                      written.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<SearchParams>,
+    },
+    Spec {
         name: "read_page",
         title: "Read a page",
         description: "A page's blocks as markdown, each block's id on a line of its own before \
                       it, `<!-- block <id> -->`, which edit_page names; the revision they are \
                       at, which edit_page takes as base; and for a row of a database, its \
-                      properties with their values. A database itself has no body: use \
-                      get_database and query_database.",
+                      properties with their values. Images are `![name](url)` and other files \
+                      `:::file [name](url)`, `:::video` or `:::audio`; a url \
+                      /api/v1/files/{id} is a file kept on this server, which GET with the same \
+                      token reads. Upload one with POST /api/v1/pages/{id}/files. A database \
+                      itself has no body: use get_database and query_database. With \
+                      version_id, a version of the page from list_versions instead, read-only: \
+                      its markdown, with no revision to edit from, for a connection that may \
+                      edit the page.",
         writes: false,
         destructive: false,
         idempotent: true,
-        schema: schema::<PageArguments>,
+        schema: schema::<ReadPageArguments>,
+    },
+    Spec {
+        name: "list_versions",
+        title: "List a page's versions",
+        description: "A page's history, latest first, a part at a time: pass `next` back as \
+                      `after`. Each version is the page's content when the server saved it \
+                      changed, with when, who changed it since the version before, and how many \
+                      blocks they added, changed and removed. Read one with read_page and its \
+                      version_id. Only a connection that may edit the page, as its owner may, \
+                      sees its history: one that only views it is refused.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<VersionsArguments>,
     },
     Spec {
         name: "create_page",
@@ -360,6 +405,60 @@ pub(crate) const TOOLS: [Spec; 17] = [
         idempotent: false,
         schema: schema::<ClaimArguments>,
     },
+    Spec {
+        name: "list_comments",
+        title: "List comments",
+        description: "A page's threads of comments, oldest first, a part at a time, each with \
+                      its first comment and its latest replies, their markdown and authors, and \
+                      comment_count. An inline thread names the block its text is in \
+                      (anchor.block_id) and the text it was made on (anchor.quote), or is \
+                      detached once that text is gone. Resolved threads show unless \
+                      include_resolved is false. Pass next back as after for the next part. \
+                      With thread_id, lists that thread's comments instead, every one in \
+                      order, a part at a time, after then naming a comment.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<ListCommentsArguments>,
+    },
+    Spec {
+        name: "add_comment",
+        title: "Add a comment",
+        description: "Comments on a page: starts a thread on the whole page, or on the text of \
+                      one block (block_id, as read_page names blocks), or replies in a thread \
+                      (thread_id). The markdown is inline content alone, at most 10000 \
+                      characters; mention someone as @[Name](user:<id>), with an id \
+                      list_members gives, or a page as @[Title](page:<id>). Those it mentions \
+                      who cannot see the page are told nothing, and come back in unnotified.",
+        writes: true,
+        destructive: false,
+        idempotent: false,
+        schema: schema::<AddCommentArguments>,
+    },
+    Spec {
+        name: "get_inbox",
+        title: "Get the inbox",
+        description: "Your notifications in this workspace, newest first, a part at a time: \
+                      mentions of you in pages and comments, replies in threads you are in, \
+                      comments on pages you follow, and rows assigned to you, each with its \
+                      page, the comment it is about and who did it. unread: true for the \
+                      unread ones alone; pass next back as before for the next part.",
+        writes: false,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<InboxArguments>,
+    },
+    Spec {
+        name: "mark_read",
+        title: "Mark notifications read",
+        description: "Marks notifications of your inbox read, by their ids, or all of them \
+                      (all: true); read: false marks the ones named unread again. Ids are \
+                      marked all or none: one not found marks nothing.",
+        writes: true,
+        destructive: false,
+        idempotent: true,
+        schema: schema::<MarkReadArguments>,
+    },
 ];
 
 pub(crate) fn list() -> Vec<Tool> {
@@ -449,9 +548,44 @@ pub(crate) async fn call(
             answer(TeamspaceList::from(list))
         }
         "get_page_tree" => tree(s, principal, arguments(given)?).await,
+        "search" => {
+            let params: SearchParams = arguments(given)?;
+            let results = s
+                .search
+                .search(principal, workspace(principal)?, params.input()?)
+                .await
+                .map_err(refused)?;
+            answer(SearchResults::from(results))
+        }
         "read_page" => {
-            let PageArguments { page_id } = arguments(given)?;
-            answer(page_markdown(&s.sync, &s.databases, principal, page_id).await?)
+            let ReadPageArguments {
+                page_id,
+                version_id,
+            } = arguments(given)?;
+            match version_id {
+                Some(version_id) => {
+                    let content = s
+                        .history
+                        .version(principal, page_id, version_id)
+                        .await
+                        .map_err(refused)?;
+                    answer(PageVersion::new(content)?)
+                }
+                None => answer(page_markdown(&s.sync, &s.databases, principal, page_id).await?),
+            }
+        }
+        "list_versions" => {
+            let VersionsArguments {
+                page_id,
+                after,
+                limit,
+            } = arguments(given)?;
+            let list = s
+                .history
+                .versions(principal, page_id, after.as_deref(), limit)
+                .await
+                .map_err(refused)?;
+            answer(VersionList::from(list))
         }
         "create_page" => create_page(s, principal, arguments(given)?).await,
         "edit_page" => {
@@ -592,6 +726,55 @@ pub(crate) async fn call(
                 .map_err(refused)?;
             answer(Row::from(row))
         }
+        "list_comments" => list_comments(s, principal, arguments(given)?).await,
+        "add_comment" => add_comment(s, principal, arguments(given)?).await,
+        "get_inbox" => {
+            let InboxArguments {
+                unread,
+                before,
+                limit,
+            } = arguments(given)?;
+            let query = InboxQuery {
+                workspace_id: Some(workspace(principal)?),
+                unread,
+                archived: false,
+                before,
+                limit: limit.map(usize::from),
+            };
+            let page = s.inbox.inbox(principal, query).await.map_err(refused)?;
+            answer(NotificationList::from(page))
+        }
+        "mark_read" => {
+            let MarkReadArguments {
+                notification_ids,
+                all,
+                read,
+            } = arguments(given)?;
+            let marked = if all {
+                if !read {
+                    return Err(ToolError::invalid(
+                        "invalid_arguments",
+                        "all marks every notification read: name the ones to mark unread",
+                    ));
+                }
+                s.inbox
+                    .mark_all_read(principal, Some(workspace(principal)?))
+                    .await
+                    .map_err(refused)?
+            } else {
+                if notification_ids.is_empty() {
+                    return Err(ToolError::invalid(
+                        "invalid_arguments",
+                        "name the notifications to mark, or all: true",
+                    ));
+                }
+                s.inbox
+                    .mark_many(principal, &notification_ids, read)
+                    .await
+                    .map_err(refused)?
+            };
+            answer(Marked { marked })
+        }
         other => Err(ToolError {
             code: "internal",
             message: format!("the tool {other} has no implementation"),
@@ -611,6 +794,30 @@ struct NoArguments {}
 struct PageArguments {
     /// The page's id, a UUID.
     page_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ReadPageArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// A version of the page to read instead, from list_versions.
+    #[serde(default)]
+    version_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct VersionsArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// The `next` of the part before.
+    #[serde(default)]
+    after: Option<String>,
+    /// Versions in the part, 1 to 100; 100 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -851,6 +1058,167 @@ struct ClaimArguments {
     /// absent.
     #[serde(default)]
     person_property: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ListCommentsArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// False to leave resolved threads out; true when absent.
+    #[serde(default = "yes")]
+    include_resolved: bool,
+    /// To list one thread's comments, every one in order: its id, as list_comments gives
+    /// it.
+    #[serde(default)]
+    thread_id: Option<Uuid>,
+    /// The next of the part before: a thread's id, or with thread_id a comment's.
+    #[serde(default)]
+    after: Option<Uuid>,
+    /// Threads in the part, or with thread_id comments, 1 to 100; 50 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
+    limit: Option<u8>,
+}
+
+async fn list_comments(
+    s: &Services,
+    principal: &Principal,
+    given: ListCommentsArguments,
+) -> Result<Json, ToolError> {
+    let ListCommentsArguments {
+        page_id,
+        include_resolved,
+        thread_id,
+        after,
+        limit,
+    } = given;
+    let limit = limit.map(usize::from);
+    let Some(thread_id) = thread_id else {
+        let query = ThreadQuery {
+            resolved: (!include_resolved).then_some(false),
+            after,
+            limit,
+        };
+        let list = s
+            .comments
+            .threads(principal, page_id, query)
+            .await
+            .map_err(refused)?;
+        return answer(ThreadList::from(list));
+    };
+    on_page(s, principal, page_id, thread_id).await?;
+    let part = s
+        .comments
+        .comments(principal, thread_id, after, limit)
+        .await
+        .map_err(refused)?;
+    answer(CommentList::from(part))
+}
+
+/// Refuses a thread that is not on the page named, as not found.
+async fn on_page(
+    s: &Services,
+    principal: &Principal,
+    page_id: Uuid,
+    thread_id: Uuid,
+) -> Result<(), ToolError> {
+    let (thread, _) = s
+        .comments
+        .thread(principal, thread_id)
+        .await
+        .map_err(refused)?;
+    if thread.thread.page_id != page_id {
+        return Err(ToolError::invalid(
+            "not_found",
+            "the page has no such thread",
+        ));
+    }
+    Ok(())
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddCommentArguments {
+    /// The page's id, a UUID.
+    page_id: Uuid,
+    /// The comment: markdown limited to inline content, at most 10000 characters.
+    markdown: String,
+    /// To start a thread on one block's text: its id, as read_page names it.
+    #[serde(default)]
+    block_id: Option<String>,
+    /// To reply in a thread of the page: its id, as list_comments gives it.
+    #[serde(default)]
+    thread_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct InboxArguments {
+    /// True for the unread notifications alone.
+    #[serde(default)]
+    unread: bool,
+    /// The next of the part before.
+    #[serde(default)]
+    before: Option<Uuid>,
+    /// Notifications in the part, 1 to 200; 50 when absent.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 200))]
+    limit: Option<u8>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MarkReadArguments {
+    /// The notifications to mark, by id.
+    #[serde(default)]
+    notification_ids: Vec<Uuid>,
+    /// True to mark every notification of the inbox read.
+    #[serde(default)]
+    all: bool,
+    /// False to mark the ones named unread again; true when absent.
+    #[serde(default = "yes")]
+    read: bool,
+}
+
+async fn add_comment(
+    s: &Services,
+    principal: &Principal,
+    given: AddCommentArguments,
+) -> Result<Json, ToolError> {
+    let AddCommentArguments {
+        page_id,
+        markdown,
+        block_id,
+        thread_id,
+    } = given;
+    let posted = match (thread_id, block_id) {
+        (Some(_), Some(_)) => {
+            return Err(ToolError::invalid(
+                "invalid_arguments",
+                "name thread_id to reply, or block_id to start a thread on a block, not both",
+            ));
+        }
+        (Some(thread_id), None) => {
+            on_page(s, principal, page_id, thread_id).await?;
+            s.comments
+                .reply(principal, thread_id, &markdown)
+                .await
+                .map_err(refused)?
+        }
+        (None, block_id) => {
+            let placing = block_id.map_or(Placing::Page, Placing::Block);
+            s.comments
+                .start_thread(principal, page_id, &markdown, placing)
+                .await
+                .map_err(refused)?
+        }
+    };
+    answer(PostedComment::from(posted))
 }
 
 async fn create_page(

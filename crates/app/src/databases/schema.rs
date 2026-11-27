@@ -124,6 +124,7 @@ impl DatabaseService {
                 title,
                 icon,
                 cover: None,
+                cover_image: None,
                 style: PageStyle::default(),
                 created_by: Some(user),
                 last_edited_by: Some(user),

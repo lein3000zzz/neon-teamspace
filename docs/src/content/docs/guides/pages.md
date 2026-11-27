@@ -57,6 +57,7 @@ The rest is optional:
 | `title` | Up to 500 characters, trimmed, no line breaks. Empty, the page shows as Untitled. |
 | `icon` | An emoji or a short text, at most 16 characters. |
 | `cover` | One of the covers below. |
+| `cover_image` | On a change, an image uploaded to the page, as its cover in place of `cover`; see [Attachments](/docs/guides/attachments/#covers). |
 | `style` | `font`, `default`, `serif` or `mono`; `small_text` and `full_width`, both off unless set. |
 | `placement` | Where among its siblings; see [Order](#order). Last unless set. |
 | `markdown` | Its content, as [markdown](/docs/architecture/documents/#markdown); empty unless set. |
@@ -66,12 +67,14 @@ reader's palette and mode: the accent's in light modes, and deeper in dark modes
 accent is bright for text and a band of it would glare. `accent` is the reader's accent hue and
 `accent-gradient` runs from it to the hue opposite. `red`, `orange`, `yellow`, `green`,
 `teal`, `blue`, `violet` and `pink` are single hues. `sunrise`, `lagoon`, `aurora` and `dusk`
-are gradients between two of them. Image covers come with attachments.
+are gradients between two of them. A page may show an image of its own instead,
+`cover_image`, an image [uploaded](/docs/guides/attachments/) to it: setting one takes the
+other off, and a page has at most one.
 
 `GET /api/v1/pages/{id}` reads a page: its place (`teamspace_id` or `owner_id`, and
 `parent_id`), its title, icon, cover and style, who made it and who changed it last, and
 `access`, which is `edit` or `view`: what the caller may do with it. `PATCH` changes what its
-body names, for those who edit the page; `null` removes the icon or the cover. `parent_id`
+body names, for those who edit the page; `null` removes the icon or a cover. `parent_id`
 is left out when the caller may not see the page above, and a guest, who knows no other
 member, is not told who made, changed, trashed or owns the page.
 
@@ -134,8 +137,9 @@ them.
 
 ## Sharing
 
-A page can be shared with a member or guest of its workspace, to view it (`can_view`) or to
-edit it (`can_edit`). A share holds for the page and every page under it. It adds to what
+A page can be shared with a member or guest of its workspace, to view it (`can_view`), to
+view it and [comment](/docs/guides/comments-and-mentions/) on it (`can_comment`), or to edit
+it (`can_edit`). A share holds for the page and every page under it. It adds to what
 the person may do there already and never takes anything away: a teamspace's member who is
 given `can_view` still edits. What a person may do with a page is the most of what its
 space gives them and every share on it or on a page above it.
@@ -205,6 +209,13 @@ Each account keeps favorite pages in an order of its own, across its workspaces.
 
 A favorite the caller can no longer see, or one in the trash, stays saved and is left out of
 the list until it can be seen again.
+
+## History and search
+
+Each page keeps its earlier versions, which [Page history](/docs/guides/history/) lists,
+compares with the page as it is and restores, under `/api/v1/pages/{id}/versions`.
+[Search](/docs/guides/search/) finds pages, databases and rows by their titles, text and
+values, at `GET /api/v1/workspaces/{id}/search`. Both show only what the caller may see.
 
 ## Import and export
 

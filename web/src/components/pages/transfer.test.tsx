@@ -98,7 +98,7 @@ describe("importing markdown", () => {
 
     expect(await dialog.findByText("1 file of the zip was left out:")).toBeInTheDocument();
     expect(dialog.getByText("Roadmap/logo.png")).toBeInTheDocument();
-    expect(dialog.getByText(/not markdown; attachments come later/)).toBeInTheDocument();
+    expect(dialog.getByText(/not markdown, and no page shows it/)).toBeInTheDocument();
     expect(api.imports.map((entry) => entry.query)).toEqual([
       { teamspace_id: TEAMSPACE_IDS.general },
     ]);
@@ -155,7 +155,7 @@ describe("importing markdown", () => {
     await user.upload(field, huge);
     await user.click(dialog.getByRole("button", { name: "Import" }));
     expect(
-      await dialog.findByText("That file is 34.6 MB: an import takes up to 32 MiB."),
+      await dialog.findByText("That file is 33 MiB: an import takes up to 32 MiB."),
     ).toBeInTheDocument();
     expect(field).toHaveAttribute("aria-invalid", "true");
     expect(api.imports).toEqual([]);

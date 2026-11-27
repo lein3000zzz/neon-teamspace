@@ -8,12 +8,14 @@
 //! | `create_row` | a database | `values`: an object of values by property name or id, as the API's rows take them |
 //! | `update_row` | a database | `unique_id`, such as `NW-42` or `42`, and `values`, at least one |
 //! | `append` | a page | `markdown`: what to add at the end of the page, at least one block, nested at most [`MAX_DEPTH`] levels deep |
+//! | `comment` | a page | `markdown`: a comment, its inline content alone, on the whole page or, with `block_id`, on that block's text |
 //!
 //! Any other field, a missing one, another version or an action the target does not take is
 //! refused, saying what is wrong.
 
 use neon_blocks::Block;
 use neon_blocks::markdown::{MAX_DEPTH, try_from_markdown};
+use neon_domain::comments::check_comment;
 use neon_domain::webhooks::PAYLOAD_VERSION;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
@@ -57,6 +59,10 @@ pub(crate) enum Order {
     Append {
         blocks: Vec<Block>,
     },
+    Comment {
+        markdown: String,
+        block_id: Option<String>,
+    },
 }
 
 impl Order {
@@ -66,6 +72,7 @@ impl Order {
             Self::CreateRow { .. } => "create_row",
             Self::UpdateRow { .. } => "update_row",
             Self::Append { .. } => "append",
+            Self::Comment { .. } => "comment",
         }
     }
 }
@@ -86,6 +93,12 @@ enum Payload {
         version: u32,
         markdown: String,
     },
+    Comment {
+        version: u32,
+        markdown: String,
+        #[serde(default)]
+        block_id: Option<String>,
+    },
 }
 
 /// The fields an action takes beside `action`, in the order its message names them.
@@ -94,6 +107,7 @@ fn fields_of(action: &str) -> Option<&'static [&'static str]> {
         "create_row" => Some(&["version", "values"]),
         "update_row" => Some(&["version", "unique_id", "values"]),
         "append" => Some(&["version", "markdown"]),
+        "comment" => Some(&["version", "markdown", "block_id"]),
         _ => None,
     }
 }
@@ -120,7 +134,8 @@ pub(crate) fn read(body: &[u8], target: TargetKind) -> Result<Order, String> {
     let payload: Payload = serde_json::from_value(json).map_err(|error| error.to_string())?;
     let (Payload::CreateRow { version, .. }
     | Payload::UpdateRow { version, .. }
-    | Payload::Append { version, .. }) = &payload;
+    | Payload::Append { version, .. }
+    | Payload::Comment { version, .. }) = &payload;
     if *version != PAYLOAD_VERSION {
         return Err(format!(
             "unknown version {version}: this server takes version {PAYLOAD_VERSION}"
@@ -148,14 +163,25 @@ pub(crate) fn read(body: &[u8], target: TargetKind) -> Result<Order, String> {
             }
             Order::Append { blocks }
         }
+        Payload::Comment {
+            markdown, block_id, ..
+        } => {
+            check_comment(&markdown).map_err(|error| format!("`markdown`: {error}"))?;
+            if block_id.as_deref().is_some_and(|id| id.trim().is_empty()) {
+                return Err("`block_id` names a block of the page, or is left out".to_owned());
+            }
+            Order::Comment { markdown, block_id }
+        }
     };
     match (target, &order) {
         (TargetKind::Database, Order::CreateRow { .. } | Order::UpdateRow { .. })
-        | (TargetKind::Page, Order::Append { .. }) => Ok(order),
-        (TargetKind::Database, Order::Append { .. }) => Err(
+        | (TargetKind::Page, Order::Append { .. } | Order::Comment { .. }) => Ok(order),
+        (TargetKind::Database, Order::Append { .. } | Order::Comment { .. }) => Err(
             "this webhook's target is a database: it takes create_row and update_row".to_owned(),
         ),
-        (TargetKind::Page, _) => Err("this webhook's target is a page: it takes append".to_owned()),
+        (TargetKind::Page, _) => {
+            Err("this webhook's target is a page: it takes append and comment".to_owned())
+        }
     }
 }
 
@@ -190,6 +216,57 @@ mod tests {
         .expect("an append");
         assert_eq!(appended.action(), "append");
         assert!(matches!(appended, Order::Append { ref blocks } if blocks.len() == 3));
+        let commented = read_json(
+            json!({"version": 1, "action": "comment", "markdown": "Deployed **v2**"}),
+            TargetKind::Page,
+        )
+        .expect("a comment");
+        assert_eq!(commented.action(), "comment");
+        assert!(
+            matches!(commented, Order::Comment { ref markdown, block_id: None } if markdown == "Deployed **v2**")
+        );
+        let anchored = read_json(
+            json!({"version": 1, "action": "comment", "markdown": "Here", "block_id": "b1"}),
+            TargetKind::Page,
+        );
+        assert!(
+            matches!(anchored, Ok(Order::Comment { block_id: Some(ref id), .. }) if id == "b1")
+        );
+    }
+
+    #[test]
+    fn comments_are_for_pages_and_hold_some_text() {
+        let refused = |json: Json, target| read_json(json, target).expect_err("refused");
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "comment", "markdown": "x"}),
+                TargetKind::Database
+            ),
+            "this webhook's target is a database: it takes create_row and update_row"
+        );
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "comment", "markdown": "  "}),
+                TargetKind::Page
+            ),
+            "`markdown`: a comment holds some text"
+        );
+        assert_eq!(
+            refused(
+                json!({"version": 1, "action": "comment", "markdown": "x", "block_id": " "}),
+                TargetKind::Page
+            ),
+            "`block_id` names a block of the page, or is left out"
+        );
+        assert!(
+            refused(
+                json!({"version": 1, "action": "comment", "markdown": "x", "pin": true}),
+                TargetKind::Page
+            )
+            .starts_with(
+                "unknown field `pin`: comment takes action, version, markdown and block_id"
+            )
+        );
     }
 
     #[test]

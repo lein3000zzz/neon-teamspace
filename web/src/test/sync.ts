@@ -2,10 +2,11 @@ import type { WebSocketData } from "msw";
 import * as Y from "yjs";
 import { server, syncLink } from "./server";
 
-/** y-websocket's message types, y-protocols' sync steps, and its answers to auth. */
+/** y-websocket's message types and the server's own, y-protocols' sync steps, and its answers to auth. */
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 const MESSAGE_AUTH = 2;
+const MESSAGE_COMMENTS = 100;
 const PERMISSION_DENIED = 0;
 const PERMISSION_GRANTED = 1;
 const STEP_1 = 0;
@@ -51,6 +52,14 @@ function syncMessage(step: number, payload: Uint8Array): Uint8Array<ArrayBuffer>
 /** An awareness message, as y-websocket sends one: someone's presence. */
 export function awarenessMessage(update: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array([...varUint(MESSAGE_AWARENESS), ...varUint(update.length), ...update]);
+}
+
+/** The server's own message that a thread of the page's comments changed. */
+export function commentsMessage(threadId: string): Uint8Array<ArrayBuffer> {
+  const payload = new TextEncoder().encode(
+    JSON.stringify({ type: "comments", thread_id: threadId }),
+  );
+  return new Uint8Array([...varUint(MESSAGE_COMMENTS), ...varUint(payload.length), ...payload]);
 }
 
 /**

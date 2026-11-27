@@ -1,8 +1,10 @@
 //! One page at a time: creating, reading and changing a page, moving it, trashing it,
 //! restoring it, deleting it for good, and the way down to it.
 
+use neon_domain::attachments::FileKind;
 use neon_domain::auth::{Principal, Scope};
 use neon_domain::databases::MAX_ROWS;
+use neon_domain::notifications::{TextMention, page_mentions};
 use neon_domain::pages::{
     Cover, Font, MAX_DEPTH, Page, PageAccess, PageKind, PageStyle, Placement, Space, check_title,
 };
@@ -19,6 +21,9 @@ use super::{
     PageView, check_parent, check_space,
 };
 use crate::databases::events::{self, RowChange};
+use crate::history::record;
+use crate::notifications::mentions::{self, Mentions};
+use crate::notifications::notify::Notifier;
 use crate::standing::Standing;
 
 /// Where a page goes: under another page, at the top of a teamspace, or at the top of the
@@ -42,12 +47,15 @@ pub struct NewPage {
 }
 
 /// What a change to a page sets. Each part left out stays as it is; for the icon and the
-/// cover, `Some(None)` removes them.
+/// covers, `Some(None)` removes them. A page has one cover at most, so setting one takes
+/// the other off.
 #[derive(Debug, Clone, Default)]
 pub struct PageUpdate {
     pub title: Option<String>,
     pub icon: Option<Option<String>>,
     pub cover: Option<Option<Cover>>,
+    /// An image uploaded to the page, as its cover.
+    pub cover_image: Option<Option<Uuid>>,
     pub font: Option<Font>,
     pub small_text: Option<bool>,
     pub full_width: Option<bool>,
@@ -56,7 +64,8 @@ pub struct PageUpdate {
 impl PageService {
     /// Makes a page under another page, at the top of a teamspace, or private to the
     /// caller, placed among its siblings. Under a page, it needs edit access to that page;
-    /// at the top of a teamspace, being in it.
+    /// at the top of a teamspace, being in it. Those its content mentions are told, as by
+    /// its maker, in its transaction.
     pub async fn create_page(
         &self,
         principal: &Principal,
@@ -98,6 +107,7 @@ impl PageService {
                 title,
                 icon,
                 cover: new.cover,
+                cover_image: None,
                 style: new.style,
                 created_by: Some(user),
                 last_edited_by: Some(user),
@@ -109,10 +119,25 @@ impl PageService {
                 trashed_with: None,
             };
             repo::insert(&mut *tx, &page).await?;
+            let mut notifier = Notifier::of(self);
             if let Some(content) = &new.content {
-                save_content(&mut tx, page.id, content, now).await?;
+                save_content(&mut tx, page.id, content, now, user).await?;
+                // The page's maker wrote its first text: whom it mentions is told now, as
+                // from them.
+                let mentioned = page_mentions(content.mentions.iter().map(|mention| TextMention {
+                    writer: Some(user),
+                    ..mention.clone()
+                }));
+                let mentions = Mentions {
+                    page_id: page.id,
+                    mentioned: &mentioned,
+                    document: &content.document,
+                    at: now,
+                };
+                mentions::page_text(&mut tx, self, &mut notifier, mentions).await?;
             }
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %user,
                 workspace_id = %workspace_id,
@@ -192,8 +217,27 @@ impl PageService {
                     None => None,
                 };
             }
-            if let Some(cover) = update.cover {
-                page.cover = cover;
+            match (update.cover, update.cover_image) {
+                (Some(Some(_)), Some(Some(_))) => {
+                    return Err(PageError::InvalidInput(
+                        "a page has one cover: set cover or cover_image, not both".to_owned(),
+                    ));
+                }
+                (cover, image) => {
+                    if let Some(cover) = cover {
+                        page.cover = cover;
+                        if page.cover.is_some() {
+                            page.cover_image = None;
+                        }
+                    }
+                    if let Some(image) = image {
+                        if let Some(file_id) = image {
+                            check_cover_image(&mut tx, page.id, file_id).await?;
+                            page.cover = None;
+                        }
+                        page.cover_image = image;
+                    }
+                }
             }
             if let Some(font) = update.font {
                 page.style.font = font;
@@ -624,13 +668,36 @@ pub(super) async fn teamspace_space(
     })
 }
 
-/// Saves a new page's content as its document's first snapshot, and its text as the
-/// page's search text, on the transaction that makes the page.
+/// Refuses as a page's cover anything but an image uploaded to that page.
+async fn check_cover_image(
+    conn: &mut PgConnection,
+    page_id: Uuid,
+    file_id: Uuid,
+) -> Result<(), PageError> {
+    let file = neon_store::files::get(&mut *conn, file_id).await?;
+    match file {
+        Some(file)
+            if file.page_id == page_id
+                && file.kind == FileKind::Image
+                && FileKind::Image.takes(file.media) =>
+        {
+            Ok(())
+        }
+        _ => Err(PageError::InvalidInput(
+            "a cover image is an image uploaded to the page as one".to_owned(),
+        )),
+    }
+}
+
+/// Saves a new page's content as its document's first snapshot, its text as the page's
+/// search text, the files it shows, and its blocks as its first version, by `author`, on
+/// the transaction that makes the page.
 pub(crate) async fn save_content(
     conn: &mut PgConnection,
     page_id: Uuid,
     content: &ImportedContent,
     at: time::OffsetDateTime,
+    author: Uuid,
 ) -> Result<(), PageError> {
     documents::save_snapshot(
         &mut *conn,
@@ -644,5 +711,17 @@ pub(crate) async fn save_content(
     )
     .await?;
     documents::set_content(&mut *conn, page_id, Some(&content.text), None).await?;
+    neon_store::files::set_page_refs(&mut *conn, page_id, &content.files).await?;
+    record::record(
+        &mut *conn,
+        record::Snapshot {
+            page_id,
+            document: &content.document,
+            authors: &[author],
+            at,
+            restored_from: None,
+        },
+    )
+    .await?;
     Ok(())
 }

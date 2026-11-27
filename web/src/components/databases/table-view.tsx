@@ -61,18 +61,22 @@ import { useWindowed } from "./windowed";
 
 const copy = strings.databases;
 
-/** The column after the last, which holds the way to add a property. */
+/**
+ * The column after the last, which holds the way to add a property, and takes
+ * what is left of a table narrower than its place.
+ */
 const ADD_WIDTH = 48;
 
 /** A table's row before it is measured: a cell's height and its border. */
 const ROW_ESTIMATE = 37;
 
 /**
- * A view as a table: a column per property it shows, the title first and
- * held in place as the rest scroll sideways; each cell edits in place.
- * Columns reorder by dragging their heading, or from its menu, and resize
- * from their edge with the pointer or the arrow keys. Only the rows near the
- * screen are drawn, so thousands stay quick.
+ * A view as a table: a column per property it shows, as wide as the view
+ * keeps it, the title first and held in place as the rest scroll sideways;
+ * each cell edits in place, and a value cut short tells itself in full on
+ * hover. Columns reorder by dragging their heading, or from its menu, and
+ * resize from their edge with the pointer or the arrow keys. Only the rows
+ * near the screen are drawn, so thousands stay quick.
  */
 export function TableView({
   view,
@@ -97,7 +101,9 @@ export function TableView({
     keys,
     ROW_ESTIMATE,
   );
-  const span = columns.length + (editsDatabase ? 1 : 0);
+  const span = columns.length + 1;
+  // Laid out fixed, the columns are as wide as they say whatever they hold.
+  const total = columns.reduce((sum, column) => sum + width(column), ADD_WIDTH);
 
   // A row whose title is to be typed, as a new one, is drawn wherever it is.
   useEffect(() => {
@@ -127,13 +133,14 @@ export function TableView({
       <table
         aria-label={view.name}
         aria-rowcount={entries.length + 1}
-        className="w-max min-w-full table-fixed border-separate border-spacing-0 text-sm"
+        style={{ width: `max(100%, ${total}px)` }}
+        className="table-fixed border-separate border-spacing-0 text-sm"
       >
         <colgroup>
           {columns.map((column) => (
             <col key={column.property.id} style={{ width: width(column) }} />
           ))}
-          {editsDatabase && <col style={{ width: ADD_WIDTH }} />}
+          <col />
         </colgroup>
         <thead>
           <tr aria-rowindex={1}>
@@ -162,10 +169,12 @@ export function TableView({
                 onChangeView={onChangeView}
               />
             ))}
-            {editsDatabase && (
+            {editsDatabase ? (
               <th scope="col" className="border-b border-border bg-background p-0 text-left">
                 <AddPropertyButton view={view} onChangeView={onChangeView} />
               </th>
+            ) : (
+              <td aria-hidden className="border-b border-border bg-background" />
             )}
           </tr>
         </thead>
@@ -207,7 +216,6 @@ export function TableView({
                 columns={columns}
                 editingTitle={editingTitle === entry.row.id}
                 onEditingTitle={onEditingTitle}
-                extra={editsDatabase}
               />
             );
           })}
@@ -236,8 +244,6 @@ type TableRowProps = {
   columns: readonly Column[];
   editingTitle: boolean;
   onEditingTitle: (rowId: string | null) => void;
-  /** Whether the table has the column that adds properties, which rows leave blank. */
-  extra: boolean;
 };
 
 /** A row of the table, drawn again only when it, or what the table shows of it, changes. */
@@ -248,7 +254,6 @@ const TableRow = memo(function TableRow({
   columns,
   editingTitle,
   onEditingTitle,
-  extra,
 }: TableRowProps) {
   const { database } = useDatabaseScope();
   const openRow = useOpenRow();
@@ -289,7 +294,10 @@ const TableRow = memo(function TableRow({
                   className="flex min-h-(--tap-sm) min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 text-left outline-offset-[-2px] hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
                 >
                   <RowIcon row={row} />
-                  <span className={cn("truncate", row.title === "" && "text-muted-foreground")}>
+                  <span
+                    title={title}
+                    className={cn("truncate", row.title === "" && "text-muted-foreground")}
+                  >
                     {title}
                   </span>
                 </button>
@@ -313,7 +321,7 @@ const TableRow = memo(function TableRow({
           </td>
         ),
       )}
-      {extra && <td aria-hidden className="border-b border-border" />}
+      <td aria-hidden className="border-b border-border" />
     </tr>
   );
 });
@@ -360,7 +368,9 @@ function ColumnHeader({
   const name = (
     <>
       <PropertyIcon kind={property.type} className="text-muted-foreground" />
-      <span className="truncate">{property.name}</span>
+      <span title={property.name} className="truncate">
+        {property.name}
+      </span>
     </>
   );
   return (

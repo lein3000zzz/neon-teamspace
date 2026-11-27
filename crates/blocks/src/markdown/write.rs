@@ -7,7 +7,7 @@ use pulldown_cmark::{Event, Parser, Tag};
 use super::parse::options;
 use crate::inline::{Marks, Piece, to_pieces};
 use crate::model::{
-    Block, BlockKind, DEFAULT_LANGUAGE, DatabaseProps, Document, Inline, TableContent,
+    Block, BlockKind, DEFAULT_LANGUAGE, DatabaseProps, Document, Inline, Mention, TableContent,
     TextAlignment,
 };
 
@@ -487,16 +487,43 @@ fn single_line(content: &[Inline], context: Context) -> String {
     inline(content, context).join("")
 }
 
+/// A piece of a line: text with its marks, or a mention, which has none.
+#[derive(Debug, Clone, PartialEq)]
+enum Segment {
+    Text(String, Marks),
+    Mention(Mention),
+}
+
+/// A mention as markdown: `@[label](kind:target)`, the label escaped as text is.
+fn mention_markdown(mention: &Mention) -> String {
+    let props = &mention.props;
+    let label: String = props
+        .label
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    format!(
+        "@[{}]({})",
+        escape_text(&label, Edges::default(), Context::inline()),
+        target(&format!("{}:{}", props.kind.as_str(), props.target), "")
+    )
+}
+
 /// The lines of a block's inline content. A line break becomes `\` at the end of the line,
 /// or `<br>` where a backslash would not make one: at the start or end of the content, and
 /// where the context is one line.
 fn inline(content: &[Inline], context: Context) -> Vec<String> {
-    let mut lines: Vec<Vec<(String, Marks)>> = vec![Vec::new()];
+    let mut lines: Vec<Vec<Segment>> = vec![Vec::new()];
     for piece in to_pieces(content) {
         match piece {
             Piece::Text { text, marks } => {
                 if let Some(line) = lines.last_mut() {
-                    line.push((text, marks));
+                    line.push(Segment::Text(text, marks));
+                }
+            }
+            Piece::Mention(mention) => {
+                if let Some(line) = lines.last_mut() {
+                    line.push(Segment::Mention(mention));
                 }
             }
             Piece::Break => lines.push(Vec::new()),
@@ -595,13 +622,15 @@ impl Kind {
 enum Token {
     Text(String),
     Code(String),
+    /// A mention's markdown, written as it is, outside every style.
+    Mention(String),
     /// A style opening, with the index of the token that closes it.
     Open(Kind, usize),
     Close(Kind),
 }
 
-fn render_line(runs: &[(String, Marks)], context: Context) -> String {
-    let runs = expel_whitespace(runs);
+fn render_line(segments: &[Segment], context: Context) -> String {
+    let runs = expel_whitespace(segments);
     let tokens = tokenize(&runs);
     // Styles start as delimiters. Where CommonMark would read a style's delimiters otherwise,
     // as the characters around them can make it, that style is written as HTML tags.
@@ -619,8 +648,31 @@ fn render_line(runs: &[(String, Marks)], context: Context) -> String {
 }
 
 /// Moves whitespace at the edges of bold, italic and strikethrough text outside the style,
-/// as delimiters next to whitespace do not parse.
-fn expel_whitespace(runs: &[(String, Marks)]) -> Vec<(String, Marks)> {
+/// as delimiters next to whitespace do not parse, in each stretch of text between mentions.
+fn expel_whitespace(segments: &[Segment]) -> Vec<Segment> {
+    let mut out = Vec::with_capacity(segments.len());
+    let mut texts: Vec<(String, Marks)> = Vec::new();
+    let flush = |texts: &mut Vec<(String, Marks)>, out: &mut Vec<Segment>| {
+        out.extend(
+            expel(&std::mem::take(texts))
+                .into_iter()
+                .map(|(text, marks)| Segment::Text(text, marks)),
+        );
+    };
+    for segment in segments {
+        match segment {
+            Segment::Text(text, marks) => texts.push((text.clone(), marks.clone())),
+            Segment::Mention(mention) => {
+                flush(&mut texts, &mut out);
+                out.push(Segment::Mention(mention.clone()));
+            }
+        }
+    }
+    flush(&mut texts, &mut out);
+    out
+}
+
+fn expel(runs: &[(String, Marks)]) -> Vec<(String, Marks)> {
     let mut chars: Vec<(char, Marks)> = runs
         .iter()
         .flat_map(|(text, marks)| text.chars().map(move |c| (c, marks.clone())))
@@ -666,12 +718,19 @@ fn expel_whitespace(runs: &[(String, Marks)]) -> Vec<(String, Marks)> {
 }
 
 /// The runs as tokens, styles opening and closing as a stack: a style that ends while one
-/// opened after it goes on closes that one too, which then opens again.
-fn tokenize(runs: &[(String, Marks)]) -> Vec<Token> {
-    let kinds: Vec<Vec<Kind>> = runs.iter().map(|(_, marks)| Kind::of(marks)).collect();
+/// opened after it goes on closes that one too, which then opens again. A mention closes
+/// every style, which opens again after it.
+fn tokenize(runs: &[Segment]) -> Vec<Token> {
+    let kinds: Vec<Vec<Kind>> = runs
+        .iter()
+        .map(|segment| match segment {
+            Segment::Text(_, marks) => Kind::of(marks),
+            Segment::Mention(_) => Vec::new(),
+        })
+        .collect();
     let mut tokens = Vec::new();
     let mut stack: Vec<(Kind, usize)> = Vec::new();
-    for (index, (text, marks)) in runs.iter().enumerate() {
+    for (index, segment) in runs.iter().enumerate() {
         let wanted = &kinds[index];
         let keep = stack
             .iter()
@@ -696,10 +755,12 @@ fn tokenize(runs: &[(String, Marks)]) -> Vec<Token> {
             stack.push((kind.clone(), tokens.len()));
             tokens.push(Token::Open(kind.clone(), 0));
         }
-        if marks.styles.code {
-            tokens.push(Token::Code(text.clone()));
-        } else {
-            tokens.push(Token::Text(text.clone()));
+        match segment {
+            Segment::Text(text, marks) if marks.styles.code => {
+                tokens.push(Token::Code(text.clone()));
+            }
+            Segment::Text(text, _) => tokens.push(Token::Text(text.clone())),
+            Segment::Mention(mention) => tokens.push(Token::Mention(mention_markdown(mention))),
         }
     }
     while !stack.is_empty() {
@@ -818,12 +879,21 @@ fn assemble(tokens: &[Token], html: &[bool], context: Context) -> (String, Vec<D
                 out.push_str(&escape_text(text, edges, context));
             }
             Token::Code(code) => out.push_str(&code_span(code, context.cell)),
+            Token::Mention(markdown) => out.push_str(markdown),
             Token::Open(kind, _) => {
                 let as_html = html[index];
                 if matches!(kind, Kind::Link(_)) && out.ends_with('!') {
                     // `![` would open an image.
                     out.pop();
                     out.push_str("\\!");
+                }
+                if let Kind::Link(href) = kind
+                    && super::parse::mention_target(href).is_some()
+                    && out.ends_with('@')
+                {
+                    // `@[` before such a link would read as a mention.
+                    out.pop();
+                    out.push_str("\\@");
                 }
                 let start = out.len();
                 out.push_str(&kind.open(as_html));

@@ -30,8 +30,8 @@ transaction passed in. A trait over every repository would double each signature
 of a repository tests nothing about its SQL; tests run the real repositories against a real
 Postgres instead, a fresh database for each test. Traits, the ports, are kept for what leaves
 the process and what tests must replace: mail, the real-time broadcaster, the listeners of
-access changes, the rate limiter and webhooks' transport, and attachments' storage once
-attachments exist, **planned**. They are held as `Arc<dyn Trait>`: dynamic
+access changes, the rate limiter, webhooks' transport and attachments' storage. They are
+held as `Arc<dyn Trait>`: dynamic
 dispatch for a few calls per request costs nothing that can be measured, and keeps generic
 parameters out of every type that holds one.
 
@@ -91,8 +91,8 @@ has no meaning a CRDT could add.
 stored; markdown is how content comes in and goes out. Shortcuts work while typing, pasted
 markdown becomes blocks, `.md` files and zips import, and pages and teamspaces export as
 markdown. Agents read and write markdown over MCP, as language models read and write it well.
-Toggles and embedded databases, which markdown has no syntax for, use a small extension of
-it, as callouts and mentions will, **planned**. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
+Toggles, embedded databases and mentions, which markdown has no syntax for, use a small
+extension of it, as callouts will, **planned**. A converter in Rust, `neon-blocks`, maps markdown to the editor's document
 schema and back; [Page documents](/docs/architecture/documents/) has the mapping. An agent's
 edit is applied to the live document, where it merges with the people typing there. Import
 and export exist, as [Import and export](/docs/guides/import-export/) describes, and agents
@@ -101,6 +101,22 @@ read and edit pages as markdown with block ids, as
 
 **BlockNote for the editor.** A block editor on Yjs, with a shadcn variant that matches the
 app's components. Its core is MPL-2.0; its XL packages are GPL and are not used.
+
+**Search in Postgres, written with the page.** Search is Postgres's full-text search with
+the `simple` configuration, which does not stem and so reads every language alike, and
+`pg_trgm` for titles typed loosely. There is no search engine to run beside it. What search
+reads is written in the same transaction as what it comes from, a page's text with its
+snapshot and a row's values with them, so it never waits on a queue and a rolled-back write
+leaves no trace in it. The query keeps to what the caller may see in the database, a branch
+per way of seeing a page, so a guest of a large workspace gets their few pages quickly;
+[Data and storage](/docs/architecture/data/#search) has how.
+
+**History from snapshots, restored live.** A version is the page's blocks as each snapshot
+leaves them, kept only when they changed, so history costs nothing between saves and keeps
+roughly a version per sitting. Restoring one is an edit of the live document, matched by
+block ids, on the revision the restorer compared against, so people typing meanwhile see it
+at once and a change they made since is never replaced unseen; [Page
+history](/docs/guides/history/#restoring) has how.
 
 ## Agents
 
@@ -127,8 +143,8 @@ tokens checked without a lookup, so revoking one stops it at once;
 tokens, for scripts and bots that do not speak MCP, and a test holds the table of them.
 
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
-a row assigned to it or a status changed on one, without polling, and of mentions once they
-exist, **planned**. Incoming webhooks are members of kind integration, so what they write
+a row assigned to it or a status changed on one, without polling, and of mentions and
+replies. Incoming webhooks are members of kind integration, so what they write
 carries the same attribution, permissions and limits as an agent's;
 [Webhooks](/docs/guides/webhooks/) has both.
 
@@ -154,7 +170,9 @@ adding them changes the wiring, not the use cases.
 **Attachments on local disk or any S3 API.** Attachments go through the `object_store`
 crate: a directory on local disk by default, which suits one server, or any S3-compatible
 service. SeaweedFS is the documented one, Apache-2.0 licensed and small enough to run in a
-Compose profile. **Planned.**
+Compose profile. Its requests go through an HTTP client of the server's own, hyper on rustls
+with ring, as webhooks' do, rather than the reqwest and aws-lc stack `object_store` brings by
+default.
 
 **Bootstrap configuration apart from settings.** What the server needs before it reaches its
 database comes from the environment or `neon.yaml`. Everything else is a runtime setting,
@@ -184,7 +202,7 @@ anyone or close it.
 **Limits, not billing.** Instance admins can cap a workspace's storage, members and agents.
 A workspace at a limit takes no more uploads, invitations or agents, and its members go on
 editing. The member and agent limits hold now, agents and integrations counting against the
-agent limit together; storage follows with attachments, **planned**.
+agent limit together, and so does storage, which attachments' bytes count against.
 
 **Instance admins do not enter workspaces.** Being an instance admin counts only for the
 instance's own work: accounts, settings, and the list of workspaces with their limits. Inside

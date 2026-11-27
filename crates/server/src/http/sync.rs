@@ -9,6 +9,10 @@
 //! may not see answers 404, before any upgrade. One more connection than the caller or the
 //! page may have open answers 429. A request that is no WebSocket upgrade answers 426.
 //!
+//! With `?comments=true`, the connection also hears, in a message of type 100 whose
+//! payload is a JSON text, `{"type":"comments","thread_id":"..."}`, whenever a thread of the
+//! page's comments changes; stock clients ask for none.
+//!
 //! Once upgraded, the sync service's [`Connection`] decides what happens; this module
 //! carries the messages both ways, pings the client and closes the socket with the code
 //! the connection gives. A client that sent nothing, not even a pong, between two pings is
@@ -22,18 +26,28 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, reject
 use axum::http::StatusCode;
 use axum::response::Response;
 use neon_app::sync::{Admission, CloseReason, Connection, Ending, Limits, Next, SyncService};
+use serde::Deserialize;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
 use tracing::{Instrument as _, Span, info, info_span, warn};
 use uuid::Uuid;
 
 use super::AppState;
 use super::error::ApiError;
-use super::extract::Path;
+use super::extract::{Path, Query};
 use super::principal::Authenticated;
 use super::web::SameOriginSocket;
 
 /// How long closing waits for the client's close in return.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// What a client may ask of a page's connection beside the document.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct Follow {
+    /// `true` to hear, with a message of type 100, whenever a thread of the page's comments
+    /// changes.
+    #[serde(default)]
+    comments: bool,
+}
 
 /// Opens a page's live document.
 pub(super) async fn open_page(
@@ -41,9 +55,14 @@ pub(super) async fn open_page(
     Authenticated(principal): Authenticated,
     State(state): State<AppState>,
     Path(page_id): Path<Uuid>,
+    Query(follow): Query<Follow>,
     upgrade: Result<WebSocketUpgrade, rejection::WebSocketUpgradeRejection>,
 ) -> Result<Response, ApiError> {
-    let admission = state.sync.admit(principal, page_id).await?;
+    let admission = state
+        .sync
+        .admit(principal, page_id)
+        .await?
+        .with_comments(follow.comments);
     if !state.sync.has_room(&admission) {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,

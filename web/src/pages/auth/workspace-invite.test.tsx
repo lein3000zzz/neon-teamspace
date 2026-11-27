@@ -83,9 +83,15 @@ describe("a workspace invite link", () => {
         return HttpResponse.json(studio);
       }),
     );
+    // The invitation's notification counts in the inbox while it waits.
+    server.use(
+      http.get("/api/v1/inbox/count", () =>
+        HttpResponse.json({ unread: api.state.received.length }),
+      ),
+    );
     const { user, router } = renderApp("/w/design");
     const sidebar = within(await screen.findByRole("complementary"));
-    expect(await sidebar.findByRole("link", { name: "Invitations, 1 pending" })).toBeVisible();
+    expect(await sidebar.findByRole("link", { name: "Inbox, 1 unread" })).toBeVisible();
 
     window.sessionStorage.setItem("neon.workspace-invite", LINK_TOKEN);
     await router.navigate({ to: "/workspace-invite" });
@@ -93,7 +99,8 @@ describe("a workspace invite link", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/w/studio"));
     const after = within(await screen.findByRole("complementary"));
-    await waitFor(() => expect(after.queryByRole("link", { name: /^Invitations/ })).toBeNull());
+    expect(await after.findByRole("link", { name: "Inbox" })).toBeVisible();
+    expect(after.queryByRole("link", { name: /unread/ })).toBeNull();
   });
 
   it("sends someone already in the workspace there instead", async () => {

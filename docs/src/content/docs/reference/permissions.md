@@ -101,33 +101,43 @@ them edit access, view access or nothing:
 | Another member's private page | Nothing: hidden |
 | Anywhere, for a guest | Nothing: hidden |
 
-Then shares add to it. A share on the page, or on any page above it, gives view or edit
-access to the person it names, and the caller ends up with the most of what the space and
-every one of those shares give. A share never takes access away. So a guest sees exactly
+Then shares add to it. A share on the page, or on any page above it, gives view, comment or
+edit access to the person it names, and the caller ends up with the most of what the space and
+every one of those shares give: edit, then comment, then view. A share never takes access away. So a guest sees exactly
 the pages shared with them and the pages under those, and a member outside a private
 teamspace sees only the pages of it shared with them.
 
 With that access:
 
-| Action | Edit | View | Nothing |
-|---|---|---|---|
-| See the page, its place and the pages under it, and add it to favorites | yes | yes | hidden |
-| Export it as markdown, with the pages under it | yes | yes | hidden |
-| Open its document live, and follow everyone's changes and cursors | yes | yes | hidden |
-| Change its document | yes, with a token only by the `write` scope | no | hidden |
-| Change its title, icon, cover and style, and add or import pages under it | yes | no | hidden |
-| Move it, from where it is, within its space | yes | no | hidden |
-| Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | hidden |
-| Move a page under it | yes | no | hidden |
-| Trash it, with the pages under it | yes | no | hidden |
-| See it in the trash, restore it, delete it for good | yes | hidden | hidden |
-| List who it is shared with | yes, but guests: no | yes, but guests: no | hidden |
-| Share it, change or remove a share | yes, but guests: no | no | hidden |
+| Action | Edit | Comment | View | Nothing |
+|---|---|---|---|---|
+| See the page, its place and the pages under it, and add it to favorites | yes | yes | yes | hidden |
+| Export it as markdown, with the pages under it | yes | yes | yes | hidden |
+| Open its document live, and follow everyone's changes and cursors | yes | yes | yes | hidden |
+| Read its comments, and follow them | yes | yes | yes | hidden |
+| Start threads of comments, reply, resolve and reopen them | yes, with a token only by the `write` scope | yes, likewise | no | hidden |
+| Delete others' comments, and whole threads | yes, with a token only by the `write` scope | no | no | hidden |
+| Change its document | yes, with a token only by the `write` scope | no | no | hidden |
+| See its [history](/docs/guides/history/#who-sees-what): its versions, and what changed since each | yes, without authors for guests | no | no | hidden |
+| Restore a version of it | yes, with a token only by the `write` scope | no | no | hidden |
+| Change its title, icon, cover and style, and add or import pages under it | yes | no | no | hidden |
+| Move it, from where it is, within its space | yes | no | no | hidden |
+| Move it, with the pages under it, to another teamspace or to private pages | yes, from its space: in its teamspace, or its owner; not from a share | no | no | hidden |
+| Move a page under it | yes | no | no | hidden |
+| Trash it, with the pages under it | yes | no | no | hidden |
+| See it in the trash, restore it, delete it for good | yes | hidden | hidden | hidden |
+| List who it is shared with | yes, but guests: no | yes, but guests: no | yes, but guests: no | hidden |
+| Share it, change or remove a share | yes, but guests: no | no | no | hidden |
+
+Comment access comes only from a share, **can comment**: no space gives it. A comment is
+changed by its author alone, while they may still comment on its page, and deleted by them
+then or by anyone who edits the page.
+[Comments and mentions](/docs/guides/comments-and-mentions/#who-may-comment) has the rest.
 
 A page in the trash shows only to those with edit access, who may restore it or delete it for
 good and do nothing else with it until it is back: changing it, adding pages under it,
-moving it, trashing it again and sharing it answer `403 forbidden`, and its document opens
-read-only. Restoring or deleting a
+moving it, trashing it again, sharing it and commenting on it answer `403 forbidden`, and
+its document opens read-only. Restoring or deleting a
 page out of the trash answers `403 forbidden` too.
 
 Moving a page needs edit access to the page and to where it goes: the page it goes under,

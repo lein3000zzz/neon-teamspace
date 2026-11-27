@@ -73,7 +73,8 @@ An owner or admin invites an existing account by its address, from the
 [members settings](/docs/workspace-settings/members/). The invited account sees the
 invitation as soon as it signs in:
 
-- the sidebar shows **Invitations** with the number waiting;
+- it comes to their [inbox](/docs/guides/inbox/), which the sidebar counts, and which lists
+  the invitations waiting above its notifications;
 - `/account/invitations`, a tab of the account pages, lists each with the workspace, the
   role it offers, who sent it and when it ends;
 - an account in no workspace sees them on the page it opens on.
@@ -82,8 +83,9 @@ invitation as soon as it signs in:
 workspace at its member limit takes nobody in, and accepting says so: the invitation stays,
 to accept once there is room. Joining the workspace another way, by an invite link, ends
 its invitation, which leaves the list and the count. One that ended since the list was
-read, answered in another tab, say, or revoked, says so when pressed, and leaves the list. No mail is sent for workspace invitations yet; the list is how
-they arrive.
+read, answered in another tab, say, or revoked, says so when pressed, and leaves the list.
+While the instance sends [notification mail](/docs/guides/inbox/#notification-mail), an
+invitation is mailed as the other notifications are, to whoever wants it.
 
 ## Invite links
 

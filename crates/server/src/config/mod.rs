@@ -100,7 +100,14 @@ pub struct ServerConfig {
     /// Anyone else's is ignored, so a client cannot pick the address rate limits count.
     #[serde(deserialize_with = "bootstrap::proxy_list")]
     pub trusted_proxies: Vec<IpNet>,
+    /// Where the server keeps what is not in Postgres: attachments, in its `attachments`
+    /// folder, while `attachments.storage` is `local`. Relative to the working directory
+    /// unless absolute; made if it is missing.
+    pub data_dir: PathBuf,
 }
+
+/// `server.data_dir` unless set.
+pub const DEFAULT_DATA_DIR: &str = "data";
 
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -108,6 +115,7 @@ impl Default for ServerConfig {
             listen: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)),
             public_url: None,
             trusted_proxies: default_trusted_proxies(),
+            data_dir: PathBuf::from(DEFAULT_DATA_DIR),
         }
     }
 }
@@ -265,6 +273,12 @@ impl Config {
             && let Err(message) = check_public_url(url)
         {
             report("server.public_url", message);
+        }
+        if self.server.data_dir.as_os_str().is_empty() {
+            report(
+                "server.data_dir",
+                "must name a directory, such as /var/lib/neon".to_owned(),
+            );
         }
         match (&self.admin.email, &self.admin.password) {
             (Some(email), Some(_)) => {

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT follows FROM page_follows WHERE page_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "follows",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "page_follows",
+            "name": "follows"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "145658646da64edbf5bb455b1e0d565e2477e382f2cdb039ed44b10d97248024"
+}

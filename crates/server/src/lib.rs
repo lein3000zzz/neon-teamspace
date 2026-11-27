@@ -9,5 +9,6 @@ pub mod http;
 pub mod mail;
 pub mod mcp;
 pub mod runtime;
+pub mod storage;
 mod telemetry;
 pub mod webhooks;

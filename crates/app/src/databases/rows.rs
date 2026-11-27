@@ -26,6 +26,9 @@ use super::{
     DatabaseError, DatabaseService, NO_DATABASE, NO_ROW, NO_VIEW, RowView, StoredRow, cell_keys,
     domain_row, fitted_views, names_people, not_found, row_view,
 };
+use crate::notifications::mentions::{self, Assignment};
+use crate::notifications::notify::Notifier;
+use crate::pages::PageService;
 use crate::pages::{Context, PageError, access_of};
 use crate::webhooks::events::{self as webhooks, RowChange};
 
@@ -381,6 +384,7 @@ impl DatabaseService {
                 title: changes.title.clone().unwrap_or_default(),
                 icon: None,
                 cover: None,
+                cover_image: None,
                 style: PageStyle::default(),
                 created_by: Some(user),
                 last_edited_by: Some(user),
@@ -409,7 +413,24 @@ impl DatabaseService {
                 },
             )
             .await?;
+            let mut notifier = Notifier::of(pages);
+            mentions::assignment(
+                &mut tx,
+                pages,
+                &mut notifier,
+                Assignment {
+                    workspace_id: page.workspace_id,
+                    row_id: page.id,
+                    actor: user,
+                    schema: &opened.schema,
+                    before: None,
+                    after: &cells,
+                    at: now,
+                },
+            )
+            .await?;
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %user,
                 database_id = %database_id,
@@ -506,8 +527,9 @@ impl DatabaseService {
                     repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
                 }
             }
-            let cells = patch(
+            let (cells, notifier) = patch(
                 &mut tx,
+                self.pages(),
                 Written {
                     page: &page,
                     database_id: data.database_id,
@@ -519,6 +541,7 @@ impl DatabaseService {
             )
             .await?;
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %principal.user.id,
                 database_id = %data.database_id,
@@ -602,8 +625,9 @@ impl DatabaseService {
             page.last_edited_by = Some(principal.user.id);
             page.updated_at = self.now();
             repo::touch_row(&mut *tx, row_id, principal.user.id, page.updated_at).await?;
-            let cells = patch(
+            let (cells, notifier) = patch(
                 &mut tx,
+                self.pages(),
                 Written {
                     page: &page,
                     database_id,
@@ -615,6 +639,7 @@ impl DatabaseService {
             )
             .await?;
             tx.commit().await?;
+            notifier.tell();
             info!(
                 user_id = %principal.user.id,
                 database_id = %database_id,
@@ -815,14 +840,16 @@ pub(super) struct Written<'a> {
 }
 
 /// Writes a change to a row's cells, within [`MAX_ROW_BYTES`], queues on the same
-/// transaction the webhook deliveries it makes, and answers the cells as they are then.
+/// transaction the webhook deliveries it makes and the notifications of those it assigns,
+/// and answers the cells as they are then, with what tells the inboxes once it commits.
 /// Every change to the values of a row that exists goes through here, claims included, so
-/// every writer's changes reach webhooks.
+/// every writer's changes reach webhooks and inboxes.
 pub(super) async fn patch(
     conn: &mut PgConnection,
+    pages: &PageService,
     row: Written<'_>,
     changes: &Changes,
-) -> Result<Json, DatabaseError> {
+) -> Result<(Json, Notifier), DatabaseError> {
     let row_id = row.page.id;
     let patched = repo::patch_cells(
         &mut *conn,
@@ -847,7 +874,23 @@ pub(super) async fn patch(
         },
     )
     .await?;
-    Ok(patched.cells)
+    let mut notifier = Notifier::of(pages);
+    mentions::assignment(
+        &mut *conn,
+        pages,
+        &mut notifier,
+        Assignment {
+            workspace_id: row.page.workspace_id,
+            row_id,
+            actor: row.actor,
+            schema: row.schema,
+            before: Some(row.before),
+            after: &patched.cells,
+            at: row.page.updated_at,
+        },
+    )
+    .await?;
+    Ok((patched.cells, notifier))
 }
 
 /// Refuses a row whose values would take more than [`MAX_ROW_BYTES`].

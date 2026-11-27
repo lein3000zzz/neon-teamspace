@@ -52,7 +52,9 @@ const INSTRUCTIONS: &str = "Neon Teamspace: the pages and databases of one works
 token's identity sees them. Start with whoami and list_teamspaces, then get_page_tree. \
 read_page gives a page's blocks as markdown, each block's id on a line `<!-- block <id> -->` \
 before it; edit_page names those ids. A task is a row of a database: claim_task takes one \
-nobody holds, and neon://me/tasks lists those assigned to you.";
+nobody holds, and neon://me/tasks lists those assigned to you. list_comments and add_comment \
+read and write a page's comments; get_inbox and neon://me/inbox tell what mentions you, replies \
+to you and is assigned to you, and mark_read clears it.";
 
 /// Serves every session's requests. Cheap to clone; clones share everything.
 #[derive(Clone)]

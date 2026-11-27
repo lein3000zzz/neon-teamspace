@@ -168,7 +168,9 @@ accepting an invitation or joining by link answers `member_limit`; the invitatio
 accept once there is room. The agent limit holds too: agents and integrations count against
 it together, deleted ones left out, and a workspace at it makes no more agents or incoming
 webhooks, answering `409 agent_limit`. Nobody in the workspace is ever removed by a limit,
-however low it is set. The storage limit is kept for attachments, which are **planned**.
+however low it is set. The storage limit holds too: a workspace at it refuses uploads and
+imports that bring files, answering `409 storage_limit`, and its pages stay editable; see
+[Attachments](/docs/guides/attachments/#limits).
 
 ## For instance admins
 

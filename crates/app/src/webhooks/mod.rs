@@ -57,6 +57,7 @@ use tracing::{Instrument as _, info_span};
 use uuid::Uuid;
 
 use crate::clock::Clock;
+use crate::comments::CommentService;
 use crate::crypto::Envelope;
 use crate::databases::DatabaseService;
 use crate::pages::PageService;
@@ -126,6 +127,7 @@ struct Inner {
     pages: PageService,
     databases: DatabaseService,
     sync: SyncService,
+    comments: CommentService,
     transport: Arc<dyn WebhookTransport>,
     limiter: Arc<dyn RateLimiter>,
     envelope: Envelope,
@@ -142,6 +144,7 @@ pub struct Services {
     pub pages: PageService,
     pub databases: DatabaseService,
     pub sync: SyncService,
+    pub comments: CommentService,
 }
 
 /// Puts a [`WebhookService`] together. Without being told otherwise it seals nothing, so it
@@ -183,6 +186,7 @@ impl WebhookServiceBuilder {
             pages,
             databases,
             sync,
+            comments,
         } = self.services;
         WebhookService {
             inner: Arc::new(Inner {
@@ -193,6 +197,7 @@ impl WebhookServiceBuilder {
                 pages,
                 databases,
                 sync,
+                comments,
                 transport: self.transport,
                 limiter: self
                     .limiter

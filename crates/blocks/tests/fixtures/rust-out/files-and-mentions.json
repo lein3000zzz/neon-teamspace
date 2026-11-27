@@ -1,0 +1,205 @@
+[
+  {
+    "id": "block-1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "mention",
+        "props": {
+          "kind": "user",
+          "target": "0193a5b2-0000-7000-8000-0000000000a1",
+          "label": "Ada"
+        }
+      },
+      {
+        "type": "text",
+        "text": " posted ",
+        "styles": {}
+      },
+      {
+        "type": "link",
+        "href": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f3",
+        "content": [
+          {
+            "type": "text",
+            "text": "the report",
+            "styles": {
+              "bold": true
+            }
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": " for ",
+        "styles": {}
+      },
+      {
+        "type": "mention",
+        "props": {
+          "kind": "page",
+          "target": "0193a5b2-0000-7000-8000-0000000000b1",
+          "label": "Plan"
+        }
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-2",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "Whiteboard.png",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1",
+      "caption": "Ada's sketch",
+      "showPreview": true
+    },
+    "children": [
+      {
+        "id": "block-3",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Drawn by ",
+            "styles": {}
+          },
+          {
+            "type": "mention",
+            "props": {
+              "kind": "user",
+              "target": "0193a5b2-0000-7000-8000-0000000000a2",
+              "label": "Scout"
+            }
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "block-4",
+    "type": "file",
+    "props": {
+      "backgroundColor": "default",
+      "name": "@Ada's notes.pdf",
+      "url": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f2",
+      "caption": ""
+    },
+    "children": []
+  },
+  {
+    "id": "block-5",
+    "type": "table",
+    "props": {
+      "textColor": "default"
+    },
+    "content": {
+      "type": "tableContent",
+      "columnWidths": [
+        null,
+        null
+      ],
+      "rows": [
+        {
+          "cells": [
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Owner",
+                  "styles": {}
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            },
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "File",
+                  "styles": {}
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "mention",
+                  "props": {
+                    "kind": "user",
+                    "target": "0193a5b2-0000-7000-8000-0000000000a1",
+                    "label": "Ada"
+                  }
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            },
+            {
+              "type": "tableCell",
+              "content": [
+                {
+                  "type": "link",
+                  "href": "/api/v1/files/0193a5b2-0000-7000-8000-0000000000f4",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "sheet.csv",
+                      "styles": {}
+                    }
+                  ]
+                }
+              ],
+              "props": {
+                "colspan": 1,
+                "rowspan": 1,
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "children": []
+  }
+]

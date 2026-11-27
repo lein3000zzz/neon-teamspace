@@ -196,17 +196,50 @@
   }
 }
 
+/* The comments panel sits over the page's right edge; where the screen is wide
+   enough for both, the page moves clear of it. */
+@media (width >= 80rem) {
+  body:has([data-comments-panel]) #main {
+    padding-right: calc(24rem + 1.5rem);
+  }
+}
+
+/* A mention, in the editor and in comments: in the accent, someone by their
+   dot and name, a page as a link. */
+.mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  padding-inline: 0.2rem;
+  color: var(--neon);
+  background-color: var(--neon-soft);
+  text-decoration: none;
+}
+
 /* The actions of a row in the page trees show on hover or focus where every
    pointer can hover, and always where one cannot, as on a touch screen, so
-   none is reachable only by hovering. */
+   none is reachable only by hovering. A sidebar row's sit over the end of its
+   title, on the row's colour as it shows on hover over the sidebar's, so
+   hidden they take no room from it, and stay where a pointer finds them. The
+   row of the page open shows them as the others do, and focus brings them out
+   only from the keyboard, so the title of a row just clicked shows whole. */
 @media (hover: hover) and (not (any-pointer: coarse)) {
   [data-row-actions] {
     opacity: 0;
   }
 
+  [data-row-actions="over"] {
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    padding-right: 0.125rem;
+    border-radius: var(--radius-md);
+    background: linear-gradient(var(--color-accent), var(--color-accent)), var(--color-raised);
+  }
+
   [data-row]:hover [data-row-actions],
-  [data-row]:focus-within [data-row-actions],
-  [data-row]:has([aria-current="page"]) [data-row-actions],
+  [data-row]:has(:focus-visible) [data-row-actions],
   [data-row-actions]:has([aria-expanded="true"]) {
     opacity: 1;
   }

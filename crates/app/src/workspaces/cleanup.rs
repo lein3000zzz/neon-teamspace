@@ -1,5 +1,7 @@
 //! The hourly cleanup of invitations and invite links past their retention, of webhooks'
-//! secrets rotated out once they stop holding, and of pages in the trash past theirs.
+//! secrets rotated out once they stop holding, of pages in the trash past theirs, and of
+//! the versions of pages the history no longer keeps, and of attachments no page or version
+//! shows past their grace, with the blobs of files deleted.
 
 use std::time::Duration;
 
@@ -8,6 +10,8 @@ use neon_store::{incoming_webhooks, webhooks, workspace_invites};
 use tracing::info;
 
 use super::{WorkspaceError, WorkspaceService};
+use crate::attachments::AttachmentService;
+use crate::history::HistoryService;
 use crate::pages::PageService;
 use crate::periodic::Periodic;
 
@@ -49,19 +53,31 @@ impl WorkspaceService {
 }
 
 /// The running cleanup: once at start, then every interval until stopped. Each run removes
-/// ended invitations and links, then purges the pages' trash; one failing does not keep
-/// the other from running.
+/// ended invitations and links, purges the pages' trash, thins out pages' versions, then
+/// cleans up attachments, after the trash and the versions so the files of pages purged and
+/// of versions thinned out go in the same run; one failing does not keep the others from
+/// running.
 pub struct Cleanup(Periodic);
 
 impl Cleanup {
-    pub fn spawn(workspaces: WorkspaceService, pages: PageService, interval: Duration) -> Self {
+    pub fn spawn(
+        workspaces: WorkspaceService,
+        pages: PageService,
+        history: HistoryService,
+        attachments: AttachmentService,
+        interval: Duration,
+    ) -> Self {
         Self(Periodic::spawn("workspace cleanup", interval, move || {
             let workspaces = workspaces.clone();
             let pages = pages.clone();
+            let history = history.clone();
+            let attachments = attachments.clone();
             async move {
                 let invitations = workspaces.cleanup().await.map_err(|e| e.to_string());
                 let trash = pages.purge_trash().await.map_err(|e| e.to_string());
-                invitations.and(trash).map(drop)
+                let versions = history.thin().await.map_err(|e| e.to_string());
+                let files = attachments.cleanup().await.map_err(|e| e.to_string());
+                invitations.and(trash).and(versions).and(files).map(drop)
             }
         }))
     }

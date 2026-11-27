@@ -5,7 +5,8 @@ description: Sending mail through an SMTP server, with Stalwart or any relay; TL
 
 The server sends mail for accounts: links that verify an address, set a new password or
 confirm a request to join, notices of a changed password or a denied request, invites, a
-note to admins about each request waiting for them, and a test. It hands every mail to an
+note to admins about each request waiting for them, a test, and, once an admin turns it on,
+the mail of people's [inboxes](/docs/guides/inbox/#notification-mail). It hands every mail to an
 SMTP server you choose, a **relay**, which delivers it. The server never delivers to the
 recipients' mail servers itself.
 
@@ -130,6 +131,16 @@ The links in mail open the app's pages, at `server.public_url`:
 | Invite | `/register?invite=…` |
 | Request to join, confirmation | `/join/confirm?token=…` |
 | Request to join, for admins | `/admin/join-requests` |
+| A notification | `/w/<workspace>/p/<page>?comment=…`, or `?block=…`, the page at what it is about; `/inbox` for an invitation |
+| A digest | Each notification's, and `/inbox` |
+| Stopping notification mail | `/unsubscribe?token=…` |
+
+[Notification mail](/docs/guides/inbox/#notification-mail), of each notification or a
+digest, goes only while `notifications.mail` is on, and its own job, `notifications.mail`,
+writes each one's `mail.send` job once it has waited `notifications.mail_delay` unread. Such
+mail carries `List-Unsubscribe`, the API's address that stops it, and
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click`, so mail clients offer their own button,
+as large providers expect of mail sent in bulk.
 
 ## Sending a test
 
@@ -214,7 +225,7 @@ must come from that origin.
 
 In the Docker stack, the `mail` profile runs Mailpit at `mailpit:1025` inside the stack's
 network, with its inbox on `http://127.0.0.1:8025/`; see
-[Development profiles](/docs/self-hosting/install/#development-profiles). Point the server
+[Profiles](/docs/self-hosting/install/#profiles). Point the server
 at it in `deployments/server.env`, with host `mailpit`, port `1025` and TLS `none`.
 
 ## When mail does not arrive
