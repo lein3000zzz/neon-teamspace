@@ -60,8 +60,7 @@ release workflow's run and the commit that built the file. With the
 gh attestation verify Neon-Teamspace_<version>_aarch64.dmg --repo lein3000zzz/neon-teamspace
 ```
 
-It fails for a file that the repository's release workflow did not build. Releases made while
-the repository was private have checksums but no provenance.
+It fails for a file that the repository's release workflow did not build.
 
 ### How a release builds them
 
