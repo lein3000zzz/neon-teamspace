@@ -3,7 +3,11 @@ import { setupServer } from "msw/node";
 import type { Schemas } from "@/api/client";
 import { ada, defaultAuthConfig, defaultPreferences } from "./fixtures";
 
-export const testMeta: Schemas["Meta"] = { name: "Test instance", version: "0.1.0" };
+export const testMeta: Schemas["Meta"] = {
+  product: "neon-teamspace",
+  name: "Test instance",
+  version: "0.1.0",
+};
 
 /** Every page's live connection, as the editor opens it; fakeSync() answers on it. */
 export const syncLink = ws.link(/\/ws\/pages\/[^/?]+(\?[^/]*)?$/);

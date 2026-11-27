@@ -440,7 +440,11 @@ async fn meta_names_the_instance_and_the_version(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({"name": "Neon Teamspace", "version": env!("CARGO_PKG_VERSION")})
+        json!({
+            "product": "neon-teamspace",
+            "name": "Neon Teamspace",
+            "version": env!("CARGO_PKG_VERSION"),
+        })
     );
 
     state
