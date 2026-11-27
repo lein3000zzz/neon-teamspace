@@ -219,6 +219,16 @@ connection at once and the log records it as the editor's, like a client's. A do
 opened for an edit alone stays open its while, as one whose last connection left does, then
 saves and unloads.
 
+What an edit writes is counted before any of it is: its blocks, table rows and cells, runs
+of text, line breaks and mentions, at most 100,000, as for a new page's content and a version
+restored. Writing takes time in proportion to it, as the server writes each sequence of
+siblings at one place, its last first, so yrs, which finds a place by walking the siblings
+before it, walks none of those it wrote. Blocks that go into a long sequence still walk the
+blocks before their place, once each, so the writes of one edit may walk past at most 4
+million blocks, and an edit past that is refused before it changes anything. The work runs
+on a thread where blocking is allowed, in one of as many turns at once as the machine has
+processors, so no write keeps the other requests waiting.
+
 ### Mentions settle
 
 Whom a page's text mentions is read from its blocks as a snapshot is saved, and recorded in

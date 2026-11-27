@@ -1176,14 +1176,53 @@ async fn an_edit_past_the_size_a_document_keeps_is_refused(pool: PgPool) {
     assert_eq!(text_of(&sync, &t.ada, t.page).await, "");
     let document = from_markdown(&"word ".repeat(200));
     assert!(matches!(
-        sync.first_snapshot(&document),
+        sync.first_snapshot(&document).await,
         Err(ContentError::TooLarge(512))
     ));
     assert_eq!(
         sync.first_snapshot(&neon_blocks::Document::default())
+            .await
             .expect("nothing to save"),
         None
     );
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn content_making_more_nodes_than_are_written_at_once_is_refused_before_writing(
+    pool: PgPool,
+) {
+    let t = team(pool).await;
+    let sync = t.sync(Limits {
+        max_nodes: 10,
+        ..quick()
+    });
+    // Six paragraphs of one run each: twelve nodes.
+    let markdown = "a\n\nb\n\nc\n\nd\n\ne\n\nf\n";
+    assert!(matches!(
+        sync.first_snapshot(&from_markdown(markdown)).await,
+        Err(ContentError::TooManyNodes(10))
+    ));
+    let refused = sync.edit(&t.ada, t.page, append(markdown), None).await;
+    assert!(
+        matches!(refused, Err(ContentError::TooManyNodes(10))),
+        "{refused:?}"
+    );
+    let appended = sync
+        .append(&t.ada, t.page, from_markdown(markdown).blocks)
+        .await;
+    assert!(
+        matches!(&appended, Err(PageError::InvalidInput(message)) if message.contains("more than 10")),
+        "{appended:?}"
+    );
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "");
+    // Five nodes fit.
+    sync.first_snapshot(&from_markdown("a\n\nb\n"))
+        .await
+        .expect("few enough");
+    sync.edit(&t.ada, t.page, append("a\n\nb\n"), None)
+        .await
+        .expect("few enough");
     sync.shutdown().await;
 }
 
@@ -1200,6 +1239,7 @@ async fn a_new_page_starts_with_its_content(pool: PgPool) {
             .workspace_id;
     let content = sync
         .first_snapshot(&from_markdown("# Plan\n\n- one\n- two"))
+        .await
         .expect("small enough");
     let made =
         t.h.pages

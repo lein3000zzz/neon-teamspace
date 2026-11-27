@@ -110,12 +110,16 @@ async fn files(pool: PgPool) -> Files {
 
 impl Files {
     async fn page(&self, title: &str, content: Option<Document>) -> Uuid {
-        let content = content.map(|document| {
-            self.sync
-                .first_snapshot(&document)
-                .expect("fits")
-                .expect("has blocks")
-        });
+        let content = match content {
+            Some(document) => Some(
+                self.sync
+                    .first_snapshot(&document)
+                    .await
+                    .expect("fits")
+                    .expect("has blocks"),
+            ),
+            None => None,
+        };
         self.h
             .pages
             .create_page(

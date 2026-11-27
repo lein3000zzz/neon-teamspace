@@ -11762,7 +11762,7 @@ export interface operations {
                     "application/json": components["schemas"]["EditedPage"];
                 };
             };
-            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, and nothing changed. */
+            /** @description invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, or its blocks would go in so far into a long page that one edit's writes pass more than 4000000 blocks, and nothing changed. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11807,7 +11807,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the page would grow past what it holds. */
+            /** @description document_too_large: the page would grow past what it holds, or the operations' markdown makes more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions together. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12673,7 +12673,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the page would grow past what it holds. */
+            /** @description document_too_large: the page would grow past what it holds, or the version makes more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16340,7 +16340,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description document_too_large: the markdown makes a page larger than one holds. */
+            /** @description document_too_large: the markdown makes a page larger than one holds, or more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions. */
             413: {
                 headers: {
                     [name: string]: unknown;

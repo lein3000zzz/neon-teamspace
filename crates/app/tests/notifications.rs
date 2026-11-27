@@ -1228,6 +1228,7 @@ async fn a_page_made_with_text_tells_whom_it_mentions_and_an_import_tells_nobody
             mention(&t.bea),
             mention(&t.ada)
         )))
+        .await
         .expect("fits");
     let made =
         t.h.pages
@@ -1409,6 +1410,7 @@ async fn a_mention_in_a_pages_text_quotes_its_block_as_it_was_in_the_inbox_and_m
             "# Goals\n\n- Stage owner: {}\n  - Rehearse twice\n\nMore text",
             mention(&t.bea)
         )))
+        .await
         .expect("fits");
     let made =
         t.h.pages

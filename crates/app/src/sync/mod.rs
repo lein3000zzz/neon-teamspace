@@ -68,8 +68,9 @@ use neon_domain::pages::PageAccess;
 use neon_observability::red::Red;
 use neon_store::users;
 use sqlx::PgPool;
+use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::{info, warn};
@@ -86,6 +87,7 @@ pub(crate) use limits::Bucket;
 pub use access::{AccessFeed, AccessListener, access_feed};
 pub use broadcast::{Broadcaster, ClientId, LocalBroadcaster, Next, Outbox, OutboxReceiver, Room};
 pub use close::CloseReason;
+use content::too_many_nodes;
 pub use content::{ContentError, Edited, MAX_EDITS, changes_document, revision};
 pub(crate) use document::assemble;
 pub use document::{AppendError, LoadError, READ_ONLY};
@@ -129,6 +131,8 @@ pub(crate) struct Inner {
     tasks: TaskTracker,
     registry: Mutex<Registry>,
     epoch: Arc<AtomicU64>,
+    /// The turns of [`Limits::parallel_writes`].
+    writes: Semaphore,
 }
 
 /// The live documents, and how many connections each person has open.
@@ -250,6 +254,7 @@ impl SyncServiceBuilder {
             tasks: TaskTracker::new(),
             registry: Mutex::new(Registry::default()),
             epoch: self.feed.epoch,
+            writes: Semaphore::new(self.limits.parallel_writes.max(1)),
         });
         inner.tasks.spawn(access::watch(
             Arc::downgrade(&inner),
@@ -626,6 +631,9 @@ impl SyncService {
         if blocks.is_empty() {
             return Ok(());
         }
+        if let Err(max) = self.inner.within_nodes(neon_blocks::nodes(&blocks)) {
+            return Err(PageError::InvalidInput(too_many_nodes(max)));
+        }
         for _ in 0..JOIN_ATTEMPTS {
             let commands = self
                 .document(page_id, view.page.workspace_id)
@@ -649,6 +657,7 @@ impl SyncService {
                         "the page would hold more than {} bytes",
                         self.inner.limits.max_document
                     )),
+                    AppendError::TooFar(far) => PageError::InvalidInput(far.to_string()),
                     AppendError::NotADocument => PageError::Internal(error.to_string()),
                 });
             }
@@ -756,6 +765,24 @@ struct Recheck {
 }
 
 impl Inner {
+    /// Runs work that writes or reads a whole document, such as blocks written into it, in
+    /// one of the turns of [`Limits::parallel_writes`] and on a thread where blocking is
+    /// allowed: on a runtime of several threads the others take this one's tasks meanwhile,
+    /// while on one of a single thread, as tests run, it runs in place.
+    pub(crate) async fn write<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _turn = self.writes.acquire().await.ok();
+        match Handle::try_current().map(|runtime| runtime.runtime_flavor()) {
+            Ok(RuntimeFlavor::MultiThread) => tokio::task::block_in_place(work),
+            _ => work(),
+        }
+    }
+
+    /// Refuses `nodes` past [`Limits::max_nodes`], with that most.
+    pub(crate) fn within_nodes(&self, nodes: usize) -> Result<(), usize> {
+        let max = self.limits.max_nodes;
+        if nodes > max { Err(max) } else { Ok(()) }
+    }
+
     fn registry(&self) -> MutexGuard<'_, Registry> {
         self.registry.lock().unwrap_or_else(PoisonError::into_inner)
     }

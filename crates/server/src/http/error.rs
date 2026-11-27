@@ -390,7 +390,9 @@ impl From<ContentError> for ApiError {
             .with_retry_after(retry_after),
             other => {
                 let status = match &other {
-                    ContentError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                    ContentError::TooLarge(_) | ContentError::TooManyNodes(_) => {
+                        StatusCode::PAYLOAD_TOO_LARGE
+                    }
                     ContentError::Conflict => StatusCode::CONFLICT,
                     ContentError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
                     _ => StatusCode::BAD_REQUEST,

@@ -381,7 +381,7 @@ pub struct CreatePage {
         (status = FORBIDDEN, description = "forbidden: the caller views the parent and does not edit it, is not in the teamspace, or is a guest making a private page; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such workspace, teamspace or parent, or none the caller may see.", body = ErrorBody),
         (status = CONFLICT, description = "too_deep: pages nest at most 100 levels.", body = ErrorBody),
-        (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the markdown makes a page larger than one holds.", body = ErrorBody),
+        (status = PAYLOAD_TOO_LARGE, description = "document_too_large: the markdown makes a page larger than one holds, or more than 100000 blocks, table rows and cells, runs of text, line breaks and mentions.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     ),
     security(("session_cookie" = []), ("api_token" = []))
@@ -394,9 +394,12 @@ pub(super) async fn create_page(
 ) -> Result<(StatusCode, Json<Page>), ApiError> {
     let location = location(body.parent_id, body.teamspace_id, body.private)?;
     let content = match &body.markdown {
-        Some(markdown) => state
-            .sync
-            .first_snapshot(&super::content::read_markdown(markdown)?)?,
+        Some(markdown) => {
+            state
+                .sync
+                .first_snapshot(&super::content::read_markdown(markdown)?)
+                .await?
+        }
         None => None,
     };
     let defaults = domain::PageStyle::default();

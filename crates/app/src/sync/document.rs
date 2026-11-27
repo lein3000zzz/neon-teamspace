@@ -115,8 +115,19 @@ pub enum AppendError {
     Gone,
     #[error("the page's content would be larger than it may be")]
     TooLarge,
+    #[error(transparent)]
+    TooFar(#[from] neon_blocks::TooFar),
     #[error("the page's content is not a document of blocks")]
     NotADocument,
+}
+
+impl From<neon_blocks::AppendRefused> for AppendError {
+    fn from(refused: neon_blocks::AppendRefused) -> Self {
+        match refused {
+            neon_blocks::AppendRefused::NotADocument(_) => Self::NotADocument,
+            neon_blocks::AppendRefused::TooFar(far) => Self::TooFar(far),
+        }
+    }
 }
 
 /// What a live document made of an edit.
@@ -534,15 +545,17 @@ impl Document {
             return Err(AppendError::Gone);
         }
         let max = self.inner.limits.max_document;
-        let estimate = {
-            let scratch = Doc::new();
-            let fragment = neon_blocks::fragment(&scratch);
-            let mut txn = scratch.transact_mut();
-            let mut ids = || Uuid::now_v7().to_string();
-            neon_blocks::append(&mut txn, &fragment, blocks, &mut ids)
-                .map_err(|_| AppendError::NotADocument)?;
-            txn.encode_update_v1().len()
-        };
+        let estimate = self
+            .inner
+            .write(|| {
+                let scratch = Doc::new();
+                let fragment = neon_blocks::fragment(&scratch);
+                let mut txn = scratch.transact_mut();
+                let mut ids = || Uuid::now_v7().to_string();
+                neon_blocks::append(&mut txn, &fragment, blocks, &mut ids)?;
+                Ok::<_, AppendError>(txn.encode_update_v1().len())
+            })
+            .await?;
         if self.storage.size() + estimate > max {
             if self.storage.needs_snapshot() {
                 self.compact().await;
@@ -554,14 +567,16 @@ impl Document {
                 return Err(AppendError::TooLarge);
             }
         }
-        let (changed, before, after) = {
-            let mut txn = self.awareness.doc().transact_mut();
-            let before = txn.state_vector();
-            let mut ids = || Uuid::now_v7().to_string();
-            neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)
-                .map_err(|_| AppendError::NotADocument)?;
-            (txn.encode_update_v1(), before, txn.state_vector())
-        };
+        let (changed, before, after) = self
+            .inner
+            .write(|| {
+                let mut txn = self.awareness.doc().transact_mut();
+                let before = txn.state_vector();
+                let mut ids = || Uuid::now_v7().to_string();
+                neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)?;
+                Ok::<_, AppendError>((txn.encode_update_v1(), before, txn.state_vector()))
+            })
+            .await?;
         if changed.as_slice() != Update::EMPTY_V1 {
             let message = encode(&Message::Sync(SyncMessage::Update(changed.clone())));
             self.inner
@@ -594,7 +609,7 @@ impl Document {
             return Err(Unedited::Gone);
         }
         let max = self.inner.limits.max_document;
-        let mut tried = self.trial(edits);
+        let mut tried = self.inner.write(|| self.trial(edits)).await;
         let too_large = |tried: &Result<usize, Unedited>, size: usize| match tried {
             Ok(growth) => size + growth > max,
             Err(refused) => *refused == Unedited::TooLarge,
@@ -605,7 +620,7 @@ impl Document {
             if self.gone {
                 return Err(Unedited::Gone);
             }
-            tried = self.trial(edits);
+            tried = self.inner.write(|| self.trial(edits)).await;
         }
         if too_large(&tried, self.storage.size()) {
             return Err(Unedited::TooLarge);
@@ -616,12 +631,15 @@ impl Document {
             return Err(Unedited::Conflict);
         }
         let room = self.room();
-        let (made, changed, before, after) = {
-            let mut txn = self.awareness.doc().transact_mut();
-            let before = txn.state_vector();
-            let made = make(&mut txn, &self.fragment, edits, room);
-            (made, txn.encode_update_v1(), before, txn.state_vector())
-        };
+        let (made, changed, before, after) = self
+            .inner
+            .write(|| {
+                let mut txn = self.awareness.doc().transact_mut();
+                let before = txn.state_vector();
+                let made = make(&mut txn, &self.fragment, edits, room);
+                (made, txn.encode_update_v1(), before, txn.state_vector())
+            })
+            .await;
         // A part the trial made and this did not still leaves the parts before it, which
         // the others and the log must have too.
         if changed.as_slice() != Update::EMPTY_V1 {

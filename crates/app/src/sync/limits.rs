@@ -1,6 +1,7 @@
 //! The bounds live documents and their connections keep to, and the rate limit of each
 //! connection.
 
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -14,6 +15,14 @@ pub struct Limits {
     /// The largest a document may grow, in bytes: its last snapshot and the updates logged
     /// after it. A change that would make it larger is refused, unless it only deletes.
     pub max_document: usize,
+    /// The most nodes, as [`neon_blocks::nodes`] counts them, the server writes into a
+    /// document at once: a new page's content, an edit's blocks, the blocks appended, a
+    /// version restored. More is refused before any is written, as what writing takes, in
+    /// time and in memory, grows with them.
+    pub max_nodes: usize,
+    /// How many such writes run at once on the server, each on a thread of its own; one more
+    /// waits for its turn.
+    pub parallel_writes: usize,
     /// How many messages a connection may send per second, on average.
     pub messages_per_second: u32,
     /// How many it may send at once, above the average, before it is closed.
@@ -77,6 +86,8 @@ impl Default for Limits {
         Self {
             max_message: 4 * 1024 * 1024,
             max_document: 16 * 1024 * 1024,
+            max_nodes: 100_000,
+            parallel_writes: std::thread::available_parallelism().map_or(4, NonZeroUsize::get),
             messages_per_second: 100,
             message_burst: 1000,
             client_queue: 512,
