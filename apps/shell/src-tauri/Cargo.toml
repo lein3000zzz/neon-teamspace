@@ -1,0 +1,69 @@
+[package]
+name = "neon-teamspace-shell"
+version = "0.1.0"
+description = "The Neon Teamspace apps: a shell that loads a chosen server's web UI"
+edition = "2024"
+rust-version = "1.100"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/lein3000zzz/neon-teamspace"
+publish = false
+
+# A workspace of its own: the root workspace builds the server, whose image copies crates/
+# alone, and its builds and checks need none of the webview's system libraries.
+[workspace]
+
+[lib]
+name = "neon_shell"
+# The static and dynamic libraries are what the iOS and Android projects link.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.7", features = [] }
+# Logs to the console (logcat on Android) and to a file in the platform's log directory.
+tauri-plugin-log = "2.10.2"
+# Opens what the origin lock sends outside in the system's browser.
+tauri-plugin-opener = "2.7.3"
+log = "0.4.29"
+# The check of /api/v1/meta, over rustls on ring, as the server's own clients: no OpenSSL, and
+# none of aws-lc's build tooling for each target.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+url = "2.5.9"
+
+# The roots the check trusts on Android, where the platform verifier needs a Java component.
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "1.0.12"
+
+# Turning on the webview's back gesture, which Tauri has no setting for.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6.5"
+
+[dev-dependencies]
+tauri = { version = "2.12.7", features = ["test"] }
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
+
+# The root workspace's lints.
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+# Small and quick to start, as the server's: the app is a thin shell.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

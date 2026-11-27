@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "reportUnusedDisableDirectives": "error"
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["dist", "src-tauri", "public"],
+  "rules": {
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "warn",
+    "import/no-cycle": "error",
+    "eslint/eqeqeq": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": ["**/*.css"]
+      }
+    ],
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["__TAURI_INTERNALS__", "__calls", "__opened"]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["tests/**", "*.config.ts"],
+      "env": {
+        "browser": false,
+        "node": true
+      },
+      "rules": {
+        "eslint/no-await-in-loop": "off"
+      }
+    }
+  ]
+}

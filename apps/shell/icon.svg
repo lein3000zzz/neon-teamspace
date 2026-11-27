@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- The app's icon, the dot of the web app's favicon on Nothing's black, with the default
+       accent's glow. tauri icon draws every platform's sizes from it. -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0.42" stop-color="#5ab4ff" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#5ab4ff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#000000" />
+  <circle cx="512" cy="512" r="400" fill="url(#glow)" />
+  <circle cx="512" cy="512" r="190" fill="#ffffff" />
+</svg>

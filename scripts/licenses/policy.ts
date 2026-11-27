@@ -94,4 +94,10 @@ export const POLICIES: Readonly<Record<string, Policy>> = {
     exceptions: [],
     clarifications: [],
   },
+  // The apps' bundled server picker and its tests: @tauri-apps/api ships in it, and the rest
+  // only builds and tests it.
+  "apps/shell": {
+    exceptions: [],
+    clarifications: [],
+  },
 };
