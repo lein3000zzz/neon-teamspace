@@ -310,6 +310,14 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
       void insertUpload(editor, type, file);
     }
   };
+  /** Puts the keyboard away: from the content, or from the toolbar's own field. */
+  const putAway = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && bar.current?.contains(active) === true) {
+      active.blur();
+    }
+    editor.blur();
+  };
   /** Runs an action of a row, then goes back to the main row. */
   const then = (action: () => void) => () => {
     action();
@@ -451,7 +459,6 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
       row = (
         <FieldRow
           editor={editor}
-          back={back}
           label={copy.linkAddress}
           placeholder={copy.linkPlaceholder}
           type="url"
@@ -488,7 +495,6 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
         ) : (
           <FieldRow
             editor={editor}
-            back={back}
             label={copy.captionField}
             type="text"
             initial={state.file?.caption ?? ""}
@@ -596,7 +602,7 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
             {row}
           </div>
           <Divider />
-          <Tool icon={KeyboardOff} label={copy.done} onClick={() => editor.blur()} />
+          <Tool icon={KeyboardOff} label={copy.done} onClick={putAway} />
         </div>
       </div>
       <input
@@ -622,7 +628,6 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
 
 type FieldRowProps = {
   editor: Editor;
-  back: ReactNode;
   /** The field's name, and what it holds when empty. */
   label: string;
   placeholder?: string;
@@ -639,11 +644,10 @@ type FieldRowProps = {
  * A field in the toolbar's own row, for what the editor takes as text rather
  * than formatting, such as a link's address or a caption. It takes focus, and
  * so the keyboard, as it opens; focus goes back to the content once what was
- * typed is set or taken away, or Escape leaves it.
+ * typed is set or taken away, or Back or Escape leaves it.
  */
 function FieldRow({
   editor,
-  back,
   label,
   placeholder,
   type,
@@ -671,7 +675,7 @@ function FieldRow({
         }
       }}
     >
-      {back}
+      <Tool icon={ChevronLeft} label={copy.back} onClick={finish} />
       <Input
         ref={field}
         type={type}

@@ -270,6 +270,47 @@ describe("the editing toolbar of a touch screen", () => {
     expect(toolbar().getByRole("button", { name: "Link" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("gives the focus back to the content as Back leaves the link's field", async () => {
+    pointer("touch");
+    fakeWorkspaces();
+    fakePages();
+    pageWith("Kick-off on Monday");
+    const { user } = renderApp(PATH);
+    const content = await editable();
+    act(() => content.focus());
+    selectText(content, "Monday");
+    await waitFor(() => expect(toolbar().getByRole("button", { name: "Link" })).toBeEnabled());
+    await user.click(toolbar().getByRole("button", { name: "Link" }));
+    expect(toolbar().getByRole("textbox", { name: "Link address" })).toHaveFocus();
+
+    await user.click(toolbar().getByRole("button", { name: "Back" }));
+    expect(content).toHaveFocus();
+    expect(toolbar().getByRole("button", { name: "Link" })).toBeInTheDocument();
+    expect(content.querySelector("a")).toBeNull();
+  });
+
+  it("puts the keyboard away from the link's field too", async () => {
+    pointer("touch");
+    fakeWorkspaces();
+    fakePages();
+    pageWith("Kick-off on Monday");
+    const { user } = renderApp(PATH);
+    const content = await editable();
+    act(() => content.focus());
+    selectText(content, "Monday");
+    await waitFor(() => expect(toolbar().getByRole("button", { name: "Link" })).toBeEnabled());
+    await user.click(toolbar().getByRole("button", { name: "Link" }));
+    const field = toolbar().getByRole("textbox", { name: "Link address" });
+    expect(field).toHaveFocus();
+
+    await user.click(toolbar().getByRole("button", { name: "Done editing" }));
+    expect(field).not.toHaveFocus();
+    expect(content).not.toHaveFocus();
+    await waitFor(() =>
+      expect(screen.queryByRole("toolbar", { name: "Editing tools" })).toBeNull(),
+    );
+  });
+
   it("starts a comment on the text selected", async () => {
     pointer("touch");
     fakeWorkspaces();
