@@ -209,9 +209,9 @@ and the server answers again.
 ## `429 rate_limited` behind a proxy
 
 Signing in answers `429 rate_limited`, `too many attempts: try again in` and a wait of up to
-30 seconds, for everyone at once, though nobody tried often. Each client address gets ten
-sign-ins, then one more every 30 seconds. When the server counts every request as coming
-from one address, the proxy's, everyone shares those ten.
+30 seconds, for everyone at once, though nobody tried often. Each client address, an IPv6
+one by its /64, gets ten sign-ins, then one more every 30 seconds. When the server counts
+every request as coming from one address, the proxy's, everyone shares those ten.
 
 The server counts the address it works out:
 

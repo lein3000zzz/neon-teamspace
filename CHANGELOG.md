@@ -86,7 +86,8 @@ they change:
 - Mail through an SMTP relay of your choice, with STARTTLS or TLS 1.2 and up, a test mail
   and a mail status on the admin page. (#11, #12)
 - Rate limits on sign-ins, sign-ups, mailed links and requests to join, by client address,
-  believed from `X-Forwarded-For` only from `server.trusted_proxies`. (#11)
+  an IPv6 one by its /64, believed from `X-Forwarded-For` only from `server.trusted_proxies`.
+  (#11)
 - Admin pages for users, invites, requests to join, settings, mail and workspaces with their
   limits. Instance admins never see inside a workspace. (#12, #17)
 
@@ -154,3 +155,13 @@ they change:
 - The web app fits database pages on phones, keeps table columns at their saved widths, opens
   a comment thread's link without selecting the passage, and two dozen other fixes. (#24,
   #38, #44)
+- Fixes from a security audit of the whole product. Every limit by client counts an IPv6
+  address by its /64, the server checks as many passwords at once as it has processors and
+  answers `503 busy` past a 2-second wait, and a password reset revokes the account's API
+  tokens and connected apps too. A removed or demoted admin's pending invitations and invite
+  links end with their role. Large content is counted before it is written, and writes into
+  a page are tried against a second first; connections that stop reading are dropped after
+  30 seconds, uploads that stop sending likewise, and a person runs 4 uploads and 2 imports
+  or exports at once, their agents' included. With `NEON_WEB_TRUSTED_PROXIES` set, Caddy
+  reads `X-Forwarded-For` from its end. A row shared without its database shows none of its
+  properties, and links in a page open in tabs that cannot reach back to the app.
