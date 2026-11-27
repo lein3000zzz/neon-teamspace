@@ -2,16 +2,22 @@ import { cn } from "cn";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
+import { useBackCloses } from "@/lib/panel-history";
 import { Button } from "./button";
 
 /**
  * A modal panel for a task that takes more than one answer, such as sharing a
  * page. Focus is trapped inside while it is open and goes back to what opened
- * it; Escape, the close button and a tap outside all close it.
+ * it; Escape, the close button and a tap outside all close it, and on a touch
+ * screen the back gesture or Back.
  */
 function Dialog(props: ComponentProps<typeof DialogPrimitive.Root>) {
+  const { open, onOpenChange } = props;
+  useBackCloses(open ?? false, onOpenChange ?? ignore, onOpenChange !== undefined);
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
+
+function ignore() {}
 
 function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;

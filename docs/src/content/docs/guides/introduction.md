@@ -61,6 +61,9 @@ each release brings. What exists:
 - Pages, through the API and the web app's page trees, headers and live editor: nesting,
   private pages, sharing with members and guests, moving, the trash and favorites; see
   [Editing pages](/docs/guides/editing-pages/) and [Pages](/docs/guides/pages/).
+- Editing on a touch screen, from a toolbar above the keyboard in place of the block handles
+  and the formatting toolbar; see
+  [On a phone or a tablet](/docs/guides/editing-pages/#on-a-phone-or-a-tablet).
 - Real-time sync of pages' documents over WebSocket, in y-websocket's protocol, saved as a
   log of updates and snapshots, with connections closed or made read-only as access
   changes; see [Real-time sync](/docs/architecture/realtime/).
@@ -106,7 +109,6 @@ each release brings. What exists:
 
 These pages describe the design beyond what exists too, and mark it **Planned**:
 
-- A toolbar for editing on a phone.
 - Callouts among the blocks of a page.
 - A hue of each database's own, as people, workspaces and teamspaces have.
 

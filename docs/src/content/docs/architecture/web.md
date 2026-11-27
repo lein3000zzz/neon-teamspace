@@ -140,6 +140,17 @@ A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
   sharing a browser finds theirs folded after a reload; where storage is refused, they stay
   folded for the session.
 
+Where the main pointer is coarse, each panel open over a page, the drawer, a sheet, a dialog
+or the comments, has an entry in the browser's history (`lib/panel-history.ts`), as a phone's
+back gesture goes back in the history and would leave the page otherwise. The entry is at the
+page's address, and its state lists the panels open in it. Leaving it closes the panel, and
+forward to it opens it again; a panel closed another way goes back past its entry, and a
+navigation from it takes the place of the panels' entries, so none is left to step through.
+The entries keep the scroll position of the page's entry, under the router's
+`getScrollRestorationKey`. With a mouse the history is as it was. A row beside its database is
+in the address already, as `?peek=`; on a touch screen its **Close** goes back to the
+database's entry rather than adding one.
+
 The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
 about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
 document, to the `XmlFragment` named `document-store` that
@@ -186,7 +197,25 @@ document, to the `XmlFragment` named `document-store` that
   now, an agent with its owner, and a page as a link. The block draws the
   database it names with the same views as its own page, compact; see
   [Databases](#databases). The slash menu is BlockNote's, with a **Database** item beside its
-  table that makes an inline database under the page and gives its id to a new block.
+  table that makes an inline database under the page and gives its id to a new block. So is
+  the emoji menu, which `:` opens only where it starts a word, and which closes as soon as
+  what follows it starts with anything but a letter, so a time such as `15:00` opens
+  nothing.
+- Where the main pointer is coarse, `(pointer: coarse)`, the editor has neither BlockNote's
+  side menu nor its formatting toolbar: `mobile-toolbar.tsx` does what they do, from a bar
+  fixed to the bottom of the visual viewport, so above an on-screen keyboard whether the
+  browser covers the page with it or resizes the page, and scaled back to its own size when
+  the page is zoomed (`visual-viewport.ts`). Its actions are BlockNote's API
+  (`toolbar-actions.ts`); a press on it keeps the focus in the content, and the caret is
+  scrolled clear of it as it moves. ProseMirror leaves a tap to the browser, which puts the
+  caret in the nearest text, so a tap on a block without text selects that block itself. The
+  menus `/`, `@` and `:` open keep that much more room at the window's bottom while it shows
+  (`floating.ts`).
+- Undo and redo go through y-prosemirror's undo manager, which ends with the editor's view.
+  So the view is mounted once: the comment highlights' extension is among the editor's
+  options rather than registered after, and whether the editor takes input is set on its
+  read-only extension, as a change to the view's `editable` prop mounts it afresh. React's
+  strict mode mounts it twice in development, where undo is lost for that reason.
 
 The page's comments live beside the editor (`web/src/components/comments/`), read from
 `GET /api/v1/pages/{id}/comments` a part at a time: every part of the open threads, so each

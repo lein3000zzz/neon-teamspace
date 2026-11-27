@@ -31,9 +31,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <QuickSearchProvider>
         <div className="min-h-dvh md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
           <WorkspaceAccent />
+          {/* Above the screen until focused, by its own height and as far again as it sits
+              below the top, so no edge of it shows under a status bar, however tall. */}
           <a
             href="#main"
-            className="fixed top-[calc(--spacing(3)+env(safe-area-inset-top,0px))] left-3 z-50 -translate-y-24 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground focus:translate-y-0"
+            className="fixed top-[calc(--spacing(3)+env(safe-area-inset-top,0px))] left-3 z-50 -translate-y-[calc(100%+--spacing(6)+env(safe-area-inset-top,0px))] rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground focus:translate-y-0"
           >
             {strings.skipToContent}
           </a>

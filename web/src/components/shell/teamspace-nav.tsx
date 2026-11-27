@@ -12,6 +12,7 @@ import {
   PageTree,
   treeLink,
   treeRow,
+  treeTitle,
   useSpaceDrop,
 } from "@/components/pages/page-tree";
 import { useNewPage } from "@/components/pages/use-new-page";
@@ -116,7 +117,7 @@ function TeamspaceSection({ workspace, teamspace, onNavigate }: TeamspaceSection
           className={treeLink}
         >
           <EntityMark name={teamspace.name} icon={teamspace.icon} hue={teamspace.hue} size="sm" />
-          <span className="min-w-0 flex-1 truncate">{teamspace.name}</span>
+          <span className={treeTitle}>{teamspace.name}</span>
           {teamspace.access === "private" && <Lock aria-hidden className="size-3.5 shrink-0" />}
         </Link>
         <div data-row-actions="over" className="flex shrink-0 items-center">

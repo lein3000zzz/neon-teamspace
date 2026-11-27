@@ -34,7 +34,7 @@ FROM tools-$BUILDARCH AS tools
 
 # The Rust version rust-toolchain.toml pins, on Debian 13 like the runtime image below, so the
 # binary links against the glibc it runs with. The `chef` stage fails when the two differ.
-FROM --platform=$BUILDPLATFORM rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS chef
+FROM --platform=$BUILDPLATFORM rust:1.100.0-slim-trixie@sha256:3b199fd6db7d709274df56565b8f4003f9e30d7bfcff9d53148c86053b7855e2 AS chef
 
 # make, for jemalloc, which every Linux build compiles from its C sources. The image has gcc.
 RUN apt-get update \
