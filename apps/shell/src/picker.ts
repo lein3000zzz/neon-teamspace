@@ -59,9 +59,13 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-/** A DOM id for a server, from its origin. */
+/**
+ * A DOM id for a server, from its origin, one to one: each character but a letter or a digit
+ * is written as its code between underscores, so `neon-example.com` and `neon.example.com`
+ * get ids of their own.
+ */
 function idOf(origin: string): string {
-  return origin.replace(/[^a-z0-9]+/gi, "-");
+  return origin.replace(/[^a-z0-9]/gi, (character) => `_${character.charCodeAt(0).toString(16)}_`);
 }
 
 /** The picker: its state, and the page it draws from it. */

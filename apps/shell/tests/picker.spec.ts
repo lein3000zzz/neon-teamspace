@@ -108,6 +108,27 @@ test("plain http waits for the warning to be accepted", async ({ page }) => {
   ]);
 });
 
+test("servers whose addresses differ only in punctuation keep apart", async ({ page }) => {
+  const alpha = { origin: "https://neon-example.com", name: "Alpha", version: "0.1.0" };
+  const beta = { origin: "https://neon.example.com", name: "Beta", version: "0.2.0" };
+  await launch(page, { servers: [alpha, beta], last: alpha.origin });
+  const ids = await page.evaluate(() =>
+    [...document.querySelectorAll("[id]")].map((element) => element.id),
+  );
+  expect(new Set(ids).size).toBe(ids.length);
+  await expect(page.getByRole("button", { name: /^Beta/ })).toHaveAccessibleDescription(
+    "Neon Teamspace 0.2.0",
+  );
+  await expect(page.getByRole("button", { name: /^Alpha/ })).toHaveAccessibleDescription(
+    "Neon Teamspace 0.1.0 · last used",
+  );
+
+  await page.getByRole("button", { name: "Rename Beta" }).click();
+  await page.getByLabel("Name for https://neon.example.com").fill("Work");
+  await page.getByLabel("Name for https://neon.example.com").press("Enter");
+  await expect(page.getByRole("button", { name: /^Work/ })).toBeFocused();
+});
+
 test("the saved servers are listed, and one opens on a click", async ({ page }) => {
   await launch(page, { servers: [ACME, LAB], last: LAB.origin });
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Choose a server");
@@ -230,7 +251,7 @@ test("a second server is added with the keyboard alone", async ({ page, browserN
     );
   }
   expect(order).toEqual([
-    "open-https-neon-example-com",
+    "open-https_3a__2f__2f_neon_2e_example_2e_com",
     "Rename Acme",
     "Remove Acme",
     "add-server",
