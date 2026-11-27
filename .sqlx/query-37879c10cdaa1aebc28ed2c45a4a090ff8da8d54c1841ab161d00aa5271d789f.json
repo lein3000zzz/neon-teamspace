@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,\n                block_id, property_id, invitation_id, created_at, read_at, archived_at, mailed_at\n         FROM notifications\n         WHERE user_id = $1 AND mailed_at IS NULL AND read_at IS NULL AND archived_at IS NULL\n           AND created_at <= $2\n         ORDER BY id\n         LIMIT $3",
+  "query": "SELECT n.id, n.user_id, n.workspace_id, n.kind, n.actor_id, n.page_id, n.thread_id,\n                  n.comment_id, n.block_id, n.excerpt, n.property_id, n.invitation_id,\n                  n.created_at, n.read_at, n.archived_at, n.mailed_at,\n                  a.kind AS \"actor_kind?\", a.display_name AS \"actor_name?\", a.email AS actor_email,\n                  a.hue AS actor_hue, o.id AS \"owner_id?\", o.display_name AS \"owner_name?\",\n                  o.hue AS owner_hue, c.body AS \"comment_body?\"\n           FROM notifications n\n           LEFT JOIN users a ON a.id = n.actor_id\n           LEFT JOIN users o ON o.id = a.owner_id\n           LEFT JOIN comments c ON c.id = n.comment_id\n           LEFT JOIN workspace_invitations i ON i.id = n.invitation_id\n           WHERE n.user_id = $1\n             AND CASE WHEN n.kind = 'invitation'\n                      THEN $3 AND i.state = 'pending' AND i.expires_at > $4\n                      ELSE $2::uuid IS NULL OR n.workspace_id = $2 END\n             AND (NOT $5 OR n.read_at IS NULL)\n             AND (n.archived_at IS NOT NULL) = $6\n             AND ($7::uuid IS NULL OR n.id < $7)\n           ORDER BY n.id DESC\n           LIMIT $8",
   "describe": {
     "columns": [
       {
@@ -104,6 +104,17 @@
       },
       {
         "ordinal": 9,
+        "name": "excerpt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "excerpt"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
         "name": "property_id",
         "type_info": "Uuid",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "invitation_id",
         "type_info": "Uuid",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "read_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "archived_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "mailed_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -167,12 +178,105 @@
             "name": "mailed_at"
           }
         }
+      },
+      {
+        "ordinal": 16,
+        "name": "actor_kind?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "actor_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "actor_email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "actor_hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "owner_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "owner_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "owner_hue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "hue"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "comment_body?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "body"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
+        "Uuid",
+        "Bool",
         "Timestamptz",
+        "Bool",
+        "Bool",
+        "Uuid",
         "Int8"
       ]
     },
@@ -188,11 +292,20 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
-      true
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false
     ]
   },
-  "hash": "78ef8e223ae75634d5dc8ea00cad63157967cc01fe45f7ef0ed0dbf5985a4946"
+  "hash": "37879c10cdaa1aebc28ed2c45a4a090ff8da8d54c1841ab161d00aa5271d789f"
 }

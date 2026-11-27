@@ -4540,7 +4540,10 @@ export interface components {
             comment_id?: string | null;
             /** Format: date-time */
             created_at: string;
-            /** @description The start of the comment it is about. */
+            /**
+             * @description The start of the comment it is about, or for a mention in a page's text, of the block
+             *     the mention is in as it was when told.
+             */
             excerpt?: string | null;
             /** Format: uuid */
             id: string;

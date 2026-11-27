@@ -115,7 +115,8 @@ pub struct Shown {
     pub workspace: Workspace,
     /// The page it is about, as its person sees it now.
     pub page: Option<PageView>,
-    /// The start of the comment it is about.
+    /// The start of the comment it is about, or for a mention in a page's text, of the
+    /// block the mention is in as it was when told.
     pub excerpt: Option<String>,
     /// The invitation it is, while it waits.
     pub invitation: Option<Invitation>,
@@ -496,7 +497,10 @@ impl InboxService {
             };
             let members_hidden = page.as_ref().is_some_and(|view| view.members_hidden);
             shown.push(Shown {
-                excerpt: comment_body.as_deref().map(comment_excerpt),
+                excerpt: comment_body
+                    .as_deref()
+                    .map(comment_excerpt)
+                    .or_else(|| notification.excerpt.clone()),
                 notification,
                 actor,
                 workspace,

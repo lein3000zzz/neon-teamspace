@@ -4,10 +4,10 @@
 
 use std::collections::HashMap;
 
-use neon_blocks::{Document, Inline, Mention, MentionKind};
+use neon_blocks::{Block, Document, Inline, Mention, MentionKind};
 use neon_domain::databases::Schema;
 use neon_domain::notifications::{
-    CommentAudience, Credit, NotificationKind, PageMention, TextMention, comment_audience,
+    CommentAudience, Credit, NotificationKind, PageMention, TextMention, comment_audience, excerpt,
 };
 use neon_domain::webhooks::EventType;
 use neon_store::comments::{self as comments_repo, Comment, Thread};
@@ -65,11 +65,26 @@ pub(crate) fn in_document(document: &Document) -> Vec<TextMention> {
 }
 
 /// A page's text as a snapshot stores it: whom it mentions, each with their block and whom
-/// their mention is from, and when.
+/// their mention is from, the blocks themselves, and when.
 pub(crate) struct Mentions<'a> {
     pub(crate) page_id: Uuid,
     pub(crate) mentioned: &'a [PageMention],
+    pub(crate) document: &'a Document,
     pub(crate) at: OffsetDateTime,
+}
+
+/// The text of a document's block alone, without the blocks under it, as a notification of
+/// a mention in it quotes it; `None` when no block has the id, or it holds no text.
+fn block_excerpt(document: &Document, id: &str) -> Option<String> {
+    let block = document
+        .walk()
+        .find(|block| block.id.as_deref() == Some(id))?;
+    let alone = Block {
+        children: Vec::new(),
+        ..block.clone()
+    };
+    let text = excerpt(&Document::new(vec![alone]).plain_text());
+    (!text.is_empty()).then_some(text)
 }
 
 /// Records whom a page's text mentions now, telling nobody, as an import of the text does:
@@ -88,8 +103,8 @@ pub(crate) async fn record(
 
 /// Records whom a page's text mentions now, and tells each it mentions for the first time,
 /// who may see the page, but those who wrote every mention of themselves: the
-/// `page.mentioned` event, and a notification from the mention's writer unless one of a
-/// mention on the page waits unread. They follow the page's comments from then on, unless
+/// `page.mentioned` event, and a notification from the mention's writer, quoting the block
+/// the mention is in, unless one of a mention on the page waits unread. They follow the page's comments from then on, unless
 /// they stopped.
 pub(crate) async fn page_text(
     conn: &mut PgConnection,
@@ -131,6 +146,9 @@ pub(crate) async fn page_text(
             );
             notification.actor_id = actor;
             notification.page_id = Some(page.id);
+            notification.excerpt = block_id
+                .as_deref()
+                .and_then(|id| block_excerpt(mentions.document, id));
             notification.block_id = block_id;
             notifier.record(&mut *conn, &notification).await?;
         }

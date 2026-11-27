@@ -227,7 +227,7 @@ person leaves the workspace.
 | `comments` | Each comment of a thread, in order, its markdown, its author, and when it was last changed. |
 | `page_follows` | Who follows a page's comments, or chose not to, `follows` true or false, so a choice made by hand holds. |
 | `page_mentions` | Whom a page's text mentions now, each with the first block they are in, as its last snapshot has it. |
-| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
+| `notifications` | Each person's [inbox](/docs/guides/inbox/): its kind, who did it, what it is about, for a mention in a page's text the text of its block then, and when it was read, archived and mailed. A unique index keeps one per comment for each person. |
 | `notification_preferences` | How each person who chose wants mail of their inbox, and when their last digest went. |
 
 Each goes with its page, its thread or comment, or its person. A notification is never

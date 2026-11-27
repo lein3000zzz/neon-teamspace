@@ -20978,7 +20978,7 @@
               "string",
               "null"
             ],
-            "description": "The start of the comment it is about."
+            "description": "The start of the comment it is about, or for a mention in a page's text, of the block\nthe mention is in as it was when told."
           },
           "id": {
             "type": "string",

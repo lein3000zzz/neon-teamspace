@@ -80,7 +80,8 @@ pub struct Notification {
     pub block_id: Option<String>,
     /// For an assignment, the person property.
     pub property_id: Option<Uuid>,
-    /// The start of the comment it is about.
+    /// The start of the comment it is about, or for a mention in a page's text, of the block
+    /// the mention is in as it was when told.
     pub excerpt: Option<String>,
     pub invitation: Option<NotifiedInvitation>,
     #[serde(with = "time::serde::rfc3339")]

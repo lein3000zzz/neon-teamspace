@@ -599,6 +599,17 @@ async fn a_pages_text_tells_those_it_mentions_once_it_settles(pool: PgPool) {
     assert_eq!(notification.comment_id, None);
     assert_eq!(notification.actor_id, Some(t.ada.user.id));
     assert!(notification.block_id.is_some());
+    assert_eq!(
+        shown.notifications[0].excerpt.as_deref(),
+        Some(
+            format!(
+                "Ask @{} and @{}",
+                t.bea.user.display_name, t.ada.user.display_name
+            )
+            .as_str()
+        ),
+        "quoting its block"
+    );
     assert_eq!(t.made(&t.ada).await, 0, "nobody is told of their own text");
 
     // More text, the mention still there, and a save: nobody is told again. Cy, who sees
@@ -1387,6 +1398,67 @@ async fn a_mention_written_again_while_the_first_waits_unread_still_reaches_webh
         1,
         "one notification while it waits unread"
     );
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_mention_in_a_pages_text_quotes_its_block_as_it_was_in_the_inbox_and_mail(pool: PgPool) {
+    let t = team_with(pool, vec![("notifications.mail", json!(true))]).await;
+    let content = t
+        .sync
+        .first_snapshot(&from_markdown(&format!(
+            "# Goals\n\n- Stage owner: {}\n  - Rehearse twice\n\nMore text",
+            mention(&t.bea)
+        )))
+        .expect("fits");
+    let made =
+        t.h.pages
+            .create_page(
+                &t.ada,
+                t.workspace,
+                Location::Teamspace(t.general),
+                Placement::Last,
+                NewPage {
+                    title: "Plan".into(),
+                    content,
+                    ..NewPage::default()
+                },
+            )
+            .await
+            .expect("created")
+            .page
+            .id;
+    let quoted = format!("Stage owner: @{}", t.bea.user.display_name);
+    let excerpt = || async {
+        t.inbox
+            .inbox(&t.bea, InboxQuery::default())
+            .await
+            .expect("read")
+            .notifications[0]
+            .excerpt
+            .clone()
+    };
+    // The block alone, without the one under it.
+    assert_eq!(excerpt().await.as_deref(), Some(quoted.as_str()));
+
+    // The block changed since, the notification still quotes it as it was when told.
+    t.sync
+        .append(&t.ada, made, text("Changed later"))
+        .await
+        .expect("appended");
+    t.sync.shutdown().await;
+    assert_eq!(excerpt().await.as_deref(), Some(quoted.as_str()));
+
+    let job = NotificationMailJob::new(t.inbox.clone());
+    t.h.time.advance(Duration::from_secs(5 * 60));
+    for queued in t.jobs(neon_app::notifications::MAIL_KIND).await {
+        job.run(&queued).await.expect("ran");
+    }
+    let mails = t.h.mails().await;
+    let Some(Message::Notification { notice, .. }) = mails.first().map(|mail| &mail.message) else {
+        panic!("a notification's mail: {mails:?}")
+    };
+    assert_eq!(notice.summary, "ada mentioned you on Plan, in Design");
+    assert_eq!(notice.excerpt.as_deref(), Some(quoted.as_str()));
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

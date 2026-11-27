@@ -232,9 +232,13 @@ test("a mention picked after @ in a page reaches the inbox once the text settles
     await adaPage.getByRole("option", { name: new RegExp(bob.name) }).click();
     await expect(content(adaPage).locator(".mention")).toHaveText(`@${bob.name}`);
 
-    // Once the page's text settles, Bob is told, and the link opens the page at the block.
+    // Once the page's text settles, Bob is told, quoting the block, and the link opens the
+    // page at the block.
     const summary = `${ada.name} mentioned you on Handover`;
     await expect(bobPage.getByRole("link", { name: summary })).toBeVisible({ timeout: 30_000 });
+    await expect(bobPage.getByRole("listitem").filter({ hasText: summary })).toContainText(
+      `Owner: @${bob.name}`,
+    );
     await bobPage.getByRole("link", { name: summary }).click();
     await expect(bobPage).toHaveURL(new RegExp(`/p/${page.id}\\?block=`));
     await live(bobPage);
