@@ -46,8 +46,9 @@ layout that the check walks.
 
 `../scripts` has no packages of its own, so this app's tools check it: `tsc -b` type-checks it
 through `tsconfig.node.json`, and `lint`, `format` and `test` cover it as well, with the
-configuration in `../scripts`. Its `package.json` only marks the scripts as ES modules, for the
-Vite config, which imports some of them.
+configuration in `../scripts`. Its `package.json` marks the scripts as ES modules, for the Vite
+config, which imports some of them, and names the project's license, as every `package.json`
+of the repository does.
 
 The minifier strips the license comments from the bundle, so the build writes
 `dist/THIRD_PARTY_NOTICES.txt` instead (`scripts/licenses/notices.ts`, on helpers it shares
