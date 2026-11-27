@@ -1,7 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- The window behind the system bars, in the Nothing palette's light ground, which the
-         picker and the web app start in. -->
+    <!-- The window behind the system bars, in the Nothing palette's ground for the mode, which
+         the picker and the web app start in. MainActivity applies it again when the mode
+         changes while the app runs. -->
     <style name="Theme.neon_teamspace_shell" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@color/window_background</item>
     </style>
 </resources>

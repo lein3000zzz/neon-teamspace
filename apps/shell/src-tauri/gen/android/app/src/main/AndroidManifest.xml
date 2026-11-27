@@ -18,6 +18,9 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.neon_teamspace_shell"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- None of these changes recreates the activity, which would load the webview's page
+             again and lose what is on it. A switch between light and dark mode (uiMode)
+             reaches MainActivity.onConfigurationChanged instead. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"

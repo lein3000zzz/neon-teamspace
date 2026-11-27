@@ -1,6 +1,0 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- The window behind the system bars, in the Nothing palette's dark ground. -->
-    <style name="Theme.neon_teamspace_shell" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
-    </style>
-</resources>

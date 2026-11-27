@@ -1,6 +1,7 @@
 package io.github.lein3000zzz.neonteamspace
 
 import android.app.DownloadManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -30,6 +31,15 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+  }
+
+  // The manifest keeps a switch between light and dark mode from recreating the activity,
+  // which would load the webview's page again and lose what is on it. The page follows the
+  // mode by itself; the window behind the system bars, and the bars' icons, follow it here.
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    window.setBackgroundDrawableResource(R.color.window_background)
+    enableEdgeToEdge()
   }
 
   // Android's WebView saves no file by itself. The system's download manager fetches the
