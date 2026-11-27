@@ -284,7 +284,8 @@ jobs:
           {
             echo "$ID<<SHA256_END"
             for file in release-assets/*; do
-              printf '%s  %s\n' "$(sha256 < "$file")" "${file#release-assets/}"
+              hash="$(sha256 < "$file")"
+              printf '%s  %s\n' "$hash" "${file#release-assets/}"
             done
             echo SHA256_END
           } >> "$GITHUB_OUTPUT"
@@ -347,7 +348,9 @@ jobs:
         run: bun run tauri android build --ci --apk
       - id: checksum
         name: Checksum
-        run: echo "sha256=$(sha256sum < "$APK" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+        run: |
+          sha256="$(sha256sum < "$APK" | cut -d ' ' -f 1)"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-unsigned
@@ -360,7 +363,9 @@ jobs:
   # in base64; ANDROID_KEY_ALIAS, its key's alias; and ANDROID_KEY_PASSWORD, the password of
   # both. Without them the APK stays unsigned, and its name says so: Android installs no
   # unsigned APK until someone signs it. Then, as the desktop installers, build provenance, and
-  # the SHA-256 of the APK it attaches, as its output.
+  # the SHA-256 of the APK it attaches, as its output: the hash alone, as GitHub drops an output
+  # of this job that holds one of its secrets' values, and the key's alias could be any word of
+  # the APK's name.
   android-release:
     name: App (Android, release)
     needs: android
@@ -371,7 +376,7 @@ jobs:
       id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
       attestations: write
     outputs:
-      android: ${{ steps.checksum.outputs.android }}
+      sha256: ${{ steps.checksum.outputs.sha256 }}
     env:
       SIGNED: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
     steps:
@@ -415,11 +420,10 @@ jobs:
       - id: checksum
         name: Checksum
         run: |
-          {
-            echo "android<<SHA256_END"
-            (cd release-assets && sha256sum -- *)
-            echo SHA256_END
-          } >> "$GITHUB_OUTPUT"
+          apks=(release-assets/*.apk)
+          test "${#apks[@]}" -eq 1
+          sha256="$(sha256sum < "${apks[0]}" | cut -d ' ' -f 1)"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
       - if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -451,15 +455,19 @@ jobs:
           path: release-assets
           merge-multiple: true
       # The apps' files as the jobs that built them list them in their outputs: each of them,
-      # with its SHA-256, and no other. Then one file of the SHA-256 checksums of everything the
-      # release attaches, as sha256sum --check reads it.
+      # with its SHA-256, and no other. The APK's name is the one android-release gives it,
+      # signed or not. Then one file of the SHA-256 checksums of everything the release
+      # attaches, as sha256sum --check reads it.
       - name: Checksums
         env:
+          TAG: ${{ github.ref_name }}
           DESKTOP: ${{ toJSON(needs.desktop.outputs) }}
-          ANDROID: ${{ needs.android-release.outputs.android }}
+          APK_SHA256: ${{ needs.android-release.outputs.sha256 }}
         run: |
           built="$RUNNER_TEMP/built.sha256"
-          { jq -r '.[]' <<<"$DESKTOP"; printf '%s\n' "$ANDROID"; } | sed '/^$/d' > "$built"
+          apk="Neon-Teamspace_${TAG#v}_android.apk"
+          if [ ! -e "release-assets/$apk" ]; then apk="Neon-Teamspace_${TAG#v}_android-unsigned.apk"; fi
+          { jq -r '.[]' <<<"$DESKTOP"; printf '%s  %s\n' "$APK_SHA256" "$apk"; } | sed '/^$/d' > "$built"
           cut -d ' ' -f 3- "$built" | sort > "$RUNNER_TEMP/built"
           find release-assets -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$RUNNER_TEMP/downloaded"
           diff -u "$RUNNER_TEMP/built" "$RUNNER_TEMP/downloaded"
