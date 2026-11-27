@@ -120,7 +120,8 @@ fn from_the_picker(shell: &Shell, command: &str) -> Result<(), Failure> {
     }
 }
 
-/// Checks the server, and logs what the check found.
+/// Checks the server, and logs what the check found, with the technical cause of a failure,
+/// which the picker's message leaves out.
 async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Failure> {
     match meta::check(address, shell.options).await {
         Ok(info) => {
@@ -128,9 +129,18 @@ async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Fai
             Ok(info)
         }
         Err(error) => {
-            log::warn!("{address} failed its check ({}): {error}", error.code());
+            log::warn!("{}", check_failure(address, &error));
             Err(error.into())
         }
+    }
+}
+
+/// The log line of a failed check.
+fn check_failure(address: &ServerAddress, error: &CheckError) -> String {
+    let line = format!("{address} failed its check ({}): {error}", error.code());
+    match error.detail() {
+        Some(detail) => format!("{line} The cause: {detail}"),
+        None => line,
     }
 }
 
@@ -230,4 +240,27 @@ pub fn remove_server<R: Runtime>(
         shell::forget_server(&app, &address);
     }
     Ok(ListView::from(&*list))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_log_line_of_a_failed_check_keeps_its_technical_cause() {
+        let address = ServerAddress::parse("https://10.0.2.2:59992").unwrap();
+        let error = CheckError::Unreachable {
+            origin: address.origin(),
+            reason: "it answered without encryption, as a server on plain http does".to_owned(),
+            hint: String::new(),
+            detail: "received corrupt message of type InvalidContentType".to_owned(),
+        };
+        assert_eq!(
+            check_failure(&address, &error),
+            "https://10.0.2.2:59992 failed its check (unreachable): Could not reach \
+             https://10.0.2.2:59992: it answered without encryption, as a server on plain http \
+             does. The cause: received corrupt message of type InvalidContentType"
+        );
+        assert!(!Failure::from(error).message.contains("InvalidContentType"));
+    }
 }

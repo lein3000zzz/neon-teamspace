@@ -198,11 +198,20 @@ async fn https_to_a_plain_http_server_on_a_private_address_suggests_http() {
     let origin = server.origin.replace("http://", "https://");
     let error = check(&origin).await.unwrap_err();
     assert_eq!(error.code(), "unreachable", "{error}");
+    // In plain words, the TLS library's own in the log alone.
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "Could not reach {origin}: it answered without encryption, as a server on plain \
+             http does. If the server has no TLS certificate, enter its address with http:// in \
+             front."
+        )
+    );
     assert!(
         error
-            .to_string()
-            .contains("enter its address with http:// in front"),
-        "{error}"
+            .detail()
+            .is_some_and(|detail| detail.contains("InvalidContentType")),
+        "{error:?}"
     );
 }
 

@@ -47,11 +47,14 @@ pub struct ServerInfo {
 /// Why an address is not a Neon Teamspace server the app can use.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CheckError {
+    /// The connection failed: `reason` says why in words the person can act on, and `detail`,
+    /// which only the log shows, as the system or the TLS library put it.
     #[error("Could not reach {origin}: {reason}.{hint}")]
     Unreachable {
         origin: String,
         reason: String,
         hint: String,
+        detail: String,
     },
     #[error("{origin} did not answer within {seconds} seconds.")]
     TimedOut { origin: String, seconds: u64 },
@@ -84,6 +87,14 @@ impl CheckError {
             Self::NotJson { .. } => "not_json",
             Self::TooLarge { .. } => "too_large",
             Self::NotNeon { .. } => "not_neon",
+        }
+    }
+
+    /// The technical cause, for the log alone.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Unreachable { detail, .. } => Some(detail),
+            _ => None,
         }
     }
 }
@@ -251,26 +262,106 @@ fn request_error(
 }
 
 fn unreachable(address: &ServerAddress, error: &reqwest::Error) -> CheckError {
-    // The innermost cause says the most, such as "connection refused" or the certificate's
-    // problem, where the outer ones only say a request failed.
-    let mut cause: &dyn std::error::Error = error;
+    // The innermost cause says the most, such as "connection refused", where the outer ones
+    // only say a request failed. A TLS failure, in the library's own words there, is put in
+    // plain words instead, and its own go to the log.
+    let mut cause: &(dyn std::error::Error + 'static) = error;
+    let mut tls = tls_error(cause);
     while let Some(source) = cause.source() {
         cause = source;
+        tls = tls.or_else(|| tls_error(cause));
     }
-    let reason = cause.to_string();
-    let lower = reason.to_ascii_lowercase();
-    let hint = if address.is_encrypted() && address.is_private() {
-        " If the server has no TLS certificate, enter its address with http:// in front."
-    } else if lower.contains("certificate") {
-        " Its TLS certificate is not one this device trusts."
+    let detail = cause.to_string();
+    let (reason, hint) = match tls {
+        Some(tls) => tls_failure(address, tls),
+        None => (detail.clone(), None),
+    };
+    let hint = hint.unwrap_or(if address.is_encrypted() && address.is_private() {
+        HTTP_HINT
     } else {
         ""
-    };
+    });
     CheckError::Unreachable {
         origin: address.origin(),
         reason,
         hint: hint.to_owned(),
+        detail,
     }
+}
+
+/// What to try when an https address on the device or a private network fails.
+const HTTP_HINT: &str =
+    " If the server has no TLS certificate, enter its address with http:// in front.";
+
+/// The TLS library's error in a cause, which I/O errors carry as their payload, one inside
+/// another: an [`std::io::Error`]'s `source` skips its payload, so each is looked into.
+fn tls_error<'a>(cause: &'a (dyn std::error::Error + 'static)) -> Option<&'a rustls::Error> {
+    let mut cause = cause;
+    loop {
+        if let Some(tls) = cause.downcast_ref::<rustls::Error>() {
+            return Some(tls);
+        }
+        cause = cause.downcast_ref::<std::io::Error>()?.get_ref()?;
+    }
+}
+
+/// A failed TLS connection in plain words: the reason, and what to try where it is not what
+/// any failure on https suggests.
+fn tls_failure(address: &ServerAddress, error: &rustls::Error) -> (String, Option<&'static str>) {
+    use rustls::{
+        AlertDescription as Alert, CertificateError as Certificate, Error, InvalidMessage,
+    };
+
+    let reason = match error {
+        // The first bytes of the answer are no TLS record: an "HTTP/1.1 400" from a server
+        // that speaks plain http, most likely.
+        Error::InvalidMessage(InvalidMessage::InvalidContentType) => {
+            let hint = if address.is_private() {
+                HTTP_HINT
+            } else {
+                " The app reaches a server on the internet only over https://, which its \
+                 administrator needs to set up."
+            };
+            return (
+                "it answered without encryption, as a server on plain http does".to_owned(),
+                Some(hint),
+            );
+        }
+        Error::InvalidCertificate(certificate) => match certificate {
+            Certificate::Expired | Certificate::ExpiredContext { .. } => {
+                "its TLS certificate has expired"
+            }
+            Certificate::NotValidYet | Certificate::NotValidYetContext { .. } => {
+                "its TLS certificate is not valid yet, or this device's clock is wrong"
+            }
+            Certificate::NotValidForName | Certificate::NotValidForNameContext { .. } => {
+                "its TLS certificate is for another name"
+            }
+            Certificate::UnknownIssuer => {
+                "its TLS certificate is not from an authority this device trusts"
+            }
+            Certificate::Revoked => "its TLS certificate has been revoked",
+            _ => "its TLS certificate is not valid",
+        },
+        Error::NoCertificatesPresented => "it sent no TLS certificate",
+        Error::AlertReceived(Alert::ProtocolVersion | Alert::InsufficientSecurity)
+        | Error::PeerIncompatible(_) => {
+            "it uses only older kinds of encryption, which the app does not accept"
+        }
+        Error::AlertReceived(Alert::CertificateRequired) => {
+            "it asks this device for a certificate of its own, which the app cannot send"
+        }
+        Error::AlertReceived(Alert::UnrecognisedName) => "it has no TLS certificate for this name",
+        Error::AlertReceived(_) => "it refused the encrypted connection",
+        Error::InvalidMessage(_)
+        | Error::InappropriateMessage { .. }
+        | Error::InappropriateHandshakeMessage { .. }
+        | Error::PeerMisbehaved(_)
+        | Error::PeerSentOversizedRecord
+        | Error::DecryptError => "the encrypted connection to it broke down",
+        _ => "the encrypted connection failed",
+    };
+    (reason.to_owned(), None)
 }
 
 fn is_json(content_type: Option<&str>) -> bool {
@@ -463,6 +554,117 @@ mod tests {
         assert!(!is_json(None));
     }
 
+    /// The message a TLS failure gives for `address`.
+    fn tls_message(address: &str, error: &rustls::Error) -> String {
+        let address = ServerAddress::parse(address).unwrap();
+        let (reason, hint) = tls_failure(&address, error);
+        format!("{reason}.{}", hint.unwrap_or_default())
+    }
+
+    #[test]
+    fn a_server_on_plain_http_is_named_so_in_plain_words() {
+        let not_tls = rustls::Error::InvalidMessage(rustls::InvalidMessage::InvalidContentType);
+        assert_eq!(
+            tls_message("https://10.0.2.2:59992", &not_tls),
+            "it answered without encryption, as a server on plain http does. If the server has \
+             no TLS certificate, enter its address with http:// in front."
+        );
+        // On the internet, plain http is no way out.
+        let public = tls_message("https://neon.example.com", &not_tls);
+        assert!(public.ends_with("only over https://, which its administrator needs to set up."));
+        assert!(
+            !public.contains("enter its address with http://"),
+            "{public}"
+        );
+    }
+
+    #[test]
+    fn tls_failures_are_told_in_plain_words() {
+        use rustls::{AlertDescription, CertificateError, Error, InvalidMessage, PeerIncompatible};
+
+        for (error, reason) in [
+            (
+                Error::InvalidCertificate(CertificateError::Expired),
+                "its TLS certificate has expired",
+            ),
+            (
+                Error::InvalidCertificate(CertificateError::NotValidYet),
+                "its TLS certificate is not valid yet, or this device's clock is wrong",
+            ),
+            (
+                Error::InvalidCertificate(CertificateError::NotValidForName),
+                "its TLS certificate is for another name",
+            ),
+            (
+                Error::InvalidCertificate(CertificateError::UnknownIssuer),
+                "its TLS certificate is not from an authority this device trusts",
+            ),
+            (
+                Error::InvalidCertificate(CertificateError::Revoked),
+                "its TLS certificate has been revoked",
+            ),
+            (
+                Error::InvalidCertificate(CertificateError::BadSignature),
+                "its TLS certificate is not valid",
+            ),
+            (Error::NoCertificatesPresented, "it sent no TLS certificate"),
+            (
+                Error::AlertReceived(AlertDescription::ProtocolVersion),
+                "it uses only older kinds of encryption, which the app does not accept",
+            ),
+            (
+                Error::PeerIncompatible(PeerIncompatible::Tls12NotOffered),
+                "it uses only older kinds of encryption, which the app does not accept",
+            ),
+            (
+                Error::AlertReceived(AlertDescription::CertificateRequired),
+                "it asks this device for a certificate of its own, which the app cannot send",
+            ),
+            (
+                Error::AlertReceived(AlertDescription::UnrecognisedName),
+                "it has no TLS certificate for this name",
+            ),
+            (
+                Error::AlertReceived(AlertDescription::HandshakeFailure),
+                "it refused the encrypted connection",
+            ),
+            (
+                Error::InvalidMessage(InvalidMessage::MessageTooLarge),
+                "the encrypted connection to it broke down",
+            ),
+            (
+                Error::General("something".to_owned()),
+                "the encrypted connection failed",
+            ),
+        ] {
+            let message = tls_message("https://neon.example.com", &error);
+            assert_eq!(message, format!("{reason}."), "{error:?}");
+            // Nothing of the library's own words, which the log keeps.
+            let technical = error.to_string();
+            assert!(!message.contains(&technical), "{message}");
+        }
+    }
+
+    #[test]
+    fn the_log_alone_keeps_the_technical_cause() {
+        let error = CheckError::Unreachable {
+            origin: ORIGIN.to_owned(),
+            reason: "it answered without encryption, as a server on plain http does".to_owned(),
+            hint: String::new(),
+            detail: "received corrupt message of type InvalidContentType".to_owned(),
+        };
+        assert!(!error.to_string().contains("InvalidContentType"), "{error}");
+        assert_eq!(
+            error.detail(),
+            Some("received corrupt message of type InvalidContentType")
+        );
+        let refused = CheckError::Status {
+            origin: ORIGIN.to_owned(),
+            status: 404,
+        };
+        assert_eq!(refused.detail(), None);
+    }
+
     #[test]
     fn every_refusal_has_a_code_and_a_message() {
         let origin = ORIGIN.to_owned();
@@ -471,6 +673,7 @@ mod tests {
                 origin: origin.clone(),
                 reason: "connection refused".to_owned(),
                 hint: String::new(),
+                detail: "Connection refused (os error 61)".to_owned(),
             },
             CheckError::TimedOut {
                 origin: origin.clone(),
