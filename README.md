@@ -324,16 +324,19 @@ To release:
 
 1. On a branch into `dev`, set the version in `Cargo.toml` and in the apps' crate,
    `apps/shell/src-tauri/Cargo.toml`, then `make api-spec web-api`, a build and
-   `make app-check`, which update the generated files and both `Cargo.lock` files. `make version-check` lists
-   every file that still states the old version. Write the release's section of
-   `CHANGELOG.md` as the ones before it: what changed, by area, with the pull requests'
-   numbers, and under **Breaking changes** what the release asks of whoever runs or calls
-   the server. Date it the day of the tag; until then it may say `Unreleased`.
+   `make app-check`, which update the generated files and both `Cargo.lock` files.
+   `make version-check` lists every file that still states the old version. Write the
+   release's section of `CHANGELOG.md` as the ones before it: what changed, by area, with the
+   pull requests' numbers, and under **Breaking changes** what the release asks of whoever
+   runs or calls the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
 3. Before the first release only, make the repository public: **Settings** → **General** →
    **Danger Zone** → **Change repository visibility**. As a safety net, the workflow skips
-   signing for a repository that was private when the tag was pushed, and a re-run sees that
-   same push, so the images of a tag pushed earlier are never signed.
+   signing the images and attesting the apps for a repository that was private when the tag
+   was pushed, and a re-run sees that same push, so the images and apps of a tag pushed
+   earlier are never signed or attested. For a signed APK, add the keystore's secrets the
+   [Apps guide](docs/src/content/docs/guides/apps.md#releases) lists before tagging too;
+   without them the release attaches the APK unsigned.
 4. Rehearse the release with a candidate of `main`'s commit, as GitHub has it after the merge:
    `git fetch origin`, `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1 origin/main` and
    `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
@@ -355,6 +358,12 @@ To release:
      for cosign's `.sig` tags, find none. GHCR has no OCI referrers API, so each bundle is
      stored under the fallback tag `sha256-` and the signed image's digest, in the image's
      own package.
+   - The apps, as the [Apps guide](docs/src/content/docs/guides/apps.md#checking-a-download)
+     checks a download: `gh release download vX.Y.Z-rc.1 --repo lein3000zzz/neon-teamspace`
+     into an empty directory, then `sha256sum --check SHA256SUMS`, and
+     `gh attestation verify` of an installer and of the APK, with
+     `--repo lein3000zzz/neon-teamspace`. Then install one on its platform and connect it to
+     a server.
 
    A check that fails is fixed through `dev` and `main` like any change, then checked again
    with `vX.Y.Z-rc.2`.
@@ -363,7 +372,7 @@ To release:
    GitHub may start the first release's list of pull requests at a candidate. After that,
    each release's list starts at the full release before it. `git tag -d vX.Y.Z-rc.1`
    deletes the local copy too, which a later push of every tag would bring back and release
-   again. The candidates' images stay on GHCR.
+   again. The candidates' images stay on GHCR; their apps' files go with their releases.
 7. Tag the candidate's commit as the release, with `origin/main` still on it after another
    `git fetch origin`: `git tag -a vX.Y.Z -m vX.Y.Z origin/main` and `git push origin vX.Y.Z`.
 
