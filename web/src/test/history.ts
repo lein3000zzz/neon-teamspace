@@ -49,19 +49,78 @@ export function paragraph(id: string, text: string) {
   };
 }
 
-/** What changed from the first version to now: one block changed, one added. */
+/** What changed from the first version to now: blocks changed, added and removed. */
 export function sampleChanges(): BlockChange[] {
   return [
-    { change: "same", depth: 0, block_id: "b1", after: "# Roadmap\n" },
+    {
+      change: "same",
+      depth: 0,
+      block_id: "b1",
+      kind: "heading",
+      after: "# Roadmap\n",
+      after_text: "Roadmap",
+    },
     {
       change: "changed",
       depth: 0,
       block_id: "b2",
+      kind: "paragraph",
       before: "Kick-off in March\n",
       after: "Kick-off in April\n",
+      before_text: "Kick-off in March",
+      after_text: "Kick-off in April",
     },
-    { change: "added", depth: 1, block_id: "b3", after: "Hire a designer\n" },
-    { change: "removed", depth: 0, block_id: "b4", before: "Old idea\n" },
+    {
+      change: "added",
+      depth: 1,
+      block_id: "b3",
+      kind: "paragraph",
+      after: "Hire a designer\n",
+      after_text: "Hire a designer",
+    },
+    {
+      change: "removed",
+      depth: 0,
+      block_id: "b4",
+      kind: "paragraph",
+      before: "Old idea\n",
+      before_text: "Old idea",
+    },
+    {
+      change: "changed",
+      depth: 0,
+      block_id: "b5",
+      kind: "bulletListItem",
+      before: "- A demo\n",
+      after: "- A working demo\n",
+      before_text: "A demo",
+      after_text: "A working demo",
+    },
+    {
+      change: "same",
+      depth: 0,
+      block_id: "b6",
+      kind: "numberedListItem",
+      after: "1. Wire the sensor\n",
+      after_text: "Wire the sensor",
+    },
+    {
+      change: "same",
+      depth: 0,
+      block_id: "b7",
+      kind: "numberedListItem",
+      after: "2. Rehearse\n",
+      after_text: "Rehearse",
+    },
+    {
+      change: "added",
+      depth: 0,
+      block_id: "b8",
+      kind: "file",
+      after:
+        ':::file [checklist.pdf](/api/v1/files/0193a5b2-0000-7000-8000-0000000000f1 "Print two")\n',
+      after_text: "checklist.pdf\nPrint two",
+    },
   ];
 }
 
@@ -119,7 +178,16 @@ export function fakeHistory(options: Options = {}) {
         ? {
             page: roadmap,
             version,
-            changes: [{ change: "same", depth: 0, block_id: "b1", after: "# Roadmap\n" }],
+            changes: [
+              {
+                change: "same",
+                depth: 0,
+                block_id: "b1",
+                kind: "heading",
+                after: "# Roadmap\n",
+                after_text: "Roadmap",
+              },
+            ],
             added: 0,
             changed: 0,
             removed: 0,
@@ -129,8 +197,8 @@ export function fakeHistory(options: Options = {}) {
             page: roadmap,
             version,
             changes: sampleChanges(),
-            added: 1,
-            changed: 1,
+            added: 2,
+            changed: 2,
             removed: 1,
             revision: state.revision,
           };

@@ -38,13 +38,29 @@ describe("a page's history", () => {
       await panel.findByRole("list", { name: "Changes from this version to now" }),
     );
     expect(
-      panel.getByText("Since this version: 1 added, 1 changed, 1 removed."),
+      panel.getByText("Since this version: 2 added, 2 changed, 1 removed."),
     ).toBeInTheDocument();
     expect(changes.getByText("Kick-off in March").tagName).toBe("DEL");
     expect(changes.getByText("Kick-off in April").tagName).toBe("INS");
     // A level deeper than the blocks around it.
     expect(changes.getByText("Hire a designer").closest("li")?.style.marginLeft).toBe("1.25rem");
     expect(changes.getByText("Old idea").tagName).toBe("DEL");
+
+    // Blocks read as the page shows them, not as markdown: a heading's text, a list's
+    // items after their bullets and numbers, which stay out of what is struck through.
+    expect(changes.getByText("Roadmap")).toBeInTheDocument();
+    expect(changes.queryByText(/#/)).toBeNull();
+    const demo = changes.getByText("A demo");
+    expect(demo.tagName).toBe("DEL");
+    expect(demo.previousElementSibling?.textContent).toBe("•");
+    expect(changes.getByText("Rehearse").previousElementSibling?.textContent).toBe("2.");
+    // A file by its name and caption, without its path.
+    expect(
+      changes.getByText("checklist.pdf Print two", {
+        normalizer: (text) => text.replace(/\s+/g, " "),
+      }),
+    ).toBeInTheDocument();
+    expect(changes.queryByText(/api\/v1\/files/)).toBeNull();
   });
 
   it("shows a version as it was, read-only", async () => {
