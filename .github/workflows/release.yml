@@ -1,10 +1,11 @@
 # A release, on a version tag such as v1.2.3. Each job starts only once the one before it
 # passed, so nothing is published unless every check did: the version check, which needs the
 # tag to name the workspace's version; the end-to-end tests of the release build; the server and
-# web images for linux/amd64 and linux/arm64 on GHCR, with OCI labels, an SBOM and build
-# provenance; and a GitHub release with the Compose archive attached, whose notes name the
-# images and their tags and link the docs, before the ones GitHub generates from the merged
-# pull requests. It needs no secret but the workflow's own token.
+# web images for linux/amd64 and linux/arm64 on GHCR, built from the tag without a cache, with
+# OCI labels, an SBOM and build provenance; and a GitHub release with the Compose archive
+# attached, whose notes name the images and their tags and link the docs, before the ones
+# GitHub generates from the merged pull requests. It needs no secret but the workflow's own
+# token.
 name: Release
 
 on:
@@ -133,12 +134,12 @@ jobs:
           provenance: mode=max
           # The SBOM from a pinned scanner image rather than BuildKit's moving default tag.
           attests: type=sbom,generator=docker/buildkit-syft-scanner:1.12.1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
-          # A tag's run reads only the caches saved for that tag, so this cache serves only a
-          # re-run of the same release. The final images' layers are enough for an unchanged
-          # rebuild to skip every stage, and leave the Actions cache's room to the Rust job. A
-          # failed export does not fail the release.
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.image }},ignore-error=true
+          # No layer cache, read or written: the published images build from the tag's checkout
+          # and the digest-pinned base images alone. The Actions cache is neither signed nor
+          # checked, and a tag's run restores what its own ref or the default branch saved, so
+          # a cached layer could put into a signed image what no file of the tag holds. A
+          # re-run of a failed release builds everything again.
+          no-cache: true
       # Keyless signing records the signer, this repository and the commit, in Sigstore's
       # public transparency log. So it runs only once the repository is public, when anyone
       # can pull the images and check the signature; while it is private, both steps are
