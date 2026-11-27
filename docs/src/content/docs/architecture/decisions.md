@@ -337,10 +337,17 @@ carries a hue glows. People, agents, integrations, workspaces and teamspaces eac
 worked out from their id, the same in every browser and on the server, with nothing to store.
 [More](/docs/architecture/web/#the-theme-model).
 
+**System fonts, and one bundled.** Text is set in the system's own sans-serif, as Notion's
+is, so nothing is downloaded for it. A page can be Serif, the system's serif, or Mono, with
+small text or full width, and a person can set the interface in Mono. Mono is iA Writer
+Mono, under the SIL Open Font License, bundled so it is the same everywhere.
+[More](/docs/architecture/web/#fonts).
+
 **English, on the web.** The interface is in English, with its strings in one place for
-translations to follow. It is a responsive web app. The desktop and mobile apps, **planned**,
-are thin Tauri shells: a person enters their server's address, as in Bitwarden's apps, and
-the shell loads the web UI that server serves. An app then never falls behind its server,
+translations to follow. It is a responsive web app, not an installable one, whose sidebar
+is a drawer on a phone and whose every control is a full touch target. The desktop and
+mobile apps, **planned**, are thin Tauri shells: a person enters their server's address, as
+in Bitwarden's apps, and the shell loads the web UI that server serves. An app then never falls behind its server,
 and there is no second client to build. Tauri, rather than a native toolkit or React Native,
 as the editor's stack, BlockNote, ProseMirror and Yjs, exists only in JavaScript; and rather
 than Capacitor, which has no desktop target. Push notifications and deep links wait, as the
