@@ -68,8 +68,9 @@ make run                   # the server on :8080
 With `DATABASE_URL` set, in the shell or in `.env`, the build checks every SQL query against
 that database, so the tables must exist before the first build. That is why `make migrate`,
 which runs sqlx-cli, comes first. Run it again after pulling a change that adds a migration.
-Without sqlx-cli, the server applies them itself, built from the query cache in `.sqlx/`
-instead of the database. It does not read `.env`, so export the file first:
+Without sqlx-cli, `neon migrate` applies them, built with `SQLX_OFFLINE=true` so the build
+checks its SQL against the query cache in `.sqlx/` instead. The server does not read `.env`,
+so export the file first:
 
 ```sh
 set -a; . ./.env; set +a   # export the variables to this shell
