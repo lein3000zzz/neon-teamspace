@@ -14,6 +14,11 @@
 //! blank page has committed, the picker. When a server's page asks for the app's origin, by a
 //! link, a redirect or the history, as iOS's back gesture from the server's first page does,
 //! the navigation is cancelled and the app shows the picker in those two steps instead.
+//! WebView2, on Windows, names each message's own page, and the picker loads at once there.
+//!
+//! The commands check, besides, that the page last committed in the window is the app's own
+//! ([`Lock::on_app_page`]): a server's page that is still there while the picker loads gets
+//! nothing, whatever URL its messages carry.
 //!
 //! **Opening outside.** No webview tells the app whether a click started a navigation, nor
 //! whether it is the main frame's. So a navigation that would open outside the app does so at
@@ -140,16 +145,20 @@ struct State {
 pub struct Lock {
     app: Origin,
     picker: Url,
+    /// Whether the way back to the picker loads a blank page first.
+    through_blank: bool,
     state: Mutex<State>,
 }
 
 impl Lock {
     /// A lock with no server open yet, for a window whose first page is `picker`, on the app's
-    /// own origin `app`.
-    pub fn new(app: Origin, picker: Url) -> Self {
+    /// own origin `app`; `through_blank` where the webview names a message's page by the URL
+    /// the window is loading, or may.
+    pub fn new(app: Origin, picker: Url, through_blank: bool) -> Self {
         Self {
             app,
             picker,
+            through_blank,
             state: Mutex::new(State {
                 servers: Vec::new(),
                 page: Page::Start,
@@ -225,10 +234,26 @@ impl Lock {
     }
 
     /// Starts the app's own way back to the picker: the URL the window loads now, the blank
-    /// page. The picker follows once that has committed, from [`Lock::started`].
+    /// page. The picker follows once that has committed, from [`Lock::started`]. Without the
+    /// blank page, the picker at once.
     pub fn show_picker(&self) -> Url {
-        self.state().showing = Showing::Blank;
-        Url::parse(BLANK).unwrap_or_else(|_| self.picker.clone())
+        let mut state = self.state();
+        match Url::parse(BLANK) {
+            Ok(blank) if self.through_blank => {
+                state.showing = Showing::Blank;
+                blank
+            }
+            _ => {
+                state.showing = Showing::Picker;
+                self.picker.clone()
+            }
+        }
+    }
+
+    /// Whether the page last committed in the window is the app's own, or none has yet: the
+    /// only time the picker's commands may run.
+    pub fn on_app_page(&self) -> bool {
+        matches!(self.state().page, Page::Start | Page::App)
     }
 
     /// What the window does once a page at `url` has started loading in it, at `now`.
@@ -307,7 +332,7 @@ mod tests {
 
     /// A lock whose window shows the picker, as the app starts.
     fn lock() -> (Lock, Instant) {
-        let lock = Lock::new(origin(PICKER), url(PICKER));
+        let lock = Lock::new(origin(PICKER), url(PICKER), true);
         let start = Instant::now();
         assert_eq!(lock.navigation(&url(PICKER), start), Navigation::Load);
         assert_eq!(lock.started(&url(PICKER), start), Started::Stay);
@@ -326,7 +351,7 @@ mod tests {
 
     #[test]
     fn the_first_page_and_the_pickers_own_navigations_load() {
-        let lock = Lock::new(origin(PICKER), url(PICKER));
+        let lock = Lock::new(origin(PICKER), url(PICKER), true);
         let now = Instant::now();
         assert_eq!(lock.navigation(&url(PICKER), now), Navigation::Load);
         lock.started(&url(PICKER), now);
@@ -372,6 +397,45 @@ mod tests {
         assert_eq!(lock.started(&url(PICKER), now), Started::Stay);
         // On the picker again, its own navigations go ahead.
         assert_eq!(lock.navigation(&url(PICKER), now), Navigation::Load);
+    }
+
+    #[test]
+    fn without_the_blank_page_the_picker_loads_at_once() {
+        let lock = Lock::new(origin(PICKER), url(PICKER), false);
+        let now = Instant::now();
+        lock.started(&url(PICKER), now);
+        lock.open_server(origin(SERVER));
+        lock.started(&url(SERVER), now);
+        assert_eq!(lock.navigation(&url(PICKER), now), Navigation::ShowPicker);
+        assert_eq!(lock.show_picker(), url(PICKER));
+        assert_eq!(lock.navigation(&url(PICKER), now), Navigation::Load);
+        assert!(!lock.on_app_page(), "the server's page is still there");
+        assert_eq!(lock.started(&url(PICKER), now), Started::Stay);
+        assert!(lock.on_app_page());
+    }
+
+    #[test]
+    fn the_commands_run_only_while_the_app_shows_its_own_page() {
+        let lock = Lock::new(origin(PICKER), url(PICKER), true);
+        let now = Instant::now();
+        assert!(lock.on_app_page(), "the first page, as the window opens");
+        lock.started(&url(PICKER), now);
+        assert!(lock.on_app_page());
+        lock.open_server(origin(SERVER));
+        lock.started(&url(SERVER), now);
+        assert!(!lock.on_app_page());
+        // On the way back, until the picker itself has committed.
+        let blank = lock.show_picker();
+        assert!(!lock.on_app_page());
+        lock.started(&blank, now);
+        assert!(!lock.on_app_page());
+        assert_eq!(lock.navigation(&url(PICKER), now), Navigation::Load);
+        assert!(!lock.on_app_page(), "the picker is only loading");
+        lock.started(&url(PICKER), now);
+        assert!(lock.on_app_page());
+        // A page of another origin that slipped in is not the app's either.
+        lock.started(&url("https://evil.example/"), now);
+        assert!(!lock.on_app_page());
     }
 
     #[test]

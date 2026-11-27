@@ -61,6 +61,11 @@ pub fn navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> Navigation {
     shell::navigation(app, url)
 }
 
+/// The origin lock of the app's window, which its page loads move on.
+pub fn lock<R: Runtime>(app: &AppHandle<R>) -> &lock::Lock {
+    shell::lock(app)
+}
+
 /// Whether the app's window saves a download from `url`.
 pub fn download_allowed<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
     shell::download_allowed(app, url)

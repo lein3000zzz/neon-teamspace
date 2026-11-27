@@ -203,7 +203,9 @@ a redirect or the history, the app cancels it and shows the picker itself: it lo
 page, which replaces the server's, and the picker only once that has loaded. Only the picker
 can call the app's commands, and on Linux the web view names the page a call comes from by
 the address it is loading, so a server's page that was still there while the picker loaded
-could pass as the picker.
+could pass as the picker. The commands also run only while the page the window last loaded is
+the app's own. On Windows, whose web view names each call's own page, the picker loads
+without the blank page.
 
 **Capabilities.** Tauri lets a page call the app's native side only through the capabilities
 granted to it. The bundled picker has one, which allows the five commands it uses: list,

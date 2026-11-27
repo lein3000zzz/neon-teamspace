@@ -81,7 +81,8 @@ pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<
     app.manage(Shell {
         store,
         list: Mutex::new(list),
-        lock: Lock::new(origin, picker),
+        // WebView2 names each message's own page; the others name, or may, the window's.
+        lock: Lock::new(origin, picker, !cfg!(windows)),
         options: CheckOptions::default(),
         launched: AtomicBool::new(false),
         downloads: Mutex::new(HashMap::new()),
@@ -174,6 +175,11 @@ fn main_window<R: Runtime>(
 /// navigation handler acts on.
 pub fn navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> Navigation {
     app.state::<Shell>().lock.navigation(url, Instant::now())
+}
+
+/// The origin lock of the app's window.
+pub fn lock<R: Runtime>(app: &AppHandle<R>) -> &Lock {
+    &app.state::<Shell>().inner().lock
 }
 
 /// Whether a download from `url` is saved: only the server's are.

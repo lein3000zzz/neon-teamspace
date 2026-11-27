@@ -105,6 +105,21 @@ pub struct Startup {
     pub open: Option<String>,
 }
 
+/// Refuses a command unless the page last committed in the window is the app's own: a
+/// server's page that is still there while the picker loads may not pass as the picker,
+/// whatever URL its messages carry.
+fn from_the_picker(shell: &Shell, command: &str) -> Result<(), Failure> {
+    if shell.lock.on_app_page() {
+        Ok(())
+    } else {
+        log::warn!("refused {command}, as the window shows none of the app's own pages");
+        Err(Failure {
+            code: "not_the_picker",
+            message: "Only the server picker can do this.".to_owned(),
+        })
+    }
+}
+
 /// Checks the server, and logs what the check found.
 async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Failure> {
     match meta::check(address, shell.options).await {
@@ -120,12 +135,13 @@ async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Fai
 }
 
 #[tauri::command]
-pub fn startup(shell: State<'_, Shell>) -> Startup {
+pub fn startup(shell: State<'_, Shell>) -> Result<Startup, Failure> {
+    from_the_picker(&shell, "startup")?;
     let open = shell.take_launch();
-    Startup {
+    Ok(Startup {
         list: ListView::from(&*shell.list()),
         open,
-    }
+    })
 }
 
 /// Checks a new address, saves it and opens it. An `http://` address is refused with the code
@@ -138,6 +154,7 @@ pub async fn connect<R: Runtime>(
     address: String,
     accept_insecure: bool,
 ) -> Result<ListView, Failure> {
+    from_the_picker(&shell, "connect")?;
     let address = ServerAddress::parse(&address)?;
     if !address.is_encrypted() && !accept_insecure {
         return Err(Failure {
@@ -168,6 +185,7 @@ pub async fn open_server<R: Runtime>(
     shell: State<'_, Shell>,
     origin: String,
 ) -> Result<ListView, Failure> {
+    from_the_picker(&shell, "open_server")?;
     if shell.list().get(&origin).is_none() {
         return Err(ListError::Unknown.into());
     }
@@ -190,6 +208,7 @@ pub fn rename_server(
     origin: String,
     label: String,
 ) -> Result<ListView, Failure> {
+    from_the_picker(&shell, "rename_server")?;
     let mut list = shell.list();
     list.rename(&origin, &label)?;
     shell.store.save(&list).map_err(|error| storage(&error))?;
@@ -203,6 +222,7 @@ pub fn remove_server<R: Runtime>(
     shell: State<'_, Shell>,
     origin: String,
 ) -> Result<ListView, Failure> {
+    from_the_picker(&shell, "remove_server")?;
     let mut list = shell.list();
     list.remove(&origin)?;
     shell.store.save(&list).map_err(|error| storage(&error))?;

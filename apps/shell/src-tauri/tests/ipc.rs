@@ -4,6 +4,7 @@
 mod support;
 
 use std::path::Path;
+use std::time::Instant;
 
 use neon_shell::lock::Navigation;
 use neon_shell::{DataDir, MAIN_WINDOW};
@@ -138,6 +139,47 @@ fn the_picker_may_not_call_plugins_either() {
         let refused = from_picker(&app, command, args);
         assert!(denied(&refused), "the picker called {command}: {refused:?}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commands_run_only_while_the_window_shows_the_apps_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(dir.path());
+    let server = serve(Answer::neon("Acme")).await;
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": server.origin, "acceptInsecure": true}),
+    )
+    .unwrap();
+    // The server's page has committed. A message that names the picker's URL, as WebKitGTK's
+    // do for the page the window is loading, while that page is still there, gets nothing.
+    let lock = neon_shell::lock(app.handle());
+    let now = Instant::now();
+    lock.started(&server.origin.parse().unwrap(), now);
+    for (command, args) in [
+        ("startup", json!({})),
+        (
+            "connect",
+            json!({"address": server.origin, "acceptInsecure": true}),
+        ),
+        ("open_server", json!({"origin": server.origin})),
+        (
+            "rename_server",
+            json!({"origin": server.origin, "label": "taken"}),
+        ),
+        ("remove_server", json!({"origin": server.origin})),
+    ] {
+        let error = from_picker(&app, command, args).unwrap_err();
+        assert_eq!(error["code"], "not_the_picker", "{command}: {error}");
+    }
+    let file = std::fs::read_to_string(dir.path().join("servers.json")).unwrap();
+    assert!(!file.contains("taken"), "{file}");
+
+    // Back on the picker, they run again.
+    lock.started(&lock.picker().clone(), now);
+    let list = from_picker(&app, "startup", json!({})).unwrap();
+    assert_eq!(list["servers"][0]["origin"], server.origin);
 }
 
 #[test]
