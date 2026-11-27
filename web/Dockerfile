@@ -41,6 +41,75 @@ FROM --platform=$BUILDPLATFORM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75c
 COPY web/Caddyfile /etc/caddy/Caddyfile
 COPY --from=docs /src/docs/csp.caddy /etc/caddy/docs-csp.caddy
 RUN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+# The Go modules the caddy binary links, each with its version and the hash of its files, as
+# the binary records them; every platform's binary links the same ones.
+RUN caddy build-info > /caddy-build-info.txt
+
+# The license notices of Caddy and of the Go modules its binary links: Apache-2.0 asks for a
+# copy of the license, and MIT and BSD for their notice in every copy, and the official image
+# carries none. Each module comes from the Go module proxy, which go checks against the
+# checksum database, and then against the hash the binary records. Every license, copying,
+# notice and patents file at a module's root goes in, and a module with none fails the build.
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS caddy-notices
+ENV GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=-modcacherw
+COPY --from=caddyfile /caddy-build-info.txt /
+RUN <<'EOF'
+set -eu
+info=/caddy-build-info.txt
+if grep -q '^=>' "$info"; then
+    echo "caddy build-info lists a replaced module, which this stage does not handle" >&2
+    exit 1
+fi
+awk -F'\t' '$1 == "dep" { print $2, $3, $4 }' "$info" > /modules
+caddy="$(awk '$1 == "github.com/caddyserver/caddy/v2" { print $2 }' /modules)"
+[ -n "$caddy" ] || { echo "caddy build-info lists no github.com/caddyserver/caddy/v2" >&2; exit 1; }
+toolchain="$(awk -F'\t' '$1 == "go" { print $2 }' "$info")"
+# One JSON object per module, each field on a line of its own.
+go mod download -json $(awk '{ print $1 "@" $2 }' /modules) > /downloads.json
+awk -F'"' '/^\t"Path"/ { path = $4 } /^\t"Version"/ { version = $4 } /^\t"Sum"/ { sum = $4 }
+    /^\t"Dir"/ { dir = $4 } /^}/ { print path, version, sum, dir }' /downloads.json > /downloads
+notices=/THIRD_PARTY_NOTICES.txt
+cat > "$notices" <<NOTICE
+Third-party notices
+
+The web image's Caddy, /usr/bin/caddy, is Caddy $caddy built with $toolchain, and links the
+Go modules below. Each section is one module, at the version the binary was built with, and
+the license files it ships. The last is Go's own, for the standard library and runtime the
+binary is compiled with.
+NOTICE
+rule="$(printf '=%.0s' $(seq 80))"
+thin="$(printf -- '-%.0s' $(seq 80))"
+missing=""
+while read -r path version sum; do
+    found="$(awk -v p="$path" -v v="$version" '$1 == p && $2 == v' /downloads)"
+    [ -n "$found" ] || { echo "go mod download gave nothing for $path $version" >&2; exit 1; }
+    set -- $found
+    if [ "$3" != "$sum" ]; then
+        echo "$path $version: the download's hash $3 is not the binary's, $sum" >&2
+        exit 1
+    fi
+    files="$(find "$4" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \
+        -o -iname 'notice*' -o -iname 'patents*' \) | sort)"
+    if [ -z "$files" ]; then
+        missing="$missing $path@$version"
+        continue
+    fi
+    printf '\n%s\n%s %s\n%s\n' "$rule" "$path" "$version" "$thin" >> "$notices"
+    for file in $files; do
+        printf '\n%s:\n\n' "${file##*/}" >> "$notices"
+        cat "$file" >> "$notices"
+    done
+done < /modules
+if [ -n "$missing" ]; then
+    echo "no license file in:$missing" >&2
+    exit 1
+fi
+printf '\n%s\nGo, its standard library and runtime\n%s\n' "$rule" "$thin" >> "$notices"
+for file in LICENSE PATENTS; do
+    printf '\n%s:\n\n' "$file" >> "$notices"
+    cat "/usr/local/go/$file" >> "$notices"
+done
+EOF
 
 FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 
@@ -49,6 +118,8 @@ COPY --from=caddyfile /etc/caddy /etc/caddy
 COPY --from=app /src/web/dist /srv/app
 # The docs, with their own THIRD_PARTY_NOTICES.txt.
 COPY --from=docs /src/docs/dist /srv/docs
+# Caddy's notices, with those of the Go modules it links.
+COPY --from=caddy-notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt
 
 # The base image's labels describe Caddy; these describe the image.
 LABEL org.opencontainers.image.title="neon-teamspace-web" \
