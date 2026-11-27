@@ -77,18 +77,18 @@ published images:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD
 cp deployments/server.env.example deployments/server.env  # set the public URL, NEON_SECRETS__KEYS and the first admin
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
 ```
 
-A clone at the release's tag holds the same files, and its Compose file runs the same
-images. While the repository is private, the archive and the images need a GitHub account
-with access to it: `gh` signed in as it, and `docker login ghcr.io` before the pull. The
-[install page](docs/src/content/docs/self-hosting/install.md) covers
+Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed in, can
+fetch the archive instead, with
+`gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'`,
+for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1` to unpack. A clone at the release's tag holds the same files, and its Compose file runs
+the same images. The [install page](docs/src/content/docs/self-hosting/install.md) covers
 the archive, both files, the first run, a domain with TLS, stopping, and where the data
 lives; [backups](docs/src/content/docs/self-hosting/backups.md),
 [upgrading](docs/src/content/docs/self-hosting/upgrading.md) and
@@ -272,8 +272,8 @@ GitHub Actions runs three workflows.
   - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, or a release candidate of it such as `v0.2.0-rc.1` for 0.2.0, and everything that states the version states it.
   - The end-to-end tests, with the server built in the release profile as the published image is.
   - The server and web images for `linux/amd64` and `linux/arm64`, built from the tag's checkout and the digest-pinned base images without a layer cache, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
-  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset, marked as a pre-release for a pre-release tag. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the newest full release, which GitHub lists.
+  - Both images, and each platform's image in them, are signed with cosign's keyless signing, which records the workflow, the repository and the commit in Sigstore's public transparency log. [Upgrading](docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows how to check them.
+  - A GitHub release, with the Compose archive that `make compose-archive` writes as its asset, marked as a pre-release for a pre-release tag. Its notes name the images, their platforms and their tags, say how to check their signatures, and link the install page, the Upgrading page and the changelog, before the pull requests merged since the newest full release, which GitHub lists.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
@@ -311,9 +311,9 @@ To release:
    the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
 3. Before the first release only, make the repository public: **Settings** → **General** →
-   **Danger Zone** → **Change repository visibility**. The workflow signs the images only for
-   a public repository, and reads its visibility from the tag's push, so the images of a tag
-   pushed earlier stay unsigned, re-run or not.
+   **Danger Zone** → **Change repository visibility**. As a safety net, the workflow skips
+   signing for a repository that was private when the tag was pushed, and a re-run sees that
+   same push, so the images of a tag pushed earlier are never signed.
 4. Rehearse the release with a candidate on `main`: `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1`
    and `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
    both images as `X.Y.Z-rc.1` alone, never as `latest` or the minor version, and makes a

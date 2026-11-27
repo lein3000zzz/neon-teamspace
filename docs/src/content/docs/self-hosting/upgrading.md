@@ -51,8 +51,8 @@ They are in two places:
   do.
 - The release's own page among the repository's
   [releases](https://github.com/lein3000zzz/neon-teamspace/releases). Its notes name the
-  images, their platforms and their tags, say whether they are signed, and link the install
-  page, this page and the changelog; the pull requests merged since the release before come
+  images, their platforms and their tags, say how to check their signatures, and link the
+  install page, this page and the changelog; the pull requests merged since the release before come
   after, as GitHub lists them. The release's Compose archive is attached to it.
 
 ## Upgrading a Compose install
@@ -72,11 +72,14 @@ In the directory the [install](/docs/self-hosting/install/#starting-it) unpacked
 in, unpack the new release's over it, then pull and start its images:
 
 ```sh
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz' --clobber
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait
 ```
+
+With the GitHub CLI, signed in, `gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz' --clobber`
+fetches the archive instead, for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1`
+to unpack.
 
 Unpacking replaces the Compose file and the two example files, and keeps `deployments/.env`
 and `deployments/server.env`, which the archive does not hold. A release may add settings, so
@@ -209,13 +212,18 @@ docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0
 docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 --format '{{ json .Provenance }}'
 ```
 
-Releases are signed with [cosign](https://docs.sigstore.dev/cosign/)'s keyless signing once
-the repository is public, as the signature records the repository's identity in Sigstore's
-public log; a release made while the repository is private has no signature, and its notes
-say so. To check one:
+Each release's images are signed with [cosign](https://docs.sigstore.dev/cosign/)'s keyless
+signing: the release workflow signs both images, and each platform's image in them, with its
+own GitHub identity, which the signature's certificate and Sigstore's public transparency log
+record with the repository and the commit. To check one:
 
 ```sh
 cosign verify ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/lein3000zzz/neon-teamspace/\.github/workflows/release\.yml@refs/tags/v'
 ```
+
+The command needs cosign 3, or cosign 2.6 or later with `--new-bundle-format`. The workflow
+writes each signature as a Sigstore bundle, and as GHCR has no OCI referrers API, cosign
+stores the bundle under a tag of the image's package named `sha256-` and the signed image's
+digest. Older cosign, and tools that read only cosign's older `.sig` tags, find no signature.

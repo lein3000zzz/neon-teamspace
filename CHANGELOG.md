@@ -51,7 +51,7 @@ they change:
   with OCI labels, an SBOM that lists the crates the server links, and build provenance,
   tagged `0.1.0`, `0.1` and `latest`. The GitHub release then names the images and attaches
   the Compose archive: the Compose file with its example settings. Images are signed with
-  cosign's keyless signing once the repository is public. (#9, #31)
+  cosign's keyless signing. (#9, #31)
 - `deployments/docker-compose.yml` runs them with Postgres 18: the images of its own release,
   unless `NEON_VERSION` names another, with the stack's settings in `deployments/.env` and the
   server's in `deployments/server.env`. Profiles add Mailpit (`mail`), Grafana's otel-lgtm

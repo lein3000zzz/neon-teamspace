@@ -35,8 +35,7 @@ start the stack:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
 docker compose -f deployments/docker-compose.yml pull
@@ -50,10 +49,13 @@ Compose file runs the images of the release it belongs to, which its `image` lin
 that cannot be pulled, such as one of a mistyped version, stops the start instead of being
 built from whatever the directory holds.
 
-While the repository is private, the archive and the images need a GitHub account with
-access to it: `gh` signed in as it, and `docker login ghcr.io` with a token that can read
-packages before the pull. Once it is public, `curl` fetches the archive too:
-`curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1`.
+Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed in, can
+fetch the archive instead, for `tar` to unpack:
+
+```sh
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+```
 
 In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
 checkout instead, after the same `deployments/.env`:

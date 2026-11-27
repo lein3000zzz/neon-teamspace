@@ -140,10 +140,10 @@ jobs:
           # a cached layer could put into a signed image what no file of the tag holds. A
           # re-run of a failed release builds everything again.
           no-cache: true
-      # Keyless signing records the signer, this repository and the commit, in Sigstore's
-      # public transparency log. So it runs only once the repository is public, when anyone
-      # can pull the images and check the signature; while it is private, both steps are
-      # skipped. Each platform's image is signed too, for a pull by its own digest.
+      # Every release is signed, each platform's image too, for a pull by its own digest.
+      # Keyless signing records the signer, this repository and the commit in Sigstore's
+      # public transparency log, so as a safety net both steps are skipped should the
+      # repository ever be private, rather than publishing a private repository's details.
       - if: ${{ !github.event.repository.private }}
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - if: ${{ !github.event.repository.private }}
