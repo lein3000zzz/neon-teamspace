@@ -14,6 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { workspaceVersion } from "../version.ts";
 
 /** What the skills are checked against, read from the server's code. */
 export interface Server {
@@ -415,18 +416,6 @@ function nonEmpty(value: unknown): boolean {
   return typeof value === "string" && value.trim() !== "";
 }
 
-/** The server's version, which the workspace's Cargo.toml gives every crate. */
-export function serverVersion(root: string): string {
-  const cargo = Bun.TOML.parse(readFileSync(join(root, "Cargo.toml"), "utf8")) as {
-    workspace?: { package?: { version?: unknown } };
-  };
-  const version = cargo.workspace?.package?.version;
-  if (typeof version !== "string") {
-    throw new Error("Cargo.toml has no [workspace.package] version");
-  }
-  return version;
-}
-
 /**
  * What is wrong with the plugin at `dir`, and what its skills may refer to. Its version must
  * be the server's: Claude Code keeps a plugin whose manifest pins a version until the version
@@ -519,7 +508,7 @@ export function checkRepository(root: string): string[] {
     return [...problems, `${file}: lists no plugins`];
   }
   const server = readServer(root);
-  const version = serverVersion(root);
+  const version = workspaceVersion(root);
   for (const entry of entries as Record<string, unknown>[]) {
     const source = entry["source"];
     if (typeof source !== "string" || !source.startsWith("./") || source.includes("..")) {

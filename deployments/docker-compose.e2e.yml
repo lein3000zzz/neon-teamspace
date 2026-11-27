@@ -1,10 +1,10 @@
 # Overrides for make e2e: a throwaway stack that runs beside any other, under a project name
-# of its own, with the web origin on a free port of this machine's loopback, which
-# `docker compose port web 80` reports. Both images are the ones make e2e built, under the tags
+# of its own, with the web origin on the port of this machine's loopback that E2E_WEB_PORT
+# names, which make e2e picks free. Both images are the ones make e2e built, under the tags
 # it names. The server gets the instance name the tests expect, the first admin they sign in
-# as, a key to seal invite codes and webhooks' secrets with, and none of the settings a
-# deployments/server.env in this checkout may hold. make e2e makes the password and the key
-# afresh for each run.
+# as, a key to seal invite codes, webhooks' secrets and waiting mail with, its public URL, mail
+# through the Mailpit below, and none of the settings a deployments/server.env in this
+# checkout may hold. make e2e makes the password and the key afresh for each run.
 services:
   server:
     image: ${E2E_SERVER_IMAGE:?make e2e sets E2E_SERVER_IMAGE}
@@ -14,8 +14,21 @@ services:
       NEON_ADMIN__EMAIL: ${E2E_ADMIN_EMAIL:?make e2e sets E2E_ADMIN_EMAIL}
       NEON_ADMIN__PASSWORD: ${E2E_ADMIN_PASSWORD:?make e2e sets E2E_ADMIN_PASSWORD}
       NEON_SECRETS__KEYS: ${E2E_SECRET_KEYS:?make e2e sets E2E_SECRET_KEYS}
+      # Where the tests reach the web origin, which the links in mail point to and which the
+      # server checks the origin of changes against.
+      NEON_SERVER__PUBLIC_URL: http://127.0.0.1:${E2E_WEB_PORT:?make e2e sets E2E_WEB_PORT}
       # The receiver below is on the stack's network, at a private address.
       NEON_SETTINGS__WEBHOOKS__ALLOW_PRIVATE: "true"
+      # Every mail goes to Mailpit, in the clear on the stack's network. Notification mail
+      # goes as soon as a notification comes, rather than after the five minutes by default
+      # in which reading it would hold the mail back.
+      NEON_SETTINGS__MAIL__ENABLED: "true"
+      NEON_SETTINGS__MAIL__HOST: mailpit
+      NEON_SETTINGS__MAIL__PORT: "1025"
+      NEON_SETTINGS__MAIL__TLS: none
+      NEON_SETTINGS__MAIL__FROM: neon@e2e.example
+      NEON_SETTINGS__NOTIFICATIONS__MAIL: "true"
+      NEON_SETTINGS__NOTIFICATIONS__MAIL_DELAY: 0s
 
   # A webhook receiver the server delivers to at http://receiver:8080, which keeps what it
   # gets and lists it at GET /deliveries, on a free port of this machine's loopback that
@@ -37,6 +50,16 @@ services:
       timeout: 5s
       retries: 15
 
+  # The mail profile's Mailpit, in every e2e stack: it takes the server's mail at
+  # mailpit:1025, and the tests read it through its API, on a free port of this machine's
+  # loopback that `docker compose port mailpit 8025` reports. It keeps every mail of the run.
+  mailpit:
+    profiles: !reset []
+    environment:
+      MP_MAX_MESSAGES: "0"
+    ports: !override
+      - "127.0.0.1::8025"
+
   # Caddy believes the X-Forwarded-For of this machine's connections, so a spec can give its
   # browsers an address of their own: the server allows ten sign-ins at once from one, and
   # the specs, running side by side, sign in more than that together.
@@ -45,4 +68,4 @@ services:
     environment:
       NEON_WEB_TRUSTED_PROXIES: private_ranges
     ports: !override
-      - "127.0.0.1::80"
+      - "127.0.0.1:${E2E_WEB_PORT:?make e2e sets E2E_WEB_PORT}:80"

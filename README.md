@@ -6,7 +6,7 @@ collaborative editing, and AI agents as first-class teammates over MCP.
 One deployment hosts many workspaces. Each workspace has teamspaces, nested pages and
 databases. Agents connect over MCP, pick up tasks, comment and edit pages next to people.
 
-> **Status:** early development, before its first release.
+> **Status:** early development. [CHANGELOG.md](CHANGELOG.md) lists the releases.
 
 ## Repository layout
 
@@ -53,9 +53,10 @@ Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
 `ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
 `ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes the
 server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
-Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
-`deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
-under local names:
+Postgres. On its own it pulls the published images of the release it belongs to, or of the
+one `NEON_VERSION` names; each release attaches it, with its example settings, as the
+release's Compose archive. `deployments/docker-compose.build.yml` added to it builds both
+from the checkout instead, under local names:
 
 ```sh
 cp deployments/.env.example deployments/.env   # then set POSTGRES_PASSWORD in it
@@ -70,7 +71,9 @@ runs it in the background. `deployments/.env.example` lists the stack's settings
 settings go in `deployments/server.env`, which only the server reads; `server.env.example`
 beside it lists the usual ones. The
 [install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
-published images, domains and TLS, upgrades, stopping, and where the data lives.
+release's Compose archive, the first run, domains and TLS, stopping, and where the data
+lives, and the [upgrade page](docs/src/content/docs/self-hosting/upgrade.md) moving to a new
+release.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the
@@ -80,15 +83,16 @@ SeaweedFS, an S3-compatible store for attachments, which are kept in the server'
 otherwise; [File storage](docs/src/content/docs/self-hosting/storage.md) covers both and
 their backups.
 
-`make e2e` builds both images, starts a throwaway stack of them on a free local port, runs
-the Playwright tests in `e2e/` against it, and removes it, leaving the report in
-`e2e/playwright-report/`. It needs Docker, Bun and Node.js, and installs the tests' packages
-and headless Chromium itself. The server image it tests builds with Cargo's `e2e` profile, the
-release profile without link-time optimisation, which compiles in a fraction of the time;
-published images build with `release`, which `E2E_CARGO_PROFILE=release` tests, as the run
-before each release does. `E2E_PROJECT`, `E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the
-Compose project and the image tags, `neon-e2e` and the `:local` tags unless set, so runs from
-two checkouts can go side by side.
+`make e2e` builds both images, starts a throwaway stack of them on a free local port, with
+Mailpit catching its mail for the tests to read, runs the Playwright tests in `e2e/` against
+it, and removes it, leaving the report in `e2e/playwright-report/`. It needs Docker, Bun and
+Node.js, and installs the tests' packages and headless Chromium itself. The server image it
+tests builds with Cargo's `e2e` profile, the release profile without link-time optimisation,
+which compiles in a fraction of the time; published images build with `release`, which
+`E2E_CARGO_PROFILE=release` tests, as the run before each release does. `E2E_PROJECT`,
+`E2E_SERVER_IMAGE` and `E2E_WEB_IMAGE` name the Compose project and the image tags,
+`neon-e2e` and the `:local` tags unless set, so runs from two checkouts can go side by side;
+`E2E_WEB_PORT` names the port, a free one unless set.
 
 ## Development
 
@@ -156,7 +160,7 @@ make blocks-install        # BlockNote, for the block fixtures, which make check
 the advisory database are downloaded, no network: formatting, clippy, a build from the
 `.sqlx/` cache, the generated files, the web app's, the docs' and the end-to-end tests'
 checks, the block fixtures in both directions, the Claude Code plugin, with Claude Code's
-own validation when `claude` is installed, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
+own validation when `claude` is installed, the version check, and the license and advisory checks. Its cargo commands build in `target/offline/`: cargo does not rebuild a
 crate when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last
 checked against the database instead of the cache. cargo-deny reads the advisory database it
 last fetched and fails once that copy is more than 90 days old; `make licenses` fetches a new
@@ -213,6 +217,7 @@ GitHub Actions runs three workflows.
   - **Docs:** the packages and headless Chromium, the docs' type and script checks, `make docs-build`, and the license check for `docs/`.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
+  - **Versions:** `make version-check`, which builds the server for `neon --version`, whenever a file that states the version changes; see [Releasing](#releasing).
   - **Secret scan:** gitleaks over the run's new commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
@@ -220,12 +225,45 @@ GitHub Actions runs three workflows.
   - It also runs on every push to `dev` and `main`, and saves both images' layers to the Actions cache. Pull requests into those branches build from it, so only the layers their changes touch build again: the tools and the dependencies cargo-chef cooks build only when a Dockerfile, `Cargo.lock` or a manifest changes.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
-- **Release** runs on a `v*` tag.
-  - It runs the end-to-end tests, with the server built in the release profile as the published image is, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
-  - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
-  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
+- **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.
+  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, and everything that states the version states it.
+  - The end-to-end tests, with the server built in the release profile as the published image is.
+  - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
+  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
+  - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the upgrade page, and the Compose archive that `make compose-archive` writes as its asset.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
+
+### Releasing
+
+The cargo workspace's version, in `Cargo.toml`, is the release's. `make version-check` fails
+unless every other place that states it agrees:
+
+- the crates, which take it with `version.workspace = true`, and `Cargo.lock`;
+- `neon --version`, which prints the version the binary was built with, the one
+  `/api/v1/meta` answers and the web app shows; a server test and the end-to-end tests check
+  those two against the running server;
+- the Claude Code plugin's `plugin.json`, the `web/` and `docs/` packages, and
+  `api/openapi.json`;
+- the images `deployments/docker-compose.yml` runs while `NEON_VERSION` is unset;
+- the newest section of `CHANGELOG.md`, dated, or `Unreleased` between releases;
+- the docs and the example settings, where they name the version, an image, the Compose
+  archive or a release's page.
+
+Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
+changelog's section must have its date. `make check` runs the check, and so does CI's
+**Versions** job whenever one of those files changes.
+
+To release:
+
+1. On a branch into `dev`, set the version in `Cargo.toml`, then `make api-spec web-api` and
+   a build, which update the generated files and `Cargo.lock`. `make version-check` lists
+   every file that still states the old version. Write the release's section of
+   `CHANGELOG.md`, dated the day of the tag.
+2. Merge `dev` into `main`.
+3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
+   The release workflow does the rest. `make compose-archive` writes the archive it attaches,
+   to look at before tagging.
 
 ## Licenses
 
