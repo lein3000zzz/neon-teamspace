@@ -77,7 +77,7 @@ A release, with its published images, from a clone at its tag:
 ```sh
 git clone --branch v0.1.0 https://github.com/lein3000zzz/neon-teamspace.git && cd neon-teamspace
 cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD and NEON_VERSION=0.1.0
-cp deployments/server.env.example deployments/server.env  # set NEON_SECRETS__KEYS and the first admin
+cp deployments/server.env.example deployments/server.env  # set the public URL, NEON_SECRETS__KEYS and the first admin
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
 ```
