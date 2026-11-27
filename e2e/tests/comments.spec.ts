@@ -1,11 +1,21 @@
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
-import { account, callApi, clientAddress, makeAccounts, PASSWORD, signedIn } from "./accounts";
+import {
+  account,
+  callApi,
+  clientAddress,
+  makeAccounts,
+  PASSWORD,
+  runOf,
+  signedIn,
+} from "./accounts";
 import { ADMIN, expect, signIn, test } from "./fixtures";
 import { listen, McpClient } from "./mcp-client";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
-test.use({ extraHTTPHeaders: clientAddress(21) });
+test.use({
+  extraHTTPHeaders: async ({}, use, testInfo) => use(clientAddress(21, testInfo.repeatEachIndex)),
+});
 
 type Workspace = { id: string; slug: string };
 type Teamspace = { id: string; access: string };
@@ -57,7 +67,7 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
   browser,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const ada = account("planner", run);
   const bob = account("reviewer", run);
   const contexts: BrowserContext[] = [];
@@ -184,7 +194,7 @@ test("a mention picked after @ in a page reaches the inbox once the text settles
   browser,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const ada = account("author", run);
   const bob = account("helper", run);
   const contexts: BrowserContext[] = [];
@@ -257,7 +267,7 @@ test("an agent hears of a mention over MCP, replies in the thread, and clears it
   playwright,
 }) => {
   test.setTimeout(120_000);
-  const run = String(Date.now());
+  const run = runOf();
   const owner = account("editor", run);
   const contexts: BrowserContext[] = [];
   const clients: APIRequestContext[] = [];
