@@ -343,6 +343,43 @@ describe("the editing toolbar of a touch screen", () => {
     );
   });
 
+  it("selects an image with a tap, for its block menu", async () => {
+    pointer("touch");
+    fakeWorkspaces();
+    fakePages();
+    const sync = pageWith("Kick-off on Monday", "Retro on Friday");
+    const image = new Y.XmlElement("image");
+    image.setAttribute("url", "/api/v1/files/board.png");
+    image.setAttribute("name", "board.png");
+    const container = new Y.XmlElement("blockContainer");
+    container.setAttribute("id", "block-image");
+    container.insert(0, [image]);
+    const group = sync.doc.getXmlFragment(FRAGMENT).get(0) as Y.XmlElement;
+    group.insert(1, [container]);
+    const { user } = renderApp(PATH);
+    const content = await editable();
+    const picture = await waitFor(() => {
+      const found = content.querySelector('[data-content-type="image"] img');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    act(() => content.focus());
+    await waitFor(() => toolbar());
+
+    // The browser puts the caret in the text nearest a tap; the toolbar takes the image.
+    act(() => {
+      fireEvent.click(picture);
+    });
+    await user.click(toolbar().getByRole("button", { name: "Block menu" }));
+    const menu = within(toolbar().getByRole("group", { name: "Block menu" }));
+    expect(menu.getByRole("button", { name: "Replace file" })).toBeInTheDocument();
+    expect(menu.getByRole("button", { name: "Turn into" })).toBeDisabled();
+    await user.click(menu.getByRole("button", { name: "Caption" }));
+    await user.type(toolbar().getByRole("textbox", { name: "Caption" }), "The board{Enter}");
+    expect(content.querySelector('[data-content-type="image"]')).toHaveTextContent("The board");
+    expect(content).toHaveFocus();
+  });
+
   it("starts a comment on the text selected", async () => {
     pointer("touch");
     fakeWorkspaces();

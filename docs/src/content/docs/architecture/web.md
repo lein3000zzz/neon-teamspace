@@ -193,8 +193,10 @@ document, to the `XmlFragment` named `document-store` that
   browser covers the page with it or resizes the page, and scaled back to its own size when
   the page is zoomed (`visual-viewport.ts`). Its actions are BlockNote's API
   (`toolbar-actions.ts`); a press on it keeps the focus in the content, and the caret is
-  scrolled clear of it as it moves. The menus `/` and `@` open keep that much more room at the
-  window's bottom while it shows (`floating.ts`).
+  scrolled clear of it as it moves. ProseMirror leaves a tap to the browser, which puts the
+  caret in the nearest text, so a tap on a block without text selects that block itself. The
+  menus `/` and `@` open keep that much more room at the window's bottom while it shows
+  (`floating.ts`).
 - Undo and redo go through y-prosemirror's undo manager, which ends with the editor's view.
   So the view is mounted once: the comment highlights' extension is among the editor's
   options rather than registered after, and whether the editor takes input is set on its

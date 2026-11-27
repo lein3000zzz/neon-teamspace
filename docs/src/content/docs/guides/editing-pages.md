@@ -228,8 +228,10 @@ there in phone and tablet browsers and in the apps alike. Its buttons, from the 
 all of it. Taps on it leave the cursor, and so the keyboard, where they were.
 
 Select text as the phone does, with a long press and the handles; the toolbar's buttons then
-work on the selection. The menus `/` and `@` open, typed or from **Insert**, stay above the
-toolbar and the keyboard; type to narrow them, and tap an item to pick it.
+work on the selection. A tap on an image, a file, a divider or a database selects it, for the
+**Block menu** to move, copy or delete it, or to give a file its caption. The menus `/` and
+`@` open, typed or from **Insert**, stay above the toolbar and the keyboard; type to narrow
+them, and tap an item to pick it.
 A to-do's checkbox takes a tap anywhere across its line's height and the margin before it.
 
 The toolbar follows the part of the page the screen shows, with the browser's

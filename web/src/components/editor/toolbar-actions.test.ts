@@ -18,6 +18,7 @@ import {
   openMenu,
   remove,
   selectsText,
+  selectTapped,
   setCaption,
   toggleMark,
   turnable,
@@ -335,6 +336,38 @@ describe("the editing toolbar's actions", () => {
     expect(image?.id).toBe("i");
     setCaption(editor, blockOf(editor, "i"), "  The launch  ");
     expect(editor.getBlock("i")?.props).toMatchObject({ caption: "The launch" });
+  });
+
+  it("selects an image, a file or a divider tapped, and leaves taps on text and controls", () => {
+    const editor = editorWith([
+      { id: "t", type: "paragraph", content: "Text" },
+      { id: "i", type: "image", props: { url: "/files/a.png", name: "a.png" } },
+      { id: "f", type: "file", props: { url: "/files/b.pdf", name: "b.pdf" } },
+      { id: "d", type: "divider" },
+    ]);
+    editor.setTextCursorPosition("t", "end");
+    const root = editor.domElement;
+    const inBlock = (id: string, selector: string) => {
+      const found = root?.querySelector(`[data-id="${id}"] ${selector}`);
+      if (found === null || found === undefined) {
+        throw new Error(`no ${selector} in ${id}`);
+      }
+      return found;
+    };
+
+    expect(selectTapped(editor, inBlock("i", "img"))).toBe(true);
+    expect(fileBlockOf(editor)?.id).toBe("i");
+    expect(selectTapped(editor, inBlock("f", "[data-content-type]"))).toBe(true);
+    expect(fileBlockOf(editor)?.id).toBe("f");
+    expect(selectTapped(editor, inBlock("d", "hr"))).toBe(true);
+    expect(currentBlocks(editor).map((block) => block.id)).toEqual(["d"]);
+
+    // Text takes the caret the browser puts there, and a control in a block works itself.
+    expect(selectTapped(editor, inBlock("t", ".bn-inline-content"))).toBe(false);
+    const control = document.createElement("button");
+    inBlock("i", "[data-content-type]").append(control);
+    expect(selectTapped(editor, control)).toBe(false);
+    expect(currentBlocks(editor).map((block) => block.id)).toEqual(["d"]);
   });
 
   it("links an address as typed, with https where it names no scheme a link may have", () => {

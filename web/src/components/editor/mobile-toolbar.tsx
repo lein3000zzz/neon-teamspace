@@ -76,6 +76,7 @@ import {
   remove,
   replaceFile,
   selectsText,
+  selectTapped,
   setCaption,
   toggleMark,
   turnable,
@@ -285,6 +286,19 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
     element.addEventListener("mousedown", keep);
     return () => element.removeEventListener("mousedown", keep);
   }, []);
+
+  // A tap on an image, a file, a divider or a database selects it, for the block menu.
+  useEffect(() => {
+    const content = editor.domElement;
+    if (content === undefined) {
+      return;
+    }
+    const tap = (event: MouseEvent) => {
+      selectTapped(editor, event.target);
+    };
+    content.addEventListener("click", tap);
+    return () => content.removeEventListener("click", tap);
+  }, [editor]);
 
   useEffect(() => {
     const element = bar.current;

@@ -1,4 +1,5 @@
 import {
+  getNodeById,
   insertOrUpdateBlockForSlashMenu,
   type Block,
   type BlockNoteEditor,
@@ -14,7 +15,7 @@ import {
   SuggestionMenu,
   VALID_LINK_PROTOCOLS,
 } from "@blocknote/core/extensions";
-import { TextSelection, type Command } from "prosemirror-state";
+import { NodeSelection, TextSelection, type Command } from "prosemirror-state";
 import { yUndoPluginKey } from "y-prosemirror";
 import type { UndoManager } from "yjs";
 
@@ -232,6 +233,59 @@ export function openMenu(editor: Editor, trigger: "/" | "@") {
   editor.getExtension(SuggestionMenu)?.openSuggestionMenu(trigger, {
     deleteTriggerCharacter: true,
   });
+}
+
+/** What a tap inside a block works itself, rather than selecting the block. */
+const CONTROLS = [
+  "a",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "[contenteditable='true']",
+  ...["button", "link", "tab", "menuitem", "option", "checkbox", "switch", "slider"].map(
+    (role) => `[role='${role}']`,
+  ),
+].join(", ");
+
+/**
+ * Selects the block a tap landed on when it holds no text, such as an image,
+ * a file, a divider or a database, as a click with a mouse does, so that the
+ * toolbar's block menu works on it. The editor leaves a tap to the browser,
+ * which puts the caret in the nearest text instead, in another block. A tap
+ * on the block's own controls is left to them. Whether it selected one.
+ */
+export function selectTapped(editor: Editor, target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  const content = target.closest<HTMLElement>("[data-content-type]");
+  const type = content?.dataset["contentType"];
+  const id = content?.closest("[data-id]")?.getAttribute("data-id");
+  if (
+    content === null ||
+    type === undefined ||
+    id === null ||
+    id === undefined ||
+    editor.domElement?.contains(content) !== true ||
+    editor.schema.blockSchema[type]?.content !== "none"
+  ) {
+    return false;
+  }
+  const control = target.closest(CONTROLS);
+  if (control !== null && content.contains(control)) {
+    return false;
+  }
+  const found = getNodeById(id, editor.prosemirrorState.doc);
+  if (found === undefined) {
+    return false;
+  }
+  editor.transact((tr) => {
+    // The block's content, first in its container, as a click selects it.
+    tr.setSelection(NodeSelection.create(tr.doc, found.posBeforeNode + 1));
+  });
+  return true;
 }
 
 /** The image, video, audio or other file the caret is on, alone; `null` for any other block. */
