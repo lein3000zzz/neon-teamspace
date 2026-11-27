@@ -72,11 +72,12 @@ With the `seaweedfs` profile, there are two ways.
 
 **A copy of the bucket**, through its S3 gateway, while everything runs. The gateway is not
 published, so the copy runs on the stack's network, here with
-[rclone](https://rclone.org) and the access key and secret from `deployments/.env`:
+[rclone](https://rclone.org) and the access key and secret from `deployments/.env`. The
+access key is `neon` when `.env` leaves it blank, as the Compose file has it:
 
 ```sh
 set -a; . deployments/.env; set +a
-RCLONE_S3_ACCESS_KEY_ID="$SEAWEEDFS_ACCESS_KEY" RCLONE_S3_SECRET_ACCESS_KEY="$SEAWEEDFS_SECRET_KEY" \
+RCLONE_S3_ACCESS_KEY_ID="${SEAWEEDFS_ACCESS_KEY:-neon}" RCLONE_S3_SECRET_ACCESS_KEY="$SEAWEEDFS_SECRET_KEY" \
 docker run --rm --network neon_default -v "$PWD/backup":/backup \
   -e RCLONE_S3_PROVIDER=SeaweedFS -e RCLONE_S3_ENDPOINT=http://seaweedfs:8333 \
   -e RCLONE_S3_ACCESS_KEY_ID -e RCLONE_S3_SECRET_ACCESS_KEY \
