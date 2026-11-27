@@ -76,16 +76,17 @@ describe("files", () => {
       (_, n) => new File([new Uint8Array(1)], `${n}.png`, { type: "image/png" }),
     );
     const uploads = files.map((file) => uploadFile(PAGE, "image", file));
-    // Answer each request as it arrives, until every upload has been sent.
-    const answerAll = async (left: number): Promise<void> => {
-      if (left === 0) {
+    // As many as go at once arrive and wait for their answers; each answer lets the next in.
+    const answerAll = async (answered: number): Promise<void> => {
+      if (answered === files.length) {
         return;
       }
-      await vi.waitFor(() => expect(answers.length).toBeGreaterThan(0));
+      const waiting = Math.min(UPLOADS_AT_ONCE, files.length - answered);
+      await vi.waitFor(() => expect(answers.length).toBe(waiting));
       answers.shift()?.();
-      return answerAll(left - 1);
+      return answerAll(answered + 1);
     };
-    await answerAll(files.length);
+    await answerAll(0);
     await Promise.all(uploads);
     expect(most).toBe(UPLOADS_AT_ONCE);
   });
