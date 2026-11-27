@@ -315,8 +315,9 @@ To release:
    **Danger Zone** → **Change repository visibility**. As a safety net, the workflow skips
    signing for a repository that was private when the tag was pushed, and a re-run sees that
    same push, so the images of a tag pushed earlier are never signed.
-4. Rehearse the release with a candidate on `main`: `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1`
-   and `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
+4. Rehearse the release with a candidate of `main`'s commit, as GitHub has it after the merge:
+   `git fetch origin`, `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1 origin/main` and
+   `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
    both images as `X.Y.Z-rc.1` alone, never as `latest` or the minor version, and makes a
    GitHub release marked as a pre-release. `make compose-archive` writes the archive it
    attaches, to look at before tagging.
@@ -338,13 +339,14 @@ To release:
 
    A check that fails is fixed through `dev` and `main` like any change, then checked again
    with `vX.Y.Z-rc.2`.
-6. Tag the same commit as the release, with `main` still on the candidate's commit:
-   `git tag -a vX.Y.Z -m vX.Y.Z main` and `git push origin vX.Y.Z`. Before the first
-   release, delete each candidate's GitHub release and tag first, such as with
-   `gh release delete vX.Y.Z-rc.1 --cleanup-tag --yes`: with no full release before it,
+6. Before the first release only, delete each candidate's GitHub release and tag, such as
+   with `gh release delete vX.Y.Z-rc.1 --cleanup-tag --yes`: with no full release before it,
    GitHub may start the first release's list of pull requests at a candidate. After that,
-   each release's list starts at the full release before it. The candidates' images stay on
-   GHCR.
+   each release's list starts at the full release before it. `git tag -d vX.Y.Z-rc.1`
+   deletes the local copy too, which a later push of every tag would bring back and release
+   again. The candidates' images stay on GHCR.
+7. Tag the candidate's commit as the release, with `origin/main` still on it after another
+   `git fetch origin`: `git tag -a vX.Y.Z -m vX.Y.Z origin/main` and `git push origin vX.Y.Z`.
 
 ## Licenses
 
