@@ -224,10 +224,12 @@ GitHub Actions runs three workflows.
   - It also runs on every push to `dev` and `main`, and saves both images' layers to the Actions cache. Pull requests into those branches build from it, so only the layers their changes touch build again: the tools and the dependencies cargo-chef cooks build only when a Dockerfile, `Cargo.lock` or a manifest changes.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
-- **Release** runs on a `v*` tag.
-  - It runs the end-to-end tests, with the server built in the release profile as the published image is, then builds the server and web images for `linux/amd64` and `linux/arm64` with an SBOM and build provenance.
-  - It pushes them to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web`, then creates a GitHub release with generated notes.
-  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs.
+- **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.
+  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, and everything that states the version states it.
+  - The end-to-end tests, with the server built in the release profile as the published image is.
+  - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
+  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
+  - A GitHub release: its notes, generated from the merged pull requests, with the images and pointers to the changelog and the upgrade page, and the Compose archive that `make compose-archive` writes as its asset.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
