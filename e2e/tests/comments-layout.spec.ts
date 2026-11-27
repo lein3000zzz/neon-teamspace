@@ -96,7 +96,7 @@ test("the editor's toolbar keeps off the comments panel, and its mention menu in
   }
 });
 
-test("on a phone, the comments cover the whole screen, without the keyboard's shortcut", async ({
+test("on a phone, the comments cover the whole screen, and neither they nor search show a keyboard's shortcut", async ({
   browser,
 }) => {
   test.setTimeout(90_000);
@@ -116,6 +116,14 @@ test("on a phone, the comments cover the whole screen, without the keyboard's sh
       201,
     );
     await page.goto(`/w/${workspace.slug}/p/${plan.id}`);
+    // The drawer's search names no keys.
+    await page.getByRole("button", { name: "Open navigation" }).tap();
+    const drawer = page.getByRole("dialog");
+    await expect(drawer.getByRole("button", { name: "Search" })).toBeVisible();
+    await expect(drawer.getByText(/⌘K|Ctrl K/)).toBeHidden();
+    await drawer.getByRole("button", { name: "Close navigation" }).tap();
+    await expect(drawer).toBeHidden();
+
     await page.getByRole("button", { name: "Comments" }).tap();
     const panel = page.getByRole("complementary", { name: "Comments" });
     await expect(panel.getByRole("button", { name: "Comment on the selected text" })).toBeVisible();

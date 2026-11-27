@@ -97,7 +97,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               >
                 <Search aria-hidden className="size-4" />
                 <span className="flex-1 text-left">{strings.search.open}</span>
-                <kbd aria-hidden className="font-mono text-[0.68rem] text-muted-foreground">
+                {/* The shortcut is for a keyboard, which a touch screen as the main pointer lacks. */}
+                <kbd
+                  aria-hidden
+                  className="font-mono text-[0.68rem] text-muted-foreground pointer-coarse:hidden"
+                >
                   {strings.search.shortcut(commandIsMeta())}
                 </kbd>
               </button>
