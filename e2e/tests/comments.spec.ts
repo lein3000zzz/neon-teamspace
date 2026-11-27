@@ -169,9 +169,27 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
       adaPage.getByRole("complementary").first().getByRole("link", { name: "Inbox, 1 unread" }),
     ).toBeVisible();
 
-    // Text typed before the passage leaves the thread on it, in both editors.
-    await content(bobPage).getByText("We ship", { exact: false }).click();
-    await bobPage.keyboard.press("Home");
+    // Text typed before the passage leaves the thread on it, in both editors. A key pressed
+    // straight after the click can reach the editor before the click's selection does, so
+    // the caret is placed again until it is at the start of the line.
+    const line = content(bobPage).getByText("We ship", { exact: false });
+    await expect(async () => {
+      await line.click();
+      await bobPage.keyboard.press("Home");
+      const caret = await bobPage.evaluate(() => {
+        const selection = document.getSelection();
+        return {
+          collapsed: selection?.isCollapsed ?? false,
+          offset: selection?.anchorOffset ?? -1,
+          text: selection?.anchorNode?.textContent ?? "",
+        };
+      });
+      expect(caret).toEqual({
+        collapsed: true,
+        offset: 0,
+        text: expect.stringMatching(/^We ship/),
+      });
+    }, "the caret is at the start of the passage's line").toPass();
     await bobPage.keyboard.type("Update: ");
     await expect
       .poll(async () => (await adaPage.request.get(`/api/v1/pages/${plan.id}/export`)).text(), {
