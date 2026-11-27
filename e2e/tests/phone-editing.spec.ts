@@ -256,3 +256,34 @@ test("a time typed on a phone opens no emoji menu, and a name after a colon open
   await expect(picker).toHaveCount(0);
   await expect(content(page)).toContainText("We meet at 15:00. Bring a 🚀");
 });
+
+test("the toolbar's rows show at which end more of them is off the screen", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const { workspace } = await personOnPhone(browser, page, "swiper");
+  const made = await pageIn(page, workspace, "Notes", "A line to edit.");
+  await page.goto(made.path);
+  await live(page);
+  await content(page).getByText("A line to edit.").tap();
+  const bar = toolbar(page);
+  await expect(bar).toBeVisible();
+  const start = bar.locator('[data-more="start"]');
+  const end = bar.locator('[data-more="end"]');
+
+  // The main row is wider than a phone: its end fades, with an arrow that way.
+  await expect(end).toBeVisible();
+  await expect(start).toHaveCount(0);
+
+  // Scrolled to its last button, the fade is at the start instead.
+  await bar.getByRole("button", { name: "Redo" }).scrollIntoViewIfNeeded();
+  await expect(start).toBeVisible();
+  await expect(end).toHaveCount(0);
+
+  // So is the Insert row's end, from its first button.
+  await bar.getByRole("button", { name: "Insert" }).tap();
+  await expect(bar.getByRole("button", { name: "Mention" })).toBeVisible();
+  await expect(end).toBeVisible();
+  await expect(start).toHaveCount(0);
+});

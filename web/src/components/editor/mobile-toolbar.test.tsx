@@ -119,6 +119,43 @@ describe("the editing toolbar of a touch screen", () => {
     await waitFor(() => expect(bar).not.toBeVisible());
   });
 
+  it("shows, at each end of a row too wide for the screen, that more of it is past there", async () => {
+    pointer("touch");
+    fakeWorkspaces();
+    fakePages();
+    pageWith("Kick-off on Monday");
+    renderApp(PATH);
+    const content = await editable();
+    act(() => content.focus());
+    const bar = hiddenBar();
+    await waitFor(() => expect(bar).toBeVisible());
+    const row = bar.querySelector<HTMLElement>("[data-toolbar-row]");
+    expect(row).not.toBeNull();
+    const more = (side: string) => bar.querySelector(`[data-more="${side}"]`);
+    // jsdom lays nothing out: the row is as wide as the screen, its buttons twice that.
+    let left = 0;
+    Object.defineProperties(row, {
+      clientWidth: { configurable: true, get: () => 360 },
+      scrollWidth: { configurable: true, get: () => 720 },
+      scrollLeft: { configurable: true, get: () => left },
+    });
+
+    fireEvent.scroll(row as HTMLElement);
+    await waitFor(() => expect(more("end")).not.toBeNull());
+    expect(more("end")).toHaveAttribute("aria-hidden", "true");
+    expect(more("start")).toBeNull();
+
+    left = 180;
+    fireEvent.scroll(row as HTMLElement);
+    await waitFor(() => expect(more("start")).not.toBeNull());
+    expect(more("end")).not.toBeNull();
+
+    left = 360;
+    fireEvent.scroll(row as HTMLElement);
+    await waitFor(() => expect(more("end")).toBeNull());
+    expect(more("start")).not.toBeNull();
+  });
+
   it("is not there for a mouse, which has the formatting toolbar", async () => {
     pointer("mouse");
     fakeWorkspaces();

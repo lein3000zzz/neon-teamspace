@@ -8,6 +8,7 @@ import {
   Captions,
   Check,
   ChevronLeft,
+  ChevronRight,
   Code,
   Copy,
   Download,
@@ -232,6 +233,61 @@ function Tool({ icon: Icon, label, shown = false, pressed, className, ...props }
   );
 }
 
+/** Which ends of a row that scrolls sideways have more of it past them. */
+type Overflow = { start: boolean; end: boolean };
+
+/**
+ * Follows which ends of a row that scrolls sideways have more past them, as it scrolls, as
+ * it changes size and as its buttons come and go. `row` is the scrolling element, which a
+ * new row replaces.
+ */
+function useOverflow(row: HTMLElement | null): Overflow {
+  const [overflow, setOverflow] = useState<Overflow>({ start: false, end: false });
+  useEffect(() => {
+    if (row === null) {
+      return;
+    }
+    const measure = () => {
+      const start = row.scrollLeft > 1;
+      const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
+      setOverflow((was) => (was.start === start && was.end === end ? was : { start, end }));
+    };
+    measure();
+    row.addEventListener("scroll", measure, { passive: true });
+    const resized = new ResizeObserver(measure);
+    resized.observe(row);
+    const changed = new MutationObserver(measure);
+    changed.observe(row, { childList: true, subtree: true });
+    return () => {
+      row.removeEventListener("scroll", measure);
+      resized.disconnect();
+      changed.disconnect();
+    };
+  }, [row]);
+  return overflow;
+}
+
+/**
+ * Where a row has more past an end, a fade over that end, into the bar's colour, and an
+ * arrow pointing that way: what is cut there shows faded, and the row reads as one that
+ * scrolls. Taps go through it, to what is under it.
+ */
+function MoreHint({ side }: { side: "start" | "end" }) {
+  const Arrow = side === "start" ? ChevronLeft : ChevronRight;
+  return (
+    <span
+      aria-hidden
+      data-more={side}
+      className={cn(
+        "pointer-events-none absolute inset-y-0 flex w-10 items-center from-raised from-35% to-transparent text-muted-foreground",
+        side === "start" ? "left-0 bg-linear-to-r" : "right-0 justify-end bg-linear-to-l",
+      )}
+    >
+      <Arrow className="size-4" />
+    </span>
+  );
+}
+
 /** A row a button of the main row opens: a group of its own, as wide as its buttons. */
 const panelClass = "m-0 flex shrink-0 items-center gap-0.5 border-0 p-0";
 
@@ -249,7 +305,8 @@ function Divider() {
  * insert, comment, undo and redo, and put the keyboard away; taps on it keep
  * the focus, and so the keyboard, where they are. Its rows for a block's type,
  * for inserting, for the block's menu, for a link and for a caption take the
- * main row's place, one at a time.
+ * main row's place, one at a time. A row too wide for the screen scrolls
+ * sideways, and fades at an end with more past it.
  */
 export function MobileToolbar({ editor }: { editor: Editor }) {
   const page = useEditorPage();
@@ -272,6 +329,9 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
   }
   const bar = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
+  // The row in view, which scrolls sideways where the screen is too narrow for it.
+  const [rowElement, setRowElement] = useState<HTMLDivElement | null>(null);
+  const overflow = useOverflow(rowElement);
   const imageInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -629,12 +689,18 @@ export function MobileToolbar({ editor }: { editor: Editor }) {
             box.covered > 0 ? "pb-1" : "safe-bottom-1",
           )}
         >
-          {/* Each row afresh, so it starts from its first button however far the last scrolled. */}
-          <div
-            key={panel}
-            className="flex min-w-0 flex-1 touch-pan-x [scrollbar-width:none] items-center gap-0.5 overflow-x-auto overscroll-x-contain"
-          >
-            {row}
+          <div className="relative flex min-w-0 flex-1">
+            {/* Each row afresh, so it starts from its first button however far the last scrolled. */}
+            <div
+              key={panel}
+              ref={setRowElement}
+              data-toolbar-row=""
+              className="flex min-w-0 flex-1 touch-pan-x [scrollbar-width:none] items-center gap-0.5 overflow-x-auto overscroll-x-contain"
+            >
+              {row}
+            </div>
+            {overflow.start && <MoreHint side="start" />}
+            {overflow.end && <MoreHint side="end" />}
           </div>
           <Divider />
           <Tool icon={KeyboardOff} label={copy.done} onClick={putAway} />

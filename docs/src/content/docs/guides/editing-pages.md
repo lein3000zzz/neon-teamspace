@@ -234,7 +234,8 @@ there in phone and tablet browsers and in the apps alike. Its buttons, from the 
 
 **Block type**, **Insert** and **Block menu** open a row of their own in the toolbar's place;
 **Back** returns to the first. The toolbar scrolls sideways where the screen is too narrow for
-all of it. Taps on it leave the cursor, and so the keyboard, where they were.
+all of it: an end with more buttons past it fades out, with an arrow pointing that way. Taps
+on it leave the cursor, and so the keyboard, where they were.
 
 Select text as the phone does, with a long press and the handles; the toolbar's buttons then
 work on the selection. A tap on an image, a file, a divider or a database selects it, for the
