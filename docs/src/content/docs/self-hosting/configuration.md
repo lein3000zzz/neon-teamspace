@@ -179,6 +179,11 @@ underscores, between its levels.
 The separator is two underscores because keys have single ones of their own:
 `NEON_DATABASE__MAX_CONNECTIONS` can only mean `database.max_connections`.
 
+An unknown key in `neon.yaml`, or a `NEON_SETTINGS__` variable that names no setting, stops
+the start, as it is almost always a typo. Any other `NEON_` variable that sets no key is
+ignored, and the server logs a warning that names it: other tools use the prefix too, such as
+Neon's Postgres tooling with `NEON_API_KEY`.
+
 ## Which value wins
 
 For bootstrap configuration, the first of these with a value wins:
