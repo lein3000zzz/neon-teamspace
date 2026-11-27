@@ -1,7 +1,8 @@
 # cargo-about: the license notices of the crates the apps link, which the picker's build
 # writes into THIRD_PARTY_NOTICES.txt beside the JavaScript packages' (notices.ts), and the app
 # embeds with the picker. MIT, ISC and BSD ask for their notice in every copy, and Apache-2.0
-# for a copy of the license. about.hbs is the template.
+# for a copy of the license. MPL-2.0 also asks to say where the source is, so about.hbs, the
+# template, gives each crate under it its address on crates.io and its repository.
 #
 # The accepted licenses are deny.toml's allow list, as for the server's notices in the
 # repository's about.toml; a test in scripts/licenses keeps them the same. Their order is the

@@ -397,8 +397,9 @@ module that `caddy build-info` lists, checks it against the hash the binary reco
 copies its license files, failing when a module has none. The apps embed
 `THIRD_PARTY_NOTICES.txt` with their server picker, which links to it: the picker's build
 writes the notices of its packages and, with cargo-about and `apps/shell/about.toml`, of the
-crates the apps link on every platform. Both `about.toml` files' accepted licenses are the
-allow list of `deny.toml`, and a test keeps them the same.
+crates the apps link on every platform, with where to get the source of each package and
+crate under MPL-2.0. Both `about.toml` files' accepted licenses are the allow list of
+`deny.toml`, and a test keeps them the same.
 
 ### Configuration
 

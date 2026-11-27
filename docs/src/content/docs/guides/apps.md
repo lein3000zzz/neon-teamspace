@@ -286,8 +286,9 @@ make app-ios        # the iOS app for TestFlight
 ```
 
 Each build of the picker writes `THIRD_PARTY_NOTICES.txt` beside it, with the license
-notices of the picker's packages and, through cargo-about, of the crates the apps link. The app
-embeds it with the picker, whose **Third-party licenses** link opens it.
+notices of the picker's packages and, through cargo-about, of the crates the apps link, and
+for each one under MPL-2.0 its address on npm or crates.io and its repository, where its
+source is. The app embeds it with the picker, whose **Third-party licenses** link opens it.
 
 `make app-build` writes to `apps/shell/src-tauri/target/release/bundle/`: on macOS the `.app`
 and a `.dmg`, on Windows the `.msi` and setup `.exe`, on Linux the `.deb`, `.rpm` and AppImage.

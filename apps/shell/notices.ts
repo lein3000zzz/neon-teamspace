@@ -1,10 +1,11 @@
 /**
  * Writes THIRD_PARTY_NOTICES.txt into the picker's build, which the app embeds with the
  * picker, and the picker links to: the license text of every package whose code is in the
- * picker's bundle, then those of the Rust crates the app links on any of its platforms, as
- * cargo-about finds them (about.toml). MIT, ISC and BSD ask for their notice in every copy and
- * Apache-2.0 for a copy of the license, while the app's binary and the minified bundle carry
- * none.
+ * picker's bundle, with any notice file it ships, then those of the Rust crates the app links
+ * on any of its platforms, as cargo-about finds them (about.toml). MIT, ISC and BSD ask for
+ * their notice in every copy and Apache-2.0 for a copy of the license and of its NOTICE, while
+ * the app's binary and the minified bundle carry none. MPL-2.0 also asks to say where its
+ * packages' and crates' source is, which each one's section gives.
  */
 
 import { spawnSync } from "node:child_process";
@@ -24,6 +25,10 @@ const INTRO = [
   "below, each under the license named with it. Each package comes with the license text",
   "and copyright notice it ships; then each license text the crates ship has a section,",
   "with the crates that ship it.",
+  "",
+  "The source code of each package and crate under MPL-2.0 can be had from its registry,",
+  "npm or crates.io, at the address given under Source, which serves it at the version",
+  "listed, and from the repository given under Repository.",
 ];
 
 /** The crates' sections, from cargo-about, run in the app's directory `root`. */
