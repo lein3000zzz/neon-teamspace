@@ -612,6 +612,7 @@ export const strings = {
   people: {
     kinds: { agent: "Agent", integration: "Integration" },
     via: (name: string, owner: string) => `${name} · via ${owner}`,
+    viaInSentence: (name: string, owner: string) => `${name} via ${owner}`,
     viaOwner: (owner: string) => `· via ${owner}`,
     deleted: (name: string) => `${name} (deleted)`,
     deletedMark: "(deleted)",
