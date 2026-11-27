@@ -143,8 +143,9 @@ On mobile the app draws nothing over the server's pages, so the way back is the 
 back gesture. The desktop menu also has **View > Back**, **Forward** and **Reload**, which a
 window without a toolbar has nowhere else; **Back** from the server's first page shows the
 picker too. Each way loads the picker afresh, after a blank page, as the
-[security model](#security-model) explains. On iOS, iPadOS and the desktop, going back stops
-at the picker: the pages before it stay behind until you open a server again.
+[security model](#security-model) explains. On iOS, iPadOS, macOS and Linux, going back stops
+at the picker: the pages before it stay behind until you open a server again. On Windows,
+**Back** from the picker returns to the server's page you left.
 
 Each server keeps its own sign-in. The web view stores cookies per origin, as a browser does,
 so switching between servers does not sign you out of either.
