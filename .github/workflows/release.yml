@@ -157,9 +157,11 @@ jobs:
 
   # The desktop apps, each built on its platform's runner, as Tauri's guide has it. Unsigned:
   # signing for macOS and Windows needs certificates the project does not hold, so the apps docs
-  # say how to open them the first time. Each installer gets build provenance, an attestation
-  # of the workflow run and the commit that made it, once the repository is public: GitHub
-  # keeps attestations of private repositories only on Enterprise plans.
+  # say how to open them the first time. Linux builds on the oldest Ubuntu runner, as the
+  # AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35, or a later
+  # one. Each installer gets build provenance, an attestation of the workflow run and the
+  # commit that made it, once the repository is public: GitHub keeps attestations of private
+  # repositories only on Enterprise plans.
   desktop:
     name: App (${{ matrix.name }})
     needs: version
@@ -174,7 +176,7 @@ jobs:
         include:
           - name: Linux x86_64
             id: linux-x86_64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             args: --bundles deb,rpm,appimage
           - name: Windows x86_64
             id: windows-x86_64

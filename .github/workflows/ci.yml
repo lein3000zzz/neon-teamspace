@@ -408,12 +408,12 @@ jobs:
 
   # The apps' Tauri project on Linux, with the system libraries its webview needs: the picker's
   # checks, the Rust side's formatting, lints and tests, the picker in Chromium and WebKit, and
-  # a build of the Linux app.
+  # a build of the Linux app. On Ubuntu 22.04, where the release builds it.
   app:
     name: App shell
     needs: changes
     if: needs.changes.outputs.app == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
