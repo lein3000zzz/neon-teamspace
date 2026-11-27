@@ -210,7 +210,8 @@ on a touch screen: **Move to…**, **Move up** and **Move down** do the same.
 
 The back gesture, Android's back button or the browser's **Back** closes what is open over
 the page first: the drawer, the comments, a dialog, or the page's history or a row beside its
-database, the one on top first. Only then does it leave the page. Forward opens it again.
+database, the one on top first. Only then does it leave the page. Forward opens it again,
+but for a question asked before a change, such as **Delete for good**, which stays closed.
 Closed another way, with its button or a tap beside it, it leaves nothing for **Back** to
 close, so **Back** leaves the page; and a page opened from the drawer takes the drawer's step,
 so **Back** from it returns to the page under the drawer.
