@@ -14,15 +14,6 @@ val tauriProperties = Properties().apply {
     }
 }
 
-// The release key, when keystore.properties names it: the release workflow writes the file from
-// its secrets, and Git ignores it. Without it, the release APK is left unsigned.
-val keystoreProperties = Properties().apply {
-    val propFile = rootProject.file("keystore.properties")
-    if (propFile.exists()) {
-        propFile.inputStream().use { load(it) }
-    }
-}
-
 android {
     compileSdk = 37
     namespace = "io.github.lein3000zzz.neonteamspace"
@@ -37,16 +28,6 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
-    signingConfigs {
-        if (!keystoreProperties.isEmpty) {
-            create("release") {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["password"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["password"] as String
-            }
-        }
-    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -60,8 +41,9 @@ android {
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
             }
         }
+        // Unsigned: the release workflow signs the APK in a job of its own, which no build
+        // script or plugin runs in, so none of them can read the key.
         getByName("release") {
-            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                enable = true
             }

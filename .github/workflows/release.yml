@@ -2,12 +2,13 @@
 # passed, so nothing is published unless every check did: the version check, which needs the
 # tag to name the workspace's version; the end-to-end tests of the release build; the server and
 # web images for linux/amd64 and linux/arm64 on GHCR, with OCI labels, an SBOM and build
-# provenance; beside them the apps, desktop on each platform's runner and Android on Linux;
-# and a GitHub release with the Compose archive and the apps' installers attached, whose notes
-# name the images and their tags and link the docs, before the ones GitHub generates from the
-# merged pull requests. It needs no secret but the workflow's own token, and the Android
-# keystore's, when the repository has them, to sign the APK. The iOS app is built on a Mac with
-# Xcode and goes to TestFlight, outside this workflow.
+# provenance; beside them the apps, desktop on each platform's runner and Android on Linux,
+# with build provenance; and a GitHub release with the Compose archive, the apps' installers
+# and a SHA256SUMS file of them attached, whose notes name the images and their tags and link
+# the docs, before the ones GitHub generates from the merged pull requests. It needs no secret
+# but the workflow's own token, and the Android keystore's, when the repository has them, to
+# sign the APK in a job of its own. The iOS app is built on a Mac with Xcode and goes to
+# TestFlight, outside this workflow.
 name: Release
 
 on:
@@ -156,7 +157,9 @@ jobs:
 
   # The desktop apps, each built on its platform's runner, as Tauri's guide has it. Unsigned:
   # signing for macOS and Windows needs certificates the project does not hold, so the apps docs
-  # say how to open them the first time.
+  # say how to open them the first time. Each installer gets build provenance, an attestation
+  # of the workflow run and the commit that made it, once the repository is public: GitHub
+  # keeps attestations of private repositories only on Enterprise plans.
   desktop:
     name: App (${{ matrix.name }})
     needs: version
@@ -164,6 +167,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
+      attestations: write
     strategy:
       matrix:
         include:
@@ -242,6 +247,10 @@ jobs:
             done
           ls -l release-assets
           test -n "$(ls release-assets)"
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-assets/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-${{ matrix.id }}
@@ -249,10 +258,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The Android APK, for every ABI in one file. Signed for release when the repository has the
-  # keystore's secrets: ANDROID_KEY_BASE64, the keystore in base64; ANDROID_KEY_ALIAS, its key's
-  # alias; and ANDROID_KEY_PASSWORD, the password of both. Without them the APK is unsigned, and
-  # its name says so: Android installs no unsigned APK until someone signs it.
+  # The Android APK, for every ABI in one file, built unsigned: the job runs Gradle's plugins,
+  # the crates' build scripts and the packages' code, and none of them gets the signing key.
   android:
     name: App (Android)
     needs: version
@@ -260,8 +267,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      SIGNED: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -291,36 +296,69 @@ jobs:
       # The runner's SDK comes with NDKs; the newest is the one Tauri builds with.
       - name: NDK
         run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-      # keystore.properties, which app/build.gradle.kts reads, and the keystore, outside the
-      # checkout. Git ignores the file, and the runner is thrown away after the job.
+      - name: Build
+        working-directory: apps/shell
+        run: bun run tauri android build --ci --apk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-unsigned
+          path: apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  # The APK as the release attaches it, on a runner of its own where nothing but the SDK's tools
+  # runs. Signed when the repository has the keystore's secrets: ANDROID_KEY_BASE64, the keystore
+  # in base64; ANDROID_KEY_ALIAS, its key's alias; and ANDROID_KEY_PASSWORD, the password of
+  # both. Without them the APK stays unsigned, and its name says so: Android installs no
+  # unsigned APK until someone signs it. Then, as the desktop installers, build provenance.
+  android-release:
+    name: App (Android, release)
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # the attestation's signing certificate, from the workflow's OIDC identity
+      attestations: write
+    env:
+      SIGNED: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-unsigned
+          path: built
+      # The SDK's newest build tools check that the APK is aligned, as Gradle packs it, with
+      # its native libraries on 16 KB pages, then sign it and check the signature. The keystore
+      # lives only in this step, outside any checkout, and goes once it is used.
       - if: env.SIGNED == 'true'
-        name: Release signing
+        name: Sign
         env:
           KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          base64 -d <<<"$KEY_BASE64" > "$RUNNER_TEMP/release.jks"
-          {
-            echo "keyAlias=$KEY_ALIAS"
-            echo "password=$KEY_PASSWORD"
-            echo "storeFile=$RUNNER_TEMP/release.jks"
-          } > apps/shell/src-tauri/gen/android/keystore.properties
-      - name: Build
-        working-directory: apps/shell
-        run: bun run tauri android build --ci --apk
-      - name: Collect the APK
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          outputs=apps/shell/src-tauri/gen/android/app/build/outputs/apk/universal/release
+          version="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -n 1)"
+          tools="$ANDROID_HOME/build-tools/$version"
+          keystore="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$keystore"' EXIT
+          base64 -d <<<"$KEY_BASE64" > "$keystore"
+          "$tools/zipalign" -c -P 16 4 built/app-universal-release-unsigned.apk
           mkdir -p release-assets
-          if [ "$SIGNED" = true ]; then
-            cp "$outputs/app-universal-release.apk" "release-assets/Neon-Teamspace_${version}_android.apk"
-          else
-            cp "$outputs/app-universal-release-unsigned.apk" \
-              "release-assets/Neon-Teamspace_${version}_android-unsigned.apk"
-          fi
-          ls -l release-assets
+          "$tools/apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEY_PASSWORD --key-pass env:KEY_PASSWORD --v4-signing-enabled false \
+            --out "release-assets/Neon-Teamspace_${GITHUB_REF_NAME#v}_android.apk" \
+            built/app-universal-release-unsigned.apk
+          "$tools/apksigner" verify --verbose release-assets/*.apk
+      - if: env.SIGNED != 'true'
+        name: Name the unsigned APK
+        run: |
+          mkdir -p release-assets
+          cp built/app-universal-release-unsigned.apk \
+            "release-assets/Neon-Teamspace_${GITHUB_REF_NAME#v}_android-unsigned.apk"
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-assets/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-android
@@ -330,7 +368,7 @@ jobs:
 
   release:
     name: GitHub release
-    needs: [images, desktop, android]
+    needs: [images, desktop, android-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -347,6 +385,14 @@ jobs:
           pattern: app-*
           path: release-assets
           merge-multiple: true
+      # One file of the SHA-256 checksums of everything the release attaches, as sha256sum
+      # --check reads it.
+      - name: Checksums
+        run: |
+          cp dist/neon-teamspace-compose-*.tar.gz release-assets/
+          cd release-assets
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
       # The notes go before the ones GitHub generates from the pull requests since the last
       # release. The archive is how an install of the published images starts; the Caddyfile is
       # part of the web image, so it is not attached.
@@ -359,7 +405,7 @@ jobs:
           SIGNED: ${{ !github.event.repository.private }}
         run: |
           version="${TAG#v}"
-          archive="dist/neon-teamspace-compose-$version.tar.gz"
+          archive="neon-teamspace-compose-$version.tar.gz"
           # The tags the images job gave, as its metadata step chooses them.
           prerelease=()
           tags="\`$version\`, \`${version%.*}\`"
@@ -379,10 +425,10 @@ jobs:
 
           ## Installing and upgrading
 
-          \`${archive#dist/}\`, below, holds the Compose file that runs these images, with its example settings. [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins.
+          \`$archive\`, below, holds the Compose file that runs these images, with its example settings. [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins.
 
           ## Apps
 
-          The desktop installers and the Android APK are below. [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them and connecting them to a server."
+          The desktop installers and the Android APK are below. [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server."
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
-            --generate-notes --notes "$notes" "${prerelease[@]}" "$archive" release-assets/*
+            --generate-notes --notes "$notes" "${prerelease[@]}" release-assets/*

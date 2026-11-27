@@ -83,3 +83,12 @@ fn the_gradle_distribution_is_checked_against_its_checksum() {
     assert_eq!(checksum.len(), 64);
     assert!(checksum.bytes().all(|byte| byte.is_ascii_hexdigit()));
 }
+
+#[test]
+fn the_build_signs_nothing_itself() {
+    // The release workflow signs the APK in a job of its own, where no build code runs.
+    let build = read("app/build.gradle.kts");
+    for word in ["signingConfig", "keystore", "storePassword"] {
+        assert!(!build.contains(word), "app/build.gradle.kts names {word}");
+    }
+}
