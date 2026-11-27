@@ -63,6 +63,7 @@ use crate::gauges::{self, Gauges};
 use crate::http::{self, AppState, WebConfig};
 use crate::mail::SmtpMailer;
 use crate::mcp::{self, Mcp};
+use crate::stall::{WRITE_STALL_LIMIT, WriteStall};
 use crate::storage::S3Connector;
 use crate::telemetry;
 use crate::webhooks::HttpTransport;
@@ -662,7 +663,7 @@ async fn start_parts(
     let bound = worker.stop_timeout() + STOP_MARGIN;
     on_stop(shutdown, "job worker", bound, worker.stop());
 
-    let http = Http::spawn(listener, router, HEADER_READ_TIMEOUT)?;
+    let http = Http::spawn(listener, router, HEADER_READ_TIMEOUT, WRITE_STALL_LIMIT)?;
     on_stop(
         shutdown,
         "http",
@@ -726,7 +727,8 @@ struct Http {
     accepting: JoinHandle<JoinSet<()>>,
 }
 
-type Connection = http1::UpgradeableConnection<TokioIo<TcpStream>, TowerToHyperService<WithPeer>>;
+type Connection =
+    http1::UpgradeableConnection<TokioIo<WriteStall<TcpStream>>, TowerToHyperService<WithPeer>>;
 
 /// The router, with each request told the address of the connection it came on, for the
 /// client address rate limits count.
@@ -752,14 +754,22 @@ impl tower::Service<hyper::Request<Incoming>> for WithPeer {
 }
 
 impl Http {
-    fn spawn(listener: TcpListener, router: Router, header_timeout: Duration) -> io::Result<Self> {
+    /// Serves `router` on `listener`: a client gets `header_timeout` to send a request's
+    /// headers, and a write to it fails once it has waited `write_stall` for the client to
+    /// take any of it, which closes the connection.
+    fn spawn(
+        listener: TcpListener,
+        router: Router,
+        header_timeout: Duration,
+        write_stall: Duration,
+    ) -> io::Result<Self> {
         let addr = listener.local_addr()?;
         let mut builder = http1::Builder::new();
         builder
             .timer(TokioTimer::new())
             .header_read_timeout(header_timeout);
         let stop = CancellationToken::new();
-        let accepting = tokio::spawn(accept(listener, builder, router, stop.clone()));
+        let accepting = tokio::spawn(accept(listener, builder, router, write_stall, stop.clone()));
         info!(%addr, "HTTP server listening");
         Ok(Self {
             addr,
@@ -805,6 +815,7 @@ async fn accept(
     listener: TcpListener,
     builder: http1::Builder,
     router: Router,
+    write_stall: Duration,
     stop: CancellationToken,
 ) -> JoinSet<()> {
     let mut connections = JoinSet::new();
@@ -818,6 +829,7 @@ async fn accept(
                         router: router.clone(),
                         peer,
                     });
+                    let stream = WriteStall::new(stream, write_stall);
                     let connection = builder
                         .serve_connection(TokioIo::new(stream), service)
                         .with_upgrades();
@@ -936,8 +948,12 @@ mod tests {
     const PATIENCE: Duration = Duration::from_secs(5);
 
     async fn start(router: Router, header_timeout: Duration) -> Http {
+        start_stalling(router, header_timeout, WRITE_STALL_LIMIT).await
+    }
+
+    async fn start_stalling(router: Router, header_timeout: Duration, stall: Duration) -> Http {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
-        Http::spawn(listener, router, header_timeout).expect("starts")
+        Http::spawn(listener, router, header_timeout, stall).expect("starts")
     }
 
     async fn send(addr: SocketAddr, request: &str) -> TcpStream {
@@ -993,6 +1009,38 @@ mod tests {
         fn drop(&mut self) {
             self.0.store(true, Ordering::SeqCst);
         }
+    }
+
+    #[tokio::test]
+    async fn clients_that_stop_reading_an_answer_are_disconnected_and_it_is_dropped() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&dropped);
+        // An answer far larger than what the sockets' buffers hold, which keeps a flag set
+        // as it is dropped.
+        let router = Router::new().route(
+            "/large",
+            get(move || {
+                let flag = DropFlag(Arc::clone(&flag));
+                async move {
+                    let chunks = futures_util::stream::iter((0..1024).map(move |_| {
+                        let _ = &flag;
+                        Ok::<_, Infallible>(bytes::Bytes::from(vec![0u8; 64 * 1024]))
+                    }));
+                    axum::body::Body::from_stream(chunks)
+                }
+            }),
+        );
+        let http = start_stalling(router, PATIENCE, Duration::from_millis(200)).await;
+        let _stream = send(http.addr, "GET /large HTTP/1.1\r\nHost: localhost\r\n\r\n").await;
+        // The client reads nothing: the server gives up on it, and the answer goes.
+        let gone = timeout(PATIENCE, async {
+            while !dropped.load(Ordering::SeqCst) {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(gone.is_ok(), "the answer was kept");
+        http.stop(PATIENCE).await;
     }
 
     #[tokio::test]

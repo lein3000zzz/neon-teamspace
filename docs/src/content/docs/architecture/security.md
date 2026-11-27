@@ -408,7 +408,9 @@ asks the rate limit and the rules before it reads the body, and holds one of fou
 for imports and exports while one runs, so a few people cannot fill its memory. The work
 that runs off the async threads holds the place, and its person's turn, until it ends,
 even when the import's deadline has passed and its answer has gone; an export holds them
-until its file is sent whole.
+until its file is sent whole. Every HTTP connection drops a client that takes nothing of
+what it is sent for 30 seconds, and with it what its answer held in memory, so a client that
+stops reading a large answer, an export or a page's markdown, does not keep it there.
 
 A zip is read in memory, as uploaded, and none of its files is ever written to disk. Before
 the server parses a zip's directory, it counts the entries the zip says it lists, taking the

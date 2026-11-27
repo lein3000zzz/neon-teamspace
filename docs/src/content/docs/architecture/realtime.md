@@ -290,6 +290,7 @@ counts.
 | Awareness messages from one connection | 20 a second, with bursts of 100 | They are dropped. |
 | Connections | 20 for one person on this server, 200 for one page | The upgrade is refused with `429`; one of several that came at once closes with `1013`. |
 | Sending one message | 30 seconds | The connection closes with `4408`. |
+| A write to the connection waiting for the client to take any of it | 30 seconds, for every HTTP connection | The connection is dropped. |
 | Silence | Nothing from the client, not even a pong, between two pings; the server pings every 30 seconds | The server drops the connection without a close. |
 | Awareness ids per connection | 8 | Entries for more are dropped. |
 
