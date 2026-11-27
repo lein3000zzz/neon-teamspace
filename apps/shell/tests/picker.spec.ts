@@ -209,6 +209,88 @@ test("the last server opens as the app starts, and a failure shows on its row", 
   expect((await calls(page)).map((call) => call.cmd)).toEqual(["startup"]);
 });
 
+test("opening a server can be stopped while its page loads", async ({ page }) => {
+  await launch(page, { servers: [ACME, LAB], last: null });
+  await page.getByRole("button", { name: /^Acme/ }).click();
+  await expect(page.getByRole("status")).toHaveText("Opening Acme…");
+  const stop = page.getByRole("button", { name: "Stop" });
+  await expect(stop).toBeFocused();
+  expect(await opened(page)).toEqual([ACME.origin]);
+
+  // The app stops the page by loading the picker again, which says so.
+  await stop.press("Enter");
+  await expect(page.getByRole("status")).toHaveText("Stopped opening Acme.");
+  await expect(page.getByRole("button", { name: /^Acme/ })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect((await calls(page)).map((call) => call.cmd)).toEqual(["startup"]);
+});
+
+test("a server whose page does not arrive in time is given up on, with the reason", async ({
+  page,
+}) => {
+  await launch(page, { servers: [ACME, LAB], last: null, pageTimeout: 100 });
+  await page.getByRole("button", { name: /^Lab/ }).click();
+  await expect(server(page, "Lab").getByRole("alert")).toContainText(
+    "its page did not start to arrive within 30 seconds",
+  );
+  await expect(page.getByRole("button", { name: /^Lab/ })).toBeFocused();
+  await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0);
+});
+
+test("a check that keeps the picker waiting is stopped with Escape", async ({ page }) => {
+  const slow = { origin: "https://slow.example.com", name: "Slow", version: "0.1.0" };
+  await launch(page, {
+    servers: [slow, ACME],
+    last: null,
+    network: { ...NETWORK, [slow.origin]: { ...slow, waits: true } },
+  });
+  await page.getByRole("button", { name: /^Slow/ }).click();
+  await expect(page.getByRole("status")).toHaveText("Opening Slow…");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("status")).toHaveText("Stopped opening Slow.");
+  await expect(page.getByRole("button", { name: /^Slow/ })).toBeFocused();
+  expect(await opened(page)).toEqual([]);
+
+  // Another server opens, and the check that was cancelled, answering late, changes nothing.
+  await page.getByRole("button", { name: /^Acme/ }).click();
+  await expect(page.getByRole("status")).toHaveText("Opening Acme…");
+  await page.evaluate(() => window.__answerChecks());
+  await expect(page.getByRole("status")).toHaveText("Opening Acme…");
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await opened(page)).toEqual([ACME.origin]);
+  expect((await calls(page)).map((call) => call.cmd)).toEqual([
+    "startup",
+    "open_server",
+    "cancel_opening",
+    "open_server",
+  ]);
+});
+
+test("checking a new address can be stopped, keeping what was typed", async ({ page }) => {
+  await launch(page, {
+    network: {
+      ...NETWORK,
+      "https://slow.example.com": { name: "Slow", version: "0.1.0", waits: true },
+    },
+  });
+  const field = page.getByLabel("Server address");
+  await field.fill("slow.example.com");
+  await field.press("Enter");
+  await expect(page.getByRole("status")).toHaveText("Checking slow.example.com…");
+  // The add form's Cancel, inert meanwhile, closes the form; Stop stops the check.
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("status")).toHaveText("Stopped opening slow.example.com.");
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("slow.example.com");
+  await page.evaluate(() => window.__answerChecks());
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect to a server");
+  expect(await opened(page)).toEqual([]);
+});
+
 test("a server is renamed, and a blank name brings back the instance's", async ({ page }) => {
   await launch(page, { servers: [ACME, LAB], last: null });
   await page.getByRole("button", { name: "Rename Acme" }).click();

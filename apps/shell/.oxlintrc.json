@@ -30,7 +30,7 @@
     "eslint/no-underscore-dangle": [
       "warn",
       {
-        "allow": ["__TAURI_INTERNALS__", "__calls", "__opened"]
+        "allow": ["__TAURI_INTERNALS__", "__calls", "__opened", "__answerChecks"]
       }
     ]
   },

@@ -4,16 +4,17 @@
 mod support;
 
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use neon_shell::lock::Navigation;
-use neon_shell::{DataDir, MAIN_WINDOW};
+use neon_shell::meta::CheckOptions;
+use neon_shell::{DataDir, Limits, MAIN_WINDOW};
 use serde_json::{Value, json};
 use support::{Answer, serve};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
 use tauri::webview::InvokeRequest;
-use tauri::{App, Manager, Url, WebviewWindow};
+use tauri::{App, AppHandle, Manager, Url, WebviewWindow};
 
 /// Where the app's own pages are, as Tauri serves them on this platform.
 const APP_ORIGIN: &str = if cfg!(windows) {
@@ -23,20 +24,29 @@ const APP_ORIGIN: &str = if cfg!(windows) {
 };
 
 fn app(dir: &Path) -> App<MockRuntime> {
+    app_with(dir, Limits::default())
+}
+
+fn app_with(dir: &Path, limits: Limits) -> App<MockRuntime> {
     let mut app = neon_shell::shell(mock_builder())
         .build(tauri::generate_context!())
         .expect("the app builds");
-    neon_shell::setup(&mut app, &DataDir::At(dir.to_path_buf())).expect("the app sets up");
+    neon_shell::setup(&mut app, &DataDir::At(dir.to_path_buf()), limits).expect("the app sets up");
     app
 }
 
-fn window(app: &App<MockRuntime>) -> WebviewWindow<MockRuntime> {
+fn window<M: Manager<MockRuntime>>(app: &M) -> WebviewWindow<MockRuntime> {
     app.get_webview_window(MAIN_WINDOW)
         .expect("the main window")
 }
 
 /// Calls `command` with `args` as a page at `from` would.
-fn call(app: &App<MockRuntime>, from: &str, command: &str, args: Value) -> Result<Value, Value> {
+fn call<M: Manager<MockRuntime>>(
+    app: &M,
+    from: &str,
+    command: &str,
+    args: Value,
+) -> Result<Value, Value> {
     let request = InvokeRequest {
         cmd: command.to_owned(),
         callback: CallbackFn(0),
@@ -49,7 +59,11 @@ fn call(app: &App<MockRuntime>, from: &str, command: &str, args: Value) -> Resul
     get_ipc_response(&window(app), request).map(|body| body.deserialize().expect("JSON"))
 }
 
-fn from_picker(app: &App<MockRuntime>, command: &str, args: Value) -> Result<Value, Value> {
+fn from_picker<M: Manager<MockRuntime>>(
+    app: &M,
+    command: &str,
+    args: Value,
+) -> Result<Value, Value> {
     call(app, &format!("{APP_ORIGIN}/index.html"), command, args)
 }
 
@@ -100,6 +114,7 @@ fn no_other_origin_may_call_a_command() {
             "remove_server",
             json!({"origin": "https://neon.example.com"}),
         ),
+        ("cancel_opening", json!({})),
         (
             "plugin:opener|open_url",
             json!({"url": "https://example.com"}),
@@ -169,6 +184,7 @@ async fn the_commands_run_only_while_the_window_shows_the_apps_page() {
             json!({"origin": server.origin, "label": "taken"}),
         ),
         ("remove_server", json!({"origin": server.origin})),
+        ("cancel_opening", json!({})),
     ] {
         let error = from_picker(&app, command, args).unwrap_err();
         assert_eq!(error["code"], "not_the_picker", "{command}: {error}");
@@ -188,7 +204,7 @@ fn the_picker_starts_with_an_empty_list() {
     let app = app(dir.path());
     assert_eq!(
         from_picker(&app, "startup", json!({})),
-        Ok(json!({"servers": [], "last": null, "open": null}))
+        Ok(json!({"servers": [], "last": null, "open": null, "interrupted": null}))
     );
 }
 
@@ -429,5 +445,129 @@ async fn a_server_that_fails_its_check_stays_out_of_the_window() {
         json!({"address": server.origin, "acceptInsecure": true}),
     )
     .unwrap_err();
+    assert!(outside(&navigation(&app, &server.origin)));
+}
+
+/// Whether the window is on its way back to the picker, or there: the blank page first, where
+/// the webview needs one.
+fn back_to_the_picker(app: &App<MockRuntime>, picker: &str) -> bool {
+    let url = window(app).url().unwrap();
+    url.as_str() == "about:blank" || url.as_str() == picker
+}
+
+/// Waits, for at most ten seconds, until `condition` holds.
+async fn wait_until(mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !condition() {
+        assert!(
+            Instant::now() < deadline,
+            "the condition did not hold in time"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_that_never_starts_loading_takes_the_window_back_to_the_picker() {
+    let dir = tempfile::tempdir().unwrap();
+    let limits = Limits {
+        page: Duration::from_millis(200),
+        ..Limits::default()
+    };
+    let app = app_with(dir.path(), limits);
+    let server = serve(Answer::neon("Acme")).await;
+    let picker = picker(&app);
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": server.origin, "acceptInsecure": true}),
+    )
+    .unwrap();
+    assert_eq!(
+        window(&app).url().unwrap().as_str(),
+        format!("{}/", server.origin)
+    );
+    // The mock runtime starts no page: the server's never begins to arrive.
+    wait_until(|| back_to_the_picker(&app, &picker)).await;
+    let startup = from_picker(&app, "startup", json!({})).unwrap();
+    let interrupted = &startup["interrupted"];
+    assert_eq!(interrupted["code"], "page_timed_out", "{startup}");
+    assert_eq!(interrupted["origin"], server.origin);
+    assert!(
+        interrupted["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("its page did not start to arrive")),
+        "{interrupted}"
+    );
+    // The server stays saved, and the picker hears of it once.
+    assert_eq!(startup["servers"][0]["origin"], server.origin);
+    let again = from_picker(&app, "startup", json!({})).unwrap();
+    assert_eq!(again["interrupted"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_stops_the_page_loading_and_goes_back_to_the_picker() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(dir.path());
+    let server = serve(Answer::neon("Acme")).await;
+    let picker = picker(&app);
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": server.origin, "acceptInsecure": true}),
+    )
+    .unwrap();
+    assert_eq!(
+        from_picker(&app, "cancel_opening", json!({})),
+        Ok(json!(true))
+    );
+    assert!(back_to_the_picker(&app, &picker));
+    let startup = from_picker(&app, "startup", json!({})).unwrap();
+    assert_eq!(
+        startup["interrupted"],
+        json!({
+            "origin": server.origin,
+            "code": "cancelled",
+            "message": format!("Stopped opening {}.", server.origin),
+        })
+    );
+    // Nothing is left to cancel.
+    assert_eq!(
+        from_picker(&app, "cancel_opening", json!({})),
+        Ok(json!(false))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_during_the_check_opens_and_saves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let limits = Limits {
+        check: CheckOptions {
+            timeout: Duration::from_secs(3),
+        },
+        ..Limits::default()
+    };
+    let app = app_with(dir.path(), limits);
+    let mut server = serve(Answer::Silence).await;
+    let picker = picker(&app);
+    let handle: AppHandle<MockRuntime> = app.handle().clone();
+    let address = server.origin.clone();
+    let connecting = tokio::task::spawn_blocking(move || {
+        from_picker(
+            &handle,
+            "connect",
+            json!({"address": address, "acceptInsecure": true}),
+        )
+    });
+    // The check has reached the server, which keeps it waiting.
+    server.next_request().await;
+    assert_eq!(
+        from_picker(&app, "cancel_opening", json!({})),
+        Ok(json!(false))
+    );
+    let error = connecting.await.unwrap().unwrap_err();
+    assert_eq!(error["code"], "cancelled", "{error}");
+    assert_eq!(window(&app).url().unwrap().as_str(), picker);
+    assert!(!dir.path().join("servers.json").exists());
     assert!(outside(&navigation(&app, &server.origin)));
 }

@@ -21,4 +21,10 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
-void new Picker(element("view"), element("title"), element("status"), element("picker")).start();
+void new Picker(
+  element("view"),
+  element("title"),
+  element("status"),
+  element("picker"),
+  element("actions"),
+).start();

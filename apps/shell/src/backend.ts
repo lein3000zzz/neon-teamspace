@@ -20,9 +20,18 @@ export interface ServerList {
   last: string | null;
 }
 
+/** Why the window came back to the picker from a server it was opening. */
+export interface Interrupted {
+  origin: string;
+  /** `cancelled`, or `page_timed_out` when its page did not start to arrive in time. */
+  code: string;
+  message: string;
+}
+
 export interface Startup extends ServerList {
   /** The server to open at once, as the app starts. */
   open: string | null;
+  interrupted: Interrupted | null;
 }
 
 /** Why a command failed: a stable code, and a sentence to show. */
@@ -41,6 +50,8 @@ export const backend = {
   renameServer: (origin: string, label: string) =>
     invoke<ServerList>("rename_server", { origin, label }),
   removeServer: (origin: string) => invoke<ServerList>("remove_server", { origin }),
+  /** Stops opening a server: true when the window goes back to the picker to stop its page. */
+  cancelOpening: () => invoke<boolean>("cancel_opening"),
 };
 
 /** What a rejected command said, as a {@link Failure} whatever it was. */

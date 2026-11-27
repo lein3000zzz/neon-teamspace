@@ -115,6 +115,11 @@ p {
   color: var(--fg-muted);
 }
 
+/* Stop, while a server is opening. */
+.actions:not(:empty) {
+  margin-top: 0.5rem;
+}
+
 /* The list: one card per server, the open button its full width. */
 .servers {
   list-style: none;

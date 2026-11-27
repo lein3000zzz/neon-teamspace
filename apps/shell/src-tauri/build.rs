@@ -6,6 +6,7 @@ fn main() {
         "open_server",
         "rename_server",
         "remove_server",
+        "cancel_opening",
     ]);
     if let Err(error) =
         tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))

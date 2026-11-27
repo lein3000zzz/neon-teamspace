@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use serde::Serialize;
 
 use tauri::utils::config::{WebviewUrl, WindowConfig};
 use tauri::webview::{DownloadEvent, PageLoadEvent, WebviewWindowBuilder};
@@ -13,7 +15,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::DataDir;
 use crate::address::ServerAddress;
-use crate::lock::{Lock, Navigation, Started};
+use crate::lock::{Attempt, Lock, Navigation, Started};
 use crate::meta::CheckOptions;
 use crate::navigation::{self, Origin, Place, Verdict};
 use crate::servers::{ServerList, Store};
@@ -26,17 +28,59 @@ pub const MAIN_WINDOW: &str = "main";
 #[cfg(target_os = "ios")]
 const OPEN_IN_PLACE: &str = include_str!("open-in-place.js");
 
+/// How long the window waits for a server's page to start loading once it has asked for it.
+/// The server has just answered the check, within that check's ten seconds: a page that has
+/// not begun to arrive three times as long after is not coming, while a slow network or a busy
+/// server still has room.
+pub const PAGE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the app waits on a server.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// The check of `/api/v1/meta`.
+    pub check: CheckOptions,
+    /// The server's page, from the window asking for it until it starts loading.
+    pub page: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            check: CheckOptions::default(),
+            page: PAGE_TIMEOUT,
+        }
+    }
+}
+
+/// Why the window came back to the picker from a server it was opening: the picker says so as
+/// it loads again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Interrupted {
+    /// The server's origin.
+    pub origin: String,
+    /// `cancelled`, or `page_timed_out`.
+    pub code: &'static str,
+    pub message: String,
+}
+
 /// What the app holds while it runs.
 pub struct Shell {
     pub store: Store,
     pub list: Mutex<ServerList>,
     pub lock: Lock,
-    pub options: CheckOptions,
+    pub limits: Limits,
     /// Whether the picker has been told which server to open as the app starts, which it is
     /// once: coming back to the picker shows the list.
     launched: AtomicBool,
     /// Where each download the server's page started is being saved, by its URL.
     downloads: Mutex<HashMap<String, PathBuf>>,
+    /// Why the window last came back to the picker from a server it was opening, until the
+    /// picker has read it.
+    interrupted: Mutex<Option<Interrupted>>,
+    /// Held while the window is sent to a server or back to the picker, so that the page load
+    /// of an attempt to open a server and the way back that stops it are asked for in the
+    /// order the lock decided them.
+    window_changes: Mutex<()>,
 }
 
 impl Shell {
@@ -54,6 +98,27 @@ impl Shell {
         }
     }
 
+    /// Why the window last came back to the picker from a server it was opening, once.
+    pub fn take_interrupted(&self) -> Option<Interrupted> {
+        self.interrupted
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    fn interrupt(&self, interrupted: Interrupted) {
+        *self
+            .interrupted
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(interrupted);
+    }
+
+    fn window_changes(&self) -> MutexGuard<'_, ()> {
+        self.window_changes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn downloads(&self) -> MutexGuard<'_, HashMap<String, PathBuf>> {
         self.downloads
             .lock()
@@ -62,7 +127,11 @@ impl Shell {
 }
 
 /// Reads the server list, puts the state in place and opens the window on the picker.
-pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<()> {
+pub fn setup<R: Runtime>(
+    app: &mut App<R>,
+    data_dir: &DataDir,
+    limits: Limits,
+) -> tauri::Result<()> {
     let dir = match data_dir {
         DataDir::App => app.path().app_data_dir()?,
         DataDir::At(dir) => dir.clone(),
@@ -83,9 +152,11 @@ pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<
         list: Mutex::new(list),
         // WebView2 names each message's own page; the others name, or may, the window's.
         lock: Lock::new(origin, picker, !cfg!(windows)),
-        options: CheckOptions::default(),
+        limits,
         launched: AtomicBool::new(false),
         downloads: Mutex::new(HashMap::new()),
+        interrupted: Mutex::new(None),
+        window_changes: Mutex::new(()),
     });
     main_window(app.handle(), &config)?;
     Ok(())
@@ -244,13 +315,76 @@ fn later<R: Runtime>(
     });
 }
 
-/// Loads the server's page in the window, opening the lock to its origin first.
-pub fn open_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) -> tauri::Result<()> {
-    if let Some(origin) = Origin::of(address.url()) {
-        app.state::<Shell>().lock.open_server(origin);
+/// Loads the server's page in the window for `attempt`, opening the lock to its origin first,
+/// and gives up on it if it has not started loading within the time limit. Loads nothing, and
+/// says so, once the attempt was cancelled or another began.
+pub fn open_server<R: Runtime>(
+    app: &AppHandle<R>,
+    address: &ServerAddress,
+    attempt: Attempt,
+) -> tauri::Result<bool> {
+    let shell = app.state::<Shell>();
+    let _changing = shell.window_changes();
+    let opened =
+        Origin::of(address.url()).is_some_and(|origin| shell.lock.open_server(origin, attempt));
+    if !opened {
+        return Ok(false);
     }
     log::info!("opening {address}");
-    window(app)?.navigate(address.url().clone())
+    window(app)?.navigate(address.url().clone())?;
+    let app = app.clone();
+    let limit = shell.limits.page;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(limit).await;
+        if let Err(error) = give_up_on_page(&app, attempt, limit) {
+            log::warn!("the window could not load the page: {error}");
+        }
+    });
+    Ok(true)
+}
+
+/// Shows the picker again, and why, if the page `attempt` asked for has not started loading.
+fn give_up_on_page<R: Runtime>(
+    app: &AppHandle<R>,
+    attempt: Attempt,
+    limit: Duration,
+) -> tauri::Result<()> {
+    let shell = app.state::<Shell>();
+    let _changing = shell.window_changes();
+    let Some(origin) = shell.lock.stalled(attempt) else {
+        return Ok(());
+    };
+    let seconds = limit.as_secs_f64().ceil() as u64;
+    log::warn!("the page of {origin} did not start loading within {seconds} seconds");
+    shell.interrupt(Interrupted {
+        origin: origin.to_string(),
+        code: "page_timed_out",
+        message: format!(
+            "{origin} answered the app's check, but its page did not start to arrive within \
+             {seconds} seconds. Try again, or ask its administrator to look into it."
+        ),
+    });
+    show_picker_now(app)
+}
+
+/// Stops the attempt to open a server under way: true when the window goes back to the
+/// picker, which stops the server's page loading; false when only its check was under way,
+/// after which the attempt now opens nothing.
+pub fn cancel_opening<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<bool> {
+    let shell = app.state::<Shell>();
+    let _changing = shell.window_changes();
+    let Some(origin) = shell.lock.cancel_opening() else {
+        log::info!("cancelled opening a server during its check");
+        return Ok(false);
+    };
+    log::info!("stopped opening {origin}");
+    shell.interrupt(Interrupted {
+        origin: origin.to_string(),
+        code: "cancelled",
+        message: format!("Stopped opening {origin}."),
+    });
+    show_picker_now(app)?;
+    Ok(true)
 }
 
 /// Closes the lock to a server removed from the list.
@@ -263,6 +397,13 @@ pub fn forget_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) {
 /// Shows the picker again: a blank page first, which replaces the server's, and the picker
 /// once that has committed.
 pub fn show_picker<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let shell = app.state::<Shell>();
+    let _changing = shell.window_changes();
+    show_picker_now(app)
+}
+
+/// [`show_picker`], for a caller that holds the window's changes already.
+fn show_picker_now<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let blank = app.state::<Shell>().lock.show_picker();
     log::info!("showing the server picker");
     window(app)?.navigate(blank)

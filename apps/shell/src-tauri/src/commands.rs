@@ -5,9 +5,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::address::{AddressError, ServerAddress};
+use crate::lock::Attempt;
 use crate::meta::{self, CheckError, ServerInfo};
 use crate::servers::{ListError, SavedServer, ServerList};
-use crate::shell::{self, Shell};
+use crate::shell::{self, Interrupted, Shell};
 
 /// A failure the picker shows: a stable code and a sentence for the person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -103,6 +104,8 @@ pub struct Startup {
     pub list: ListView,
     /// The server to open at once: the one used last, the first time the picker loads only.
     pub open: Option<String>,
+    /// Why the window came back to the picker from a server it was opening, if it did.
+    pub interrupted: Option<Interrupted>,
 }
 
 /// Refuses a command unless the page last committed in the window is the app's own: a
@@ -123,7 +126,7 @@ fn from_the_picker(shell: &Shell, command: &str) -> Result<(), Failure> {
 /// Checks the server, and logs what the check found, with the technical cause of a failure,
 /// which the picker's message leaves out.
 async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Failure> {
-    match meta::check(address, shell.options).await {
+    match meta::check(address, shell.limits.check).await {
         Ok(info) => {
             log::info!("{address} is Neon Teamspace {}", info.version);
             Ok(info)
@@ -132,6 +135,24 @@ async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Fai
             log::warn!("{}", check_failure(address, &error));
             Err(error.into())
         }
+    }
+}
+
+/// The failure of an attempt to open `address` that was cancelled, or that a newer one
+/// replaced: the picker that made it has moved on.
+fn cancelled(address: &ServerAddress) -> Failure {
+    Failure {
+        code: "cancelled",
+        message: format!("Stopped opening {address}."),
+    }
+}
+
+/// Fails once `attempt` is no longer the latest attempt to open a server.
+fn still_opening(shell: &Shell, attempt: Attempt, address: &ServerAddress) -> Result<(), Failure> {
+    if shell.lock.still_opening(attempt) {
+        Ok(())
+    } else {
+        Err(cancelled(address))
     }
 }
 
@@ -151,12 +172,14 @@ pub fn startup(shell: State<'_, Shell>) -> Result<Startup, Failure> {
     Ok(Startup {
         list: ListView::from(&*shell.list()),
         open,
+        interrupted: shell.take_interrupted(),
     })
 }
 
 /// Checks a new address, saves it and opens it. An `http://` address is refused with the code
 /// `insecure`, and the warning as its message, until the picker asks again with
-/// `accept_insecure`, once the person has read it.
+/// `accept_insecure`, once the person has read it. Once [`cancel_opening`] stopped it, or
+/// another attempt began, it saves and opens nothing, and fails with `cancelled`.
 #[tauri::command]
 pub async fn connect<R: Runtime>(
     app: AppHandle<R>,
@@ -176,7 +199,10 @@ pub async fn connect<R: Runtime>(
             ),
         });
     }
-    let info = check(&address, &shell).await?;
+    let attempt = shell.lock.begin_opening();
+    let info = check(&address, &shell).await;
+    still_opening(&shell, attempt, &address)?;
+    let info = info?;
     let view = {
         let mut list = shell.list();
         let origin = list.upsert(&address, &info)?.origin.clone();
@@ -184,11 +210,14 @@ pub async fn connect<R: Runtime>(
         shell.store.save(&list).map_err(|error| storage(&error))?;
         ListView::from(&*list)
     };
-    shell::open_server(&app, &address)?;
+    if !shell::open_server(&app, &address, attempt)? {
+        return Err(cancelled(&address));
+    }
     Ok(view)
 }
 
-/// Checks a saved server again, which may have moved or changed, and opens it.
+/// Checks a saved server again, which may have moved or changed, and opens it; or, as
+/// [`connect`], nothing once cancelled.
 #[tauri::command]
 pub async fn open_server<R: Runtime>(
     app: AppHandle<R>,
@@ -200,7 +229,10 @@ pub async fn open_server<R: Runtime>(
         return Err(ListError::Unknown.into());
     }
     let address = ServerAddress::parse(&origin)?;
-    let info = check(&address, &shell).await?;
+    let attempt = shell.lock.begin_opening();
+    let info = check(&address, &shell).await;
+    still_opening(&shell, attempt, &address)?;
+    let info = info?;
     let view = {
         let mut list = shell.list();
         list.upsert(&address, &info)?;
@@ -208,8 +240,22 @@ pub async fn open_server<R: Runtime>(
         shell.store.save(&list).map_err(|error| storage(&error))?;
         ListView::from(&*list)
     };
-    shell::open_server(&app, &address)?;
+    if !shell::open_server(&app, &address, attempt)? {
+        return Err(cancelled(&address));
+    }
     Ok(view)
+}
+
+/// Stops opening a server: its check, whose command then fails with `cancelled`, or its page
+/// loading, which showing the picker again stops. True when the window goes back to the
+/// picker, which says why as it loads again; false when the picker stays as it is.
+#[tauri::command]
+pub fn cancel_opening<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
+) -> Result<bool, Failure> {
+    from_the_picker(&shell, "cancel_opening")?;
+    Ok(shell::cancel_opening(&app)?)
 }
 
 #[tauri::command]

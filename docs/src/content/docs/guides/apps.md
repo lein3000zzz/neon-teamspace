@@ -75,6 +75,12 @@ Teamspace at in a browser, such as `neon.example.com`. The app
    a version number;
 4. saves the server, and opens its root page, where the server's own sign-in page takes over.
 
+While the app checks the server and loads its page, the picker shows **Opening …** with
+**Stop**, which Escape presses too. If the page has not begun to arrive 30 seconds after the
+app asked for it, the app stops waiting and shows the picker again with the reason. The check
+has just had an answer within its 10 seconds, so a page that keeps the app waiting three times
+as long is not coming, while a slow network still has room.
+
 The app refuses an address that fails a step and says why:
 
 | Message | What to do |
@@ -88,6 +94,7 @@ The app refuses an address that fails a step and says why:
 | … has no Neon Teamspace API: /api/v1/meta answered 404. | The address is another site, or a proxy in front of the server does not pass `/api` on. |
 | … answered with something other than JSON… | The address serves web pages but no Neon Teamspace API. |
 | … answered with JSON that is not a Neon Teamspace server's… | Another product answers at that path, or the server is a development build older than the apps. |
+| … answered the app's check, but its page did not start to arrive within 30 seconds… | The server, or a proxy in front of it, answers its API but not its pages, or the network drops the page's request. Try again, and check the server if it lasts. |
 
 Use the address the server's administrator gives out. The server accepts changes only from
 pages on its own origin, `server.public_url`, so the app must load the server at that origin
@@ -212,11 +219,11 @@ the app's own. On Windows, whose web view names each call's own page, the picker
 without the blank page.
 
 **Capabilities.** Tauri lets a page call the app's native side only through the capabilities
-granted to it. The bundled picker has one, which allows the five commands it uses: list,
-connect, open, rename and remove servers. It grants no plugin, so the picker can neither open
-URLs nor write logs itself; the app's Rust side does both. The server's pages are on another
-origin and get no capability at all: every call to the native side from them is refused, and
-they run as they would in a browser.
+granted to it. The bundled picker has one, which allows the six commands it uses: list,
+connect, open, rename and remove servers, and stop opening one. It grants no plugin, so the
+picker can neither open URLs nor write logs itself; the app's Rust side does both. The
+server's pages are on another origin and get no capability at all: every call to the native
+side from them is refused, and they run as they would in a browser.
 
 **The picker's policy.** The picker's Content-Security-Policy allows only the app's own
 scripts, styles and images, no frames, and network access only to the app itself. It loads

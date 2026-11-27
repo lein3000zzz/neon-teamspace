@@ -3,9 +3,13 @@ import {
   displayName,
   failure,
   type Failure,
+  type Interrupted,
   type SavedServer,
   type ServerList,
 } from "./backend";
+
+/** The id of the button that stops opening a server. */
+const STOP = "stop-opening";
 
 /** What the add form shows while an http address waits for the person to accept it. */
 interface Insecure {
@@ -17,6 +21,14 @@ interface Insecure {
 interface Editing {
   kind: "rename" | "remove";
   origin: string;
+}
+
+/** A server the app is opening, which Stop can stop until its page has replaced the picker. */
+interface Opening {
+  /** Its name, or the address as typed. */
+  name: string;
+  /** The element focus goes back to once it is stopped, by its id. */
+  from: string;
 }
 
 interface State {
@@ -33,6 +45,7 @@ interface State {
   insecure: Insecure | null;
   /** What the add form's field holds, kept across renders. */
   draft: string;
+  opening: Opening | null;
 }
 
 /** An element, with attributes, properties set through `on…` handlers, and children. */
@@ -79,17 +92,39 @@ export class Picker {
     serverErrors: new Map(),
     insecure: null,
     draft: "",
+    opening: null,
   };
 
   /** The element to focus once the next render is done, by its id. */
   private focusAfter: string | null = null;
+
+  /**
+   * The number of the latest attempt to open a server. What a command of an earlier one
+   * answers, once it was cancelled or another began, is of no use any more.
+   */
+  private attempt = 0;
+
+  /** Stops opening a server; shown while one is opening. */
+  private readonly cancelButton = h(
+    "button",
+    { id: STOP, type: "button", class: "button", onclick: () => void this.cancel() },
+    "Stop",
+  );
 
   constructor(
     private readonly view: HTMLElement,
     private readonly title: HTMLElement,
     private readonly status: HTMLElement,
     private readonly main: HTMLElement,
-  ) {}
+    /** Where Stop shows while a server is opening: outside the view, which is inert then. */
+    private readonly actions: HTMLElement,
+  ) {
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.state.opening !== null) {
+        void this.cancel();
+      }
+    });
+  }
 
   async start(): Promise<void> {
     this.render();
@@ -97,6 +132,10 @@ export class Picker {
       const startup = await backend.startup();
       this.state.list = { servers: startup.servers, last: startup.last };
       this.state.busy = null;
+      if (startup.interrupted !== null) {
+        this.interrupted(startup.interrupted);
+        return;
+      }
       const open = startup.open === null ? undefined : this.server(startup.open);
       if (open !== undefined) {
         await this.open(open);
@@ -122,57 +161,141 @@ export class Picker {
     this.render();
   }
 
-  /** Runs a command with the page busy; what it gives back is the new list. */
+  /**
+   * Runs a command with the page busy, focusing `focus` if given; what it gives back is the
+   * new list. The caller ends the busy state.
+   */
   private async run(
     busy: string,
     command: () => Promise<ServerList>,
+    focus: string | null = null,
   ): Promise<{ ok: true; list: ServerList } | { ok: false; failure: Failure }> {
-    this.set({ busy });
+    this.set({ busy }, focus);
     try {
       const list = await command();
       return { ok: true, list };
     } catch (error) {
-      this.state.busy = null;
       return { ok: false, failure: failure(error) };
     }
+  }
+
+  /** Starts an attempt to open a server, which Stop can stop: its number. */
+  private begin(opening: Opening): number {
+    this.attempt += 1;
+    this.state.opening = opening;
+    return this.attempt;
   }
 
   private async open(server: SavedServer): Promise<void> {
     const errors = new Map(this.state.serverErrors);
     errors.delete(server.origin);
     this.state.serverErrors = errors;
-    const result = await this.run(`Opening ${displayName(server)}…`, () =>
-      backend.openServer(server.origin),
+    const from = `open-${idOf(server.origin)}`;
+    const attempt = this.begin({ name: displayName(server), from });
+    const result = await this.run(
+      `Opening ${displayName(server)}…`,
+      () => backend.openServer(server.origin),
+      STOP,
     );
+    if (attempt !== this.attempt) {
+      return;
+    }
     if (result.ok) {
-      // The window is loading the server's page; the picker stays as it is until it goes.
+      // The window is loading the server's page; the picker stays as it is, Stop with it,
+      // until the page replaces it.
       this.state.list = result.list;
       return;
     }
     errors.set(server.origin, result.failure.message);
-    this.set({ serverErrors: errors }, `open-${idOf(server.origin)}`);
+    this.set({ busy: null, opening: null, serverErrors: errors }, from);
   }
 
   private async connect(acceptInsecure: boolean): Promise<void> {
     const address = this.state.insecure?.address ?? this.state.draft;
     this.state.addError = null;
-    const result = await this.run(`Checking ${address.trim() || "the address"}…`, () =>
-      backend.connect(address, acceptInsecure),
+    const typed = address.trim() || "the address";
+    const attempt = this.begin({ name: typed, from: "address" });
+    const result = await this.run(
+      `Checking ${typed}…`,
+      () => backend.connect(address, acceptInsecure),
+      STOP,
     );
+    if (attempt !== this.attempt) {
+      return;
+    }
     if (result.ok) {
       const opened = result.list.servers.find((server) => server.origin === result.list.last);
+      const name = opened === undefined ? "the server" : displayName(opened);
       this.state.list = result.list;
-      this.set({
-        busy: `Opening ${opened === undefined ? "the server" : displayName(opened)}…`,
-        insecure: null,
-      });
+      this.set(
+        {
+          busy: `Opening ${name}…`,
+          insecure: null,
+          opening: {
+            name,
+            from: opened === undefined ? "title" : `open-${idOf(opened.origin)}`,
+          },
+        },
+        STOP,
+      );
       return;
     }
     if (result.failure.code === "insecure") {
-      this.set({ insecure: { address, message: result.failure.message } }, "accept-insecure");
+      this.set(
+        { busy: null, opening: null, insecure: { address, message: result.failure.message } },
+        "accept-insecure",
+      );
       return;
     }
-    this.set({ addError: result.failure.message, insecure: null }, "address");
+    this.set(
+      { busy: null, opening: null, addError: result.failure.message, insecure: null },
+      "address",
+    );
+  }
+
+  /**
+   * Stops opening a server. During its check, the picker goes back to where it was; once the
+   * window is loading the server's page, the app stops it by loading the picker again, which
+   * then says why.
+   */
+  private async cancel(): Promise<void> {
+    const opening = this.state.opening;
+    if (opening === null) {
+      return;
+    }
+    // Whatever the command under way answers now is of no use.
+    this.attempt += 1;
+    this.set({ busy: "Stopping…", opening: null });
+    let reloading = false;
+    try {
+      reloading = await backend.cancelOpening();
+    } catch {
+      // Only a page that is not the picker is refused: there is nothing left to stop.
+    }
+    if (reloading) {
+      return;
+    }
+    this.set({ busy: null }, opening.from);
+    this.announce(`Stopped opening ${opening.name}.`);
+  }
+
+  /** Says why the window came back to the picker from the server it was opening. */
+  private interrupted(interrupted: Interrupted): void {
+    const server = this.server(interrupted.origin);
+    if (interrupted.code === "cancelled") {
+      this.set({}, server === undefined ? "title" : `open-${idOf(server.origin)}`);
+      this.announce(
+        `Stopped opening ${server === undefined ? interrupted.origin : displayName(server)}.`,
+      );
+      return;
+    }
+    if (server === undefined) {
+      this.set({ addError: interrupted.message }, "address");
+      return;
+    }
+    const errors = new Map(this.state.serverErrors);
+    errors.set(server.origin, interrupted.message);
+    this.set({ serverErrors: errors }, `open-${idOf(server.origin)}`);
   }
 
   private async rename(server: SavedServer, label: string): Promise<void> {
@@ -191,7 +314,7 @@ export class Picker {
       return;
     }
     errors.set(server.origin, result.failure.message);
-    this.set({ serverErrors: errors }, `label-${idOf(server.origin)}`);
+    this.set({ busy: null, serverErrors: errors }, `label-${idOf(server.origin)}`);
   }
 
   private async remove(server: SavedServer): Promise<void> {
@@ -212,7 +335,7 @@ export class Picker {
     }
     const errors = new Map(this.state.serverErrors);
     errors.set(server.origin, result.failure.message);
-    this.set({ serverErrors: errors, editing: null }, `open-${idOf(server.origin)}`);
+    this.set({ busy: null, serverErrors: errors, editing: null }, `open-${idOf(server.origin)}`);
   }
 
   private announce(message: string): void {
@@ -248,10 +371,20 @@ export class Picker {
       );
     }
     this.view.replaceChildren(...parts);
+    // The same button throughout, so that it keeps the focus as the rest is drawn again.
+    if (this.state.opening === null) {
+      this.cancelButton.remove();
+    } else if (!this.cancelButton.isConnected) {
+      this.actions.append(this.cancelButton);
+    }
 
-    if (this.focusAfter !== null && busy === null) {
-      document.getElementById(this.focusAfter)?.focus();
-      this.focusAfter = null;
+    // While the view is inert, only what is outside it can take the focus.
+    if (this.focusAfter !== null) {
+      const target = document.getElementById(this.focusAfter);
+      if (busy === null || (target !== null && !this.view.contains(target))) {
+        target?.focus();
+        this.focusAfter = null;
+      }
     }
   }
 

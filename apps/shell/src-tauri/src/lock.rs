@@ -25,6 +25,13 @@
 //! most once a second, not again for the same URL within ten seconds, and never in the first
 //! second of a page's load, when only a script or a frame could have asked for it.
 //!
+//! **Opening a server.** Each attempt to open one, from the picker's command to the server's
+//! first page, has a number. The window asks for the server's page only if the attempt is
+//! still the latest, and once it has, the attempt is pending until a page starts loading. The
+//! picker can cancel it, and a page that never starts gives up after a time limit: either way,
+//! a pending page load is stopped by showing the picker again ([`Lock::cancel_opening`],
+//! [`Lock::stalled`]). A newer attempt, and any way back to the picker, ends the older one.
+//!
 //! **A page no hook saw.** Android asks the app about no form posted with POST, so a form on
 //! a server's page that posts to another origin would load it in the window. Each page that
 //! starts loading in the window is judged again: one that is not the app's or a server's is
@@ -138,7 +145,15 @@ struct State {
     page_started: Option<Instant>,
     /// What opened outside the app last, and when.
     last_outside: Option<(Instant, Url)>,
+    /// The number of the latest attempt to open a server.
+    attempt: Attempt,
+    /// The attempt whose server's page the window has asked for and which has not started
+    /// loading yet, with that server.
+    pending: Option<(Attempt, Origin)>,
 }
+
+/// The number of an attempt to open a server.
+pub type Attempt = u64;
 
 /// The origin lock of the app's window.
 #[derive(Debug)]
@@ -166,6 +181,8 @@ impl Lock {
                 last_server_page: None,
                 page_started: None,
                 last_outside: None,
+                attempt: 0,
+                pending: None,
             }),
         }
     }
@@ -184,11 +201,54 @@ impl Lock {
         navigation::judge(url, &self.app, &self.state().servers)
     }
 
-    /// Opens the lock to `origin`, the server the window is about to load.
-    pub fn open_server(&self, origin: Origin) {
+    /// Starts an attempt to open a server, which ends any earlier one.
+    pub fn begin_opening(&self) -> Attempt {
         let mut state = self.state();
+        state.attempt += 1;
+        state.pending = None;
+        state.attempt
+    }
+
+    /// Opens the lock to `origin`, the server the window is about to load for `attempt`, and
+    /// notes the page as pending; or, when the attempt was cancelled or another began since,
+    /// does nothing and says so.
+    pub fn open_server(&self, origin: Origin, attempt: Attempt) -> bool {
+        let mut state = self.state();
+        if state.attempt != attempt {
+            return false;
+        }
         state.servers.retain(|opened| *opened != origin);
-        state.servers.push(origin);
+        state.servers.push(origin.clone());
+        state.pending = Some((attempt, origin));
+        true
+    }
+
+    /// Whether `attempt` is still the latest attempt to open a server.
+    pub fn still_opening(&self, attempt: Attempt) -> bool {
+        self.state().attempt == attempt
+    }
+
+    /// Cancels the attempt to open a server under way: the server whose page the window is
+    /// loading, which showing the picker stops, or none, when the attempt had not got that far.
+    pub fn cancel_opening(&self) -> Option<Origin> {
+        let mut state = self.state();
+        state.attempt += 1;
+        state.pending.take().map(|(_, origin)| origin)
+    }
+
+    /// Gives up on `attempt` if its server's page has not started loading yet: the server,
+    /// whose page load showing the picker stops.
+    pub fn stalled(&self, attempt: Attempt) -> Option<Origin> {
+        let mut state = self.state();
+        if !state
+            .pending
+            .as_ref()
+            .is_some_and(|(pending, _)| *pending == attempt)
+        {
+            return None;
+        }
+        state.attempt += 1;
+        state.pending.take().map(|(_, origin)| origin)
     }
 
     /// Closes the lock to `origin`, a server removed from the list.
@@ -238,6 +298,8 @@ impl Lock {
     /// blank page, the picker at once.
     pub fn show_picker(&self) -> Url {
         let mut state = self.state();
+        state.attempt += 1;
+        state.pending = None;
         match Url::parse(BLANK) {
             Ok(blank) if self.through_blank => {
                 state.showing = Showing::Blank;
@@ -259,6 +321,8 @@ impl Lock {
     /// What the window does once a page at `url` has started loading in it, at `now`.
     pub fn started(&self, url: &Url, now: Instant) -> Started {
         let mut state = self.state();
+        // Whatever it is, the page asked for to open a server is no longer pending.
+        state.pending = None;
         let verdict = navigation::judge(url, &self.app, &state.servers);
         let started = match verdict {
             Verdict::Load(Place::App) if url.scheme() == "about" => {
@@ -330,6 +394,11 @@ mod tests {
         Origin::of(&url(text)).unwrap()
     }
 
+    /// Opens the lock to `server`, as opening it from the picker does.
+    fn open(lock: &Lock, server: &str) {
+        assert!(lock.open_server(origin(server), lock.begin_opening()));
+    }
+
     /// A lock whose window shows the picker, as the app starts.
     fn lock() -> (Lock, Instant) {
         let lock = Lock::new(origin(PICKER), url(PICKER), true);
@@ -342,7 +411,7 @@ mod tests {
     /// The lock, with the window on `page` of the server, a while after `start`.
     fn on_server(page: &str) -> (Lock, Instant) {
         let (lock, start) = lock();
-        lock.open_server(origin(SERVER));
+        open(&lock, SERVER);
         let now = start + Duration::from_secs(5);
         assert_eq!(lock.navigation(&url(page), now), Navigation::Load);
         assert_eq!(lock.started(&url(page), now), Started::Stay);
@@ -404,7 +473,7 @@ mod tests {
         let lock = Lock::new(origin(PICKER), url(PICKER), false);
         let now = Instant::now();
         lock.started(&url(PICKER), now);
-        lock.open_server(origin(SERVER));
+        open(&lock, SERVER);
         lock.started(&url(SERVER), now);
         assert_eq!(lock.navigation(&url(PICKER), now), Navigation::ShowPicker);
         assert_eq!(lock.show_picker(), url(PICKER));
@@ -421,7 +490,7 @@ mod tests {
         assert!(lock.on_app_page(), "the first page, as the window opens");
         lock.started(&url(PICKER), now);
         assert!(lock.on_app_page());
-        lock.open_server(origin(SERVER));
+        open(&lock, SERVER);
         lock.started(&url(SERVER), now);
         assert!(!lock.on_app_page());
         // On the way back, until the picker itself has committed.
@@ -468,8 +537,8 @@ mod tests {
             lock.navigation(&url(SERVER), later),
             Navigation::OpenOutside(_)
         ));
-        lock.open_server(origin(SERVER));
-        lock.open_server(origin(other));
+        open(&lock, SERVER);
+        open(&lock, other);
         for page in [SERVER, other] {
             assert_eq!(
                 lock.navigation(&url(page), later),
@@ -566,6 +635,72 @@ mod tests {
                 back: None
             }
         );
+    }
+
+    #[test]
+    fn a_page_that_never_starts_is_given_up_on() {
+        let (lock, now) = lock();
+        let attempt = lock.begin_opening();
+        assert!(lock.open_server(origin(SERVER), attempt));
+        // The window asked for the server's page, which has not started: the time limit gives
+        // up on it, once.
+        assert_eq!(lock.stalled(attempt), Some(origin(SERVER)));
+        assert_eq!(lock.stalled(attempt), None);
+        // The server stays open to the lock: its page may still come, and the way back to the
+        // picker takes its place.
+        assert_eq!(lock.navigation(&url(SERVER), now), Navigation::Load);
+    }
+
+    #[test]
+    fn a_page_that_starts_ends_the_wait() {
+        let (lock, now) = lock();
+        let attempt = lock.begin_opening();
+        assert!(lock.open_server(origin(SERVER), attempt));
+        lock.started(&url("https://neon.example.com/w/acme"), now);
+        assert_eq!(lock.stalled(attempt), None);
+        // Back on the picker later, nothing of that attempt is left to cancel.
+        lock.started(&url(PICKER), now);
+        assert_eq!(lock.cancel_opening(), None);
+    }
+
+    #[test]
+    fn cancelling_stops_the_page_or_the_check_under_way() {
+        let (lock, _) = lock();
+        // While the check runs: nothing to stop in the window, and the attempt opens nothing
+        // once its check is done.
+        let checking = lock.begin_opening();
+        assert_eq!(lock.cancel_opening(), None);
+        assert!(!lock.still_opening(checking));
+        assert!(!lock.open_server(origin(SERVER), checking));
+        assert_eq!(
+            lock.judge(&url(SERVER)),
+            Verdict::OpenOutside,
+            "the lock stays closed to it"
+        );
+
+        // While the page loads: the server whose page the picker must stop.
+        let loading = lock.begin_opening();
+        assert!(lock.open_server(origin(SERVER), loading));
+        assert_eq!(lock.cancel_opening(), Some(origin(SERVER)));
+        assert_eq!(
+            lock.stalled(loading),
+            None,
+            "the time limit has nothing left"
+        );
+    }
+
+    #[test]
+    fn a_newer_attempt_or_the_way_back_ends_the_older_one() {
+        let (lock, _) = lock();
+        let first = lock.begin_opening();
+        let second = lock.begin_opening();
+        assert!(!lock.open_server(origin(SERVER), first));
+        assert!(lock.open_server(origin(SERVER), second));
+        // The menu's way back to the picker, while the page loads.
+        lock.show_picker();
+        assert!(!lock.still_opening(second));
+        assert_eq!(lock.stalled(second), None);
+        assert_eq!(lock.cancel_opening(), None);
     }
 
     #[test]

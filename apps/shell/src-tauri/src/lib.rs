@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use tauri::{App, AppHandle, Builder, Runtime, Url};
 
-pub use shell::MAIN_WINDOW;
+pub use shell::{Interrupted, Limits, MAIN_WINDOW, PAGE_TIMEOUT};
 
 use crate::lock::Navigation;
 
@@ -46,13 +46,18 @@ pub fn shell<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::open_server,
             commands::rename_server,
             commands::remove_server,
+            commands::cancel_opening,
         ])
 }
 
 /// Reads the server list, puts the app's state in place and opens its window on the picker:
-/// what the app does once its event loop is ready.
-pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<()> {
-    shell::setup(app, data_dir)
+/// what the app does once its event loop is ready. `limits` says how long it waits on servers.
+pub fn setup<R: Runtime>(
+    app: &mut App<R>,
+    data_dir: &DataDir,
+    limits: Limits,
+) -> tauri::Result<()> {
+    shell::setup(app, data_dir, limits)
 }
 
 /// What the app's window does with a navigation to `url` now: the origin lock's decision, which
@@ -89,7 +94,7 @@ pub fn run() {
     let builder = builder.menu(menu::build).on_menu_event(menu::handle);
     let app = shell(builder)
         .setup(|app| {
-            setup(app, &DataDir::App)?;
+            setup(app, &DataDir::App, Limits::default())?;
             Ok(())
         })
         .build(tauri::generate_context!());

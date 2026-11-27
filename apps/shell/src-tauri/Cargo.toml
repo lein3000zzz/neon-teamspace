@@ -34,6 +34,8 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
+# The time limit on a server's page, in Tauri's own async runtime.
+tokio = { version = "1.54.1", default-features = false, features = ["time"] }
 url = "2.5.9"
 
 # The roots the check trusts on Android, where the platform verifier needs a Java component.
