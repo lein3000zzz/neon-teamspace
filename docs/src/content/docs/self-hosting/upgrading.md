@@ -96,11 +96,13 @@ Error: applying database migrations
 
 Caused by:
     0: while executing migration 20261121165322: error returned from database: relation "jobs" already exists at line 1488
+    1: error returned from database: relation "jobs" already exists at line 1488
+    2: relation "jobs" already exists at line 1488
 ```
 
 Docker starts it again, as the Compose file says `restart: unless-stopped`, and each start
 tries the same migration, so the server keeps restarting and never turns healthy:
-`up --wait` stops with `container neon-server-1 is unhealthy`, and
+`up --wait` stops with `dependency failed to start: container neon-server-1 is unhealthy`, and
 `docker compose -f deployments/docker-compose.yml logs server` shows the error. Restore the
 backup and go back to the release before, then report the error.
 
