@@ -88,7 +88,7 @@ The app refuses an address that fails a step and says why:
 | Only https:// addresses can be used… | The address starts with another scheme, such as `ftp://`. |
 | Leave the user name and password out of the address… | Remove `name:password@`. You sign in on the server's page. |
 | … needs https://. Plain http:// is only for a server on this device or your own network… | See [Plain http](#plain-http) below. |
-| Could not reach … | The server is down, the name does not resolve, or the connection failed. The message ends with the system's reason, or for https what was wrong in plain words, such as an expired certificate, one the device does not trust, or a server that answered on plain http. The log keeps the technical cause. |
+| Could not reach … | The server is down, the name does not resolve, or the connection failed. The message ends with the system's reason, or for https what was wrong in plain words, such as an expired certificate, one the device does not trust, or a server that answered on plain http or closed the connection. The log keeps the technical cause. |
 | … did not answer within 10 seconds. | The server or the network is too slow, or a firewall drops the connection. |
 | … sends its visitors to …. Enter that address instead. | The server redirects. Use the address it names, which is the one its administrator set as `server.public_url`. |
 | … has no Neon Teamspace API: /api/v1/meta answered 404. | The address is another site, or a proxy in front of the server does not pass `/api` on. |

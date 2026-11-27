@@ -119,6 +119,26 @@ pub async fn serve(answer: Answer) -> Server {
     Server { origin, requests }
 }
 
+/// Starts a server on a free port of 127.0.0.1 that closes each connection once the first
+/// bytes arrive, as some servers do with bytes they cannot read: its origin.
+pub async fn serve_closing() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
+    let origin = format!("http://{}", listener.local_addr().expect("an address"));
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buffer = [0; 1024];
+                let _ = stream.read(&mut buffer).await;
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    origin
+}
+
 /// A port of 127.0.0.1 where nothing listens.
 pub async fn closed_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");

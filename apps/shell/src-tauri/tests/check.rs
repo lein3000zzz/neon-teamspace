@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use neon_shell::address::ServerAddress;
 use neon_shell::meta::{self, CheckError, CheckOptions, MAX_ANSWER_BYTES, ServerInfo};
-use support::{Answer, closed_port, serve};
+use support::{Answer, closed_port, serve, serve_closing};
 
 fn options() -> CheckOptions {
     CheckOptions {
@@ -211,6 +211,25 @@ async fn https_to_a_plain_http_server_on_a_private_address_suggests_http() {
         error
             .detail()
             .is_some_and(|detail| detail.contains("InvalidContentType")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_server_that_closes_on_the_tls_handshake_is_named_so_in_plain_words() {
+    let origin = serve_closing().await.replace("http://", "https://");
+    let error = check(&origin).await.unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "Could not reach {origin}: it closed the connection before an encrypted one was set \
+             up. If the server has no TLS certificate, enter its address with http:// in front."
+        )
+    );
+    assert!(
+        error
+            .detail()
+            .is_some_and(|detail| detail.contains("tls handshake eof")),
         "{error:?}"
     );
 }

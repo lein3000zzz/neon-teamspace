@@ -274,6 +274,11 @@ fn unreachable(address: &ServerAddress, error: &reqwest::Error) -> CheckError {
     let detail = cause.to_string();
     let (reason, hint) = match tls {
         Some(tls) => tls_failure(address, tls),
+        // The TLS library's "tls handshake eof", which has no error of its own.
+        None if address.is_encrypted() && error.is_connect() && ended_early(cause) => (
+            "it closed the connection before an encrypted one was set up".to_owned(),
+            None,
+        ),
         None => (detail.clone(), None),
     };
     let hint = hint.unwrap_or(if address.is_encrypted() && address.is_private() {
@@ -303,6 +308,24 @@ fn tls_error<'a>(cause: &'a (dyn std::error::Error + 'static)) -> Option<&'a rus
         }
         cause = cause.downcast_ref::<std::io::Error>()?.get_ref()?;
     }
+}
+
+/// Whether `cause`, the innermost of a failed connection, is the connection ending where more
+/// was due: on https, before the TLS handshake was done, as a server that does not speak TLS
+/// on the port may close it. The I/O error saying so is the payload of another, as
+/// [`tls_error`] finds the TLS library's.
+fn ended_early(cause: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cause = cause;
+    while let Some(error) = cause.downcast_ref::<std::io::Error>() {
+        if error.kind() == std::io::ErrorKind::UnexpectedEof {
+            return true;
+        }
+        let Some(payload) = error.get_ref() else {
+            return false;
+        };
+        cause = payload;
+    }
+    false
 }
 
 /// A failed TLS connection in plain words: the reason, and what to try where it is not what
