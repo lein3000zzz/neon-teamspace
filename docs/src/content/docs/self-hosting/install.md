@@ -163,8 +163,8 @@ its default port, or the domain of [below](#a-domain-and-tls). The
 [secret key](/docs/self-hosting/configuration/#secret-keys) seals what the database keeps
 secret, mail and webhooks need it, and it belongs in the backups, apart from the database's.
 The first admin is made as the server starts, while no admin can sign in. Without the two
-`ADMIN` variables, make one in the running stack instead, which asks for the password:
-`docker compose -f deployments/docker-compose.yml exec server neon admin create --email you@example.com`.
+`ADMIN` variables, `neon admin create` makes one in the running stack instead, as
+[the first run](#the-first-run) shows.
 
 The stack sets two of the server's keys itself, over anything `server.env` says:
 `database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
