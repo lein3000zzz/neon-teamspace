@@ -360,7 +360,10 @@ The web app's also carries shadcn/ui's MIT license, for the components copied in
 `web/src/components/ui`, where the license is too. The server image holds the crates' notices at
 `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`, which [cargo-about](https://github.com/EmbarkStudios/cargo-about)
 writes as the image builds, as `about.toml` sets out; its accepted licenses are the allow list
-of `deny.toml`, and a test keeps the two the same.
+of `deny.toml`, and a test keeps the two the same. The web image holds Caddy's notices at
+`/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`: a stage of `web/Dockerfile` downloads each Go
+module that `caddy build-info` lists, checks it against the hash the binary records, and
+copies its license files, failing when a module has none.
 
 ### Configuration
 
