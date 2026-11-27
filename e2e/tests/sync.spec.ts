@@ -1,4 +1,9 @@
+import { account, clientAddress, makeAccounts, PASSWORD, runOf } from "./accounts";
 import { ADMIN, type ApiErrorBody, expect, signIn, test } from "./fixtures";
+
+test.use({
+  extraHTTPHeaders: async ({}, use, testInfo) => use(clientAddress(24, testInfo.repeatEachIndex)),
+});
 
 /** A page id no page has. */
 const NO_PAGE = "0193a5b2-0000-7000-8000-0000000000a1";
@@ -14,16 +19,25 @@ test("Caddy passes /ws on to the server, which wants a session first", async ({ 
 
 test("a page's document opens over a WebSocket through Caddy, within the app's policy", async ({
   page,
+  browser,
 }) => {
   test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
-  const { email, password } = ADMIN ?? { email: "", password: "" };
+  // An account of the run's own, as a workspace of the first admin's would follow them into
+  // every other spec.
+  const run = runOf();
+  const writer = account("syncer", run);
+  const adminContext = await browser.newContext();
+  try {
+    await makeAccounts(await adminContext.newPage(), [writer]);
+  } finally {
+    await adminContext.close();
+  }
   await page.goto("/login");
-  await signIn(page, email, password);
+  await signIn(page, writer.email, PASSWORD);
   await expect(page.getByRole("complementary")).toBeVisible();
   const origin = new URL(page.url()).origin;
   const headers = { Origin: origin };
 
-  const run = String(Date.now());
   const workspace = await page.request.post("/api/v1/workspaces", {
     headers,
     data: { name: `Sync ${run}` },
