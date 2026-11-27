@@ -158,6 +158,14 @@ export async function safeArea(page: Page, insets: typeof DYNAMIC_ISLAND) {
   await session.send("Emulation.setSafeAreaInsetsOverride", { insets });
 }
 
+/** How many panels the browser's history entry in view has open, each with an entry of its own. */
+export function panelsInHistory(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const state = window.history.state as { panels?: unknown } | null;
+    return Array.isArray(state?.panels) ? state.panels.length : 0;
+  });
+}
+
 /** Opens the sidebar, a drawer on a phone, from the button at the top of the screen. */
 export async function openDrawer(page: Page): Promise<Locator> {
   await page.getByRole("button", { name: "Open navigation" }).tap();

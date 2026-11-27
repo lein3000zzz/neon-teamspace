@@ -204,6 +204,13 @@ Everything above works on a touch screen. The sidebar is a drawer on a phone, ev
 buttons show, and each control is a full touch target, 44 pixels or more. Pages do not drag
 on a touch screen: **Move to…**, **Move up** and **Move down** do the same.
 
+The back gesture, Android's back button or the browser's **Back** closes what is open over
+the page first: the drawer, the comments, a dialog, or the page's history or a row beside its
+database, the one on top first. Only then does it leave the page. Forward opens it again.
+Closed another way, with its button or a tap beside it, it leaves nothing for **Back** to
+close, so **Back** leaves the page; and a page opened from the drawer takes the drawer's step,
+so **Back** from it returns to the page under the drawer.
+
 ### The editing toolbar
 
 Where a finger is the main pointer, the editor has no block handles to hover and no toolbar

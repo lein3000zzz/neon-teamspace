@@ -81,7 +81,8 @@ export function DatabaseScope({
 
 /**
  * Opens a row: beside the database, as a peek, on a wide screen, where both
- * fit; in place of it, as a full page, on a narrower one.
+ * fit; in place of it, as a full page, on a narrower one. The peek's entry
+ * says it was opened from the database, for its closing to step back to it.
  */
 export function useOpenRow() {
   const workspace = useWorkspace();
@@ -90,7 +91,10 @@ export function useOpenRow() {
   return useCallback(
     (rowId: string, full = false) => {
       if (wide && !full) {
-        void navigate({ search: (previous) => ({ ...previous, peek: rowId }) });
+        void navigate({
+          search: (previous) => ({ ...previous, peek: rowId }),
+          state: { peeked: true },
+        });
       } else {
         void navigate({
           to: "/w/$slug/p/$pageId",

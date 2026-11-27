@@ -1,10 +1,21 @@
 import { ADMIN, expect, test } from "./fixtures";
-import { DYNAMIC_ISLAND, personOnPhone, phoneAddress, safeArea } from "./phone";
+import {
+  DYNAMIC_ISLAND,
+  openDrawer,
+  pageIn,
+  panelsInHistory,
+  personOnPhone,
+  phoneAddress,
+  safeArea,
+} from "./phone";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
+// Each page opened is left for the next; Chromium logs a socket that a page closes before it
+// opened as failed.
 test.use({
   extraHTTPHeaders: async ({}, use, testInfo) => use(phoneAddress(35, testInfo)),
+  expectedConsoleError: /WebSocket connection to '[^']*\/ws\/pages\/[^']*' failed/,
 });
 
 test("under an iPhone's status bar, the skip link stays out of sight until the keyboard reaches it", async ({
@@ -35,4 +46,58 @@ test("under an iPhone's status bar, the skip link stays out of sight until the k
   );
   await page.keyboard.press("Enter");
   await expect(page.getByRole("main")).toBeFocused();
+});
+
+test("on a phone, back closes the comments, the drawer and a dialog over it before it leaves the page", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const { workspace } = await personOnPhone(browser, page, "returner");
+  const sprint = await pageIn(page, workspace, "Sprint", "The sprint's goals.");
+  const plan = await pageIn(page, workspace, "Launch plan", "Ship it on Sunday.");
+  const sprintTitle = page.getByRole("heading", { level: 1, name: "Sprint" });
+  const planTitle = page.getByRole("heading", { level: 1, name: "Launch plan" });
+  await page.goto(sprint.path);
+  await expect(sprintTitle).toBeVisible();
+  await page.goto(plan.path);
+  await expect(planTitle).toBeVisible();
+
+  // The comments, over the whole screen of a phone: back closes them, on the same page.
+  await page.getByRole("button", { name: /^Comments/ }).tap();
+  const comments = page.getByRole("complementary", { name: "Comments" });
+  await expect(comments).toBeVisible();
+  await page.goBack();
+  await expect(comments).toBeHidden();
+  await expect(planTitle).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(plan.path);
+
+  // The drawer, and a dialog opened from it: back closes the dialog, then the drawer.
+  const drawer = await openDrawer(page);
+  await drawer.getByRole("button", { name: "More for Launch plan" }).tap();
+  await page.getByRole("menuitem", { name: "Move to…" }).tap();
+  const move = page.getByRole("dialog", { name: "Move Launch plan" });
+  await expect(move).toBeVisible();
+  await page.goBack();
+  await expect(move).toBeHidden();
+  await expect(drawer).toBeVisible();
+  await page.goBack();
+  await expect(drawer).toBeHidden();
+  await expect(planTitle).toBeVisible();
+
+  // A page opened from the drawer takes the drawer's place: back returns to the page under it.
+  await (await openDrawer(page)).getByRole("link", { name: "Sprint" }).tap();
+  await expect(sprintTitle).toBeVisible();
+  await page.goBack();
+  await expect(planTitle).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Closed with its own button, the drawer takes its entry back with it: back leaves the page.
+  const again = await openDrawer(page);
+  await expect.poll(() => panelsInHistory(page)).toBe(1);
+  await again.getByRole("button", { name: "Close navigation" }).tap();
+  await expect(again).toBeHidden();
+  await expect.poll(() => panelsInHistory(page)).toBe(0);
+  await page.goBack();
+  await expect(sprintTitle).toBeVisible();
 });

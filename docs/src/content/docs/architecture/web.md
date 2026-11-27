@@ -140,6 +140,17 @@ A page is at `/w/{slug}/p/{id}`, and the workspace's trash at `/w/{slug}/trash`.
   sharing a browser finds theirs folded after a reload; where storage is refused, they stay
   folded for the session.
 
+Where the main pointer is coarse, each panel open over a page, the drawer, a sheet, a dialog
+or the comments, has an entry in the browser's history (`lib/panel-history.ts`), as a phone's
+back gesture goes back in the history and would leave the page otherwise. The entry is at the
+page's address, and its state lists the panels open in it. Leaving it closes the panel, and
+forward to it opens it again; a panel closed another way goes back past its entry, and a
+navigation from it takes the place of the panels' entries, so none is left to step through.
+The entries keep the scroll position of the page's entry, under the router's
+`getScrollRestorationKey`. With a mouse the history is as it was. A row beside its database is
+in the address already, as `?peek=`; on a touch screen its **Close** goes back to the
+database's entry rather than adding one.
+
 The editor is loaded only with a page: BlockNote, ProseMirror and Yjs make one chunk of
 about 1.2 MB, apart from the rest of the app. It binds BlockNote to the page's Yjs
 document, to the `XmlFragment` named `document-store` that
