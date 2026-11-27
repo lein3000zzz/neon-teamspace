@@ -429,7 +429,12 @@ that runs off the async threads holds the place, and its person's turn, until it
 even when the import's deadline has passed and its answer has gone; an export holds them
 until its file is sent whole. Every HTTP connection drops a client that takes nothing of
 what it is sent for 30 seconds, and with it what its answer held in memory, so a client that
-stops reading a large answer, an export or a page's markdown, does not keep it there.
+stops reading a large answer, an export or a page's markdown, does not keep it there. A
+client that reads, however slowly, is never cut off, so each has at most 8 answers of 256 KiB
+or more built in memory on their way at once: one more is refused with `503 busy` and a
+`Retry-After`, and its answer dropped. A client is the person a request authenticated as,
+their agents with them, or else the source it came from. Answers streamed as they are made,
+files and exports, hold little at once and are not counted.
 
 A zip is read in memory, as uploaded, and none of its files is ever written to disk. Before
 the server parses a zip's directory, it counts the entries the zip says it lists, taking the

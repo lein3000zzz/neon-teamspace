@@ -583,3 +583,48 @@ async fn markdown_nesting_deeper_than_blocks_may_is_refused_and_changes_nothing(
     assert_eq!(markdown_of(&t.ada.get(&markdown).await), before);
     state.sync.shutdown().await;
 }
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_person_has_a_few_large_answers_on_their_way_at_once(pool: PgPool) {
+    use tower::ServiceExt as _;
+
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let ws = &t.workspace;
+    let general = general(&t.ada, ws).await;
+    // A page whose markdown is past what counts as large.
+    let long = "word ".repeat(usize::try_from(answers::LARGE).expect("small") / 5 + 1);
+    let created = t
+        .ada
+        .post(
+            &format!("/api/v1/workspaces/{ws}/pages"),
+            json!({"teamspace_id": general, "title": "Long", "markdown": long}),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let markdown = format!("/api/v1/pages/{}/markdown", id(&created));
+    let ask = |cookie: &str| {
+        let request = axum::http::Request::get(&markdown)
+            .header(axum::http::header::COOKIE, cookie)
+            .body(axum::body::Body::empty())
+            .expect("a request");
+        app.clone().oneshot(request)
+    };
+
+    // Ada's answers, none of them read: the next one is refused, Dee's is not.
+    let mut unread = Vec::new();
+    for _ in 0..answers::PER_CLIENT {
+        let answer = ask(t.ada.cookie()).await.expect("answered");
+        assert_eq!(answer.status(), StatusCode::OK);
+        unread.push(answer);
+    }
+    let refused = ask(t.ada.cookie()).await.expect("answered");
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let dees = ask(t.dee.cookie()).await.expect("answered");
+    assert_eq!(dees.status(), StatusCode::OK);
+    // Once one is gone, Ada may have another.
+    unread.pop();
+    let again = ask(t.ada.cookie()).await.expect("answered");
+    assert_eq!(again.status(), StatusCode::OK);
+}
