@@ -405,7 +405,10 @@ saved. It, and every setting that says where files go, changes only from a brows
 An import reads a file someone uploads, so it is bounded before it starts. The import route
 takes a body of at most 32 MiB and a form around it, larger than any other route. The server
 asks the rate limit and the rules before it reads the body, and holds one of four places
-for imports and exports while one runs, so a few people cannot fill its memory.
+for imports and exports while one runs, so a few people cannot fill its memory. The work
+that runs off the async threads holds the place, and its person's turn, until it ends,
+even when the import's deadline has passed and its answer has gone; an export holds them
+until its file is sent whole.
 
 A zip is read in memory, as uploaded, and none of its files is ever written to disk. Before
 the server parses a zip's directory, it counts the entries the zip says it lists, taking the
@@ -415,9 +418,14 @@ a zip with an entry whose path starts at a root, `/` or a drive letter, or climb
 markdown files, at most 4 MiB each and 64 MiB together, and stops reading a file at its limit
 whatever size the zip states. The other files its pages link to are unpacked as uploads,
 each at most the largest file and all of them at most 256 MiB together, the budget left
-bounding each one as it is read. A page's document may be at most 16 MiB. The work that unpacks
-and parses runs off the async threads, and both imports and exports stop after 20 seconds.
-Nothing is made unless all of it can be.
+bounding each one as it is read. A page's document may be at most 16 MiB, and the server
+counts the parts of each page's markdown, its blocks, table rows and cells, runs of text,
+line breaks and mentions, before it writes any into the page's document: at most 100,000 for
+one page and 500,000 for the whole import. The work that unpacks, parses and writes runs off
+the async threads, checks the deadline between pages, and both imports and exports stop
+after 20 seconds. Nothing is made unless all of it can be. Work off the async threads that
+is still running when the server stops gets 5 seconds after the shutdown hooks before the
+process exits without it.
 
 Exports name their files after titles with the characters file systems refuse taken out, so
 a title cannot make a path either. They answer with `Cache-Control: no-store`. The full list

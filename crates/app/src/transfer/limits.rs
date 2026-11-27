@@ -20,6 +20,10 @@ pub struct Limits {
     pub max_depth: usize,
     /// The most pages one import makes, folders included.
     pub max_pages: usize,
+    /// The most nodes, as [`neon_blocks::nodes`] counts them, the pages of one import make
+    /// together: what writing their documents takes, in time and in memory, grows with them.
+    /// Each page's makes at most what a page's content is written with at once, too.
+    pub max_nodes: usize,
     /// The most pages one export holds, rows of databases aside.
     pub max_export_pages: usize,
     /// The most rows of databases one export holds besides its pages: by default as many
@@ -55,6 +59,7 @@ impl Default for Limits {
             max_entries: 2000,
             max_depth: 32,
             max_pages: 1000,
+            max_nodes: 500_000,
             max_export_pages: 5000,
             max_export_rows: neon_domain::databases::MAX_ROWS,
             export_rows_at_once: 250,

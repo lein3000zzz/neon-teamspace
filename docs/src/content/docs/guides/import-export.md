@@ -203,6 +203,8 @@ styles and shares do not go into markdown, and what markdown loses of the conten
 | Files and folders a zip lists, those left out included | 2000 |
 | How many folders deep a file is | 32 |
 | Pages one import makes | 1000 |
+| Blocks, table rows and cells, runs of text, line breaks and mentions one page's markdown makes | 100,000 |
+| The same, all the pages of one import together | 500,000 |
 | Pages one export holds, rows of databases aside | 5000 |
 | Rows of databases one export holds besides its pages | 10,000 |
 | Markdown one export holds, before it is zipped | 128 MiB |
@@ -217,7 +219,12 @@ whose entry would land outside the zip, with `..` or a path from the root of a d
 counts a zip's entries before it parses its directory, so a zip that lists too many is refused
 before it takes any memory. The server does not trust the size a zip states for a file. It
 stops reading the file at its limit. A page also holds at most 16 MiB of document, as the
-[live documents](/docs/architecture/realtime/#limits) do.
+[live documents](/docs/architecture/realtime/#limits) do. The parts of each page's markdown
+are counted before any of it is written into the page's document, so a file that makes too
+many is refused without that work.
+
+An export keeps its place among the four, and its person's turn, until its file is sent
+whole, so a client that reads it slowly holds them as long as the file.
 
 Each person may import 10 times, then once more every 30 seconds, and export the same, counted
 apart. Past that the answer is `429 rate_limited` with `Retry-After`. The rules answer
@@ -239,5 +246,5 @@ the file or limit at fault.
 | `409` | `storage_limit` | The zip's files would take the workspace past its storage limit. |
 | `413` | `too_large` | Past one of the limits above. A body larger than the largest upload gets `payload_too_large`. |
 | `429` | `rate_limited` | Too many imports or exports. |
-| `503` | `busy` | Four imports and exports are running already, or the caller runs two. Try again after `Retry-After`. |
+| `503` | `busy` | Four imports and exports are running already, or being sent, or the caller runs two. Try again after `Retry-After`. |
 | `503` | `timeout` | It took longer than 20 seconds. Import or export less at once. |

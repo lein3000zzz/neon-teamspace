@@ -5,12 +5,16 @@
 //! before the file is read; the server's own limit of transfers running answers once it is.
 //! Exports answer with the file itself, to download.
 
+use std::convert::Infallible;
+
+use axum::body::Body;
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use neon_app::transfer::{Export, ImportReport, Limits, SkipReason as AppSkipReason, Upload};
+use bytes::Bytes;
+use neon_app::transfer::{Exported, ImportReport, Limits, SkipReason as AppSkipReason, Upload};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -312,10 +316,22 @@ pub(super) async fn export_teamspace(
     Ok(download(export))
 }
 
-/// An export as an attachment to save, named as its file, never kept by a cache.
-fn download(export: Export) -> Response {
-    let mut response = export.bytes.into_response();
+/// How much of an export's file goes to the connection at a time.
+const DOWNLOAD_CHUNK: usize = 64 * 1024;
+
+/// An export as an attachment to save, named as its file, never kept by a cache. Its body
+/// keeps the export's place and turn until it is sent whole, or the connection closes, so
+/// a client that reads slowly holds them as long as the file it holds in memory.
+fn download(Exported { export, hold }: Exported) -> Response {
+    let length = export.bytes.len();
+    let bytes = Bytes::from(export.bytes);
+    let chunks = (0..length).step_by(DOWNLOAD_CHUNK).map(move |at| {
+        let _held = &hold;
+        Ok::<_, Infallible>(bytes.slice(at..length.min(at + DOWNLOAD_CHUNK)))
+    });
+    let mut response = Body::from_stream(futures_util::stream::iter(chunks)).into_response();
     let headers = response.headers_mut();
+    headers.insert(CONTENT_LENGTH, HeaderValue::from(length));
     headers.insert(
         CONTENT_TYPE,
         HeaderValue::from_static(export.format.content_type()),

@@ -1,7 +1,9 @@
 //! The `neon` command line.
 
+use std::future::Future;
 use std::io::{self, BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
@@ -96,6 +98,26 @@ enum SearchCommand {
 enum ConfigCommand {
     /// Load and check the configuration, then print it with secrets redacted.
     Check,
+}
+
+/// How long work still running once a command is done may take before the process exits
+/// without it: work off the async threads that cannot be stopped, such as an import that
+/// outlived its deadline, which would otherwise keep the process alive until it ended.
+pub const EXIT_GRACE: Duration = Duration::from_secs(5);
+
+/// Runs `command` on a runtime of its own, then shuts the runtime down, waiting for at most
+/// `grace` for what is still running.
+pub fn block_on<T>(
+    command: impl Future<Output = anyhow::Result<T>>,
+    grace: Duration,
+) -> anyhow::Result<T> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+    let done = runtime.block_on(command);
+    runtime.shutdown_timeout(grace);
+    done
 }
 
 /// Runs a command. `serve` and `migrate` load the configuration, then install telemetry,
@@ -250,5 +272,31 @@ mod tests {
             cli.command,
             Some(Command::Openapi { out: Some(path) }) if path.to_str() == Some("api/openapi.json")
         ));
+    }
+
+    #[test]
+    fn blocking_work_left_running_does_not_hold_the_process_past_its_grace() {
+        let (started, waiting) = std::sync::mpsc::channel();
+        let (_release, hold) = std::sync::mpsc::channel::<()>();
+        let begun = std::time::Instant::now();
+        let done = block_on(
+            async move {
+                // Blocking work that runs on for longer than the grace, as an import's
+                // conversion runs on past its deadline.
+                drop(tokio::task::spawn_blocking(move || {
+                    let _ = started.send(());
+                    let _ = hold.recv_timeout(Duration::from_secs(10));
+                }));
+                waiting.recv().expect("the work started");
+                Ok(())
+            },
+            Duration::from_millis(100),
+        );
+        assert!(done.is_ok());
+        assert!(
+            begun.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            begun.elapsed()
+        );
     }
 }

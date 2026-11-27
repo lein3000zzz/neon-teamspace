@@ -169,13 +169,38 @@ pub struct Export {
     pub bytes: Vec<u8>,
 }
 
+/// An export made: its file, and its place and turn, which whoever sends the file keeps
+/// until its last byte is sent, so a client that reads slowly holds them as long as the
+/// file.
+#[derive(Debug)]
+pub struct Exported {
+    pub export: Export,
+    pub hold: Hold,
+}
+
 /// An import let in: the rules let the caller add pages where it goes, and it holds one of
 /// the caller's turns of [`Limits::per_user`] until it ends.
 pub struct ImportTicket {
     principal: Principal,
     workspace_id: Uuid,
     location: Location,
-    _turn: Turn,
+    turn: Arc<Turn>,
+}
+
+/// What an import or export holds while any of its work runs: one of the places of
+/// [`Limits::parallel`] and one of its person's turns of [`Limits::per_user`]. Work off the
+/// async threads keeps a clone until it ends, so a deadline, which drops the rest of the
+/// work, lets go of neither while it still runs; an export's file keeps one until it is
+/// sent.
+#[derive(Clone)]
+pub struct Hold {
+    _held: Arc<(OwnedSemaphorePermit, Arc<Turn>)>,
+}
+
+impl std::fmt::Debug for Hold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Hold")
+    }
 }
 
 /// One of a person's turns of [`Limits::per_user`], held while their import or export runs.
@@ -300,7 +325,7 @@ impl TransferService {
                 principal: principal.clone(),
                 workspace_id,
                 location,
-                _turn: turn,
+                turn: Arc::new(turn),
             })
         })
         .await
@@ -314,31 +339,44 @@ impl TransferService {
         upload: Upload,
     ) -> Result<ImportReport, TransferError> {
         self.observe("import", async {
-            let _place = self.place()?;
+            let hold = self.hold(Arc::clone(&ticket.turn))?;
             let limits = self.inner.limits.clone();
             let deadline = Deadline::after(limits.time_limit);
-            let max_document = self.inner.sync.limits().max_document;
+            let sync_limits = self.inner.sync.limits();
+            let sizes = convert::Sizes {
+                document: sync_limits.max_document,
+                nodes: sync_limits.max_nodes,
+            };
             let work = async {
                 let bytes = upload.bytes.clone();
                 let read_limits = limits.clone();
-                let (mut contents, parsed) = blocking(move || {
+                let (mut contents, parsed) = blocking(&hold, move || {
                     let mut contents = archive::read(&upload, &read_limits, deadline)?;
                     let parsed = convert::parse(std::mem::take(&mut contents.entries), deadline)?;
+                    if convert::nodes(&parsed) > read_limits.max_nodes {
+                        return Err(TransferError::too_large(format!(
+                            "the pages make more than {} blocks, table rows and cells, runs \
+                             of text, line breaks and mentions, the most one import writes: \
+                             import fewer at once",
+                            read_limits.max_nodes
+                        )));
+                    }
                     Ok((contents, parsed))
                 })
                 .await?;
                 let links = convert::links(&parsed, &contents.files);
                 let prepared = self
-                    .import_files(&ticket, &bytes, &mut contents, links, deadline)
+                    .import_files(&ticket, &bytes, &mut contents, links, deadline, &hold)
                     .await?;
                 let made: HashMap<String, (usize, neon_domain::attachments::File)> = prepared
                     .iter()
                     .map(|(link, file)| (link.path.clone(), (link.owner, file.file.clone())))
                     .collect();
                 let imported = async {
-                    let pages =
-                        blocking(move || convert::finish(parsed, &made, max_document, deadline))
-                            .await?;
+                    let pages = blocking(&hold, move || {
+                        convert::finish(parsed, &made, sizes, deadline)
+                    })
+                    .await?;
                     Ok::<_, TransferError>(
                         self.inner
                             .pages
@@ -391,6 +429,7 @@ impl TransferService {
         contents: &mut archive::Contents,
         links: Vec<convert::Link>,
         deadline: Deadline,
+        hold: &Hold,
     ) -> Result<Vec<(convert::Link, Prepared)>, TransferError> {
         let attachments = &self.inner.attachments;
         let max_file = attachments.max_file_bytes();
@@ -405,8 +444,10 @@ impl TransferService {
                 };
                 let bytes = upload.clone();
                 let budget = most.saturating_sub(unpacked);
-                let data =
-                    blocking(move || archive::unpack(bytes, index, max_file, budget)).await?;
+                let data = blocking(hold, move || {
+                    archive::unpack(bytes, index, max_file, budget)
+                })
+                .await?;
                 let refused = match data {
                     archive::Unpacked::TooLarge => Some(SkipReason::TooLarge),
                     archive::Unpacked::OverBudget => {
@@ -471,12 +512,11 @@ impl TransferService {
         principal: &Principal,
         page_id: Uuid,
         children: bool,
-    ) -> Result<Export, TransferError> {
+    ) -> Result<Exported, TransferError> {
         self.observe("export_page", async {
             self.inner.pages.page(principal, page_id).await?;
             self.limit(Bucket::PageExport, principal).await?;
-            let _turn = self.turn(principal)?;
-            let _place = self.place()?;
+            let hold = self.hold(Arc::new(self.turn(principal)?))?;
             let deadline = Deadline::after(self.inner.limits.time_limit);
             let export = deadline
                 .bound(async {
@@ -490,15 +530,17 @@ impl TransferService {
                         TransferError::Internal(format!("page {page_id} has no outline"))
                     })?;
                     if children {
-                        self.zipped(principal, &first.title, pages, deadline).await
+                        self.zipped(principal, &first.title, pages, deadline, &hold)
+                            .await
                     } else {
                         let document = self.content(first.id).await?;
                         let extra = self.extra(principal, &first).await?;
                         let name = named(&first.title, Format::Markdown);
-                        let bytes =
-                            blocking(move || Ok(convert::markdown(&first.title, document, &extra)))
-                                .await?
-                                .into_bytes();
+                        let bytes = blocking(&hold, move || {
+                            Ok(convert::markdown(&first.title, document, &extra))
+                        })
+                        .await?
+                        .into_bytes();
                         Ok(Export {
                             name,
                             format: Format::Markdown,
@@ -513,7 +555,7 @@ impl TransferService {
                 bytes = export.bytes.len(),
                 "page exported"
             );
-            Ok(export)
+            Ok(Exported { export, hold })
         })
         .await
     }
@@ -524,15 +566,14 @@ impl TransferService {
         &self,
         principal: &Principal,
         teamspace_id: Uuid,
-    ) -> Result<Export, TransferError> {
+    ) -> Result<Exported, TransferError> {
         self.observe("export_teamspace", async {
             self.inner
                 .pages
                 .check_teamspace_pages(principal, teamspace_id)
                 .await?;
             self.limit(Bucket::PageExport, principal).await?;
-            let _turn = self.turn(principal)?;
-            let _place = self.place()?;
+            let hold = self.hold(Arc::new(self.turn(principal)?))?;
             let deadline = Deadline::after(self.inner.limits.time_limit);
             let export = deadline
                 .bound(async {
@@ -542,7 +583,7 @@ impl TransferService {
                         .teamspace_outline(principal, teamspace_id, self.outline_limit())
                         .await?;
                     self.check_count(&outline.pages)?;
-                    self.zipped(principal, &outline.name, outline.pages, deadline)
+                    self.zipped(principal, &outline.name, outline.pages, deadline, &hold)
                         .await
                 })
                 .await?;
@@ -552,7 +593,7 @@ impl TransferService {
                 bytes = export.bytes.len(),
                 "teamspace exported"
             );
-            Ok(export)
+            Ok(Exported { export, hold })
         })
         .await
     }
@@ -564,6 +605,7 @@ impl TransferService {
         name: &str,
         pages: Vec<OutlinePage>,
         deadline: Deadline,
+        hold: &Hold,
     ) -> Result<Export, TransferError> {
         // Boxed, as it moves to a thread and back for each page.
         let mut zip = Box::new(ZipExport::new(self.inner.limits.max_export_bytes));
@@ -610,7 +652,7 @@ impl TransferService {
                 .files_to_add(principal, &document, &paths, &mut file_bytes)
                 .await?;
             let page = page.clone();
-            (zip, paths) = blocking(move || {
+            (zip, paths) = blocking(hold, move || {
                 let placed = zip.place(&page);
                 for (file, bytes) in files {
                     let path = zip.attach(page.id, &file, &bytes)?;
@@ -634,7 +676,7 @@ impl TransferService {
         Ok(Export {
             name: named(name, Format::Zip),
             format: Format::Zip,
-            bytes: blocking(move || zip.finish()).await?,
+            bytes: blocking(hold, move || zip.finish()).await?,
         })
     }
 
@@ -759,11 +801,15 @@ impl TransferService {
         })
     }
 
-    /// One of the places of [`Limits::parallel`], held while the work runs.
-    fn place(&self) -> Result<OwnedSemaphorePermit, TransferError> {
-        Arc::clone(&self.inner.places)
+    /// One of the places of [`Limits::parallel`], with a person's turn, held while the
+    /// work runs.
+    fn hold(&self, turn: Arc<Turn>) -> Result<Hold, TransferError> {
+        let place = Arc::clone(&self.inner.places)
             .try_acquire_owned()
-            .map_err(|_| TransferError::Busy)
+            .map_err(|_| TransferError::Busy)?;
+        Ok(Hold {
+            _held: Arc::new((place, turn)),
+        })
     }
 
     async fn limit(&self, bucket: Bucket, principal: &Principal) -> Result<(), TransferError> {
@@ -845,17 +891,25 @@ impl Deadline {
     }
 }
 
-/// Runs work that keeps a thread busy, such as reading a zip, off the async threads.
+/// Runs work that keeps a thread busy, such as reading a zip, off the async threads, the
+/// transfer's place and turn held until it ends: dropping what waits for it, as a deadline
+/// does, does not stop it.
 async fn blocking<T: Send + 'static>(
+    hold: &Hold,
     work: impl FnOnce() -> Result<T, TransferError> + Send + 'static,
 ) -> Result<T, TransferError> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .unwrap_or_else(|error| {
-            Err(TransferError::Internal(format!(
-                "the work stopped short: {error}"
-            )))
-        })
+    let hold = hold.clone();
+    tokio::task::spawn_blocking(move || {
+        let done = work();
+        drop(hold);
+        done
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(TransferError::Internal(format!(
+            "the work stopped short: {error}"
+        )))
+    })
 }
 
 /// An export's file name: a page's or teamspace's name as a file system takes it, and the
@@ -880,6 +934,37 @@ fn size(bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn work_off_the_async_threads_keeps_its_place_and_turn_past_a_deadline() {
+        let places = Arc::new(Semaphore::new(1));
+        let user_id = Uuid::now_v7();
+        let running = Arc::new(Mutex::new(HashMap::from([(user_id, 1)])));
+        let turn = Arc::new(Turn {
+            running: Arc::clone(&running),
+            user_id,
+        });
+        let place = Arc::clone(&places).try_acquire_owned().expect("a place");
+        let hold = Hold {
+            _held: Arc::new((place, turn)),
+        };
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let deadline = Deadline::after(Duration::from_millis(10));
+        let work = blocking(&hold, move || {
+            wait.recv()
+                .map_err(|error| TransferError::Internal(error.to_string()))
+        });
+        assert!(matches!(
+            deadline.bound(work).await,
+            Err(TransferError::TimedOut(_))
+        ));
+        drop(hold);
+        assert_eq!(places.available_permits(), 0, "the work still runs");
+        assert_eq!(running.lock().expect("unpoisoned").get(&user_id), Some(&1));
+        release.send(()).expect("the work waits");
+        let _again = places.acquire().await.expect("the place comes back");
+        assert!(running.lock().expect("unpoisoned").is_empty());
+    }
 
     #[test]
     fn sizes_read_as_people_say_them() {
