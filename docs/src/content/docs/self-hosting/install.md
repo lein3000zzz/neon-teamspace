@@ -17,7 +17,7 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | Image | What it holds |
 |---|---|
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
-| `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
+| `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`, and Caddy's, with those of the Go modules it is built from, are in `/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`. |
 
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the Compose file with
 the example settings beside it: from a release's Compose archive, to run the published
@@ -35,8 +35,7 @@ start the stack:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
 docker compose -f deployments/docker-compose.yml pull
@@ -50,10 +49,13 @@ Compose file runs the images of the release it belongs to, which its `image` lin
 that cannot be pulled, such as one of a mistyped version, stops the start instead of being
 built from whatever the directory holds.
 
-While the repository is private, the archive and the images need a GitHub account with
-access to it: `gh` signed in as it, and `docker login ghcr.io` with a token that can read
-packages before the pull. Once it is public, `curl` fetches the archive too:
-`curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1`.
+Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed in, can
+fetch the archive instead, for `tar` to unpack:
+
+```sh
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+```
 
 In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
 checkout instead, after the same `deployments/.env`:

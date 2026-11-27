@@ -78,17 +78,18 @@ published images:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD
 cp deployments/server.env.example deployments/server.env  # set the public URL, NEON_SECRETS__KEYS and the first admin
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
 ```
 
-A clone at the release's tag holds the same files, and its Compose file runs the same
-images. While the repository is private, the archive and the images need a GitHub account
-with access to it: `gh` signed in as it, and `docker login ghcr.io` before the pull. The
+Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed in, can
+fetch the archive instead, with
+`gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'`,
+for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1` to unpack. A clone
+at the release's tag holds the same files, and its Compose file runs the same images. The
 [install page](docs/src/content/docs/self-hosting/install.md) covers
 the archive, both files, the first run, a domain with TLS, stopping, and where the data
 lives; [backups](docs/src/content/docs/self-hosting/backups.md),
@@ -273,21 +274,22 @@ GitHub Actions runs three workflows.
   - **E2E test code:** `make e2e-check` and the license check for `e2e/`.
   - **Block fixtures:** `make blocks-check`, which tests `neon-blocks` against the updates BlockNote wrote and has BlockNote load the ones `neon-blocks` wrote, and the license check for `tools/blocknote-fixtures/`.
   - **Versions:** `make version-check`, which builds the server for `neon --version`, whenever a file that states the version changes; see [Releasing](#releasing).
-  - **App shell:** on Linux with WebKitGTK, cargo-deny and the license check for `apps/shell/`, `make app-check`, `make app-test`, which tests the picker in Chromium and WebKit, a `.deb` build of the Linux app, and `make app-webview-check`, which runs that build against a hostile server under Xvfb.
-  - **Secret scan:** gitleaks over the run's new commits.
+  - **App shell:** on Ubuntu 22.04 with WebKitGTK, as the release builds the Linux app, cargo-deny and the license check for `apps/shell/`, `make app-check`, `make app-test`, which tests the picker in Chromium and WebKit, a `.deb` build of the Linux app, and `make app-webview-check`, which runs that build against a hostile server under Xvfb.
+  - **Secret scan:** gitleaks over the run's new commits, with `.gitleaks.toml` and `.gitleaksignore` as the commit they are based on has them, so a change cannot silence the scan of its own commits.
   - **All checks** passes when every other job passed or was skipped. It is the one check branch protection needs to require.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
   - It runs on every pull request into `main`, and on pull requests into `dev` that touch the images, Caddy, Compose, the end-to-end tests or the Makefile.
   - It also runs on every push to `dev` and `main`, and saves both images' layers to the Actions cache. Pull requests into those branches build from it, so only the layers their changes touch build again: the tools and the dependencies cargo-chef cooks build only when a Dockerfile, `Cargo.lock` or a manifest changes.
+  - Called by a release, it neither reads nor writes that cache, and the step that builds and tests gets no token for it. Whatever a run could still write there, the published images never read it: they build without a layer cache.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.
-  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, and everything that states the version states it.
+  - `make version-check` with the tag, which fails unless the tag is `v` and the workspace's version, or a release candidate of it such as `v0.2.0-rc.1` for 0.2.0, and everything that states the version states it.
   - The end-to-end tests, with the server built in the release profile as the published image is.
-  - The server and web images for `linux/amd64` and `linux/arm64`, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
-  - Images are signed with cosign keyless signing only once the repository is public, because keyless signing records the repository's identity in Sigstore's public logs. While it is private, the step is skipped.
-  - Beside the end-to-end tests and the images, the apps: the desktop installers on Linux, Windows and macOS runners, and the Android APK on Linux, signed when the repository has the keystore's secrets, which the [Apps guide](docs/src/content/docs/guides/apps.md#releases) lists.
-  - A GitHub release, with the Compose archive that `make compose-archive` writes and the apps' installers as its assets. Its notes name the images, their platforms and their tags, say whether they are signed, and link the install page, the Upgrading page, the changelog and the Apps guide, before the pull requests merged since the last release, which GitHub lists.
+  - The server and web images for `linux/amd64` and `linux/arm64`, built from the tag's checkout and the digest-pinned base images without a layer cache, with OCI labels, an SBOM and build provenance, pushed to `ghcr.io/lein3000zzz/neon-teamspace-server` and `-web` as the version, the minor version and `latest`, and from 1.0 on the major version too; a pre-release, such as `v0.2.0-rc.1`, as its version alone.
+  - Both images, and each platform's image in them, are signed with cosign's keyless signing, which records the workflow, the repository and the commit in Sigstore's public transparency log. [Upgrading](docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows how to check them.
+  - Beside the end-to-end tests and the images, the apps: the desktop installers on Linux (Ubuntu 22.04), Windows and macOS runners, and the Android APK on Linux, each with build provenance. The APK is built unsigned, then signed in a job of its own when the repository has the keystore's secrets, which the [Apps guide](docs/src/content/docs/guides/apps.md#releases) lists.
+  - A GitHub release, with the Compose archive that `make compose-archive` writes, the apps' installers and `SHA256SUMS`, the checksums of all of them, as its assets, marked as a pre-release for a pre-release tag. Its notes name the images, their platforms and their tags, say how to check their signatures, and link the install page, the Upgrading page, the changelog and the Apps guide, before the pull requests merged since the newest full release, which GitHub lists.
 
 Dependabot opens one grouped pull request per ecosystem each month, targeting `dev`. A few pins in the workflows are bumped by hand; `.github/dependabot.yml` lists them.
 
@@ -309,9 +311,13 @@ unless every other place that states it agrees:
 - the docs and the example settings, where they name the version, an image, the Compose
   archive, a release's page or the tag a clone checks out.
 
-Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
-changelog's section must have its date. `make check` runs the check, and so does CI's
-**Versions** job whenever one of those files changes.
+Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, or a
+release candidate of it: `v`, the version, `-rc.` and a number, such as `v0.2.0-rc.1` for
+0.2.0. Either way the changelog's section must have its date. A candidate rehearses the whole
+release on the commit the release will tag, so every file states the version alone; its
+images are tagged with the candidate's version alone, and its GitHub release is marked as a
+pre-release. `make check` runs the check, and so does CI's **Versions** job whenever one of
+those files changes.
 
 To release:
 
@@ -323,9 +329,42 @@ To release:
    numbers, and under **Breaking changes** what the release asks of whoever runs or calls
    the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
-3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
-   The release workflow does the rest. `make compose-archive` writes the archive it attaches,
-   to look at before tagging.
+3. Before the first release only, make the repository public: **Settings** → **General** →
+   **Danger Zone** → **Change repository visibility**. As a safety net, the workflow skips
+   signing for a repository that was private when the tag was pushed, and a re-run sees that
+   same push, so the images of a tag pushed earlier are never signed.
+4. Rehearse the release with a candidate of `main`'s commit, as GitHub has it after the merge:
+   `git fetch origin`, `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1 origin/main` and
+   `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
+   both images as `X.Y.Z-rc.1` alone, never as `latest` or the minor version, and makes a
+   GitHub release marked as a pre-release. `make compose-archive` writes the archive it
+   attaches, to look at before tagging.
+5. Check the candidate as anyone without an account would, after `docker logout ghcr.io`:
+   - `docker pull ghcr.io/lein3000zzz/neon-teamspace-server:X.Y.Z-rc.1`, and the same for
+     `neon-teamspace-web`. A pull that is denied means GHCR created that package private,
+     whatever the repository's visibility: on the package's page, from **Packages** on the
+     repository's front page, **Package settings** → **Danger Zone** → **Change visibility**
+     → **Public**, which cannot be undone, then pull again.
+   - `curl -fsSLO https://github.com/lein3000zzz/neon-teamspace/releases/download/vX.Y.Z-rc.1/neon-teamspace-compose-X.Y.Z.tar.gz`,
+     the release's Compose archive, which still names the version alone.
+   - `cosign verify` of both images at `X.Y.Z-rc.1`, as
+     [Upgrading](docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows.
+     The workflow's cosign writes each signature as a Sigstore bundle, which cosign 3 reads,
+     and cosign 2.6 or later with `--new-bundle-format`; older versions, and tools that look
+     for cosign's `.sig` tags, find none. GHCR has no OCI referrers API, so each bundle is
+     stored under the fallback tag `sha256-` and the signed image's digest, in the image's
+     own package.
+
+   A check that fails is fixed through `dev` and `main` like any change, then checked again
+   with `vX.Y.Z-rc.2`.
+6. Before the first release only, delete each candidate's GitHub release and tag, such as
+   with `gh release delete vX.Y.Z-rc.1 --cleanup-tag --yes`: with no full release before it,
+   GitHub may start the first release's list of pull requests at a candidate. After that,
+   each release's list starts at the full release before it. `git tag -d vX.Y.Z-rc.1`
+   deletes the local copy too, which a later push of every tag would bring back and release
+   again. The candidates' images stay on GHCR.
+7. Tag the candidate's commit as the release, with `origin/main` still on it after another
+   `git fetch origin`: `git tag -a vX.Y.Z -m vX.Y.Z origin/main` and `git push origin vX.Y.Z`.
 
 ## Licenses
 
@@ -338,13 +377,18 @@ with the reason none of it ships.
 
 What ships carries its dependencies' license notices. The web app's and the docs' builds
 write `THIRD_PARTY_NOTICES.txt` beside their files, served at `/THIRD_PARTY_NOTICES.txt` and
-`/docs/THIRD_PARTY_NOTICES.txt`. The server image holds the crates' notices at
+`/docs/THIRD_PARTY_NOTICES.txt`, with where to get the source of each package under MPL-2.0.
+The web app's also carries shadcn/ui's MIT license, for the components copied into
+`web/src/components/ui`, where the license is too. The server image holds the crates' notices at
 `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`, which [cargo-about](https://github.com/EmbarkStudios/cargo-about)
-writes as the image builds, as `about.toml` sets out. The apps embed `THIRD_PARTY_NOTICES.txt`
-with their server picker, which links to it: the picker's build writes the notices of its
-packages and, with cargo-about and `apps/shell/about.toml`, of the crates the apps link on
-every platform. Both files' accepted licenses are the allow list of `deny.toml`, and a test
-keeps them the same.
+writes as the image builds, as `about.toml` sets out. The web image holds Caddy's notices at
+`/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`: a stage of `web/Dockerfile` downloads each Go
+module that `caddy build-info` lists, checks it against the hash the binary records, and
+copies its license files, failing when a module has none. The apps embed
+`THIRD_PARTY_NOTICES.txt` with their server picker, which links to it: the picker's build
+writes the notices of its packages and, with cargo-about and `apps/shell/about.toml`, of the
+crates the apps link on every platform. Both `about.toml` files' accepted licenses are the
+allow list of `deny.toml`, and a test keeps them the same.
 
 ### Configuration
 

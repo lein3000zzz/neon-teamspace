@@ -1,14 +1,14 @@
 # A release, on a version tag such as v1.2.3. Each job starts only once the one before it
 # passed, so nothing is published unless every check did: the version check, which needs the
 # tag to name the workspace's version; the end-to-end tests of the release build; the server and
-# web images for linux/amd64 and linux/arm64 on GHCR, with OCI labels, an SBOM and build
-# provenance; beside them the apps, desktop on each platform's runner and Android on Linux,
-# with build provenance; and a GitHub release with the Compose archive, the apps' installers
-# and a SHA256SUMS file of them attached, whose notes name the images and their tags and link
-# the docs, before the ones GitHub generates from the merged pull requests. It needs no secret
-# but the workflow's own token, and the Android keystore's, when the repository has them, to
-# sign the APK in a job of its own. The iOS app is built on a Mac with Xcode and goes to
-# TestFlight, outside this workflow.
+# web images for linux/amd64 and linux/arm64 on GHCR, built from the tag without a cache, with
+# OCI labels, an SBOM and build provenance; beside them the apps, desktop on each platform's
+# runner and Android on Linux, with build provenance; and a GitHub release with the Compose
+# archive, the apps' installers and a SHA256SUMS file of them attached, whose notes name the
+# images and their tags and link the docs, before the ones GitHub generates from the merged
+# pull requests. It needs no secret but the workflow's own token, and the Android keystore's,
+# when the repository has them, to sign the APK in a job of its own. The iOS app is built on a
+# Mac with Xcode and goes to TestFlight, outside this workflow.
 name: Release
 
 on:
@@ -137,16 +137,16 @@ jobs:
           provenance: mode=max
           # The SBOM from a pinned scanner image rather than BuildKit's moving default tag.
           attests: type=sbom,generator=docker/buildkit-syft-scanner:1.12.1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
-          # A tag's run reads only the caches saved for that tag, so this cache serves only a
-          # re-run of the same release. The final images' layers are enough for an unchanged
-          # rebuild to skip every stage, and leave the Actions cache's room to the Rust job. A
-          # failed export does not fail the release.
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.image }},ignore-error=true
-      # Keyless signing records the signer, this repository and the commit, in Sigstore's
-      # public transparency log. So it runs only once the repository is public, when anyone
-      # can pull the images and check the signature; while it is private, both steps are
-      # skipped. Each platform's image is signed too, for a pull by its own digest.
+          # No layer cache, read or written: the published images build from the tag's checkout
+          # and the digest-pinned base images alone. The Actions cache is neither signed nor
+          # checked, and a tag's run restores what its own ref or the default branch saved, so
+          # a cached layer could put into a signed image what no file of the tag holds. A
+          # re-run of a failed release builds everything again.
+          no-cache: true
+      # Every release is signed, each platform's image too, for a pull by its own digest.
+      # Keyless signing records the signer, this repository and the commit in Sigstore's
+      # public transparency log, so as a safety net both steps are skipped should the
+      # repository ever be private, rather than publishing a private repository's details.
       - if: ${{ !github.event.repository.private }}
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - if: ${{ !github.event.repository.private }}
@@ -395,9 +395,13 @@ jobs:
           cd release-assets
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
-      # The notes go before the ones GitHub generates from the pull requests since the last
-      # release. The archive is how an install of the published images starts; the Caddyfile is
-      # part of the web image, so it is not attached.
+      # The notes go before the ones GitHub generates from the pull requests merged since the
+      # newest full release, so a release that follows its candidates lists every one of them;
+      # before the first, GitHub picks where its list starts. The archive is how an install of
+      # the published images starts, and the apps' installers and SHA256SUMS are attached
+      # beside it; the Caddyfile is part of the web image, so it is not attached. A
+      # pre-release, such as a release candidate, is marked as one, its apps' files too, and
+      # GitHub never shows it as the latest release.
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -407,13 +411,28 @@ jobs:
           SIGNED: ${{ !github.event.repository.private }}
         run: |
           version="${TAG#v}"
-          archive="neon-teamspace-compose-$version.tar.gz"
+          # Named after the workspace's version, which a release candidate's tag follows with
+          # -rc. and its number.
+          archives=(dist/neon-teamspace-compose-*.tar.gz)
+          archive="${archives[0]}"
+          release="${archive#dist/neon-teamspace-compose-}"
+          release="${release%.tar.gz}"
           # The tags the images job gave, as its metadata step chooses them.
           prerelease=()
           tags="\`$version\`, \`${version%.*}\`"
           case "$version" in 0.*) ;; *) tags="$tags, \`${version%%.*}\`" ;; esac
           tags="$tags and \`latest\`"
           case "$version" in *-*) prerelease=(--prerelease); tags="\`$version\` alone" ;; esac
+          start=()
+          newest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit 1 --json tagName --jq '.[0].tagName // empty')"
+          if [ -n "$newest" ]; then
+            start=(--notes-start-tag "$newest")
+          fi
+          candidate=""
+          if [ "$release" != "$version" ]; then
+            candidate=" This pre-release rehearses $release: unless \`NEON_VERSION=$version\` is set in \`deployments/.env\`, the Compose file runs the images of $release, which only that release publishes."
+          fi
           signed="They are not signed, as the repository is private."
           if [ "$SIGNED" = true ]; then
             signed="They are signed with cosign's keyless signing; [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows how to check them."
@@ -427,10 +446,10 @@ jobs:
 
           ## Installing and upgrading
 
-          \`$archive\`, below, holds the Compose file that runs these images, with its example settings. [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins.
+          \`${archive#dist/}\`, below, holds the Compose file that runs these images, with its example settings.$candidate [Install]($FILES/docs/src/content/docs/self-hosting/install.md) starts an instance from it, and [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md) moves one to this release. [CHANGELOG.md]($FILES/CHANGELOG.md) says what the release changes, and what it needs of an instance's admins.
 
           ## Apps
 
           The desktop installers and the Android APK are below. [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server."
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
-            --generate-notes --notes "$notes" "${prerelease[@]}" release-assets/*
+            --generate-notes "${start[@]}" --notes "$notes" "${prerelease[@]}" release-assets/*

@@ -9,7 +9,11 @@
  * built with, the one `neon --version` prints; a server test and the end-to-end tests check both
  * against the running server.
  *
- * Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z]
+ * A release's tag is `v` and the version. A release candidate's tag, `v` and the version then
+ * `-rc.` and a number, rehearses the release of that version: everything states the version
+ * alone, so the release itself can then tag the same commit.
+ *
+ * Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z[-rc.N]]
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -18,6 +22,10 @@ import { join, resolve } from "node:path";
 /** A version as Cargo takes it: major.minor.patch, then a pre-release such as -rc.1. */
 const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
 const SEMVER_ONLY = new RegExp(`^${SEMVER}$`);
+/** A version without a pre-release, which a release candidate's tag may name. */
+const RELEASE_ONLY = /^\d+\.\d+\.\d+$/;
+/** What follows the version in a release candidate's tag: -rc. and its number. */
+const CANDIDATE = /^-rc\.(?:0|[1-9]\d*)$/;
 
 /**
  * How the docs state Neon Teamspace's version, each with the version as its first group: the
@@ -193,9 +201,26 @@ function checkDocs(root: string, version: string): string[] {
 }
 
 /**
+ * Whether `tag` releases `version`: `v` and the version, or, for a version without a
+ * pre-release of its own, a release candidate of it, such as v1.2.3-rc.1 for 1.2.3.
+ */
+export function isReleaseTag(tag: string, version: string): boolean {
+  const release = `v${version}`;
+  if (tag === release) {
+    return true;
+  }
+  return (
+    RELEASE_ONLY.test(version) &&
+    tag.startsWith(release) &&
+    CANDIDATE.test(tag.slice(release.length))
+  );
+}
+
+/**
  * Every place that states another version than the workspace's. `neon` is what
  * `neon --version` printed; `tag`, when given, is the release's tag, which must be `v` and
- * the version, and whose changelog section must then have its date.
+ * the version or a release candidate of it, and whose changelog section must then have its
+ * date.
  */
 export function checkVersions(root: string, neon: string, tag?: string): string[] {
   const version = workspaceVersion(root);
@@ -228,15 +253,19 @@ export function checkVersions(root: string, neon: string, tag?: string): string[
   if (neon.trim() !== `neon ${version}`) {
     problems.push(`neon --version: printed ${JSON.stringify(neon.trim())}`);
   }
-  if (tag !== undefined && tag !== `v${version}`) {
-    problems.push(`the tag ${tag} is not v${version}`);
+  if (tag !== undefined && !isReleaseTag(tag, version)) {
+    problems.push(
+      RELEASE_ONLY.test(version)
+        ? `the tag ${tag} is neither v${version} nor v${version}-rc.N`
+        : `the tag ${tag} is not v${version}`,
+    );
   }
   return problems;
 }
 
 function main(args: readonly string[]): number {
   const usage =
-    'Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z]';
+    'Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z[-rc.N]]';
   const options = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const [name, value] = [args[index], args[index + 1]];
@@ -263,7 +292,7 @@ function main(args: readonly string[]): number {
   }
   const tag = options.get("--tag");
   console.log(
-    `Every stated version is ${version}${tag === undefined ? "" : `, as the tag ${tag}`}.`,
+    `Every stated version is ${version}${tag === undefined ? "" : `, which the tag ${tag} names`}.`,
   );
   return 0;
 }

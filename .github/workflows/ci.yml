@@ -483,20 +483,36 @@ jobs:
       # Gitleaks from its own image: the CLI needs no license key. A pull request's commits,
       # or those a push added; the whole history when the push created the branch or
       # rewrote it, as there is then no earlier commit to start from.
+      # Gitleaks reads .gitleaks.toml and .gitleaksignore from the directory it scans, so a
+      # change could silence the scan of its own commits. It gets the history alone, with no
+      # files checked out beside it, and those two files as the base commit has them, already
+      # on the branch; with no base, its defaults. gitleaks:allow comments in the changes are
+      # ignored too.
       - name: Gitleaks
         env:
           GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          settings="$(mktemp -d)"
+          options=()
           if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             range="$BASE..$HEAD"
+            if git cat-file -e "$BASE:.gitleaks.toml" 2>/dev/null; then
+              git show "$BASE:.gitleaks.toml" > "$settings/.gitleaks.toml"
+              options+=(--config /settings/.gitleaks.toml)
+            fi
+            if git cat-file -e "$BASE:.gitleaksignore" 2>/dev/null; then
+              git show "$BASE:.gitleaksignore" > "$settings/.gitleaksignore"
+              options+=(--gitleaks-ignore-path /settings/.gitleaksignore)
+            fi
           else
             range="$HEAD"
           fi
           echo "Scanning $(git rev-list --count "$range") commit(s): $range"
-          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" \
-            git --no-banner --redact --verbose --log-opts="$range" .
+          docker run --rm -v "$PWD/.git:/repo/.git:ro" -v "$settings:/settings:ro" -w /repo \
+            "$GITLEAKS_IMAGE" git --no-banner --redact --verbose --ignore-gitleaks-allow \
+            --log-opts="$range" "${options[@]}" .
 
   # The one check for branch protection to require, so that skipped jobs pass it.
   all:

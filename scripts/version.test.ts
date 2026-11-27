@@ -1,7 +1,7 @@
 import { describe, expect, it, onTestFinished } from "bun:test";
 import { resolve } from "node:path";
 import { fixture } from "./licenses/fixture.ts";
-import { checkVersions, workspaceVersion } from "./version.ts";
+import { checkVersions, isReleaseTag, workspaceVersion } from "./version.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 
@@ -71,7 +71,7 @@ describe("checkVersions", () => {
       "docs/src/content/docs/self-hosting/upgrading.md:5: a release names 1.2.2",
       "docs/src/content/docs/self-hosting/upgrading.md:6: a checkout names 1.2.2",
       'neon --version: printed "neon 1.2.2"',
-      "the tag v1.2.4 is not v1.2.3",
+      "the tag v1.2.4 is neither v1.2.3 nor v1.2.3-rc.N",
     ]);
   });
 
@@ -131,10 +131,67 @@ describe("checkVersions", () => {
     ]);
   });
 
+  it("takes a release candidate's tag of the version, which needs the changelog's date too", () => {
+    const dated = repository("1.2.3");
+    const unreleased = repository("1.2.3", {
+      "CHANGELOG.md": "# Changelog\n\n## 1.2.3 - Unreleased\n",
+    });
+
+    expect(checkVersions(dated, "neon 1.2.3", "v1.2.3-rc.1")).toEqual([]);
+    expect(checkVersions(dated, "neon 1.2.3", "v1.2.3-rc.12")).toEqual([]);
+    expect(checkVersions(unreleased, "neon 1.2.3", "v1.2.3-rc.1")).toEqual([
+      "CHANGELOG.md: the section of 1.2.3 says Unreleased: give it the release's date",
+    ]);
+  });
+
+  it("fails a candidate's tag of another version, or another kind of pre-release", () => {
+    const root = repository("1.2.3");
+
+    for (const tag of ["v1.2.4-rc.1", "v1.2.3-beta.1", "v1.2.3-rc", "v1.2.3-rc.01", "1.2.3-rc.1"]) {
+      expect(checkVersions(root, "neon 1.2.3", tag)).toEqual([
+        `the tag ${tag} is neither v1.2.3 nor v1.2.3-rc.N`,
+      ]);
+    }
+  });
+
+  it("takes no candidate of a version that is a pre-release itself", () => {
+    const root = repository("1.2.3-rc.1");
+
+    expect(checkVersions(root, "neon 1.2.3-rc.1", "v1.2.3-rc.1")).toEqual([]);
+    expect(checkVersions(root, "neon 1.2.3-rc.1", "v1.2.3-rc.1-rc.1")).toEqual([
+      "the tag v1.2.3-rc.1-rc.1 is not v1.2.3-rc.1",
+    ]);
+  });
+
+  it("fails a file that states the candidate's version rather than the release's", () => {
+    const root = repository("1.2.3", {
+      "README.md": "Pull `ghcr.io/lein3000zzz/neon-teamspace-server:1.2.3-rc.1`.\n",
+    });
+
+    expect(checkVersions(root, "neon 1.2.3", "v1.2.3-rc.1")).toEqual([
+      "README.md:1: an image names 1.2.3-rc.1",
+    ]);
+  });
+
   it("passes the repository itself, as the workspace's version", () => {
     const version = workspaceVersion(repoRoot);
 
     expect(version).toMatch(/^\d+\.\d+\.\d+/);
     expect(checkVersions(repoRoot, `neon ${version}`)).toEqual([]);
+  });
+});
+
+describe("isReleaseTag", () => {
+  it.each([
+    ["v1.2.3", "1.2.3", true],
+    ["v1.2.3-rc.1", "1.2.3", true],
+    ["v1.2.3-rc.0", "1.2.3", true],
+    ["v1.2.3-rc.1.1", "1.2.3", false],
+    ["v1.2.3-rc.1-x", "1.2.3", false],
+    ["v1.2.30-rc.1", "1.2.3", false],
+    ["v1.2.3-rc.1", "1.2.3-rc.1", true],
+    ["v1.2.3-rc.1-rc.1", "1.2.3-rc.1", false],
+  ])("%s releases %s: %p", (tag, version, releases) => {
+    expect(isReleaseTag(tag, version)).toBe(releases);
   });
 });
