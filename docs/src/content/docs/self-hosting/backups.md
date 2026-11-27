@@ -275,6 +275,7 @@ the file read back with its SHA-256; so was the restore over an instance that ru
 Putting the right keys back mends the third case: every sealed value opens again. A key
 lost for good loses what it sealed. Save the secret settings again, make new invites and
 invite links, and give each webhook a new secret. Rotating an outgoing webhook's secret once
-is not enough, as the old secret, which no longer opens, keeps signing beside the new one for
-24 hours: rotate it twice, or register the webhook again. An incoming webhook gets a new
-secret from **Stop checking signatures** followed by **Require signatures**.
+is not enough. For 24 hours the server also tries to sign with the secret from before the
+rotation, and that one does not open, so deliveries still fail. Rotate it twice, or register
+the webhook again. An incoming webhook gets a new secret from **Stop checking
+signatures** followed by **Require signatures**.
