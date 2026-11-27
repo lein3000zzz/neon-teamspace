@@ -84,6 +84,7 @@ jobs:
               - deny.toml
               - about.toml # a scripts/ test compares it with deny.toml
               - apps/shell/about.toml # and this one
+              - .github/dependabot.yml # a scripts/ test checks it covers each project
               - .editorconfig # Prettier reads it
               - docs/package.json # the Bun version
             docs:
