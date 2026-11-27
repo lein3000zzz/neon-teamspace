@@ -7,6 +7,7 @@ use neon_domain::auth::password::MAX_PASSWORD_BYTES;
 use neon_domain::auth::session::{TOUCH_INTERVAL, truncate_user_agent};
 use neon_domain::auth::token::API_TOKEN_PREFIX;
 use neon_domain::auth::{Credential, Principal, Session, User};
+use neon_domain::network::client_source;
 use neon_domain::oauth::ACCESS_TOKEN_PREFIX;
 use neon_domain::settings::Secret;
 use neon_store::api_tokens::Found;
@@ -22,6 +23,10 @@ use crate::settings::mcp;
 
 /// The longest session, API token or OAuth access token read. Longer text matches nothing.
 const MAX_CREDENTIAL: usize = 128;
+
+/// How many of an account's sessions' addresses a sign-in looks at, the most recent first,
+/// to tell whether it comes from where the account signed in before.
+const SOURCES_READ: i64 = 50;
 
 #[derive(Debug, Clone)]
 pub struct LoginInput {
@@ -50,20 +55,27 @@ impl AuthService {
 
     async fn login_inner(&self, input: LoginInput) -> Result<LoginOutcome, AuthError> {
         let email = email::normalize(&input.email);
-        // The IP first, so a client it stops costs nothing more, nor fills the limiter.
-        self.limit(Bucket::LoginIp, &input.ip).await?;
+        let source = client_source(&input.ip);
+        // The source first, so a client it stops costs nothing more, nor fills the limiter.
+        self.limit(Bucket::LoginIp, &source).await?;
         if email.len() > MAX_EMAIL_LENGTH || input.password.expose().len() > MAX_PASSWORD_BYTES {
             // No account has them.
             return Err(AuthError::InvalidCredentials);
         }
-        // Few guesses at an address from one IP, more from every IP together: a stranger
-        // cannot lock its owner out, nor guess on from many places.
-        self.limit(Bucket::LoginIpEmail, &format!("{} {email}", input.ip))
+        // Few guesses at an address from one source, more from every source together: a
+        // stranger cannot lock its owner out from one source, nor guess on from many. The
+        // sources the account holds a session from are spared the second, so guesses from
+        // elsewhere do not lock its owner out of the networks they sign in from.
+        self.limit(Bucket::LoginIpEmail, &format!("{source} {email}"))
             .await?;
-        self.limit(Bucket::LoginEmail, &email).await?;
+        let found = users::by_email(self.pool(), &email).await?;
+        let owner_id = found.as_ref().map(|(user, _)| user.id);
+        if !self.signed_in_from(owner_id, &source).await? {
+            self.limit(Bucket::LoginEmail, &email).await?;
+        }
 
-        let Some((user, hash)) = users::by_email(self.pool(), &email).await? else {
-            self.verify_dummy(&input.password).await;
+        let Some((user, hash)) = found else {
+            self.verify_dummy(&input.password).await?;
             warn!(ip = %input.ip, reason = "unknown email", "sign-in failed");
             return Err(AuthError::InvalidCredentials);
         };
@@ -116,6 +128,21 @@ impl AuthService {
             session,
             token: Secret::new(token),
         })
+    }
+
+    /// Whether the account holds a session, not yet expired, signed in from `source`. An
+    /// unknown address asks the same of nobody, so it costs the same.
+    async fn signed_in_from(&self, user_id: Option<Uuid>, source: &str) -> Result<bool, AuthError> {
+        let addresses = sessions::addresses_of(
+            self.pool(),
+            user_id.unwrap_or(Uuid::nil()),
+            self.now(),
+            SOURCES_READ,
+        )
+        .await?;
+        Ok(addresses
+            .iter()
+            .any(|address| client_source(address) == source))
     }
 
     /// Hashes a password again with the current parameters, in place of `old` if the

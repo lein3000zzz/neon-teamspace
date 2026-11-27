@@ -112,6 +112,7 @@ pub struct Registered {
         (status = FORBIDDEN, description = "registration_closed.", body = ErrorBody),
         (status = CONFLICT, description = "email_taken.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]
@@ -177,6 +178,7 @@ pub struct SignedIn {
         (status = UNAUTHORIZED, description = "invalid_credentials.", body = ErrorBody),
         (status = FORBIDDEN, description = "user_disabled or email_not_verified.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]
@@ -347,6 +349,7 @@ pub struct ResetPasswordRequest {
         (status = BAD_REQUEST, description = "invalid_link or weak_password.", body = ErrorBody),
         (status = FORBIDDEN, description = "password_reset_off.", body = ErrorBody),
         (status = TOO_MANY_REQUESTS, description = "rate_limited, with Retry-After.", body = ErrorBody),
+        (status = SERVICE_UNAVAILABLE, description = "busy: the server checks too many passwords at once; Retry-After says when to try again.", body = ErrorBody),
         (status = "default", description = "An error.", body = ErrorBody),
     )
 )]

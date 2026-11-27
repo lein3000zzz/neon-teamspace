@@ -30,9 +30,9 @@ pub const STANDARD: Quota = Quota {
     every: Duration::from_secs(30),
 };
 
-/// Fifty attempts, then one every 6 seconds: sign-ins to one address from every IP
-/// together. Looser than [`STANDARD`] per IP and address, so a stranger cannot lock the
-/// owner out, yet guessing from many places at once stays slow.
+/// Fifty attempts, then one every 6 seconds: sign-ins to one address from every source
+/// together. Looser than [`STANDARD`] per source and address, so a stranger cannot lock the
+/// owner out from one source, yet guessing from many places at once stays slow.
 pub const ACCOUNT: Quota = Quota {
     burst: 50,
     every: Duration::from_secs(6),
@@ -93,14 +93,18 @@ pub const UPLOADS: Quota = Quota {
     every: Duration::from_secs(1),
 };
 
-/// What is being limited. Each has its own buckets, keyed by an IP, an address or a user.
+/// What is being limited. Each has its own buckets, keyed by a client's source, an address
+/// or a user. A source is what [`client_source`](neon_domain::network::client_source) makes
+/// of the client's IP: an IPv4 address, or the /64 network of an IPv6 address, which one
+/// machine may take any address of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bucket {
-    /// Sign-ins from one IP, checked first so a client it stops costs nothing more.
+    /// Sign-ins from one source, checked first so a client it stops costs nothing more.
     LoginIp,
-    /// Sign-ins to one address from one IP.
+    /// Sign-ins to one address from one source.
     LoginIpEmail,
-    /// Sign-ins to one address from every IP together.
+    /// Sign-ins to one address from every source together, but those the account holds a
+    /// session from.
     LoginEmail,
     Register,
     /// Verifying an address, and asking for the link again.
@@ -144,7 +148,7 @@ pub enum Bucket {
     /// Exchanging an OAuth code or refresh token, by grant: each exchange keeps the
     /// refresh token it spent until it expires, to catch a second use.
     OAuthToken,
-    /// Requests to incoming webhooks from one IP, checked before their URL is looked up.
+    /// Requests to incoming webhooks from one source, checked before their URL is looked up.
     IncomingClient,
     /// Requests to one incoming webhook, by webhook.
     IncomingHook,

@@ -20,7 +20,7 @@ impl AuthService {
     /// for the day gets none more.
     pub async fn request_password_reset(&self, email: &str, ip: &str) -> Result<(), AuthError> {
         self.observe("request_password_reset", async {
-            self.limit(Bucket::Reset, ip).await?;
+            self.limit_source(Bucket::Reset, ip).await?;
             if !self.password_reset_available() {
                 return Err(AuthError::PasswordResetOff);
             }
@@ -75,7 +75,7 @@ impl AuthService {
         ip: &str,
     ) -> Result<String, AuthError> {
         self.observe("reset_password", async {
-            self.limit(Bucket::Reset, ip).await?;
+            self.limit_source(Bucket::Reset, ip).await?;
             if !self.password_reset_available() {
                 return Err(AuthError::PasswordResetOff);
             }
@@ -84,14 +84,23 @@ impl AuthService {
                 return Err(AuthError::InvalidLink);
             }
             self.policy().check(password.expose())?;
+            // A link that does not work costs no hash.
+            let token_hash = hash_secret(token);
+            email_tokens::working(
+                self.pool(),
+                &token_hash,
+                EmailTokenPurpose::Reset,
+                self.now(),
+            )
+            .await?
+            .ok_or(AuthError::InvalidLink)?;
             let hash = self.hash_password(password).await?;
 
             let now = self.now();
             let mut tx = self.pool().begin().await?;
-            let user_id =
-                email_tokens::take(&mut *tx, &hash_secret(token), EmailTokenPurpose::Reset, now)
-                    .await?
-                    .ok_or(AuthError::InvalidLink)?;
+            let user_id = email_tokens::take(&mut *tx, &token_hash, EmailTokenPurpose::Reset, now)
+                .await?
+                .ok_or(AuthError::InvalidLink)?;
             let user = users::by_id(&mut *tx, user_id)
                 .await?
                 .filter(|user| !user.is_disabled())

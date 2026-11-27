@@ -73,7 +73,7 @@ impl AuthService {
     /// links stop working with it. It signs nobody in: the password is still needed.
     pub async fn verify_email(&self, token: &Secret, ip: &str) -> Result<String, AuthError> {
         self.observe("verify_email", async {
-            self.limit(Bucket::Verify, ip).await?;
+            self.limit_source(Bucket::Verify, ip).await?;
             let token = token.expose().trim();
             if token.is_empty() || token.len() > MAX_LINK_TOKEN {
                 return Err(AuthError::InvalidLink);
@@ -105,7 +105,7 @@ impl AuthService {
     /// looked up and mailed after the answer.
     pub async fn resend_verification(&self, email: &str, ip: &str) -> Result<(), AuthError> {
         self.observe("resend_verification", async {
-            self.limit(Bucket::Verify, ip).await?;
+            self.limit_source(Bucket::Verify, ip).await?;
             if !self.mail_configured() {
                 return Err(AuthError::MailNotSetUp(None));
             }

@@ -2,9 +2,11 @@
 
 mod support;
 
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use neon_app::auth::{AuthError, LoginInput, UserUpdate};
+use neon_app::auth::{AuthError, LoginInput, RegisterInput, UserUpdate};
 use neon_app::crypto::{Argon2Params, hash_secret};
 use neon_app::pages::AccessChange;
 use neon_app::ratelimit::Bucket;
@@ -12,15 +14,23 @@ use neon_domain::auth::{Credential, Role, Scope};
 use serde_json::json;
 use sqlx::PgPool;
 use support::{CHEAP, Harness, IP, Options, PASSWORD, secret};
+use tokio::sync::Semaphore;
 
 fn login(email: &str, password: &str) -> LoginInput {
+    login_from(email, password, IP)
+}
+
+fn login_from(email: &str, password: &str, ip: &str) -> LoginInput {
     LoginInput {
         email: email.to_owned(),
         password: secret(password),
-        ip: IP.to_owned(),
+        ip: ip.to_owned(),
         user_agent: "Mozilla/5.0 (tests)".to_owned(),
     }
 }
+
+/// An address no test signs in from first.
+const ELSEWHERE: &str = "198.51.100.20";
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn signing_in_opens_a_session_kept_only_as_a_hash(pool: PgPool) {
@@ -281,9 +291,155 @@ async fn sign_ins_count_per_ip_and_address_and_per_address(pool: PgPool) {
     );
     h.limiter.refuse(Bucket::LoginEmail);
     assert!(matches!(
-        h.auth.login(login("ada@example.com", PASSWORD)).await,
+        h.auth
+            .login(login_from("ada@example.com", PASSWORD, ELSEWHERE))
+            .await,
         Err(AuthError::RateLimited { .. })
     ));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn every_address_of_one_ipv6_64_counts_as_one_source(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    h.account("ada@example.com", Role::User).await;
+    let token = secret("not-a-real-link");
+    for ip in ["2001:db8:1:3::1", "2001:db8:1:3:ffff:ffff:ffff:ffff"] {
+        let _ = h
+            .auth
+            .login(login_from("ada@example.com", "wrong", ip))
+            .await;
+        let _ = h
+            .auth
+            .register(RegisterInput {
+                email: "eve@example.com".to_owned(),
+                password: secret(PASSWORD),
+                display_name: None,
+                invite_code: None,
+                ip: ip.to_owned(),
+            })
+            .await;
+        let _ = h.auth.request_password_reset("ada@example.com", ip).await;
+        let _ = h.auth.reset_password(&token, &secret(PASSWORD), ip).await;
+        let _ = h.auth.resend_verification("ada@example.com", ip).await;
+        let _ = h.auth.verify_email(&token, ip).await;
+        let _ = h.auth.request_to_join("eve@example.com", "", ip).await;
+        let _ = h.auth.confirm_join(&token, ip).await;
+        let _ = h.auth.invite_for(&token, ip).await;
+    }
+    h.auth.settle().await;
+
+    let seen = h.limiter.seen();
+    let buckets: HashSet<Bucket> = seen.iter().map(|(bucket, _)| *bucket).collect();
+    assert_eq!(
+        buckets,
+        HashSet::from([
+            Bucket::LoginIp,
+            Bucket::LoginIpEmail,
+            Bucket::LoginEmail,
+            Bucket::Register,
+            Bucket::Reset,
+            Bucket::Verify,
+            Bucket::Join,
+            Bucket::JoinConfirm,
+            Bucket::InviteLookup,
+        ])
+    );
+    for (bucket, key) in seen {
+        let want = match bucket {
+            Bucket::LoginIpEmail => "2001:db8:1:3::/64 ada@example.com",
+            Bucket::LoginEmail => "ada@example.com",
+            _ => "2001:db8:1:3::/64",
+        };
+        assert_eq!(key, want, "{bucket:?}");
+    }
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn where_the_account_holds_a_session_it_is_spared_the_limit_across_sources(pool: PgPool) {
+    let h = Harness::new(pool).await;
+    h.account("ada@example.com", Role::User).await;
+    h.auth
+        .login(login_from("ada@example.com", PASSWORD, "2001:db8:1:3::1"))
+        .await
+        .expect("signs in");
+    // Guesses from elsewhere spent every attempt at the address.
+    h.limiter.refuse(Bucket::LoginEmail);
+
+    // From the same /64, another browser of its owner's signs in all the same.
+    h.auth
+        .login(login_from("ada@example.com", PASSWORD, "2001:db8:1:3::2"))
+        .await
+        .expect("spared");
+    // From anywhere else, the limit holds.
+    assert!(matches!(
+        h.auth
+            .login(login_from("ada@example.com", PASSWORD, ELSEWHERE))
+            .await,
+        Err(AuthError::RateLimited { .. })
+    ));
+    // Sessions of another account spare nobody.
+    h.account("bob@example.com", Role::User).await;
+    assert!(matches!(
+        h.auth
+            .login(login_from("bob@example.com", PASSWORD, "2001:db8:1:3::3"))
+            .await,
+        Err(AuthError::RateLimited { .. })
+    ));
+    // Once its sessions are gone, the source is a stranger's again.
+    sqlx::query("DELETE FROM sessions")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.auth
+            .login(login_from("ada@example.com", PASSWORD, "2001:db8:1:3::2"))
+            .await,
+        Err(AuthError::RateLimited { .. })
+    ));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn passwords_are_checked_a_few_at_a_time_and_refused_when_no_turn_comes(pool: PgPool) {
+    let turns = Arc::new(Semaphore::new(1));
+    let h = Harness::with(
+        pool,
+        Options {
+            hash_turns: Some(Arc::clone(&turns)),
+            ..Options::default()
+        },
+    )
+    .await;
+    h.account("ada@example.com", Role::User).await;
+    let taken = Arc::clone(&turns).acquire_owned().await.expect("the turn");
+
+    // A known address and an unknown one wait alike, so neither tells which it is.
+    for email in ["ada@example.com", "nobody@example.com"] {
+        let error = h
+            .auth
+            .login(login(email, PASSWORD))
+            .await
+            .expect_err("no turn came");
+        assert!(matches!(error, AuthError::Busy), "{email}: {error:?}");
+    }
+    // A reset link that does not work is refused before any hash.
+    h.auth
+        .request_password_reset("ada@example.com", IP)
+        .await
+        .expect("answers");
+    h.auth.settle().await;
+    let error = h
+        .auth
+        .reset_password(&secret("not-a-real-link"), &secret(PASSWORD), IP)
+        .await
+        .expect_err("refused");
+    assert!(matches!(error, AuthError::InvalidLink), "{error:?}");
+
+    drop(taken);
+    h.auth
+        .login(login("ada@example.com", PASSWORD))
+        .await
+        .expect("signs in once a turn is free");
+    assert_eq!(turns.available_permits(), 1, "every turn came back");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

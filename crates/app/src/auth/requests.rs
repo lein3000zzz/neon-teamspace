@@ -28,7 +28,7 @@ impl AuthService {
         ip: &str,
     ) -> Result<(), AuthError> {
         self.observe("request_to_join", async {
-            self.limit(Bucket::Join, ip).await?;
+            self.limit_source(Bucket::Join, ip).await?;
             if !self.requests_open() {
                 return Err(AuthError::RequestsOff);
             }
@@ -136,7 +136,7 @@ impl AuthService {
     /// and mail is set up.
     pub async fn confirm_join(&self, token: &Secret, ip: &str) -> Result<(), AuthError> {
         self.observe("confirm_join", async {
-            self.limit(Bucket::JoinConfirm, ip).await?;
+            self.limit_source(Bucket::JoinConfirm, ip).await?;
             let token = token.expose().trim();
             if token.is_empty() || token.len() > MAX_LINK_TOKEN {
                 return Err(AuthError::InvalidLink);

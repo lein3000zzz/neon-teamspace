@@ -26,6 +26,7 @@ use std::time::Instant;
 use bytes::Bytes;
 use neon_domain::agents::{AgentOwner, AgentStatus};
 use neon_domain::auth::{Credential, Principal, Scope, UserKind};
+use neon_domain::network::client_source;
 use neon_domain::pages::{PageAccess, PageKind};
 use neon_domain::settings::Secret;
 use neon_domain::webhooks::check_name;
@@ -545,7 +546,7 @@ impl WebhookService {
         F: Future<Output = Result<Bytes, BodyError>> + Send,
     {
         let started = Instant::now();
-        self.limit(Bucket::IncomingClient, request.client_ip)
+        self.limit(Bucket::IncomingClient, &client_source(request.client_ip))
             .await?;
         if request.token.len() > MAX_TOKEN || !request.token.starts_with(TOKEN_PREFIX) {
             return Err(IncomingError::UnknownHook);

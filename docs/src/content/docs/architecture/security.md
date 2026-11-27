@@ -34,6 +34,11 @@ salt and no stretching. Someone who reads the database learns no token that work
 The server hashes passwords with argon2id at OWASP's minimum: 19 MiB of memory, 2 passes, 1
 lane. Hashing runs on a thread meant for blocking work, away from the threads that answer
 requests. A password may have at most 1024 bytes, which bounds the work one request costs.
+The server hashes or checks as many passwords at once as the machine has processors, so the
+memory hashing takes stays bounded however many sign-ins arrive together. A password that
+gets no turn within 2 seconds is refused with `503` and the code `busy`, with a
+`Retry-After` header, and an unknown address waits for its turn and is refused the same way.
+A reset link that does not work is refused before its new password is hashed.
 
 When someone signs in with a password hashed with other parameters, the server hashes it
 again with the current ones and saves that. Raising the cost later upgrades every account
@@ -169,9 +174,9 @@ attempts, then one more every 30 seconds:
 
 | Key | What it counts |
 |---|---|
-| `login:ip:` | Sign-ins from one IP. Checked first, so a client it stops costs nothing more. |
-| `login:ip-email:` | Sign-ins to one address from one IP. |
-| `register:ip:` | Sign-ups from one IP. |
+| `login:ip:` | Sign-ins from one source. Checked first, so a client it stops costs nothing more. |
+| `login:ip-email:` | Sign-ins to one address from one source. |
+| `register:ip:` | Sign-ups from one source. |
 | `verify:ip:` | Verifying addresses, and asking for the link again. |
 | `reset:ip:` | Asking for reset links, and using them. |
 | `join:ip:` | Requests to join. |
@@ -182,15 +187,20 @@ attempts, then one more every 30 seconds:
 | `workspace-link:user:` | Looking at invite links and joining workspaces by them, by user. |
 | `page-import:user:` | Imports of pages, by user. |
 | `page-export:user:` | Exports of pages and teamspaces, by user. |
-| `oauth-register:source:` | OAuth clients registering themselves, from one IPv4 address or one IPv6 /64. |
+| `oauth-register:source:` | OAuth clients registering themselves, from one source. |
 | `oauth-token:grant:` | Exchanges of OAuth codes and refresh tokens, by grant. |
-| `hook-in:ip:` | Requests to incoming webhooks from one IP, before their URL is looked up: 120, then two a second. |
+| `hook-in:ip:` | Requests to incoming webhooks from one source, before their URL is looked up: 120, then two a second. |
 | `hook-in:hook:` | Requests to one incoming webhook, from anyone: 60, then one a second. |
 | `webhook-test:user:` | Test events sent to outgoing webhooks, by user. |
 
-One more key is looser: `login:email:` gives one address 50 sign-ins from every IP together,
-then one every 6 seconds. That stops guessing from many places at once, while a stranger
-cannot lock the owner out from one place. `mcp:user:` counts the requests of one person or
+One more key is looser: `login:email:` gives one address 50 sign-ins from every source
+together, then one every 6 seconds. That stops guessing from many places at once, while a
+stranger cannot lock the owner out from one source: the limits of one source let it spend
+fewer attempts than the key gets back. Sign-ins from a source the account holds a session
+from, one that has not expired, skip this key, so its owner still signs in from the networks
+they use while guesses come from elsewhere. Guesses from many sources together can still
+spend it, and then the owner waits as everyone does when signing in from a network they hold
+no session on. `mcp:user:` counts the requests of one person or
 agent to the MCP server, 200 at once, then four a second, since agents work in bursts.
 `mcp:person:` counts them again by person, theirs and their agents' together, 400 at once,
 then ten a second, so agents of one person do not multiply their rate.
@@ -203,7 +213,10 @@ request over a limit gets `429` with the code `rate_limited` and a `Retry-After`
 Mailed links have limits of their own, kept in the database: one a minute and five a day of
 each kind per account, and five confirmation links per request to join.
 
-The limits count by the client's address. The server takes it from the connection, or from
+The limits that count by client count by its source: an IPv4 address, or the /64 network of
+an IPv6 address, as one machine, home or office takes any address of its /64 at will. An
+IPv4 address mapped into IPv6 is the IPv4 address. The server takes the client's address
+from the connection, or from
 the last `X-Forwarded-For` entry when the connection comes from `server.trusted_proxies`,
 which is loopback alone unless set. The Compose stack trusts the private networks, as only
 its own containers reach the server there. Caddy in the web image replaces

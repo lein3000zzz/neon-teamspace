@@ -907,6 +907,16 @@
               }
             }
           },
+          "503": {
+            "description": "busy: the server checks too many passwords at once; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "An error.",
             "content": {
@@ -3228,6 +3238,16 @@
               }
             }
           },
+          "503": {
+            "description": "busy: the server checks too many passwords at once; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "An error.",
             "content": {
@@ -3406,6 +3426,16 @@
               }
             }
           },
+          "503": {
+            "description": "busy: the server checks too many passwords at once; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "An error.",
             "content": {
@@ -3480,6 +3510,16 @@
           },
           "429": {
             "description": "rate_limited, with Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "busy: the server checks too many passwords at once; Retry-After says when to try again.",
             "content": {
               "application/json": {
                 "schema": {

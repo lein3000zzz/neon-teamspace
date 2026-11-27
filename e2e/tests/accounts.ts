@@ -33,14 +33,14 @@ export function account(role: string, run: string): Account {
 
 /**
  * The address a spec's browsers say they come from, as X-Forwarded-For, which the e2e stack
- * believes. The server allows ten sign-ins at once from one address, and the specs run side
- * by side, so a spec that signs several people in takes an address of its own, from the
- * ranges kept for documentation; and so does each `repetition` of it past the first, as
- * `--repeat-each` runs them, to show a test is stable.
+ * believes. The server allows ten sign-ins at once from one source, an IPv4 address or an
+ * IPv6 /64, and the specs run side by side, so a spec that signs several people in takes a
+ * source of its own, from the ranges kept for documentation; and so does each `repetition`
+ * of it past the first, as `--repeat-each` runs them, to show a test is stable.
  */
 export function clientAddress(spec: number, repetition = 0): Record<string, string> {
   return {
-    "X-Forwarded-For": repetition === 0 ? `203.0.113.${spec}` : `2001:db8::${spec}:${repetition}`,
+    "X-Forwarded-For": repetition === 0 ? `203.0.113.${spec}` : `2001:db8:${spec}:${repetition}::1`,
   };
 }
 

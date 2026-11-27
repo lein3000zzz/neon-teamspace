@@ -69,7 +69,7 @@ impl AuthService {
     }
 
     async fn register_inner(&self, input: RegisterInput) -> Result<Registration, AuthError> {
-        self.limit(Bucket::Register, &input.ip).await?;
+        self.limit_source(Bucket::Register, &input.ip).await?;
         let now = self.now();
         let invite = match registration(&self.settings()) {
             RegistrationMode::Closed => return Err(AuthError::RegistrationClosed),

@@ -225,14 +225,17 @@ impl From<AuthError> for ApiError {
             | AuthError::MailNotSetUp(_)
             | AuthError::CodeUnavailable(_) => StatusCode::CONFLICT,
             AuthError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            AuthError::Busy => StatusCode::SERVICE_UNAVAILABLE,
             AuthError::Database(_) | AuthError::Internal(_) => {
                 tracing::error!(error = %error, "an auth use case failed");
                 return Self::internal();
             }
         };
         let mut api = Self::new(status, error.code(), error.to_string());
-        if let AuthError::RateLimited { retry_after } = error {
-            api.retry_after = Some(retry_after);
+        match error {
+            AuthError::RateLimited { retry_after } => api.retry_after = Some(retry_after),
+            AuthError::Busy => api.retry_after = Some(AuthError::BUSY_RETRY),
+            _ => {}
         }
         api
     }

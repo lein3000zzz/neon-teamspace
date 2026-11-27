@@ -34,7 +34,7 @@ fn parse_audience(text: &str) -> sqlx::Result<Audience> {
 }
 
 /// Keeps a client that registered from `source`, as
-/// [`registration_source`](neon_domain::oauth::registration_source) names it.
+/// [`client_source`](neon_domain::network::client_source) names it.
 pub async fn insert_client(
     executor: impl PgExecutor<'_>,
     client: &Client,

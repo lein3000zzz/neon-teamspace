@@ -6719,6 +6719,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8511,6 +8520,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8658,6 +8676,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description An error. */
             default: {
                 headers: {
@@ -8720,6 +8747,15 @@ export interface operations {
             };
             /** @description rate_limited, with Retry-After. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description busy: the server checks too many passwords at once; Retry-After says when to try again. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
