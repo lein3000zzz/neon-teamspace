@@ -107,6 +107,11 @@ server. The source is a Starlight site in `docs/`, one Markdown file per page un
 [introduction](docs/src/content/docs/guides/introduction.md).
 [docs/README.md](docs/README.md) covers building them.
 
+The pages link to each other by their paths under `/docs`, so those links work at an
+instance's `/docs` but not when the Markdown is read here on GitHub. To read the docs with
+working links without running the server, `make docs-install docs-dev` serves them at
+`http://localhost:4321/docs/`.
+
 ## Development
 
 You need Rust through [rustup](https://rustup.rs), [sqlx-cli](https://crates.io/crates/sqlx-cli),
