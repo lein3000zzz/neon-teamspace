@@ -5,16 +5,31 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // The app draws behind the system bars, which the WebView does not tell pages about as
+    // safe-area insets: the webview sits between the bars, and above the keyboard, instead.
+    val content = findViewById<View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+      val bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() or
+          WindowInsetsCompat.Type.displayCutout() or
+          WindowInsetsCompat.Type.ime()
+      )
+      view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      WindowInsetsCompat.CONSUMED
+    }
   }
 
   // Android's WebView saves no file by itself. The system's download manager fetches the
@@ -34,7 +49,7 @@ class MainActivity : TauriActivity() {
         Toast.makeText(this, getString(R.string.download_refused), Toast.LENGTH_LONG).show()
         return@setDownloadListener
       }
-      val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
+      val name = fileName(url, contentDisposition, mimeType)
       val request = DownloadManager.Request(file)
         .setTitle(name)
         .setMimeType(mimeType)
@@ -51,5 +66,18 @@ class MainActivity : TauriActivity() {
       getSystemService(DownloadManager::class.java).enqueue(request)
       Toast.makeText(this, getString(R.string.download_started, name), Toast.LENGTH_SHORT).show()
     }
+  }
+
+  // The name the server gives the file: Content-Disposition's filename*, which carries any
+  // name in UTF-8, then its filename, which URLUtil only reads when it comes alone.
+  private fun fileName(url: String, disposition: String?, mimeType: String?): String {
+    val named = disposition?.let {
+      Regex("filename\\*\\s*=\\s*UTF-8''([^;\\s]+)", RegexOption.IGNORE_CASE).find(it)
+        ?.let { match -> Uri.decode(match.groupValues[1]) }
+        ?: Regex("filename\\s*=\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE).find(it)
+          ?.groupValues?.get(1)
+    }
+    val name = named ?: URLUtil.guessFileName(url, disposition, mimeType)
+    return name.replace('/', '_').replace('\\', '_')
   }
 }
