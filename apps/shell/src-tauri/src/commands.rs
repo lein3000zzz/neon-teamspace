@@ -5,7 +5,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::address::{AddressError, ServerAddress};
-use crate::meta::{self, CheckError};
+use crate::meta::{self, CheckError, ServerInfo};
 use crate::servers::{ListError, SavedServer, ServerList};
 use crate::shell::{self, Shell};
 
@@ -105,6 +105,20 @@ pub struct Startup {
     pub open: Option<String>,
 }
 
+/// Checks the server, and logs what the check found.
+async fn check(address: &ServerAddress, shell: &Shell) -> Result<ServerInfo, Failure> {
+    match meta::check(address, shell.options).await {
+        Ok(info) => {
+            log::info!("{address} is Neon Teamspace {}", info.version);
+            Ok(info)
+        }
+        Err(error) => {
+            log::warn!("{address} failed its check ({}): {error}", error.code());
+            Err(error.into())
+        }
+    }
+}
+
 #[tauri::command]
 pub fn startup(shell: State<'_, Shell>) -> Startup {
     let open = shell.take_launch();
@@ -135,8 +149,7 @@ pub async fn connect<R: Runtime>(
             ),
         });
     }
-    let info = meta::check(&address, shell.options).await?;
-    log::info!("{address} is Neon Teamspace {}", info.version);
+    let info = check(&address, &shell).await?;
     let view = {
         let mut list = shell.list();
         let origin = list.upsert(&address, &info)?.origin.clone();
@@ -159,8 +172,7 @@ pub async fn open_server<R: Runtime>(
         return Err(ListError::Unknown.into());
     }
     let address = ServerAddress::parse(&origin)?;
-    let info = meta::check(&address, shell.options).await?;
-    log::info!("{address} is Neon Teamspace {}", info.version);
+    let info = check(&address, &shell).await?;
     let view = {
         let mut list = shell.list();
         list.upsert(&address, &info)?;
