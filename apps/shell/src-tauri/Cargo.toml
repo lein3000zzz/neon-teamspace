@@ -57,7 +57,6 @@ unsafe_code = "deny"
 unused_must_use = "deny"
 
 [lints.clippy]
-all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
 unwrap_used = "warn"
