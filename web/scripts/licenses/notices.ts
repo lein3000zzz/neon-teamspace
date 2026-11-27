@@ -1,9 +1,11 @@
 /**
  * Writes THIRD_PARTY_NOTICES.txt into the production build: the license text
- * of every package whose code ends up in the shipped files, and of every font
- * served from public/. MIT, ISC and BSD ask for their notice in every copy and
- * Apache-2.0 for a copy of the license, while the minifier drops the comments
- * that carried them.
+ * of every package whose code ends up in the shipped files, with any notice
+ * file it ships, of the code copied into the app from other projects, and of
+ * every font served from public/. MIT, ISC and BSD ask for their notice in
+ * every copy and Apache-2.0 for a copy of the license and of its NOTICE, while
+ * the minifier drops the comments that carried them. MPL-2.0 also asks to say
+ * where its packages' source is.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -38,6 +40,32 @@ const SUPPLIED_DIR = "scripts/licenses/supplied";
 const SUPPLIED: Readonly<Record<string, string>> = {
   "react-remove-scroll-bar": "react-remove-scroll-bar.LICENSE",
 };
+
+/** Code another project wrote, copied into the app rather than installed as a package. */
+export interface CopiedCode {
+  /** The project, as the notices name it. */
+  name: string;
+  /** Where the code is, relative to the web app's root. */
+  dir: string;
+  license: string;
+  /** The project's license text, copied from its repository, relative to the web app's root. */
+  file: string;
+}
+
+/**
+ * Copied code, which is in the bundle whatever its modules' paths say, so its
+ * notice always ships.
+ */
+export const COPIED: readonly CopiedCode[] = [
+  // shadcn/ui's command line copies its components into the app, which then changes them.
+  // The text is LICENSE.md of github.com/shadcn-ui/ui.
+  {
+    name: "shadcn/ui",
+    dir: "src/components/ui",
+    license: "MIT",
+    file: "src/components/ui/shadcn-ui.LICENSE",
+  },
+];
 
 /** The specifiers of a stylesheet's `@import` rules. */
 export function cssImports(css: string): string[] {
@@ -97,6 +125,8 @@ function findPackage(from: string, name: string): string | undefined {
 }
 
 export interface NoticeInputs {
+  /** The web app's root, which `copied` names its files from. */
+  root: string;
   /** Ids of the modules in the shipped chunks. */
   moduleIds: Iterable<string>;
   /** The app's own stylesheets in the module graph. */
@@ -105,11 +135,13 @@ export interface NoticeInputs {
   /** License texts for packages that publish none: package name to a file in `suppliedDir`. */
   supplied: Readonly<Record<string, string>>;
   suppliedDir: string;
+  copied: readonly CopiedCode[];
 }
 
 /**
  * The notices file's content. Throws when a bundled package has no license
- * text, a supplied text is stale, or a font is not under the font license.
+ * text, a supplied text is stale, a copied project's text is missing, or a
+ * font is not under the font license.
  */
 export function collectNotices(inputs: NoticeInputs): string {
   const roots = new Set<string>();
@@ -148,6 +180,16 @@ export function collectNotices(inputs: NoticeInputs): string {
   }
 
   const sections = packageSections(notices.values());
+  for (const code of inputs.copied) {
+    const file = join(inputs.root, code.file);
+    if (!existsSync(file)) {
+      throw new Error(
+        `${code.dir}: ${code.file} is missing: copy ${code.name}'s license from its repository`,
+      );
+    }
+    const text = readFileSync(file, "utf8").trim();
+    sections.push(section(`${code.name}, the code copied into ${code.dir}/`, code.license, text));
+  }
   for (const font of bundledFonts(inputs.publicDir)) {
     const problem = fontProblem(inputs.publicDir, font);
     if (problem !== null) {
@@ -158,9 +200,14 @@ export function collectNotices(inputs: NoticeInputs): string {
   }
   return noticesFile(
     [
-      "Neon Teamspace's web app includes the packages and fonts below, each under",
-      "the license named with it. The text after each heading is the license and",
-      "copyright notice that came with it.",
+      "Neon Teamspace's web app includes the packages, code and fonts below, each",
+      "under the license named with it. The text after each heading is the license",
+      "and copyright notice that came with it.",
+      "",
+      "The source code of each package under MPL-2.0 can be had from the npm",
+      "registry, at the address its section gives under Source, which serves the",
+      "package at the version listed, and from the repository its section names",
+      "under Repository.",
     ],
     sections,
   );
@@ -182,12 +229,14 @@ function noticeFor(root: string, { supplied, suppliedDir }: NoticeInputs): Notic
 
 /** The Vite plugin: emits the notices next to the bundle in production builds. */
 export function thirdPartyNotices(fileName = "THIRD_PARTY_NOTICES.txt"): Plugin {
+  let root = "";
   let publicDir = "";
   let suppliedDir = "";
   return {
     name: "neon:third-party-notices",
     apply: "build",
     configResolved(config) {
+      root = config.root;
       publicDir = config.publicDir;
       suppliedDir = resolve(config.root, SUPPLIED_DIR);
     },
@@ -200,11 +249,13 @@ export function thirdPartyNotices(fileName = "THIRD_PARTY_NOTICES.txt"): Plugin 
         .filter((id) => id.endsWith(".css") && packageRoot(id) === undefined && existsSync(id));
       try {
         const source = collectNotices({
+          root,
           moduleIds,
           stylesheets,
           publicDir,
           supplied: SUPPLIED,
           suppliedDir,
+          copied: COPIED,
         });
         this.emitFile({ type: "asset", fileName, source });
       } catch (error) {

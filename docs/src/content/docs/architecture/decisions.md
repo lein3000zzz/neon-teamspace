@@ -276,8 +276,8 @@ the version agree, runs the end-to-end tests against the images built in the rel
 profile, then publishes both images to GitHub's container registry with an SBOM and build
 provenance, tagged with the version, the minor version and `latest`, and from 1.0 on the
 major version, and makes a GitHub release with the Compose archive attached. Images are
-signed with cosign's keyless signing once the repository is public, as the signature records
-the repository in Sigstore's public log. [More](/docs/self-hosting/upgrading/).
+signed with cosign's keyless signing, which records the workflow, the repository and the
+commit in Sigstore's public log. [More](/docs/self-hosting/upgrading/).
 
 **One Makefile.** Every task, local or in CI, is a target of the root `Makefile`, and `make`
 alone lists them, so a check that passes on a laptop is the check CI runs. `make check` runs

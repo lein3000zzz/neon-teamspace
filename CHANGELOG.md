@@ -51,7 +51,11 @@ they change:
   with OCI labels, an SBOM that lists the crates the server links, and build provenance,
   tagged `0.1.0`, `0.1` and `latest`. The GitHub release then names the images and attaches
   the Compose archive: the Compose file with its example settings. Images are signed with
-  cosign's keyless signing once the repository is public. (#9, #31)
+  cosign's keyless signing, and are built from the tagged commit alone, never from a cache.
+  A `vX.Y.Z-rc.N` tag rehearses a release, publishing only its own image tag. (#9, #31, #54)
+- A security policy (`.github/SECURITY.md`) for reporting vulnerabilities privately, and the
+  license notices of everything that ships: the crates, the npm packages with their `NOTICE`
+  files, shadcn/ui's code copied into the app, and Caddy with the Go modules it links. (#54)
 - `deployments/docker-compose.yml` runs them with Postgres 18: the images of its own release,
   unless `NEON_VERSION` names another, with the stack's settings in `deployments/.env` and the
   server's in `deployments/server.env`. Profiles add Mailpit (`mail`), Grafana's otel-lgtm
