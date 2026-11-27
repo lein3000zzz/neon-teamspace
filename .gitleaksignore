@@ -1,0 +1,9 @@
+# Gitleaks findings that are not secrets, by the fingerprint gitleaks reports for each:
+# commit:file:rule:line. CI's secret scan reads this file from the commit a change is based
+# on, never from the change itself.
+
+# A made-up invite-link token in a web test's fixture. Its commit is only on the branch of
+# pull request #15, which was closed without merging; GitHub keeps that pull request's ref, so
+# a scan of the whole history, such as of a mirror clone, still finds it. It never opened
+# anything.
+d39631937ae38805af7ae4860c9a6b8a7592fdd0:web/src/test/workspaces.ts:generic-api-key:50
