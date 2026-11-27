@@ -5,13 +5,14 @@ mod support;
 
 use std::path::Path;
 
+use neon_shell::lock::Navigation;
 use neon_shell::{DataDir, MAIN_WINDOW};
 use serde_json::{Value, json};
 use support::{Answer, serve};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
 use tauri::webview::InvokeRequest;
-use tauri::{App, Manager, WebviewWindow};
+use tauri::{App, Manager, Url, WebviewWindow};
 
 /// Where the app's own pages are, as Tauri serves them on this platform.
 const APP_ORIGIN: &str = if cfg!(windows) {
@@ -171,6 +172,20 @@ fn an_address_that_is_not_one_is_refused_before_any_check() {
     assert!(!dir.path().join("servers.json").exists());
 }
 
+/// What the window does with a navigation to `url` now.
+fn navigation(app: &App<MockRuntime>, url: &str) -> Navigation {
+    neon_shell::navigation(app.handle(), &url.parse::<Url>().expect("a URL"))
+}
+
+/// Whether the navigation stays out of the window, opening outside the app.
+fn outside(navigation: &Navigation) -> bool {
+    matches!(navigation, Navigation::OpenOutside(_) | Navigation::TooSoon)
+}
+
+fn download_allowed(app: &App<MockRuntime>, url: &str) -> bool {
+    neon_shell::download_allowed(app.handle(), &url.parse::<Url>().expect("a URL"))
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn plain_http_needs_the_warning_accepted_first() {
     let dir = tempfile::tempdir().unwrap();
@@ -195,6 +210,7 @@ async fn plain_http_needs_the_warning_accepted_first() {
     assert_eq!(server.requests_so_far(), Vec::<String>::new());
     assert_eq!(window(&app).url().unwrap().as_str(), before);
     assert!(!dir.path().join("servers.json").exists());
+    assert!(outside(&navigation(&app, &server.origin)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -308,4 +324,68 @@ async fn the_last_server_is_offered_once_as_the_app_starts() {
     // Back on the picker later, the list shows and nothing opens by itself.
     let again = from_picker(&app, "startup", json!({})).unwrap();
     assert_eq!(again["open"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lock_opens_to_each_server_opened_and_closes_as_it_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(dir.path());
+    let first = serve(Answer::neon("Acme")).await;
+    let second = serve(Answer::neon("Globex")).await;
+    let page = |server: &support::Server| format!("{}/w/acme/p/1?x=1", server.origin);
+    let file = |server: &support::Server| format!("{}/api/v1/files/abc", server.origin);
+
+    // The picker's own pages load; no server's does yet, nor do its downloads.
+    assert_eq!(navigation(&app, &picker(&app)), Navigation::Load);
+    assert!(outside(&navigation(&app, &page(&first))));
+    assert!(!download_allowed(&app, &file(&first)));
+
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": first.origin, "acceptInsecure": true}),
+    )
+    .unwrap();
+    assert_eq!(navigation(&app, &page(&first)), Navigation::Load);
+    assert!(download_allowed(&app, &file(&first)));
+    for elsewhere in [
+        "https://example.com/",
+        &first.origin.replace("127.0.0.1", "localhost"),
+        &second.origin,
+    ] {
+        assert!(outside(&navigation(&app, elsewhere)), "{elsewhere}");
+        assert!(!download_allowed(&app, elsewhere), "{elsewhere}");
+    }
+    assert_eq!(navigation(&app, "file:///etc/passwd"), Navigation::Refuse);
+
+    // Opening a saved server opens the lock to it, as connecting does.
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": second.origin, "acceptInsecure": true}),
+    )
+    .unwrap();
+    from_picker(&app, "open_server", json!({"origin": first.origin})).unwrap();
+    for server in [&first, &second] {
+        assert_eq!(navigation(&app, &page(server)), Navigation::Load);
+    }
+
+    from_picker(&app, "remove_server", json!({"origin": first.origin})).unwrap();
+    assert!(outside(&navigation(&app, &page(&first))));
+    assert!(!download_allowed(&app, &file(&first)));
+    assert_eq!(navigation(&app, &page(&second)), Navigation::Load);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_fails_its_check_stays_out_of_the_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(dir.path());
+    let server = serve(Answer::http("404 Not Found", &[], b"")).await;
+    from_picker(
+        &app,
+        "connect",
+        json!({"address": server.origin, "acceptInsecure": true}),
+    )
+    .unwrap_err();
+    assert!(outside(&navigation(&app, &server.origin)));
 }

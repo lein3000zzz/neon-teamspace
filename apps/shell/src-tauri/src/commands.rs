@@ -198,12 +198,16 @@ pub fn rename_server(
 
 /// Forgets a server, and loads none of its pages in the app any more.
 #[tauri::command]
-pub fn remove_server(shell: State<'_, Shell>, origin: String) -> Result<ListView, Failure> {
+pub fn remove_server<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
+    origin: String,
+) -> Result<ListView, Failure> {
     let mut list = shell.list();
     list.remove(&origin)?;
     shell.store.save(&list).map_err(|error| storage(&error))?;
     if let Ok(address) = ServerAddress::parse(&origin) {
-        shell.lock.forget(&address);
+        shell::forget_server(&app, &address);
     }
     Ok(ListView::from(&*list))
 }

@@ -3,17 +3,17 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
-#[cfg(desktop)]
-use tauri::utils::config::WebviewUrl;
-use tauri::utils::config::WindowConfig;
-use tauri::webview::{DownloadEvent, WebviewWindowBuilder};
+use tauri::utils::config::{WebviewUrl, WindowConfig};
+use tauri::webview::{DownloadEvent, PageLoadEvent, WebviewWindowBuilder};
 use tauri::{App, AppHandle, Manager, Runtime, Url, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::DataDir;
 use crate::address::ServerAddress;
+use crate::lock::{Lock, Navigation, Started};
 use crate::meta::CheckOptions;
 use crate::navigation::{self, Origin, Place, Verdict};
 use crate::servers::{ServerList, Store};
@@ -25,11 +25,13 @@ pub const MAIN_WINDOW: &str = "main";
 pub struct Shell {
     pub store: Store,
     pub list: Mutex<ServerList>,
-    pub lock: Arc<Lock>,
+    pub lock: Lock,
     pub options: CheckOptions,
     /// Whether the picker has been told which server to open as the app starts, which it is
     /// once: coming back to the picker shows the list.
     launched: AtomicBool,
+    /// Where each download the server's page started is being saved, by its URL.
+    downloads: Mutex<HashMap<String, PathBuf>>,
 }
 
 impl Shell {
@@ -46,61 +48,11 @@ impl Shell {
             self.list().last.clone()
         }
     }
-}
 
-/// The origin lock's state: the app's own origin, where the picker is, and the servers'.
-pub struct Lock {
-    app: Origin,
-    /// Where the picker is, for the desktop menu's way back to it; on mobile the back gesture
-    /// returns to it through the webview's history.
-    #[cfg(desktop)]
-    picker: RwLock<Option<Url>>,
-    /// The origins of the servers opened since the app started, the one in use last.
-    servers: RwLock<Vec<Origin>>,
-    /// Where each download the server's page started is being saved, by its URL.
-    downloads: Mutex<HashMap<String, PathBuf>>,
-}
-
-impl Lock {
-    fn new(app: Origin) -> Self {
-        Self {
-            app,
-            #[cfg(desktop)]
-            picker: RwLock::new(None),
-            servers: RwLock::new(Vec::new()),
-            downloads: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Where a navigation to `url` goes now.
-    pub fn judge(&self, url: &Url) -> Verdict {
-        let servers = self.servers.read().unwrap_or_else(PoisonError::into_inner);
-        navigation::judge(url, &self.app, &servers)
-    }
-
-    fn open_server(&self, address: &ServerAddress) {
-        let Some(origin) = Origin::of(address.url()) else {
-            return;
-        };
-        let mut servers = self.servers.write().unwrap_or_else(PoisonError::into_inner);
-        servers.retain(|opened| *opened != origin);
-        servers.push(origin);
-    }
-
-    /// Closes the lock to a server removed from the list.
-    pub fn forget(&self, address: &ServerAddress) {
-        if let Some(origin) = Origin::of(address.url()) {
-            let mut servers = self.servers.write().unwrap_or_else(PoisonError::into_inner);
-            servers.retain(|opened| *opened != origin);
-        }
-    }
-
-    #[cfg(desktop)]
-    fn picker(&self) -> Option<Url> {
-        self.picker
-            .read()
+    fn downloads(&self) -> MutexGuard<'_, HashMap<String, PathBuf>> {
+        self.downloads
+            .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .clone()
     }
 }
 
@@ -117,24 +69,19 @@ pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<
         list.servers.len(),
         store.path().display()
     );
+    let config = main_config(app.handle())?;
     let origin = app_origin(app);
-    log::info!("the picker is on {origin}");
-    let lock = Arc::new(Lock::new(origin));
+    let picker = picker_url(&origin, &config).ok_or(tauri::Error::WebviewNotFound)?;
+    log::info!("the picker is {picker}");
     app.manage(Shell {
         store,
         list: Mutex::new(list),
-        lock: Arc::clone(&lock),
+        lock: Lock::new(origin, picker),
         options: CheckOptions::default(),
         launched: AtomicBool::new(false),
+        downloads: Mutex::new(HashMap::new()),
     });
-
-    let config = main_config(app.handle())?;
-    #[cfg(desktop)]
-    {
-        *lock.picker.write().unwrap_or_else(PoisonError::into_inner) =
-            picker_url(&lock.app, &config);
-    }
-    main_window(app.handle(), &config, lock)?;
+    main_window(app.handle(), &config)?;
     Ok(())
 }
 
@@ -151,7 +98,6 @@ fn main_config<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WindowConfig> {
 
 /// Where the picker is: the window's page on the app's own origin, as Tauri loads it. Worked
 /// out from the configuration, as a webview only knows its URL once it has started loading.
-#[cfg(desktop)]
 fn picker_url(app: &Origin, config: &WindowConfig) -> Option<Url> {
     let page = match &config.url {
         WebviewUrl::App(path) => path.to_string_lossy().into_owned(),
@@ -182,25 +128,21 @@ fn app_origin<R: Runtime>(app: &App<R>) -> Origin {
     }
 }
 
-/// The window, from its configuration, with the origin lock on every navigation, new window
-/// and download.
+/// The window, from its configuration, with the origin lock on every navigation, page load,
+/// new window and download.
 fn main_window<R: Runtime>(
     app: &AppHandle<R>,
     config: &WindowConfig,
-    lock: Arc<Lock>,
 ) -> tauri::Result<WebviewWindow<R>> {
-    let navigation_lock = Arc::clone(&lock);
     let navigation_app = app.clone();
     let builder = WebviewWindowBuilder::from_config(app, config)?
-        .on_navigation(move |url| {
-            let verdict = navigation_lock.judge(url);
-            log::info!("navigation to {}: {verdict}", navigation::describe(url));
-            if verdict == Verdict::OpenOutside {
-                open_outside(&navigation_app, url);
+        .on_navigation(move |url| on_navigation(&navigation_app, url))
+        .on_page_load(|window, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                on_page_started(window.app_handle(), payload.url());
             }
-            matches!(verdict, Verdict::Load(_))
         })
-        .on_download(move |webview, event| on_download(webview.app_handle(), &lock, event));
+        .on_download(|webview, event| on_download(webview.app_handle(), event));
     #[cfg(desktop)]
     let builder = {
         let new_window_app = app.clone();
@@ -221,21 +163,96 @@ fn main_window<R: Runtime>(
     Ok(window)
 }
 
+/// What the window does with a navigation to `url` now, as the origin lock decides: what its
+/// navigation handler acts on.
+pub fn navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> Navigation {
+    app.state::<Shell>().lock.navigation(url, Instant::now())
+}
+
+/// Whether a download from `url` is saved: only the server's are.
+pub fn download_allowed<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
+    app.state::<Shell>().lock.judge(url) == Verdict::Load(Place::Server)
+}
+
+fn on_navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
+    let decision = navigation(app, url);
+    log::info!("navigation to {}: {decision}", navigation::describe(url));
+    act(app, &decision);
+    decision.goes_ahead()
+}
+
+/// Does what a decision asks beside cancelling the navigation.
+fn act<R: Runtime>(app: &AppHandle<R>, decision: &Navigation) {
+    match decision {
+        Navigation::OpenOutside(url) => open_outside(app, url),
+        Navigation::ShowPicker => later(app, show_picker),
+        Navigation::Load | Navigation::Refuse | Navigation::TooSoon => {}
+    }
+}
+
+/// A page has started loading in the window: the lock is told, and the window does what the
+/// lock asks next.
+fn on_page_started<R: Runtime>(app: &AppHandle<R>, url: &Url) {
+    let started = app.state::<Shell>().lock.started(url, Instant::now());
+    log::info!("page started on {}", navigation::describe(url));
+    match started {
+        Started::Stay => {}
+        Started::LoadPicker(picker) => {
+            log::info!("loading the server picker");
+            later(app, move |app| window(app)?.navigate(picker));
+        }
+        Started::Leave { outside, back } => {
+            log::warn!(
+                "leaving a page on {}, which the origin lock does not allow",
+                navigation::describe(url)
+            );
+            if let Some(outside) = outside {
+                open_outside(app, &outside);
+            }
+            match back {
+                Some(back) => later(app, move |app| window(app)?.navigate(back)),
+                None => later(app, show_picker),
+            }
+        }
+    }
+}
+
+/// Runs `change` on the window after the webview's callback that asked for it has returned:
+/// on the main thread, a navigation would run inside that callback.
+fn later<R: Runtime>(
+    app: &AppHandle<R>,
+    change: impl FnOnce(&AppHandle<R>) -> tauri::Result<()> + Send + 'static,
+) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = change(&app) {
+            log::warn!("the window could not load the page: {error}");
+        }
+    });
+}
+
 /// Loads the server's page in the window, opening the lock to its origin first.
 pub fn open_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) -> tauri::Result<()> {
-    let shell = app.state::<Shell>();
-    shell.lock.open_server(address);
+    if let Some(origin) = Origin::of(address.url()) {
+        app.state::<Shell>().lock.open_server(origin);
+    }
     log::info!("opening {address}");
     window(app)?.navigate(address.url().clone())
 }
 
-/// Shows the picker again.
-#[cfg(desktop)]
+/// Closes the lock to a server removed from the list.
+pub fn forget_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) {
+    if let Some(origin) = Origin::of(address.url()) {
+        app.state::<Shell>().lock.forget(&origin);
+    }
+}
+
+/// Shows the picker again: a blank page first, which replaces the server's, and the picker
+/// once that has committed.
 pub fn show_picker<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let shell = app.state::<Shell>();
-    let picker = shell.lock.picker().ok_or(tauri::Error::WebviewNotFound)?;
+    let blank = app.state::<Shell>().lock.show_picker();
     log::info!("showing the server picker");
-    window(app)?.navigate(picker)
+    window(app)?.navigate(blank)
 }
 
 pub fn window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
@@ -259,19 +276,22 @@ fn open_outside<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 }
 
 /// `window.open` and links with a target: the server's own pages load in the window, as there
-/// is one; another origin's open outside, as navigations to them do.
+/// is one; another origin's open outside, as navigations to them do. A blank window, which a
+/// page could only fill itself, opens nowhere.
 #[cfg(desktop)]
 fn on_new_window<R: Runtime>(app: &AppHandle<R>, url: &Url) {
-    let verdict = app.state::<Shell>().lock.judge(url);
-    log::info!("new window for {}: {verdict}", navigation::describe(url));
-    match verdict {
-        Verdict::Load(Place::Server) => {
-            if let Err(error) = window(app).and_then(|window| window.navigate(url.clone())) {
-                log::warn!("could not load {}: {error}", navigation::describe(url));
-            }
+    let decision = if url.scheme() == "about" {
+        Navigation::Refuse
+    } else {
+        navigation(app, url)
+    };
+    log::info!("new window for {}: {decision}", navigation::describe(url));
+    match decision {
+        Navigation::Load => {
+            let url = url.clone();
+            later(app, move |app| window(app)?.navigate(url));
         }
-        Verdict::OpenOutside => open_outside(app, url),
-        Verdict::Load(Place::App) | Verdict::Refuse => {}
+        other => act(app, &other),
     }
 }
 
@@ -279,10 +299,11 @@ fn on_new_window<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 /// directory; others are refused. A finished one is shown in its folder on desktop; on mobile
 /// the system tells of it, so where it went is of no use there.
 #[cfg_attr(mobile, allow(unused_variables))]
-fn on_download<R: Runtime>(app: &AppHandle<R>, lock: &Lock, event: DownloadEvent<'_>) -> bool {
+fn on_download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) -> bool {
+    let shell = app.state::<Shell>();
     match event {
         DownloadEvent::Requested { url, destination } => {
-            let allowed = lock.judge(&url) == Verdict::Load(Place::Server);
+            let allowed = download_allowed(app, &url);
             #[cfg(target_os = "ios")]
             if allowed && let Some(name) = destination.file_name().map(ToOwned::to_owned) {
                 // iOS has no downloads directory: the app's documents, which the Files app
@@ -298,19 +319,14 @@ fn on_download<R: Runtime>(app: &AppHandle<R>, lock: &Lock, event: DownloadEvent
                 if allowed { "saving" } else { "refused" }
             );
             if allowed {
-                lock.downloads
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
+                shell
+                    .downloads()
                     .insert(url.to_string(), destination.clone());
             }
             allowed
         }
         DownloadEvent::Finished { url, path, success } => {
-            let proposed = lock
-                .downloads
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(url.as_str());
+            let proposed = shell.downloads().remove(url.as_str());
             log::info!(
                 "download from {} {}",
                 navigation::describe(&url),
@@ -349,7 +365,7 @@ fn allow_back_gesture<R: Runtime>(window: &WebviewWindow<R>) {
     }
 }
 
-#[cfg(all(test, desktop))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

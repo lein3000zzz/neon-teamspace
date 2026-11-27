@@ -1,14 +1,16 @@
-//! The origin lock: where the webview may go.
+//! The origin lock's rule: where a URL belongs.
 //!
 //! The webview loads the app's own origin, which serves the bundled picker, and the origins of
-//! the servers opened from the picker since the app started: in practice the one in use, and
-//! the one before it while the webview's history still holds its pages. Two URLs have the same
-//! origin when their scheme, host and port are the same, as the web's same-origin policy has
-//! it, after the URL parser's normalisation: the host lower-cased and in ASCII, the default port
-//! left out. So `https://neon.example.com:443/x` is the server `https://neon.example.com`,
-//! while `http://neon.example.com`, `https://neon.example.com:8443`,
-//! `https://neon.example.com.` and `https://www.neon.example.com` are other origins. A user
-//! name or password in the URL changes nothing; the host after the `@` is what counts.
+//! the servers opened from the picker since the app started, until one is removed from the
+//! list. The one in use is where the window is; the others stay open to the lock because the
+//! webview's history keeps their pages, and Android's back gesture walks that history without
+//! asking the app. Two URLs have the same origin when their scheme, host and port are the same,
+//! as the web's same-origin policy has it, after the URL parser's normalisation: the host
+//! lower-cased and in ASCII, the default port left out. So `https://neon.example.com:443/x` is
+//! the server `https://neon.example.com`, while `http://neon.example.com`,
+//! `https://neon.example.com:8443`, `https://neon.example.com.` and
+//! `https://www.neon.example.com` are other origins. A user name or password in the URL
+//! changes nothing; the host after the `@` is what counts.
 //!
 //! What another origin gets:
 //! - an `http` or `https` page, and a `mailto:` or `tel:` link, opens in the system's browser
@@ -19,6 +21,9 @@
 //! `blob:` URLs have the origin of the page that made them, so a file the server's page
 //! saves loads as the server's. `about:blank` and `about:srcdoc` have no origin of their own
 //! and load where they are asked for.
+//!
+//! Which page may go to the app's own origin, and how often something opens outside, is the
+//! lock's state, in [`crate::lock`].
 
 use std::fmt;
 
@@ -127,10 +132,11 @@ pub fn judge(url: &Url, app: &Origin, servers: &[Origin]) -> Verdict {
 }
 
 /// What a log line says of a URL: its origin, never its path or query, which may carry a
-/// page's name or a token.
+/// page's name or a token. An `about:` URL, which has neither, is named whole.
 pub fn describe(url: &Url) -> String {
     match Origin::of(url) {
         Some(origin) => origin.to_string(),
+        None if url.scheme() == "about" => format!("about:{}", url.path()),
         None => format!("a {}: URL", url.scheme()),
     }
 }
@@ -321,5 +327,7 @@ mod tests {
         assert_eq!(describe(&url), "a mailto: URL");
         let url = Url::parse("blob:https://neon.example.com/abc").unwrap();
         assert_eq!(describe(&url), "https://neon.example.com");
+        let url = Url::parse("about:blank#x").unwrap();
+        assert_eq!(describe(&url), "about:blank");
     }
 }

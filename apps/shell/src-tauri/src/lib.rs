@@ -3,6 +3,7 @@
 
 pub mod address;
 mod commands;
+pub mod lock;
 #[cfg(desktop)]
 mod menu;
 pub mod meta;
@@ -12,9 +13,11 @@ mod shell;
 
 use std::path::PathBuf;
 
-use tauri::{App, Builder, Runtime};
+use tauri::{App, AppHandle, Builder, Runtime, Url};
 
 pub use shell::MAIN_WINDOW;
+
+use crate::lock::Navigation;
 
 /// Where the app keeps its server list.
 #[derive(Debug, Clone)]
@@ -50,6 +53,17 @@ pub fn shell<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// what the app does once its event loop is ready.
 pub fn setup<R: Runtime>(app: &mut App<R>, data_dir: &DataDir) -> tauri::Result<()> {
     shell::setup(app, data_dir)
+}
+
+/// What the app's window does with a navigation to `url` now: the origin lock's decision, which
+/// the window's navigation handler acts on, opening outside or showing the picker as it says.
+pub fn navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> Navigation {
+    shell::navigation(app, url)
+}
+
+/// Whether the app's window saves a download from `url`.
+pub fn download_allowed<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
+    shell::download_allowed(app, url)
 }
 
 /// Runs the app.
