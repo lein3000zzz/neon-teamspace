@@ -207,7 +207,10 @@ type ToolProps = Omit<ComponentProps<typeof Button>, "children"> & {
   pressed?: boolean;
 };
 
-/** A button of the toolbar: an icon, a full touch target, pressed while what it sets is on. */
+/**
+ * A button of the toolbar: an icon, a full touch target, pressed while what it
+ * sets is on, in the accent, as a toggle group's choice is.
+ */
 function Tool({ icon: Icon, label, shown = false, pressed, className, ...props }: ToolProps) {
   return (
     <Button
@@ -217,7 +220,7 @@ function Tool({ icon: Icon, label, shown = false, pressed, className, ...props }
       aria-label={shown ? undefined : label}
       aria-pressed={pressed}
       className={cn(
-        "shrink-0 aria-pressed:bg-accent aria-pressed:text-foreground",
+        "shrink-0 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:shadow-glow",
         shown && "px-3",
         className,
       )}
