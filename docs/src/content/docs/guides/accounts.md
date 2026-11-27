@@ -102,9 +102,10 @@ for one with a note of up to 500 characters. The steps:
 
 Nothing is mailed to an address with an account, one whose request waits for the admins,
 or one denied in the last 30 days. An address has one open request at most. One source, an
-IPv4 address or an IPv6 /64, has at most 10 requests nobody confirmed yet: past them, its
-new requests are dropped, with the same answer, so the form cannot fill the table and junk
-from one place takes no room from anyone else. At most 200 confirmed requests wait for the
+IPv4 address or an IPv6 /64, has at most 10 requests nobody confirmed yet whose links still
+work: past them, its new requests are dropped, with the same answer, so the form cannot fill
+the table and junk from one place takes no room from anyone else. A day after, as those
+links stop working, the source may ask again. At most 200 confirmed requests wait for the
 admins at once: past them, opening a link answers `requests_full`, and the link works again
 once the admins decide some, while it lasts. Requests nobody confirmed go a day after their
 link stopped working. Decided ones go after 30 days.

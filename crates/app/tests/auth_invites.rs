@@ -10,6 +10,7 @@ use neon_app::clock::Clock;
 use neon_app::crypto::{Envelope, hash_secret};
 use neon_app::mail::{MailQueue, Message};
 use neon_app::settings::{Change, SettingsService, registry};
+use neon_domain::auth::join_request::LINK_TTL;
 use neon_domain::auth::{InviteStatus, JoinRequestStatus, Role};
 use neon_domain::settings::RawLayers;
 use serde_json::json;
@@ -621,6 +622,18 @@ async fn junk_from_one_source_takes_no_room_from_anyone_else(pool: PgPool) {
     let mails = h.mails().await;
     assert_eq!(mails.len(), 1);
     assert_eq!(mails[0].to.address, "ada@example.com");
+
+    // Once their links stop working, the source's junk holds its room no more, though the
+    // requests are kept a day longer.
+    h.time.advance(LINK_TTL + Duration::from_secs(1));
+    h.auth
+        .request_to_join("dee@example.com", "", "2001:db8:1:3::99")
+        .await
+        .expect("the same answer");
+    h.auth.settle().await;
+    let mails = h.mails().await;
+    assert_eq!(mails.len(), 1);
+    assert_eq!(mails[0].to.address, "dee@example.com");
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

@@ -38,9 +38,9 @@ async fn lock(executor: impl PgExecutor<'_>, key: &str) -> sqlx::Result<()> {
 }
 
 /// Saves a new request sent from `source`, with its confirmation link's token hash, unless
-/// `max_unconfirmed` requests from the source wait to be confirmed already. False when they
-/// do. Fails on [`OPEN_FOR_EMAIL`] when the address has an open request. Take
-/// [`lock_source`] first.
+/// `max_unconfirmed` requests from the source wait to be confirmed already, their links
+/// still working as it is made. False when they do. Fails on [`OPEN_FOR_EMAIL`] when the
+/// address has an open request. Take [`lock_source`] first.
 pub async fn insert_capped(
     executor: impl PgExecutor<'_>,
     request: &JoinRequest,
@@ -54,7 +54,8 @@ pub async fn insert_capped(
                                     link_expires_at, mails, mailed_at, created_at, source)
          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
          WHERE (SELECT count(*) FROM join_requests
-                WHERE source = $10 AND confirmed_at IS NULL AND decided_at IS NULL) < $11",
+                WHERE source = $10 AND confirmed_at IS NULL AND decided_at IS NULL
+                      AND link_expires_at > $9) < $11",
         request.id,
         request.email,
         email_normalized,
