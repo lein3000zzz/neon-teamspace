@@ -111,8 +111,11 @@ impl WebConfig {
     }
 
     /// The client's address: the last `X-Forwarded-For` entry when the peer is a trusted
-    /// proxy, else the peer itself. Without a peer, as in tests that call the router
-    /// directly, it is `unknown`.
+    /// proxy, else the peer itself. The last entry is the one the proxy wrote, and the only
+    /// one it vouches for: an address with a port gives the port up, and an entry that is
+    /// still no address counts the proxy itself, never an entry before it, which the
+    /// client could have written. Without a peer, as in tests that call the router directly,
+    /// it is `unknown`.
     pub fn client_ip(&self, peer: Option<IpAddr>, headers: &HeaderMap) -> String {
         let Some(peer) = peer.map(canonical) else {
             return "unknown".to_owned();
@@ -123,13 +126,9 @@ impl WebConfig {
             .any(|range| range.contains(&peer));
         let forwarded = trusted
             .then(|| {
-                headers
-                    .get_all("x-forwarded-for")
-                    .iter()
-                    .filter_map(|value| value.to_str().ok())
-                    .flat_map(|value| value.split(','))
-                    .filter_map(|entry| entry.trim().parse::<IpAddr>().ok())
-                    .next_back()
+                let last = headers.get_all("x-forwarded-for").iter().next_back()?;
+                let entry = last.to_str().ok()?.rsplit(',').next()?;
+                forwarded_address(entry.trim())
             })
             .flatten();
         forwarded.map_or(peer, canonical).to_string()
@@ -199,6 +198,15 @@ impl WebConfig {
         };
         authority.eq_ignore_ascii_case(host)
     }
+}
+
+/// The address of an `X-Forwarded-For` entry: an IP address, or one with a port, as
+/// `198.51.100.1:5555` or `[2001:db8::1]:443`.
+fn forwarded_address(entry: &str) -> Option<IpAddr> {
+    entry
+        .parse::<IpAddr>()
+        .ok()
+        .or_else(|| entry.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
 /// An IPv4 address mapped into IPv6 is the IPv4 address, so it meets the same ranges and
@@ -379,6 +387,28 @@ mod tests {
         assert_eq!(web.client_ip(Some(mapped), &HeaderMap::new()), "192.0.2.50");
         assert_eq!(web.client_ip(Some(proxy), &HeaderMap::new()), "10.0.0.2");
         assert_eq!(web.client_ip(None, &forwarded), "unknown");
+    }
+
+    #[test]
+    fn only_the_entry_the_proxy_wrote_counts() {
+        let web = WebConfig::new(None, vec!["10.0.0.2/32".parse().expect("a range")]);
+        let proxy: IpAddr = "10.0.0.2".parse().unwrap();
+        let from =
+            |value: &str| web.client_ip(Some(proxy), &headers(&[("x-forwarded-for", value)]));
+
+        // An address with a port is the address.
+        assert_eq!(from("203.0.113.7, 198.51.100.1:5555"), "198.51.100.1");
+        assert_eq!(from("203.0.113.9, [2001:db8::1]:443"), "2001:db8::1");
+        // What is no address counts the proxy, never what the client wrote before it.
+        assert_eq!(from("203.0.113.8, unknown"), "10.0.0.2");
+        assert_eq!(from("203.0.113.8, "), "10.0.0.2");
+        assert_eq!(from("203.0.113.10, 198.51.100.2"), "198.51.100.2");
+        // Of several headers, the last is the proxy's.
+        let two = headers(&[
+            ("x-forwarded-for", "203.0.113.11"),
+            ("x-forwarded-for", "garbage"),
+        ]);
+        assert_eq!(web.client_ip(Some(proxy), &two), "10.0.0.2");
     }
 
     #[test]
