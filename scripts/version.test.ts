@@ -46,7 +46,7 @@ describe("checkVersions", () => {
       "Cargo.lock": '[[package]]\nname = "neon-server"\nversion = "1.2.2"\n',
       "web/package.json": JSON.stringify({ version: "0.0.0" }),
       "README.md": "Pull `ghcr.io/lein3000zzz/neon-teamspace-web:1.2.2`.\n",
-      "docs/src/content/docs/self-hosting/upgrade.md": [
+      "docs/src/content/docs/self-hosting/upgrading.md": [
         "```json",
         '{"name":"Neon Teamspace","version":"1.2.2"}',
         "```",
@@ -63,10 +63,10 @@ describe("checkVersions", () => {
       "Cargo.lock: neon-server is 1.2.2: build once to update it",
       'web/package.json: version is "0.0.0"',
       "README.md:1: an image names 1.2.2",
-      "docs/src/content/docs/self-hosting/upgrade.md:2: a version in JSON names 1.2.2",
-      "docs/src/content/docs/self-hosting/upgrade.md:4: the Compose archive names 1.2.2",
-      "docs/src/content/docs/self-hosting/upgrade.md:5: a release names 1.2.2",
-      "docs/src/content/docs/self-hosting/upgrade.md:6: a checkout names 1.2.2",
+      "docs/src/content/docs/self-hosting/upgrading.md:2: a version in JSON names 1.2.2",
+      "docs/src/content/docs/self-hosting/upgrading.md:4: the Compose archive names 1.2.2",
+      "docs/src/content/docs/self-hosting/upgrading.md:5: a release names 1.2.2",
+      "docs/src/content/docs/self-hosting/upgrading.md:6: a checkout names 1.2.2",
       'neon --version: printed "neon 1.2.2"',
       "the tag v1.2.4 is not v1.2.3",
     ]);

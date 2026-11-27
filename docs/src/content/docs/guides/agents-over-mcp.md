@@ -335,7 +335,8 @@ the page once, and a text found twice answers `edit_refused` saying how many tim
 People edit a page while an agent thinks about it, and an agent takes seconds or minutes
 between reading a page and writing to it. `replace_range` and `replace_body` remove the
 blocks they do not keep, so made from a stale read they would remove what someone added or
-changed since, and the page keeps no history yet to bring it back from. So:
+changed since, which only a restore from the page's [history](/docs/guides/history/) would
+bring back. So:
 
 - `read_page`, the page resource and `GET /api/v1/pages/{id}/markdown` answer the
   `revision` of what they show, which changes whenever it does.

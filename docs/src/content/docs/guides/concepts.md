@@ -23,8 +23,8 @@ work in the API and the web app, with tokens their owners make or apps connected
 as [Comments and mentions](/docs/guides/comments-and-mentions/) has it, a history, as
 [Page history](/docs/guides/history/) has it, search, as [Search](/docs/guides/search/) has
 it, and attachments, as [Attachments](/docs/guides/attachments/) has it. What is marked
-**planned** is not built yet: the desktop and mobile apps. It describes the design the code
-is being built toward, so the details may still change.
+**planned** is not built yet, the desktop and mobile apps among it. It describes the design
+the code is being built toward, so the details may still change.
 :::
 
 Content sits in four levels. An **instance** holds **workspaces**, a workspace holds
@@ -104,11 +104,11 @@ Pages nest under other pages. Besides the teamspaces, each member has private pa
 every workspace they are in, which only they see. A page takes its access from its
 teamspace: the teamspace's members edit it, and the workspace's other members view it,
 unless the teamspace is private. A page can also be shared with a person, who then **can
-edit** or **can view** it and every page under it. [Pages](/docs/guides/pages/) has the
+edit**, **can comment** on or **can view** it and every page under it. [Pages](/docs/guides/pages/) has the
 rules.
 
-A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code and
-tables. Everyone on a page edits the same live document: each sees the others' cursors, and
+A page is made of blocks: paragraphs, headings, lists, to-dos, toggles, quotes, code,
+tables, images, video, audio and files. Everyone on a page edits the same live document: each sees the others' cursors, and
 their edits merge, agents' edits over MCP and the API included. Markdown is the way in and
 out: markdown shortcuts work while typing, and pasted markdown becomes blocks. A database
 can sit inside a page, its views shown where it was placed. A mention names a person, an
@@ -219,7 +219,6 @@ without polling.
 
 Users, workspaces, teamspaces, agents and integrations each get a hue worked out from their
 ID, so the same one has the same colour everywhere, with nothing to choose or store. Each can
-pin a hue of its own instead. Databases will get theirs the same way, **planned**. A
-workspace's hue
-is also the accent of the app for its members, unless they pick one of their own; see
+pin a hue of its own instead. Databases have none yet; theirs is **planned**. A workspace's
+hue is also the accent of the app for its members, unless they pick one of their own; see
 [The web app](/docs/architecture/web/#the-theme-model).

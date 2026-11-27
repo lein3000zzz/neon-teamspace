@@ -238,8 +238,14 @@ master key wraps. The sealed value names its master key, so keys rotate: put a n
 and keep the old ones listed until nothing sealed with them is left.
 
 Each sealed value is bound to where it belongs by its associated data, `invite:<id>`,
-`workspace-invite-link:<id>`, `setting:<key>`, `webhook:<id>` or `incoming-webhook:<id>`. A sealed value copied to another row does not open there. A value that does
-not open is skipped with a warning naming its row, never its contents.
+`workspace-invite-link:<id>`, `setting:<key>`, `job:<id>` for mail waiting in the queue,
+`webhook:<id>` or `incoming-webhook:<id>`. A sealed value copied to another row does not
+open there. A value that does not open is never used, and what is logged names where it
+belongs and which key sealed it, never its contents: a secret setting is ignored, with a
+warning at start; a mail is dropped; and a webhook's deliveries, or an incoming webhook's
+signed requests, fail with an error. [Backups and
+restore](/docs/self-hosting/backups/#what-a-partial-restore-loses) lists what a database
+restored without its keys loses.
 
 [Configuration](/docs/self-hosting/configuration/#secret-keys) shows how to make keys.
 

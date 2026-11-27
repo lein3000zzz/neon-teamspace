@@ -4,8 +4,8 @@ description: The parts Neon Teamspace is made of, the crates of its server, and 
 ---
 
 Neon Teamspace is a Rust server, a TypeScript single-page app, and Postgres. The server is
-one binary, `neon`: the HTTP API, real-time editing over WebSocket, and, as they arrive, the
-MCP endpoint for agents and webhooks. In a deployment, Caddy serves the app and these docs
+one binary, `neon`: the HTTP API, real-time editing over WebSocket, the MCP endpoint for
+agents, and webhooks both ways. In a deployment, Caddy serves the app and these docs
 as files and passes everything else to the server, so the browser sees one origin.
 
 ## The parts
@@ -34,7 +34,8 @@ flowchart LR
   the TLS certificate, and sets the security headers. It is the web image of the
   [Docker deployment](/docs/self-hosting/install/#with-docker); in development, Vite's server
   passes the same paths on to the server's own port, 8080.
-- **Postgres** keeps everything lasting: content, settings, sessions and the job queue.
+- **Postgres** keeps everything lasting but attachments' bytes: content, settings, sessions
+  and the job queue.
 - **The blob store** keeps attachments' bytes: a directory of the server's disk, or a bucket
   of an S3-compatible store such as SeaweedFS; see [File storage](/docs/self-hosting/storage/).
 - **The mail server** is an SMTP relay of the operator's choice, which the server hands its
@@ -53,7 +54,7 @@ The server is a cargo workspace of six crates:
 | `neon-store` | The Postgres repositories, with sqlx. |
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
-| `neon-server` | The `neon` binary: the HTTP API, the WebSocket of real-time sync and the MCP server, and later webhooks; the adapters for mail and storage; the command line; and the wiring of it all. |
+| `neon-server` | The `neon` binary: the HTTP API, the WebSockets of real-time sync, the MCP server and the webhooks' endpoints; the adapters for mail, storage and webhooks' deliveries; the command line; and the wiring of it all. |
 
 Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
 further in, never one further out:
@@ -89,8 +90,7 @@ MCP sessions whose access changed, `RateLimiter`, `WebhookTransport`, and `BlobS
 attachments' bytes. `neon-app` declares them, `neon-server` provides the adapters, such
 as SMTP and HTTP for webhooks and the HTTP client of the S3 store, and tests use fakes. The
 blob store's adapter is `object_store`'s, over local disk or S3, in `neon-app`, which tests
-run against a directory and an in-memory store. They are held as `Arc<dyn Trait>`. Each
-port arrives with the feature that needs it, from accounts on.
+run against a directory and an in-memory store. They are held as `Arc<dyn Trait>`.
 
 ## A request's way
 

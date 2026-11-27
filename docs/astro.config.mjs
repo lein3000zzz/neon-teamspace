@@ -133,11 +133,13 @@ export default defineConfig({
           label: 'Self-hosting',
           items: [
             'self-hosting/install',
-            'self-hosting/upgrade',
             'self-hosting/configuration',
             'self-hosting/storage',
             'self-hosting/mail',
             'self-hosting/observability',
+            'self-hosting/backups',
+            'self-hosting/upgrading',
+            'self-hosting/troubleshooting',
           ],
         },
         {
