@@ -575,7 +575,7 @@ impl Client {
     }
 
     /// Makes a change in the client's document and sends it.
-    async fn change(&mut self, change: impl FnOnce(&mut yrs::TransactionMut, &XmlTextRef)) {
+    async fn change(&mut self, change: impl FnOnce(&mut yrs::TransactionMut<'_>, &XmlTextRef)) {
         let update = {
             let text = self.first_text();
             let mut txn = self.doc.transact_mut();

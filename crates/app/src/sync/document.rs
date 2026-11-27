@@ -738,7 +738,7 @@ impl Document {
     /// says how large its update is.
     fn on_copy<E>(
         &self,
-        write: impl FnOnce(&mut TransactionMut, &XmlFragmentRef, Deadline) -> Result<(), E>,
+        write: impl FnOnce(&mut TransactionMut<'_>, &XmlFragmentRef, Deadline) -> Result<(), E>,
     ) -> Result<usize, E> {
         let doc = self.awareness.doc();
         let (state, before) = {
@@ -1394,7 +1394,7 @@ impl Document {
 /// takes the time that would, before its size is checked. Past `deadline`, the part being
 /// made stops part made and is refused: give one only on a copy.
 fn make(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     edits: &[Edit],
     mut room: usize,

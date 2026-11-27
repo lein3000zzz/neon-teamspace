@@ -207,7 +207,7 @@ pub enum EditError {
 /// there and is refused with what it wrote left, so give a deadline only to an edit tried on
 /// a copy of a document.
 pub fn apply(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     edit: &Edit,
     ids: &mut dyn IdSource,
@@ -241,7 +241,7 @@ fn top_group(fragment: &XmlFragmentRef) -> Result<Option<XmlElementRef>, EditErr
 
 /// The top-level block group, made when the fragment is empty, as for a page never written.
 fn group_or_new(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
 ) -> Result<XmlElementRef, EditError> {
     match top_group(fragment)? {
@@ -335,7 +335,7 @@ fn is_empty_paragraph<T: ReadTxn>(txn: &T, container: &XmlElementRef) -> bool {
 /// After blocks were removed from a group: a group of children left empty goes, as the
 /// editor's schema has no empty ones, and a page left without blocks gets an empty
 /// paragraph.
-fn tidy(txn: &mut TransactionMut, group: &XmlElementRef, ids: &mut dyn IdSource) {
+fn tidy(txn: &mut TransactionMut<'_>, group: &XmlElementRef, ids: &mut dyn IdSource) {
     if group.len(txn) > 0 {
         return;
     }
@@ -357,7 +357,7 @@ fn tidy(txn: &mut TransactionMut, group: &XmlElementRef, ids: &mut dyn IdSource)
 }
 
 fn append(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -379,7 +379,7 @@ fn append(
 }
 
 fn insert_after(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     block_id: &str,
     blocks: &[Block],
@@ -398,7 +398,7 @@ fn insert_after(
 }
 
 fn replace_range(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     from: &str,
     to: &str,
@@ -546,7 +546,7 @@ fn texts_of<T: ReadTxn>(txn: &T, element: &XmlElementRef, found: &mut Vec<Run>) 
 }
 
 fn find_replace(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     find: &str,
     replace: &str,
@@ -686,7 +686,7 @@ fn branch(element: &XmlElementRef) -> BranchID {
 }
 
 fn replace_body(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -864,13 +864,13 @@ pub(crate) fn walked(placed: &[Placed], len: impl Fn(usize) -> usize) -> usize {
 /// removal's place, those of neighbours at once, and writes each run with `write`. Past
 /// `deadline`, it stops at the next removal past the group's first place, or as `write` does.
 pub(crate) fn make_placed(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     placed: &[Placed],
     deadline: Deadline,
-    mut write: impl FnMut(&mut TransactionMut, u32, usize) -> Result<(), TooFar>,
+    mut write: impl FnMut(&mut TransactionMut<'_>, u32, usize) -> Result<(), TooFar>,
 ) -> Result<(), TooFar> {
-    let remove = |txn: &mut TransactionMut, (start, len): (u32, u32)| {
+    let remove = |txn: &mut TransactionMut<'_>, (start, len): (u32, u32)| {
         if start > 0 {
             deadline.check()?;
         }

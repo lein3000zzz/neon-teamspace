@@ -283,7 +283,7 @@ pub fn mention_items<T: ReadTxn>(
 /// `ids`, parents before their children, in document order. The top-level block group is
 /// kept when there is one, so the editor's binding to it stays.
 pub fn replace(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     document: &Document,
     ids: &mut dyn IdSource,
@@ -327,7 +327,7 @@ pub fn replace(
 /// past more than [`MAX_WALK`] items; and once past `deadline`, which leaves some of the
 /// blocks written.
 pub fn append(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -898,7 +898,7 @@ fn read_cell<T: ReadTxn>(txn: &T, cell: &XmlElementRef) -> Result<Vec<Inline>, R
 /// is written only while `deadline` has not passed; once it has, the rest are not, and the
 /// write is refused.
 pub(crate) fn write_blocks_at(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     index: u32,
     blocks: &[Block],
@@ -918,7 +918,7 @@ pub(crate) fn write_blocks_at(
 /// Writes `blocks` at the start of a group, as [`write_blocks_at`] does, which walks no item
 /// and so has no deadline.
 pub(crate) fn write_blocks_first(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -956,7 +956,7 @@ fn named<'a>(blocks: &'a [Block], ids: &mut dyn IdSource) -> Vec<Named<'a>> {
 /// Writes a block into a group at `index`, with the blocks under it. Its siblings go in at
 /// the same index, the last first, so each goes in where the walk to `index` ends and none
 /// walks past those written before it; its children so at the start of their new group.
-fn write_named(txn: &mut TransactionMut, group: &XmlElementRef, index: u32, named: &Named<'_>) {
+fn write_named(txn: &mut TransactionMut<'_>, group: &XmlElementRef, index: u32, named: &Named<'_>) {
     let container = group.insert(txn, index, XmlElementPrelim::empty(BLOCK_CONTAINER));
     container.insert_attribute(txn, "id", named.id.as_str());
     let content = container.push_back(txn, XmlElementPrelim::empty(named.block.kind.name()));
@@ -1013,7 +1013,7 @@ fn number(value: f64) -> Any {
 
 /// Writes a block's props and content into its content element, made empty and named after
 /// its type.
-pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKind) {
+pub(crate) fn write_kind(txn: &mut TransactionMut<'_>, element: &XmlElementRef, kind: &BlockKind) {
     let mut attrs = Writer {
         txn: &mut *txn,
         element,
@@ -1095,7 +1095,7 @@ pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind
 /// Writes inline content as y-prosemirror does: each run of text nodes one `XmlText`, each
 /// hard break and each mention an element between them, a mention's attributes in its
 /// props' order. The element is new and empty: its nodes go in at index 0, the last first.
-fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[Inline]) {
+fn write_inline(txn: &mut TransactionMut<'_>, element: &XmlElementRef, content: &[Inline]) {
     let mut nodes: Vec<Node> = Vec::new();
     let mut texts: Vec<(String, Marks)> = Vec::new();
     for piece in to_pieces(content) {
@@ -1157,7 +1157,7 @@ type MarkValue = fn(&Marks) -> Option<Any>;
 /// attribute at a time and in the schema's order: an insert with several attributes at once
 /// would add them in a hash map's order, which differs from run to run, and so would the
 /// update's bytes.
-fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String, Marks)]) {
+fn write_text(txn: &mut TransactionMut<'_>, element: &XmlElementRef, runs: &[(String, Marks)]) {
     let text = element.insert(txn, 0, XmlTextPrelim::new(""));
     text.apply_delta(
         txn,
@@ -1207,7 +1207,12 @@ fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String
 }
 
 /// Applies one mark over ranges of a text, in order and apart, in one pass over it.
-fn format(txn: &mut TransactionMut, text: &XmlTextRef, name: &str, ranges: Vec<(u32, u32, Any)>) {
+fn format(
+    txn: &mut TransactionMut<'_>,
+    text: &XmlTextRef,
+    name: &str,
+    ranges: Vec<(u32, u32, Any)>,
+) {
     if ranges.is_empty() {
         return;
     }
@@ -1248,7 +1253,7 @@ fn single(key: &str, value: &str) -> Any {
     )])))
 }
 
-fn write_table(txn: &mut TransactionMut, table: &XmlElementRef, content: &TableContent) {
+fn write_table(txn: &mut TransactionMut<'_>, table: &XmlElementRef, content: &TableContent) {
     let header_rows = content.header_rows.unwrap_or(0) as usize;
     let header_cols = content.header_cols.unwrap_or(0) as usize;
     let columns = column_positions(&content.rows);

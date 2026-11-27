@@ -26,7 +26,7 @@ use crate::ydoc::{
 };
 
 pub(super) fn restore(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &yrs::XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -60,7 +60,7 @@ struct Present {
 /// Makes `group` hold `blocks`, a level of the version, and the levels under them. Past
 /// `deadline`, it stops as [`make_placed`] does.
 fn restore_group(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -164,7 +164,7 @@ fn restore_group(
 }
 
 /// Writes a block's content element anew, for a block that stays with other content.
-fn rewrite(txn: &mut TransactionMut, container: &XmlElementRef, kind: &BlockKind) {
+fn rewrite(txn: &mut TransactionMut<'_>, container: &XmlElementRef, kind: &BlockKind) {
     container.remove_range(txn, 0, 1);
     let content = container.insert(txn, 0, XmlElementPrelim::empty(kind.name()));
     write_kind(txn, &content, kind);
@@ -172,7 +172,7 @@ fn rewrite(txn: &mut TransactionMut, container: &XmlElementRef, kind: &BlockKind
 
 /// Makes the children of a block that stays the version's.
 fn restore_children(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     container: &XmlElementRef,
     children: &[Block],
     ids: &mut dyn IdSource,

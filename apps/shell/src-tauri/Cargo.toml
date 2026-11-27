@@ -55,6 +55,8 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "i
 [lints.rust]
 unsafe_code = "deny"
 unused_must_use = "deny"
+# The 2018 edition's idioms, among them naming the lifetime a path hides: Formatter<'_>.
+rust_2018_idioms = { level = "warn", priority = -1 }
 
 [lints.clippy]
 dbg_macro = "warn"
