@@ -101,3 +101,35 @@ test("on a phone, back closes the comments, the drawer and a dialog over it befo
   await page.goBack();
   await expect(sprintTitle).toBeVisible();
 });
+
+test("on a phone, the drawer shows a page's whole title, beside the menu that holds its actions", async ({
+  page,
+  browser,
+}) => {
+  const { workspace } = await personOnPhone(browser, page, "titler");
+  const title = "Launch plan for the spring fair";
+  await pageIn(page, workspace, title, "Stalls, music and a raffle.");
+  await page.goto(`/w/${workspace.slug}`);
+  const drawer = await openDrawer(page);
+
+  // Whole: neither cut short at its end nor at the end of a second line.
+  const shown = drawer.getByText(title, { exact: true });
+  await expect(shown).toBeVisible();
+  expect(
+    await shown.evaluate(
+      (element) =>
+        element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight,
+    ),
+  ).toBe(false);
+
+  // The row's menu, a full touch target, adds a page inside it.
+  const more = drawer.getByRole("button", { name: `More for ${title}` });
+  const box = await more.boundingBox();
+  expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(44);
+  await expect(drawer.getByRole("button", { name: `Add a page inside ${title}` })).toHaveCount(0);
+  await more.tap();
+  await page.getByRole("menuitem", { name: "Add a page inside" }).tap();
+  // The new page opens, with its title empty, under the one it is inside.
+  await expect(page.getByRole("textbox", { name: "Page title" })).toHaveValue("");
+  await expect(page.getByRole("link", { name: title })).toBeVisible();
+});

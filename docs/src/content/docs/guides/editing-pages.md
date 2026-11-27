@@ -35,15 +35,17 @@ a table's glyph; its rows are in its views rather than the tree, and nothing els
 it. [Databases and boards](/docs/guides/databases-and-boards/) is about them. A teamspace's row
 folds its tree away the same way, and it stays folded in that browser, after a reload too,
 until you unfold it. On a computer the buttons show over the end of the title as the pointer
-passes over a row or the keyboard reaches it; on a touch screen they always show, beside it.
-Opening a page opens the pages above it in the tree, so it shows there.
+passes over a row or the keyboard reaches it. On a touch screen they always show, beside it:
+a page's row has its menu alone there, with **Add a page inside** in it, and a title too long
+for one line takes two. Opening a page opens the pages above it in the tree, so it shows
+there.
 
 ## Making a page
 
 | Where | Makes |
 |---|---|
 | **+** on a teamspace's row | A page at the top of that teamspace. |
-| **+** on a page's row, or **Add a page inside** in its menu | A page inside that page. |
+| **+** on a page's row, or **Add a page inside** in its menu, the one way on a touch screen | A page inside that page. |
 | **+** beside **Private** | One of your private pages. |
 | **New private page** on the workspace's home | The same. |
 | **New page** on a teamspace's page | A page at the top of the teamspace. |
