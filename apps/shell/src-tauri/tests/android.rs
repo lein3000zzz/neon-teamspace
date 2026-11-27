@@ -179,3 +179,22 @@ fn the_window_follows_a_switch_of_light_or_dark_mode_while_the_app_runs() {
         "a night theme of its own would set the window apart from the colour"
     );
 }
+
+#[test]
+fn back_goes_through_the_webviews_history_before_it_leaves_the_app() {
+    let activity = read(MAIN_ACTIVITY);
+    assert!(
+        kotlin_function(&activity, "onWebViewCreate").contains("goBackThroughHistory(webView)"),
+        "the back handling is not set up with the webview"
+    );
+    let back = kotlin_function(&activity, "handleOnBackPressed");
+    let at = |code: &str| {
+        back.find(code)
+            .unwrap_or_else(|| panic!("handleOnBackPressed lacks {code}"))
+    };
+    // Back in the history, which holds the entries open panels add, while there is any; out
+    // of the app only once there is none.
+    assert!(at("if (webView.canGoBack())") < at("webView.goBack()"));
+    assert!(at("webView.goBack()") < at("} else {"));
+    assert!(at("} else {") < at("onBackPressedDispatcher.onBackPressed()"));
+}

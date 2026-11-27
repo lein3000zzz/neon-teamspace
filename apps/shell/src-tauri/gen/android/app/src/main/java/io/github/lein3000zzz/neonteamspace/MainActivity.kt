@@ -11,6 +11,7 @@ import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -42,11 +43,33 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
   }
 
+  override fun onWebViewCreate(webView: WebView) {
+    goBackThroughHistory(webView)
+    saveDownloads(webView)
+  }
+
+  // Back goes back in the webview's history while there is any: through the server's pages
+  // and the entries its open panels and menus add, which going back closes, and from the
+  // server's first page to the picker. With none left, it leaves the app.
+  private fun goBackThroughHistory(webView: WebView) {
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        if (webView.canGoBack()) {
+          webView.goBack()
+        } else {
+          isEnabled = false
+          onBackPressedDispatcher.onBackPressed()
+          isEnabled = true
+        }
+      }
+    })
+  }
+
   // Android's WebView saves no file by itself. The system's download manager fetches the
   // server's, with the page's cookies, from the origin of the page alone, which the app's
   // origin lock keeps on the server; anything else, a file the page made itself among them, is
   // refused with a note.
-  override fun onWebViewCreate(webView: WebView) {
+  private fun saveDownloads(webView: WebView) {
     webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
       val file = Uri.parse(url)
       val page = webView.url?.let(Uri::parse)

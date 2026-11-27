@@ -134,8 +134,9 @@ To get back to the picker from a server:
 
 - **macOS**: **Neon Teamspace > Switch Server…** in the menu bar.
 - **Windows and Linux**: **File > Switch Server…**.
-- **Android**: the system's back gesture or button. It goes back through the pages you
-  visited, and from the first of them to the picker.
+- **Android**: the system's back gesture or button. Like a browser's back button, it goes back
+  through the web view's history: the pages you visited and the steps the server's interface
+  adds to it, and from the first page to the picker.
 - **iOS and iPadOS**: swipe from the left edge of the screen, which goes back the same way.
 
 On mobile the app draws nothing over the server's pages, so the way back is the platform's own

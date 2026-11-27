@@ -508,6 +508,30 @@ mod tests {
     }
 
     #[test]
+    fn back_walks_the_servers_history_before_it_reaches_the_picker() {
+        // iOS's edge swipe asks the lock about each entry it goes back to, as a navigation.
+        let (lock, now) = on_server("https://neon.example.com/w/acme/p/1");
+        // The entries the server's pages added: an open panel's, with a query, a fragment or
+        // none, and the pages before.
+        for entry in [
+            "https://neon.example.com/w/acme/p/1?panel=comments",
+            "https://neon.example.com/w/acme/p/1#drawer",
+            "https://neon.example.com/w/acme/p/1",
+            "https://neon.example.com/w/acme",
+            "https://neon.example.com/",
+        ] {
+            assert_eq!(
+                lock.navigation(&url(entry), now),
+                Navigation::Load,
+                "{entry}"
+            );
+            assert_eq!(lock.started(&url(entry), now), Started::Stay, "{entry}");
+        }
+        // Past the server's first page, the picker, which the app shows its own way.
+        assert_eq!(lock.navigation(&url(PICKER), now), Navigation::ShowPicker);
+    }
+
+    #[test]
     fn a_blank_page_the_server_loaded_leads_nowhere() {
         let (lock, now) = on_server("https://neon.example.com/");
         assert_eq!(lock.navigation(&url(BLANK), now), Navigation::Load);
