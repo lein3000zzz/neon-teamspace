@@ -197,8 +197,8 @@ answers `403` with `agent_suspended`, `agents_off` or `agent_deleted`, as an
 rather than connecting again.
 
 An access token acts as a token bound to the grant's workspace: another workspace answers
-`404 not_found`, and the account's and the instance admins' routes answer
-`403 token_bound`. See [tokens bound to one workspace](/docs/guides/agents/#tokens-bound-to-one-workspace)
+`404 not_found`, and the account's routes, `/api/v1/me/notifications` among them, and the
+instance admins' answer `403 token_bound`. See [tokens bound to one workspace](/docs/guides/agents/#tokens-bound-to-one-workspace)
 and the [permissions](/docs/reference/permissions/) page.
 
 ## Revoking and connected apps

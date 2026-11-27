@@ -1198,11 +1198,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read how one wants mail of the inbox */
+        /**
+         * Read how one wants mail of the inbox
+         * @description The account's own, for every workspace: a token bound to a workspace is refused.
+         */
         get: operations["get_notification_settings"];
         /**
          * Choose how one wants mail of the inbox
-         * @description For people; agents and integrations get no mail.
+         * @description For people; agents and integrations get no mail. The account's own, for every workspace: a token bound to a workspace is refused.
          */
         put: operations["put_notification_settings"];
         post?: never;
@@ -10455,7 +10458,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description insufficient_scope. */
+            /** @description insufficient_scope, or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10506,7 +10509,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description forbidden: an agent or integration; or insufficient_scope. */
+            /** @description forbidden: an agent or integration; insufficient_scope; or token_bound: a token bound to a workspace. */
             403: {
                 headers: {
                     [name: string]: unknown;

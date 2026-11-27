@@ -601,6 +601,19 @@ async fn a_person_s_bound_token_works_in_its_workspace_alone(pool: PgPool) {
         .await;
     assert_eq!(elsewhere.status, StatusCode::NOT_FOUND);
     assert_eq!(writer.get("/api/v1/account/me").await.code(), "token_bound");
+    // The account's mail of the inbox is for every workspace: no token of one changes it.
+    assert_eq!(
+        writer.get("/api/v1/me/notifications").await.code(),
+        "token_bound"
+    );
+    let silenced = writer
+        .send(
+            Method::PUT,
+            "/api/v1/me/notifications",
+            Some(json!({"mail": "none"})),
+        )
+        .await;
+    assert_eq!(silenced.code(), "token_bound");
     // Without the admin scope, the workspace's owner manages nothing through it.
     let rename = writer
         .send(

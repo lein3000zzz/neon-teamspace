@@ -156,7 +156,8 @@ more, and where a value still names one, the person picker offers to take it off
 A person's own token, made under [API tokens](/docs/guides/accounts/#api-tokens), may be
 bound to one workspace they are in. A bound token works on that workspace's routes and
 sockets alone. On another workspace it answers `404 not_found`, as for one that does not
-exist. On the account's routes under `/api/v1/account`, on `/api/v1/admin`, on making a
+exist. On the account's routes under `/api/v1/account`, on the account's mail of the inbox
+at `/api/v1/me/notifications`, on `/api/v1/admin`, on making a
 workspace with `POST /api/v1/workspaces`, and on previewing and joining by an invite link
 under `/api/v1/workspace-invite-links`, it answers `403 token_bound`.
 `GET /api/v1/workspaces` lists that workspace alone.

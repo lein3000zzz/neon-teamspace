@@ -5859,6 +5859,7 @@
           "notifications"
         ],
         "summary": "Read how one wants mail of the inbox",
+        "description": "The account's own, for every workspace: a token bound to a workspace is refused.",
         "operationId": "get_notification_settings",
         "responses": {
           "200": {
@@ -5882,7 +5883,7 @@
             }
           },
           "403": {
-            "description": "insufficient_scope.",
+            "description": "insufficient_scope, or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5916,7 +5917,7 @@
           "notifications"
         ],
         "summary": "Choose how one wants mail of the inbox",
-        "description": "For people; agents and integrations get no mail.",
+        "description": "For people; agents and integrations get no mail. The account's own, for every workspace: a token bound to a workspace is refused.",
         "operationId": "put_notification_settings",
         "requestBody": {
           "content": {
@@ -5950,7 +5951,7 @@
             }
           },
           "403": {
-            "description": "forbidden: an agent or integration; or insufficient_scope.",
+            "description": "forbidden: an agent or integration; insufficient_scope; or token_bound: a token bound to a workspace.",
             "content": {
               "application/json": {
                 "schema": {

@@ -287,8 +287,9 @@ its owner may. See [Webhooks](/docs/guides/webhooks/#whose-events).
 
 A token bound to one workspace, every agent's and every OAuth access token among them,
 works in that workspace alone:
-another workspace is **hidden** to it, and the account's and the instance admins' routes,
-making a workspace and invite links answer `403 token_bound`. The account's favorites are
+another workspace is **hidden** to it, and the account's routes, the account's mail of the
+inbox at `/api/v1/me/notifications` among them, the instance admins' routes, making a
+workspace and invite links answer `403 token_bound`. The account's favorites are
 the exception: a bound token reaches its own workspace's favorites alone, and the others
 are **hidden**. Without the `admin` scope, it acts as a member at most: a bound token of an
 owner or admin manages nothing. With it, it does the workspace's admin work its holder's
