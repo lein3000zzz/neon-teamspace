@@ -1,5 +1,5 @@
-//! The Android project's settings that keep the app's secrets on the device, read from the
-//! files in gen/android.
+//! The Android project's settings that keep the app's secrets on the device and its build
+//! inputs pinned, read from the files in gen/android.
 
 use std::path::Path;
 
@@ -71,4 +71,15 @@ fn the_app_makes_no_backups_and_moves_only_the_server_list() {
         rules("app/src/main/res/xml/data_extraction_rules.xml"),
         [only_the_list.clone(), only_the_list].concat()
     );
+}
+
+#[test]
+fn the_gradle_distribution_is_checked_against_its_checksum() {
+    let wrapper = read("gradle/wrapper/gradle-wrapper.properties");
+    let checksum = wrapper
+        .lines()
+        .find_map(|line| line.strip_prefix("distributionSha256Sum="))
+        .expect("a distributionSha256Sum");
+    assert_eq!(checksum.len(), 64);
+    assert!(checksum.bytes().all(|byte| byte.is_ascii_hexdigit()));
 }
