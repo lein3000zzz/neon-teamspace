@@ -318,6 +318,18 @@ html .bn-root .comment-highlight.is-active {
     width: var(--tap);
   }
 
+  /* The handles that widen an image or a video, which show once it is tapped: a fingertip
+     around the bar each draws, and a drag on one widens it rather than scrolling the page. */
+  html .bn-root [data-file-block] .bn-resize-handle {
+    touch-action: none;
+  }
+  html .bn-root [data-file-block] .bn-resize-handle::before {
+    content: "";
+    position: absolute;
+    inset-block: calc((100% - var(--tap)) / 2);
+    inset-inline: calc((100% - var(--tap)) / 2);
+  }
+
   /* A to-do's checkbox: the box drawn where it was, and the checkbox itself
      unseen over the whole height of its line, so it takes no tap meant for a
      neighbour. */
