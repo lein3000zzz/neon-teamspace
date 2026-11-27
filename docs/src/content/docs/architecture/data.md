@@ -346,6 +346,8 @@ moment waits and writes its own after.
 
 ## Backups
 
-A backup is a `pg_dump` of the database and a copy of the attachments' directory or bucket,
-taken after it, as [File storage](/docs/self-hosting/storage/#backups) describes. The server migrates the schema forward as a new version starts, and
-migrations cannot be undone, so back up before upgrading.
+A backup is a `pg_dump` of the database, a copy of the attachments' directory or bucket
+taken after it, and the secret keys, without which the sealed values in the database do not
+open; [Backups and restore](/docs/self-hosting/backups/) has the commands. The server
+migrates the schema forward as a new version starts, and migrations cannot be undone, so
+back up before upgrading, as [Upgrading](/docs/self-hosting/upgrading/) describes.

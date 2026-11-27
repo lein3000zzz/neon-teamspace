@@ -137,6 +137,8 @@ export default defineConfig({
             'self-hosting/storage',
             'self-hosting/mail',
             'self-hosting/observability',
+            'self-hosting/backups',
+            'self-hosting/upgrading',
           ],
         },
         {

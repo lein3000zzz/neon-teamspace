@@ -144,25 +144,12 @@ geolocation and other device features.
 
 ### Upgrading
 
-Built from the clone, pull the new code and build again:
-
-```sh
-git pull
-docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
-```
-
-With the published images, set the new release in `NEON_VERSION`, then:
-
-```sh
-docker compose -f deployments/docker-compose.yml pull
-docker compose -f deployments/docker-compose.yml up -d
-```
-
-Compose replaces the containers whose image changed. The new server applies the new
-migrations before it takes requests, and `/readyz` answers `503` until it has. Migrations
-only go forward, so take a backup first (see [below](#where-the-data-lives)): going back to
-an older version means restoring the backup taken before the upgrade. A server that was
-killed rather than stopped may leave pages whose latest text search does not read yet;
+Set the new release in `NEON_VERSION`, back up, then pull and start again; built from the
+clone, check out the new release and build again. The new server applies the new migrations
+before it takes requests, and they only go forward, so going back to an older release means
+restoring the backup taken before the upgrade. [Upgrading](/docs/self-hosting/upgrading/)
+has the steps, how migrations run and fail, and rolling back. A server that was killed rather
+than stopped may leave pages whose latest text search does not read yet;
 `neon search reindex` stores it, as [Search](/docs/guides/search/#rebuilding-the-text)
 explains.
 
@@ -193,17 +180,10 @@ prefixes their names with the project's, `neon`:
 | `neon_otel-lgtm` | With the `observability` profile, the metrics, traces, logs and profiles it collected. |
 | `neon_seaweedfs` | With the `seaweedfs` profile, the files SeaweedFS keeps, attachments among them once the server is set to use it. |
 
-To back the database up into `neon.sql`, and to restore that over what the database holds:
-
-```sh
-docker compose -f deployments/docker-compose.yml exec -T postgres pg_dump -U neon --clean --if-exists neon > neon.sql
-docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d neon < neon.sql
-```
-
-Stop the server before restoring, with
-`docker compose -f deployments/docker-compose.yml stop server`, and start it again after.
-Back up attachments' files with the dump, after it, as [File storage](/docs/self-hosting/storage/#backups)
-shows.
+A backup takes the database, the attachments' files and the secret keys in
+`deployments/server.env`, which open the secrets the database keeps sealed.
+[Backups and restore](/docs/self-hosting/backups/) has the commands, the restore onto a new
+machine, and what a backup without one of the three loses.
 
 ### Profiles
 

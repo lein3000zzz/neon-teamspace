@@ -104,21 +104,11 @@ a separate program under Apache-2.0, not linked with Neon Teamspace's code.
 
 ## Backups
 
-A backup is a `pg_dump` of the database and a copy of the files, taken together. Take the dump
-first. A file uploaded between the two is then in the copy without a row, which does no harm,
-while in the other order a row could name a file the copy lacks.
-
-| Store | Copying the files |
-|---|---|
-| Local disk, in Docker | `docker run --rm -v neon_server-data:/data -v "$PWD":/backup busybox tar czf /backup/files.tar.gz -C /data attachments` |
-| Local disk, from source | A copy of `server.data_dir`'s `attachments` folder, with `rsync -a` or `tar`. |
-| S3 | `aws s3 sync s3://neon ./files`, or `rclone sync`, or the store's own snapshots or replication. |
-
-To restore, put both back, the files under the same keys, before starting the server. Files
-deleted since the backup come back, rows and bytes. A file deleted between the dump and the
-copy comes back as a row without bytes, which answers `404 file_missing` until the cleanup
-deletes it, once no page shows it. The
-[install page](/docs/self-hosting/install/#where-the-data-lives) shows the `pg_dump` commands.
+A backup is a `pg_dump` of the database and a copy of the files, taken together, the dump
+first, so that no row names a file the copy lacks. The files go back under the same keys
+before the server starts, and files deleted since the backup come back, rows and bytes.
+[Backups and restore](/docs/self-hosting/backups/#attachments) has the commands: for local
+disk, for SeaweedFS's bucket or its own data, and for other stores.
 
 ## What the server deletes
 
