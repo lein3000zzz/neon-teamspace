@@ -266,7 +266,7 @@ GitHub Actions runs three workflows.
 - **E2E** runs `make e2e`: it builds both images, starts a throwaway Compose stack and runs the Playwright tests against it.
   - It runs on every pull request into `main`, and on pull requests into `dev` that touch the images, Caddy, Compose, the end-to-end tests or the Makefile.
   - It also runs on every push to `dev` and `main`, and saves both images' layers to the Actions cache. Pull requests into those branches build from it, so only the layers their changes touch build again: the tools and the dependencies cargo-chef cooks build only when a Dockerfile, `Cargo.lock` or a manifest changes.
-  - Called by a release, it neither reads nor writes that cache, and the step that builds and tests gets no token for it, so nothing the tests install can leave layers behind for the published images.
+  - Called by a release, it neither reads nor writes that cache, and the step that builds and tests gets no token for it. Whatever a run could still write there, the published images never read it: they build without a layer cache.
   - It can also be started by hand from the Actions tab.
   - When the tests fail, the Playwright report is attached to the run.
 - **Release** runs on a `v*` tag. Each job starts only once the one before it passed, so nothing is published unless every check did.

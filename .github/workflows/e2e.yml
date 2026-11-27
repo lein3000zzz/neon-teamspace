@@ -77,8 +77,10 @@ jobs:
           driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
       # The Actions cache's URL and token, which only actions see otherwise, for bake to reach
       # the cache from a run step. Not in a tag's run, the one before a release: the token
-      # writes to the cache as well as reading it, and the release's tests, with every package
-      # and browser they install, never hold one.
+      # writes to the cache as well as reading it, so the release's tests, with every package
+      # and browser they install, are not handed one. Code on the runner could still read the
+      # job's token from the runner process's memory, which is why the release's images read
+      # no cache at all.
       - if: github.ref_type != 'tag'
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
       # Each image's layers, every stage's (mode=max), so that the tools, the system packages
