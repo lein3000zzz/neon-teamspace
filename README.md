@@ -315,9 +315,10 @@ Given `TAG`, as the release workflow gives it, the tag must be `v` and the versi
 release candidate of it: `v`, the version, `-rc.` and a number, such as `v0.2.0-rc.1` for
 0.2.0. Either way the changelog's section must have its date. A candidate rehearses the whole
 release on the commit the release will tag, so every file states the version alone; its
-images are tagged with the candidate's version alone, and its GitHub release is marked as a
-pre-release. `make check` runs the check, and so does CI's **Versions** job whenever one of
-those files changes.
+images are tagged with the candidate's version alone, its apps' installers and APK are named
+for it, as `Neon-Teamspace_0.2.0-rc.1_x64-setup.exe`, while the apps inside report 0.2.0,
+and its GitHub release is marked as a pre-release. `make check` runs the check, and so does
+CI's **Versions** job whenever one of those files changes.
 
 To release:
 
@@ -337,8 +338,8 @@ To release:
    `git fetch origin`, `git tag -a vX.Y.Z-rc.1 -m vX.Y.Z-rc.1 origin/main` and
    `git push origin vX.Y.Z-rc.1`. The workflow runs every job of a release, publishes
    both images as `X.Y.Z-rc.1` alone, never as `latest` or the minor version, and makes a
-   GitHub release marked as a pre-release. `make compose-archive` writes the archive it
-   attaches, to look at before tagging.
+   GitHub release marked as a pre-release, with the apps' files named for `X.Y.Z-rc.1`.
+   `make compose-archive` writes the archive it attaches, to look at before tagging.
 5. Check the candidate as anyone without an account would, after `docker logout ghcr.io`:
    - `docker pull ghcr.io/lein3000zzz/neon-teamspace-server:X.Y.Z-rc.1`, and the same for
      `neon-teamspace-web`. A pull that is denied means GHCR created that package private,

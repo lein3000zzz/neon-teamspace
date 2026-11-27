@@ -22,6 +22,10 @@ installers and the Android APK attached. The iPhone and iPad app goes out throug
 | Android 7 or later | `Neon-Teamspace_<version>_android.apk` | Allow your browser or file manager to install apps, then open the file. |
 | iOS and iPadOS 15 or later | TestFlight | Whoever publishes the app sends the invitation. |
 
+A release candidate, such as `v0.2.0-rc.1`, is marked as a pre-release, and its files carry
+the candidate's version in their names, as `Neon-Teamspace_0.2.0-rc.1_x64-setup.exe`. The
+apps in them are those of the release the candidate rehearses, and report its version.
+
 The macOS and Windows apps are not signed with a developer certificate, so the system warns
 the first time one opens. On macOS, try to open the app once, then choose **Open Anyway** for
 it under **System Settings > Privacy & Security** and confirm. On macOS 14 and earlier,

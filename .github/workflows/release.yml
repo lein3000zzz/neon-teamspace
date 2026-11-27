@@ -254,20 +254,26 @@ jobs:
         run: |
           read -ra args <<<"$ARGS"
           bun run tauri build --ci "${args[@]}"
-      # The installers, named for the release without the spaces of the product's name, then
-      # each file's SHA-256, as this platform's output.
+      # The installers, named for the release without the spaces of the product's name. Tauri
+      # names them after the apps' version, which a release candidate's tag follows with -rc.
+      # and its number, so a candidate's installers are renamed for its tag, as its APK is
+      # named. Then each file's SHA-256, as this platform's output.
       - id: collect
         name: Collect the installers
         env:
           ID: ${{ matrix.id }}
+          TAG: ${{ github.ref_name }}
         run: |
+          version="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' apps/shell/src-tauri/Cargo.toml | head -n 1)"
+          release="${TAG#v}"
           mkdir -p release-assets
           find apps/shell/src-tauri/target -path '*/release/bundle/*' -type f \
             \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' \
             -o -name '*.dmg' \) -print0 |
             while IFS= read -r -d '' file; do
               name="$(basename "$file")"
-              cp "$file" "release-assets/${name// /-}"
+              name="${name// /-}"
+              cp "$file" "release-assets/${name/"$version"/$release}"
             done
           ls -l release-assets
           test -n "$(ls release-assets)"
@@ -497,8 +503,10 @@ jobs:
             start=(--notes-start-tag "$newest")
           fi
           candidate=""
+          apps=""
           if [ "$release" != "$version" ]; then
             candidate=" This pre-release rehearses $release: unless \`NEON_VERSION=$version\` is set in \`deployments/.env\`, the Compose file runs the images of $release, which only that release publishes."
+            apps=" Their names carry this pre-release's version, $version."
           fi
           signed="They are not signed, as the repository is private."
           if [ "$SIGNED" = true ]; then
@@ -517,6 +525,6 @@ jobs:
 
           ## Apps
 
-          The desktop installers and the Android APK are below. [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server."
+          The desktop installers and the Android APK are below.$apps [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server."
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
             --generate-notes "${start[@]}" --notes "$notes" "${prerelease[@]}" release-assets/*
