@@ -85,6 +85,13 @@ unless as a guest. Owners and admins list the pending invitations with
 another way, by an invite link, loses its pending invitation then: once it leaves or is
 removed, an old invitation cannot bring it back.
 
+Nobody joins on the word of someone who may no longer invite. When an owner or admin leaves,
+is removed, or becomes a member or guest, the invitations they sent that wait for an answer
+are revoked, and the [invite links](#invite-links) they made end, as revoked by whoever made
+the change, in the same transaction. Those who joined already stay. A link someone else
+made stays open, even if the person who lost the role copied its token: revoke it by hand
+when that matters.
+
 ## Invite links
 
 An invite link admits whoever opens it while signed in. Owners and admins make one with

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_invite_links SET revoked_at = $4, revoked_by = $3\n         WHERE workspace_id = $1 AND created_by = $2 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "159edbf3bd652f352ac108961b6e1213cbb46f0f86f9a75624d88658be6f468d"
+}

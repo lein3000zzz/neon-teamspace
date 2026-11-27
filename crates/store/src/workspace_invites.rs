@@ -292,6 +292,26 @@ pub async fn decide(
     .await
 }
 
+/// Revokes the pending invitations into a workspace that `invited_by` sent, at `at`, and
+/// gives whom each invited.
+pub async fn revoke_sent_by(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    invited_by: Uuid,
+    at: OffsetDateTime,
+) -> sqlx::Result<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "UPDATE workspace_invitations SET state = 'revoked', decided_at = $3
+         WHERE workspace_id = $1 AND invited_by = $2 AND state = 'pending'
+         RETURNING user_id",
+        workspace_id,
+        invited_by,
+        at,
+    )
+    .fetch_all(executor)
+    .await
+}
+
 /// Deletes the invitations answered, revoked or expired before `before`.
 pub async fn delete_ended(
     executor: impl PgExecutor<'_>,
@@ -431,6 +451,28 @@ pub async fn revoke_link(
     .execute(executor)
     .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Ends the links of a workspace that `created_by` made and nobody revoked, as revoked by
+/// `by` at `now`, and says how many.
+pub async fn revoke_links_made_by(
+    executor: impl PgExecutor<'_>,
+    workspace_id: Uuid,
+    created_by: Uuid,
+    by: Uuid,
+    now: OffsetDateTime,
+) -> sqlx::Result<u64> {
+    let result = sqlx::query!(
+        "UPDATE workspace_invite_links SET revoked_at = $4, revoked_by = $3
+         WHERE workspace_id = $1 AND created_by = $2 AND revoked_at IS NULL",
+        workspace_id,
+        created_by,
+        by,
+        now,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// The link of a token hash, if it still admits people at `now`.

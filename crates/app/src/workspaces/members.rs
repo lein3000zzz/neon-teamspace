@@ -98,7 +98,9 @@ impl WorkspaceService {
     /// Changes a member's role. Owners change anyone's; admins anyone's but an owner's,
     /// and make no owners. The last owner keeps the role. A member who becomes a guest
     /// leaves every teamspace; a guest who becomes more joins the default one. The webhooks
-    /// whose URL they set that their new role may not register turn off.
+    /// whose URL they set that their new role may not register turn off. An owner or admin
+    /// who becomes a member or guest, and so invites nobody, has the invitations they sent
+    /// that wait for an answer revoked, and the invite links they made ended.
     pub async fn change_member_role(
         &self,
         principal: &Principal,
@@ -118,6 +120,7 @@ impl WorkspaceService {
                 &target,
                 Action::ChangeRole { to: role },
             )?;
+            let mut withdrawn = Vec::new();
             if current != role {
                 let owners = repo::count_owners(&mut *tx, workspace_id).await?;
                 check_owner_remains(
@@ -127,6 +130,11 @@ impl WorkspaceService {
                 )?;
                 self.set_role(&mut tx, workspace_id, user_id, current, role)
                     .await?;
+                if current.manages() && !role.manages() {
+                    withdrawn = self
+                        .withdraw_invites(&mut tx, workspace_id, user_id, principal.user.id)
+                        .await?;
+                }
             }
             let member = repo::member(&mut *tx, workspace_id, user_id)
                 .await?
@@ -141,6 +149,7 @@ impl WorkspaceService {
                 "member role changed"
             );
             self.member_changed(workspace_id, user_id);
+            self.withdrawn(withdrawn);
             Ok(member)
         })
         .await
@@ -148,7 +157,8 @@ impl WorkspaceService {
 
     /// Takes a member out of the workspace and its teamspaces. Owners remove anyone;
     /// admins anyone but an owner. Nobody removes themselves: they leave. Their webhooks
-    /// go, and those whose URL they set for others turn off.
+    /// go, and those whose URL they set for others turn off. The invitations they sent that
+    /// wait for an answer are revoked, and the invite links they made end.
     pub async fn remove_member(
         &self,
         principal: &Principal,
@@ -165,6 +175,9 @@ impl WorkspaceService {
             check_owner_remains(owners, target.role == WorkspaceRole::Owner, false)?;
             repo::remove_member(&mut *tx, workspace_id, user_id).await?;
             webhooks::lapse(&mut tx, workspace_id, user_id, self.now()).await?;
+            let withdrawn = self
+                .withdraw_invites(&mut tx, workspace_id, user_id, principal.user.id)
+                .await?;
             tx.commit().await?;
             info!(
                 actor_id = %principal.user.id,
@@ -173,12 +186,14 @@ impl WorkspaceService {
                 "member removed"
             );
             self.member_changed(workspace_id, user_id);
+            self.withdrawn(withdrawn);
             Ok(())
         })
         .await
     }
 
-    /// Leaves a workspace and its teamspaces, as removing a member does, webhooks included.
+    /// Leaves a workspace and its teamspaces, as removing a member does, webhooks, invitations
+    /// and invite links included.
     /// The last owner cannot: they make another owner first, or delete the workspace. Nor
     /// can the last owner of one of its teamspaces, unless they own or administer the
     /// workspace, as leaving it would leave the teamspace without an owner.
@@ -202,9 +217,14 @@ impl WorkspaceService {
             }
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
             webhooks::lapse(&mut tx, workspace_id, principal.user.id, self.now()).await?;
+            let user = principal.user.id;
+            let withdrawn = self
+                .withdraw_invites(&mut tx, workspace_id, user, user)
+                .await?;
             tx.commit().await?;
             info!(user_id = %principal.user.id, workspace_id = %workspace_id, "workspace left");
             self.member_changed(workspace_id, principal.user.id);
+            self.withdrawn(withdrawn);
             Ok(())
         })
         .await
@@ -254,6 +274,49 @@ impl WorkspaceService {
             workspace_id,
             user_id: Some(user_id),
         });
+    }
+
+    /// Revokes the invitations into a workspace that `user_id` sent and that wait for an
+    /// answer, and ends the invite links they made, as `by` does: once they may invite
+    /// nobody there, nobody joins on their word. Gives whom the invitations invited, to tell
+    /// once the change commits. A link token someone else made, which they may have copied,
+    /// stays: whoever manages the workspace revokes it.
+    async fn withdraw_invites(
+        &self,
+        conn: &mut PgConnection,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        by: Uuid,
+    ) -> Result<Vec<Uuid>, WorkspaceError> {
+        let now = self.now();
+        let invitees =
+            workspace_invites::revoke_sent_by(&mut *conn, workspace_id, user_id, now).await?;
+        let links =
+            workspace_invites::revoke_links_made_by(&mut *conn, workspace_id, user_id, by, now)
+                .await?;
+        if !invitees.is_empty() || links > 0 {
+            info!(
+                workspace_id = %workspace_id,
+                user_id = %user_id,
+                invitations = invitees.len(),
+                links,
+                "invitations and invite links withdrawn"
+            );
+        }
+        Ok(invitees)
+    }
+
+    /// Tells the inboxes of those whose invitations were withdrawn that they no longer
+    /// wait.
+    fn withdrawn(&self, invitees: Vec<Uuid>) {
+        if invitees.is_empty() {
+            return;
+        }
+        let mut notifier = self.notifier();
+        for invitee in invitees {
+            notifier.touched(invitee);
+        }
+        notifier.tell();
     }
 
     /// Saves a new role, with what it means for teamspaces: guests are in none, everyone
