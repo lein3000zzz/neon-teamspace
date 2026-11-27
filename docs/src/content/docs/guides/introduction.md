@@ -94,6 +94,8 @@ each release brings. What exists:
   [File storage](/docs/self-hosting/storage/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
+- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that open the web app of the
+  server a person names; see [Apps](/docs/guides/apps/).
 - These docs.
 - The server and web images, published for each release, and a Compose file that runs
   them with Postgres; see [Install](/docs/self-hosting/install/),
@@ -104,8 +106,7 @@ each release brings. What exists:
 
 These pages describe the design beyond what exists too, and mark it **Planned**:
 
-- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
-  from the server a person names, with a toolbar for editing on a phone.
+- A toolbar for editing on a phone.
 - Callouts among the blocks of a page.
 - A hue of each database's own, as people, workspaces and teamspaces have.
 
@@ -114,8 +115,8 @@ These pages describe the design beyond what exists too, and mark it **Planned**:
 - It has no billing. Instance admins set limits per workspace instead.
 - Its interface is in English, with its strings kept in one place so translations can follow.
 - It has no native clients of its own. It is a responsive web app, and the desktop and
-  mobile apps, **planned**, only load it from a server, so they never fall behind it. No
-  app-store release is planned yet.
+  mobile apps only load it from a server, so they never fall behind it. No app-store release
+  is planned yet.
 - It runs as one server process beside Postgres. The reasons are in
   [Key decisions](/docs/architecture/decisions/#one-process-no-redis).
 

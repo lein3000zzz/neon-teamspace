@@ -31,10 +31,10 @@ The interface is in English, with every string kept in one module, so a translat
 follow without hunting through components. The app is responsive and works in a phone's
 browser.
 
-**Planned.** Desktop and mobile apps, as thin [Tauri](https://tauri.app) shells around this
-same app. A person enters their server's address, as in Bitwarden's apps, and the shell loads
-the web UI that server serves, so an app is never out of step with its server. No app-store
-release is planned yet.
+The desktop and mobile apps are thin [Tauri](https://tauri.app) shells around this same app,
+in `apps/shell/`. A person enters their server's address, as in Bitwarden's apps, and the shell
+loads the web UI that server serves, so an app is never out of step with its server; see
+[Apps](/docs/guides/apps/). No app-store release is planned yet.
 
 ## Types from the server
 
