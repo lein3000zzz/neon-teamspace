@@ -181,12 +181,13 @@ tokens, for scripts and bots that do not speak MCP, and a test holds the table o
 **Webhooks both ways.** Outgoing webhooks tell an agent that runs on its own of new work,
 a row assigned to it or a status changed on one, without polling, and of mentions and
 replies. They are signed with HMAC-SHA256, carry the change's trace context, and go through
-the job queue with retries. They never reach the server's own network, loopback, private
-and link-local addresses and cloud metadata among it, unless `webhooks.allow_private`
-allows the private ranges, so a webhook cannot make the server call what only it can
-reach. Incoming webhooks are members of kind integration, so what they write carries the
-same attribution, permissions and limits as an agent's, and they take a small JSON format of
-their own rather than any one sender's; [Webhooks](/docs/guides/webhooks/) has both.
+the job queue with retries. They never reach loopback, private or link-local addresses,
+so a webhook cannot make the server call what only it can reach, unless
+`webhooks.allow_private` lets them reach a private network, for a receiver beside the
+server. Cloud metadata and reserved addresses stay refused either way. Incoming webhooks
+are members of kind integration, so what they write carries the same attribution,
+permissions and limits as an agent's, and they take a small JSON format of their own rather
+than any one sender's; [Webhooks](/docs/guides/webhooks/) has both.
 
 **Agents in their tools.** A Claude Code plugin, with a skill that works through an agent's
 tasks over MCP, claiming a card, writing results into it and moving it on, is installed from
@@ -332,8 +333,8 @@ case calls, with tests over every role, action and resource.
 **A theme of three choices.** Each person picks a palette, Nothing, Soft or Warm, a mode,
 and an accent hue. The accent is an OKLCH colour whose lightness and chroma are fixed for
 each palette and mode, so text keeps its contrast at any hue, and in dark mode only what
-carries a hue glows. People, agents, workspaces and teamspaces each have a hue worked out
-from their id, the same in every browser and on the server, with nothing to store.
+carries a hue glows. People, agents, integrations, workspaces and teamspaces each have a hue
+worked out from their id, the same in every browser and on the server, with nothing to store.
 [More](/docs/architecture/web/#the-theme-model).
 
 **English, on the web.** The interface is in English, with its strings in one place for
