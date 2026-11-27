@@ -72,18 +72,25 @@ connecting, choosing an identity, the skills, making an agent for it and trouble
 
 ## Running it with Docker
 
-A release, with its published images, from a clone at its tag:
+A release runs from its Compose archive, which its page on GitHub attaches, and its
+published images:
 
 ```sh
-git clone --branch v0.1.0 https://github.com/lein3000zzz/neon-teamspace.git && cd neon-teamspace
-cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD and NEON_VERSION=0.1.0
+mkdir neon-teamspace && cd neon-teamspace
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+cp deployments/.env.example deployments/.env              # set POSTGRES_PASSWORD
 cp deployments/server.env.example deployments/server.env  # set the public URL, NEON_SECRETS__KEYS and the first admin
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait   # http://127.0.0.1:3000/
 ```
 
-The [install page](docs/src/content/docs/self-hosting/install.md) covers both files, a
-domain with TLS, and the rest; [backups](docs/src/content/docs/self-hosting/backups.md),
+A clone at the release's tag holds the same files, and its Compose file runs the same
+images. While the repository is private, the archive and the images need a GitHub account
+with access to it: `gh` signed in as it, and `docker login ghcr.io` before the pull. The
+[install page](docs/src/content/docs/self-hosting/install.md) covers
+the archive, both files, the first run, a domain with TLS, stopping, and where the data
+lives; [backups](docs/src/content/docs/self-hosting/backups.md),
 [upgrading](docs/src/content/docs/self-hosting/upgrading.md) and
 [troubleshooting](docs/src/content/docs/self-hosting/troubleshooting.md) have their own pages.
 
@@ -107,11 +114,7 @@ keeps the data. Without make,
 runs it in the background. `deployments/.env.example` lists the stack's settings, among them
 `NEON_DOMAIN`, a domain for which Caddy gets its TLS certificate itself. The server's own
 settings go in `deployments/server.env`, which only the server reads; `server.env.example`
-beside it lists the usual ones. The
-[install page](docs/src/content/docs/self-hosting/install.md) covers both files, the
-release's Compose archive, the first run, domains and TLS, stopping, and where the data
-lives, and [Upgrading](docs/src/content/docs/self-hosting/upgrading.md) moving to a new
-release.
+beside it lists the usual ones.
 
 The Compose profiles `mail` (Mailpit) and `observability` (Grafana's otel-lgtm image, with
 a dashboard of the server's metrics) add services for development. `make obs-up` starts the
@@ -287,7 +290,7 @@ unless every other place that states it agrees:
 - the images `deployments/docker-compose.yml` runs while `NEON_VERSION` is unset;
 - the newest section of `CHANGELOG.md`, dated, or `Unreleased` between releases;
 - the docs and the example settings, where they name the version, an image, the Compose
-  archive or a release's page.
+  archive, a release's page or the tag a clone checks out.
 
 Given `TAG`, as the release workflow gives it, the tag must be `v` and the version, and the
 changelog's section must have its date. `make check` runs the check, and so does CI's
@@ -298,7 +301,9 @@ To release:
 1. On a branch into `dev`, set the version in `Cargo.toml`, then `make api-spec web-api` and
    a build, which update the generated files and `Cargo.lock`. `make version-check` lists
    every file that still states the old version. Write the release's section of
-   `CHANGELOG.md`, dated the day of the tag.
+   `CHANGELOG.md` as the ones before it: what changed, by area, with the pull requests'
+   numbers, and under **Breaking changes** what the release asks of whoever runs or calls
+   the server. Date it the day of the tag; until then it may say `Unreleased`.
 2. Merge `dev` into `main`.
 3. Tag `main` and push the tag: `git tag -a vX.Y.Z -m vX.Y.Z` and `git push origin vX.Y.Z`.
    The release workflow does the rest. `make compose-archive` writes the archive it attaches,
