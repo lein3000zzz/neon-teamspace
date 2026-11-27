@@ -136,7 +136,7 @@ To get back to the picker from a server:
 - **Windows and Linux**: **File > Switch Server…**.
 - **Android**: the system's back gesture or button. Like a browser's back button, it goes back
   through the web view's history: the pages you visited and the steps the server's interface
-  adds to it, and from the first page to the picker.
+  adds to it, and from the first page to the picker. From the picker, it leaves the app.
 - **iOS and iPadOS**: swipe from the left edge of the screen, which goes back the same way.
 
 On mobile the app draws nothing over the server's pages, so the way back is the platform's own

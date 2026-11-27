@@ -16,6 +16,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
+// The page the app loads on its way back to the picker, in place of a server's.
+private const val BLANK = "about:blank"
+
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -54,15 +57,40 @@ class MainActivity : TauriActivity() {
   private fun goBackThroughHistory(webView: WebView) {
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
-        if (webView.canGoBack()) {
+        if (hasPageBehind(webView)) {
           webView.goBack()
         } else {
+          // What is left behind is of no use. Without it, Tauri's own handler, which comes
+          // next and goes back wherever the webview can, leaves the app too.
+          webView.clearHistory()
           isEnabled = false
           onBackPressedDispatcher.onBackPressed()
           isEnabled = true
         }
       }
     })
+  }
+
+  // Whether going back leads to a page. When the app shows the picker again itself, after
+  // Stop, after a server's page that did not come in time, or when a server's page asks for
+  // the app's own address, it loads a blank page and then the picker: from that picker, as
+  // from the first one, there is nothing to go back to. Android does not ask the app about a
+  // step back in the history, so the blank page cannot be refused there as it is elsewhere.
+  private fun hasPageBehind(webView: WebView): Boolean {
+    val history = webView.copyBackForwardList()
+    val at = history.currentIndex
+    if (at < 1) {
+      return false
+    }
+    val behind = history.getItemAtIndex(at - 1)?.url
+    val here = history.currentItem?.url?.let(Uri::parse)
+    // The first page the window loaded is the picker, on the app's own origin.
+    val picker = history.getItemAtIndex(0)?.url?.let(Uri::parse)
+    val onPicker = here != null && picker != null &&
+      here.scheme == picker.scheme &&
+      here.host == picker.host &&
+      here.port == picker.port
+    return !(onPicker && behind == BLANK)
   }
 
   // Android's WebView saves no file by itself. The system's download manager fetches the

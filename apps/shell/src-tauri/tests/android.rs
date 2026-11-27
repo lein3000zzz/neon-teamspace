@@ -193,8 +193,35 @@ fn back_goes_through_the_webviews_history_before_it_leaves_the_app() {
             .unwrap_or_else(|| panic!("handleOnBackPressed lacks {code}"))
     };
     // Back in the history, which holds the entries open panels add, while there is any; out
-    // of the app only once there is none.
-    assert!(at("if (webView.canGoBack())") < at("webView.goBack()"));
+    // of the app only once there is none. Tauri's own handler, which the leaving one hands on
+    // to, goes back wherever the webview can: the history behind is cleared first.
+    assert!(at("if (hasPageBehind(webView))") < at("webView.goBack()"));
     assert!(at("webView.goBack()") < at("} else {"));
-    assert!(at("} else {") < at("onBackPressedDispatcher.onBackPressed()"));
+    assert!(at("} else {") < at("webView.clearHistory()"));
+    assert!(at("webView.clearHistory()") < at("onBackPressedDispatcher.onBackPressed()"));
+}
+
+#[test]
+fn back_from_a_picker_the_app_showed_again_leaves_the_app() {
+    // The app's way back to the picker loads the lock's blank page before it, which Android
+    // would otherwise go back to: from that picker, as from the first page, back leaves.
+    let activity = read(MAIN_ACTIVITY);
+    assert!(
+        activity.contains(&format!(
+            r#"private const val BLANK = "{}""#,
+            neon_shell::lock::BLANK
+        )),
+        "MainActivity's blank page is not the lock's"
+    );
+    let behind = kotlin_function(&activity, "hasPageBehind");
+    for code in [
+        // The first page has none behind it.
+        "if (at < 1) {\n      return false",
+        "val behind = history.getItemAtIndex(at - 1)?.url",
+        // The picker is on the first page's origin.
+        "val picker = history.getItemAtIndex(0)?.url?.let(Uri::parse)",
+        "return !(onPicker && behind == BLANK)",
+    ] {
+        assert!(behind.contains(code), "hasPageBehind lacks {code}");
+    }
 }
