@@ -53,9 +53,10 @@ Two images make up an instance, both for `linux/amd64` and `linux/arm64`:
 `ghcr.io/lein3000zzz/neon-teamspace-server`, the `neon` binary on distroless, and
 `ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes the
 server's paths on to it on the same origin. `deployments/docker-compose.yml` runs them with
-Postgres. On its own it pulls the published images of the release `NEON_VERSION` names;
-`deployments/docker-compose.build.yml` added to it builds both from the checkout instead,
-under local names:
+Postgres. On its own it pulls the published images of the release it belongs to, or of the
+one `NEON_VERSION` names; each release attaches it, with its example settings, as the
+release's Compose archive. `deployments/docker-compose.build.yml` added to it builds both
+from the checkout instead, under local names:
 
 ```sh
 cp deployments/.env.example deployments/.env   # then set POSTGRES_PASSWORD in it

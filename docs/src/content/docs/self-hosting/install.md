@@ -19,41 +19,53 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
 | `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
 
-You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
-`deployments/` directory, which holds the Compose files: a clone, to build both images from
-it, or a copy of `deployments/` alone to run the published ones.
+You need Docker Engine 25 or later with Compose 2.24.4 or later, and the Compose file with
+the example settings beside it: from a release's Compose archive, to run the published
+images, or from a clone of the repository, to build both images from it.
 
 ### Starting it
 
-Copy the example settings to `deployments/.env`, which git ignores, and set the database's
-password in it. In a clone, `docker-compose.build.yml` beside the Compose file then builds
-both images from the checkout:
+Each release on GitHub attaches its Compose archive, `neon-teamspace-compose-` and the version
+`.tar.gz`. It holds the Compose file, the example settings, the observability profile's
+Grafana files and the license, at the paths they have in the repository, so every command on
+this page works from the directory it is unpacked in. The Caddyfile is not in it: it is part
+of the web image, which checks it as it builds. Unpack the archive into a directory of its
+own, copy the example settings to `deployments/.env`, set the database's password in it, and
+start the stack:
 
 ```sh
+mkdir neon-teamspace && cd neon-teamspace
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
-docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
-```
-
-The first start builds the images, which takes some minutes. They are named
-`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. The
-instance is then at `http://127.0.0.1:3000/`, and these docs at
-`http://127.0.0.1:3000/docs/`. With `make`, `make up` builds and runs the same stack in the
-foreground, until Ctrl+C stops it, and `make down` stops it from another terminal.
-
-To run the published images instead, set `NEON_VERSION` in `deployments/.env` to a release,
-such as `0.1.0`, and use `docker-compose.yml` alone:
-
-```sh
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d
 ```
 
-That file has no build sections, so an image that cannot be pulled, such as one of a
-mistyped version, stops the start instead of being built from whatever the directory holds.
-Without `NEON_VERSION`, it runs `latest`, which moves on to each new release as it is
-pulled. While the images are private on GitHub's container registry, `docker login ghcr.io`
-with a token that can read packages comes first.
+The instance is then at `http://127.0.0.1:3000/`, and these docs at
+`http://127.0.0.1:3000/docs/`; [the first run](#the-first-run) makes its first admin. The
+Compose file runs the images of the release it belongs to, which its `image` lines name, and
+`NEON_VERSION` in `deployments/.env` names another. It has no build sections, so an image
+that cannot be pulled, such as one of a mistyped version, stops the start instead of being
+built from whatever the directory holds.
+
+While the repository is private, the archive and the images need a GitHub account with
+access to it: `gh` signed in as it, and `docker login ghcr.io` with a token that can read
+packages before the pull. Once it is public, `curl` fetches the archive too:
+`curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1`.
+
+In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
+checkout instead, after the same `deployments/.env`:
+
+```sh
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
+```
+
+The first start builds the images, which takes some minutes. They are named
+`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. With
+`make`, `make up` builds and runs the same stack in the foreground, until Ctrl+C stops it,
+and `make down` stops it from another terminal.
 
 The stack has three services, which start in order, each once the one before it is healthy:
 
@@ -124,7 +136,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, such as `0.1.0`, the same for both. `latest` unless set. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for both: another than the one the Compose file belongs to, which it runs unless set, or `latest`. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
