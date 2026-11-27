@@ -16,10 +16,7 @@ blob-report/
 *.swp
 .DS_Store
 
-# Local-only files: notes, configs and secrets never leave the machine
-/local
-/.worktrees
-/brag-output
+# Local-only files: configs and secrets never leave the machine
 .env
 .env.*
 *.env
