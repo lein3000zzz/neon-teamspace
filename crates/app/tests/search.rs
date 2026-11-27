@@ -993,6 +993,83 @@ async fn snippets_keep_what_reads_as_markup_and_set_lines_apart(pool: PgPool) {
         .map(|run| run.text.as_str())
         .collect();
     assert_eq!(title, "Broker <topics>");
+
+    // Markup and entities are text, as written: nothing is taken out, decoded or escaped.
+    t.general_page(
+        "Escapes <b>here</b>",
+        "Paste `<script>popup(1)</script>` and `a &amp; b <img src=x>` as written.\n",
+    )
+    .await;
+    let found = t.find(&t.dee, "written").await;
+    let snippet: String = found.hits[0]
+        .snippet
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(
+        snippet,
+        "Paste <script>popup(1)</script> and a &amp; b <img src=x> as written"
+    );
+    let found = t.find(&t.dee, "escapes").await;
+    let title: String = found.hits[0]
+        .title
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(title, "Escapes <b>here</b>");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn loose_matches_of_each_word_keep_to_the_pages_the_caller_sees(pool: PgPool) {
+    let t = team(pool).await;
+    t.general_page("Launch plan", "").await;
+    t.page(
+        &t.cy,
+        Location::Teamspace(t.secret),
+        "Launch plan of Secret",
+        "",
+    )
+    .await;
+    t.page(&t.ada, Location::Private, "Launch plan of Ada's", "")
+        .await;
+    let warnings = Warnings::default();
+    let _logs = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(warnings.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish(),
+    );
+
+    // Both words misspelled, each found only among the pages the rules give the caller.
+    let sorted = |mut titles: Vec<String>| {
+        titles.sort();
+        titles
+    };
+    assert_eq!(
+        sorted(t.titles(&t.ada, "lanch plna").await),
+        ["Launch plan", "Launch plan of Ada's"]
+    );
+    assert_eq!(
+        sorted(t.titles(&t.dee, "lanch plna").await),
+        ["Launch plan", "Launch plan of Secret"]
+    );
+    assert_eq!(
+        t.titles(&t.bob, "lanch plna").await,
+        ["Launch plan"],
+        "an admin outside a private teamspace finds none of it"
+    );
+    assert!(t.titles(&t.gus, "lanch plna").await.is_empty());
+    assert_eq!(
+        t.titles(&t.ace, "lanch plna").await,
+        ["Launch plan"],
+        "an agent finds what its owner and its token both see"
+    );
+    let logged = warnings.text();
+    assert!(
+        !logged.contains("not one the caller may see"),
+        "the database found pages the rules refuse: {logged}"
+    );
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
