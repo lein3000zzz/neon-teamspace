@@ -95,7 +95,9 @@ jobs:
       # v1.2.3 gives 1.2.3, 1.2, 1 and latest; v0.4.1 gives 0.4.1, 0.4 and latest, as a 0
       # major version promises nothing across minor ones; a pre-release such as v1.3.0-rc.1
       # gives only itself. The labels and annotations say the version, the commit, the
-      # repository and the license; GitHub reads the description from the index's.
+      # repository and the license; GitHub reads the description from the index's. Unless told,
+      # the action takes the title, the description and the license of both from the
+      # repository, whose license GitHub reports as NOASSERTION, so both lists name all three.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
@@ -114,7 +116,9 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
           annotations: |
+            org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
