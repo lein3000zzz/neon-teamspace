@@ -71,6 +71,51 @@ them. `docker compose -f deployments/docker-compose.yml ps` shows each service's
 `docker compose -f deployments/docker-compose.yml logs server` the server's logs, one JSON
 object per line.
 
+### The first run
+
+A new instance has no accounts. Make its first admin in the server's container, with
+`neon admin create`, which asks for the password twice:
+
+```sh
+docker compose -f deployments/docker-compose.yml exec server neon admin create --email you@example.com --display-name You
+```
+
+Or, before the first start, set `NEON_ADMIN__EMAIL` and `NEON_ADMIN__PASSWORD` in
+`deployments/server.env`, a copy of `deployments/server.env.example`: the server makes that
+admin as it starts, while no admin can sign in. [Accounts and
+registration](/docs/guides/accounts/#the-first-admin) has the rules of both. Set
+`NEON_SECRETS__KEYS` in the same file too, with the key its comment shows how to make: it
+seals the secrets the database keeps, so admins can copy invite codes again and mail can go
+out. A change to `server.env` applies once `docker compose -f deployments/docker-compose.yml up -d`
+runs again.
+
+Then, in a browser:
+
+1. Open `http://127.0.0.1:3000/` and sign in as the admin. An account in no workspace gets a
+   page that says so: **Create a workspace** there asks for a name, and the workspace comes
+   with a teamspace named General. [Workspaces and teamspaces](/docs/guides/workspaces/)
+   covers the rest.
+2. **+** on General's row in the sidebar makes a page; [Editing pages](/docs/guides/editing-pages/)
+   covers the editor.
+3. Drop a file onto the page, or paste an image: it uploads into a block of its own, as
+   [Attachments](/docs/guides/attachments/) describes.
+4. For an MCP client, under **Workspace settings**, **Agents** makes an agent, and its card a
+   token for it with the `read` and `write` scopes. [Agents over
+   MCP](/docs/guides/agents-over-mcp/#connecting-with-a-token) has the client's configuration,
+   with `http://127.0.0.1:3000/mcp` as its URL here. Claude Code connects with the
+   [Claude Code plugin](/docs/guides/claude-code-plugin/), over OAuth, with no token to copy.
+
+The foot of the sidebar shows the instance's name and the server's version, which
+`/api/v1/meta` also answers:
+
+```sh
+curl -s http://127.0.0.1:3000/api/v1/meta
+```
+
+```json
+{"name":"Neon Teamspace","version":"0.1.0"}
+```
+
 ### `deployments/.env` and `deployments/server.env`
 
 The settings are in two files beside the Compose file, both ignored by git. Compose reads
@@ -193,15 +238,25 @@ prefixes their names with the project's, `neon`:
 | `neon_otel-lgtm` | With the `observability` profile, the metrics, traces, logs and profiles it collected. |
 | `neon_seaweedfs` | With the `seaweedfs` profile, the files SeaweedFS keeps, attachments among them once the server is set to use it. |
 
-To back the database up into `neon.sql`, and to restore that over what the database holds:
+To back the database up into `neon.sql`:
 
 ```sh
 docker compose -f deployments/docker-compose.yml exec -T postgres pg_dump -U neon --clean --if-exists neon > neon.sql
-docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d neon < neon.sql
 ```
 
-Stop the server before restoring, with
-`docker compose -f deployments/docker-compose.yml stop server`, and start it again after.
+To restore it, stop the server, empty the database by making it again, restore the dump into
+it, and start the server:
+
+```sh
+docker compose -f deployments/docker-compose.yml stop server
+docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d postgres -c 'DROP DATABASE neon WITH (FORCE)' -c 'CREATE DATABASE neon OWNER neon'
+docker compose -f deployments/docker-compose.yml exec -T postgres psql -U neon -d neon < neon.sql
+docker compose -f deployments/docker-compose.yml start server
+```
+
+A dump restored over the database without emptying it first replaces only the tables it
+holds itself. After an upgrade, the tables a newer release added depend on those, so the
+restore fails part of the way, and leaves them behind for the next upgrade to trip over.
 Back up attachments' files with the dump, after it, as [File storage](/docs/self-hosting/storage/#backups)
 shows.
 
