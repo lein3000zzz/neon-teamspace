@@ -4,7 +4,8 @@
 # In the workflows Dependabot reads only the uses: lines, so their other pins are bumped by
 # hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and cargo-deny; in
 # release.yml and e2e.yml the BuildKit image; in release.yml the SBOM scanner image. So are the
-# cargo-chef and cargo-about downloads in deployments/Dockerfile, with their checksums.
+# cargo-chef, cargo-about and cargo-auditable downloads in deployments/Dockerfile, with their
+# checksums.
 version: 2
 
 updates:

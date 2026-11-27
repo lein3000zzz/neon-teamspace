@@ -46,7 +46,7 @@ differently, a step to run after the upgrade, is called out there under
 2. [Back up](/docs/self-hosting/backups/) the database, the files and the secrets. Migrations
    only go forward, so this backup is the way back.
 3. Get `deployments/` of the new release, as its Compose file may change with it. In a
-   clone, `git fetch --tags` and `git checkout v0.2.0`; with a copy of the directory, copy
+   clone, `git fetch --tags` and `git checkout v0.1.0`; with a copy of the directory, copy
    the new release's files over it, keeping `.env` and `server.env`.
 4. Set `NEON_VERSION` in `deployments/.env` to the new version, then pull and start:
 

@@ -1,6 +1,9 @@
-import { ADMIN, type Meta, SERVER_VERSION, expect, signIn, test } from "./fixtures";
+import { clientAddress } from "./accounts";
+import { ADMIN, type Meta, SERVER_VERSION, expect, loadMoreUntil, signIn, test } from "./fixtures";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
+
+test.use({ extraHTTPHeaders: clientAddress(25) });
 
 /** The first admin, which the skip above makes sure of. */
 function admin() {
@@ -114,7 +117,7 @@ test("an admin invites someone, who signs up with the link in another browser", 
 
   // And the new account is in the list of users.
   await page.goto("/admin");
-  await expect(page.getByText(newcomer)).toBeVisible();
+  await loadMoreUntil(page, page.getByText(newcomer));
 });
 
 test("an admin reads the runtime settings, with what the stack pins", async ({ page }) => {
@@ -138,9 +141,10 @@ test("an admin reads the runtime settings, with what the stack pins", async ({ p
   await expect(instance.getByText("Environment")).toBeVisible();
   await expect(instance.getByText("Change it with NEON_SETTINGS__INSTANCE__NAME.")).toBeVisible();
 
-  // The stack sets no mail up, and the mail status says what is missing first.
+  // The stack sets mail up in the environment, to its Mailpit, so it can go.
   const mail = page.getByRole("region", { name: "Mail" });
-  await expect(mail.getByText("Not set up")).toBeVisible();
-  await expect(mail.getByText("Mail cannot go yet: mail.enabled is off.")).toBeVisible();
-  await expect(mail.getByRole("button", { name: "Send a test mail" })).toBeDisabled();
+  await expect(mail.getByText("Set up", { exact: true })).toBeVisible();
+  await expect(mail.getByLabel("mail.host")).toHaveValue("mailpit");
+  await expect(mail.getByLabel("mail.host")).toBeDisabled();
+  await expect(mail.getByRole("button", { name: "Send a test mail" })).toBeEnabled();
 });

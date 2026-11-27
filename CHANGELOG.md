@@ -6,7 +6,10 @@ the settings in a way that needs something of you, and says so under **Breaking 
 [Upgrading](docs/src/content/docs/self-hosting/upgrading.md) covers moving an instance from
 one release to the next. The numbers are the pull requests that made each change.
 
-## 0.1.0
+Each section is a release, newest first, dated the day it was tagged. Between releases, the
+next one's section may say `Unreleased` instead of a date.
+
+## 0.1.0 - 2026-11-27
 
 The first release: a self-hosted team workspace with pages edited together in real time,
 databases and boards, comments and an inbox, search, history and attachments, and agents

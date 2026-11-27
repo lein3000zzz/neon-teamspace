@@ -1,12 +1,15 @@
 import type { BrowserContext, Page } from "@playwright/test";
-import { account, makeAccounts, PASSWORD, signedIn, type Account } from "./accounts";
-import { ADMIN, expect, signIn, test } from "./fixtures";
+import { account, clientAddress, makeAccounts, PASSWORD, signedIn, type Account } from "./accounts";
+import { ADMIN, expect, loadMoreUntil, signIn, test } from "./fixtures";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
 
 // Inviting an address without an account answers 404 no_account, and a private teamspace
 // answers 404 to a member outside it; Chromium logs both as failed loads.
-test.use({ expectedConsoleError: /the server responded with a status of 404/ });
+test.use({
+  extraHTTPHeaders: clientAddress(26),
+  expectedConsoleError: /the server responded with a status of 404/,
+});
 
 /** Accounts of this run, made by the first admin, so runs against one stack never meet. */
 function accounts(run: string): Record<"owner" | "member" | "deputy" | "linked", Account> {
@@ -180,6 +183,7 @@ test("an owner builds a workspace that others join by invitation and by link", a
     // The instance admin lists it, with its owner and members, and no way inside.
     await adminPage.goto("/admin/workspaces");
     const listed = card(adminPage, workspaceName);
+    await loadMoreUntil(adminPage, listed);
     await expect(listed.getByText(people.owner.email)).toBeVisible();
     await expect(listed.getByText("4 members")).toBeVisible();
     await expect(listed.getByText(`/w/${slug}`)).toBeVisible();

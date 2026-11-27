@@ -17,8 +17,9 @@ hero:
 Accounts, workspaces and teamspaces, pages edited together in real time with their history,
 databases with their boards, comments, mentions and the inbox, search, agents over MCP and
 the API, OAuth for their clients, webhooks both ways and attachments work, in the API and
-the web app, with the Docker images that serve them. `CHANGELOG.md` in the repository lists
-what each release brings. Pages say what exists today and mark the rest of the design as
+the web app, with the Docker images that serve them. The
+[changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
+each release brings. Pages say what exists today and mark the rest of the design as
 **Planned**.
 :::
 
@@ -38,6 +39,8 @@ what each release brings. Pages say what exists today and mark the rest of the d
 ## Running an instance
 
 - **[Install](/docs/self-hosting/install/)**: the Docker deployment, and the development setup.
+- **[Upgrading](/docs/self-hosting/upgrade/)**: moving an instance to a new release, and the
+  images' tags.
 - **[Configuration](/docs/self-hosting/configuration/)**: `neon.yaml`, `NEON_` variables, and
   which value wins.
 - **[Backups and restore](/docs/self-hosting/backups/)**, **[Upgrading](/docs/self-hosting/upgrading/)**

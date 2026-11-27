@@ -19,41 +19,53 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
 | `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`. |
 
-You need Docker Engine 25 or later with Compose 2.24.4 or later, and the repository's
-`deployments/` directory, which holds the Compose files: a clone, to build both images from
-it, or a copy of `deployments/` alone to run the published ones.
+You need Docker Engine 25 or later with Compose 2.24.4 or later, and the Compose file with
+the example settings beside it: from a release's Compose archive, to run the published
+images, or from a clone of the repository, to build both images from it.
 
 ### Starting it
 
-Copy the example settings to `deployments/.env`, which git ignores, and set the database's
-password in it. In a clone, `docker-compose.build.yml` beside the Compose file then builds
-both images from the checkout:
+Each release on GitHub attaches its Compose archive, `neon-teamspace-compose-` and the version
+`.tar.gz`. It holds the Compose file, the example settings, the observability profile's
+Grafana files and the license, at the paths they have in the repository, so every command on
+this page works from the directory it is unpacked in. The Caddyfile is not in it: it is part
+of the web image, which checks it as it builds. Unpack the archive into a directory of its
+own, copy the example settings to `deployments/.env`, set the database's password in it, and
+start the stack:
 
 ```sh
+mkdir neon-teamspace && cd neon-teamspace
+gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
-docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
-```
-
-The first start builds the images, which takes some minutes. They are named
-`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. The
-instance is then at `http://127.0.0.1:3000/`, and these docs at
-`http://127.0.0.1:3000/docs/`. With `make`, `make up` builds and runs the same stack in the
-foreground, until Ctrl+C stops it, and `make down` stops it from another terminal.
-
-To run the published images instead, set `NEON_VERSION` in `deployments/.env` to a release,
-such as `0.1.0`, and use `docker-compose.yml` alone:
-
-```sh
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d
 ```
 
-That file has no build sections, so an image that cannot be pulled, such as one of a
-mistyped version, stops the start instead of being built from whatever the directory holds.
-Without `NEON_VERSION`, it runs `latest`, which moves on to each new release as it is
-pulled. While the images are private on GitHub's container registry, `docker login ghcr.io`
-with a token that can read packages comes first.
+The instance is then at `http://127.0.0.1:3000/`, and these docs at
+`http://127.0.0.1:3000/docs/`; [the first run](#the-first-run) makes its first admin. The
+Compose file runs the images of the release it belongs to, which its `image` lines name, and
+`NEON_VERSION` in `deployments/.env` names another. It has no build sections, so an image
+that cannot be pulled, such as one of a mistyped version, stops the start instead of being
+built from whatever the directory holds.
+
+While the repository is private, the archive and the images need a GitHub account with
+access to it: `gh` signed in as it, and `docker login ghcr.io` with a token that can read
+packages before the pull. Once it is public, `curl` fetches the archive too:
+`curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1`.
+
+In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
+checkout instead, after the same `deployments/.env`:
+
+```sh
+docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
+```
+
+The first start builds the images, which takes some minutes. They are named
+`neon-teamspace-server:local` and `neon-teamspace-web:local`, never after a release. With
+`make`, `make up` builds and runs the same stack in the foreground, until Ctrl+C stops it,
+and `make down` stops it from another terminal.
 
 The stack has three services, which start in order, each once the one before it is healthy:
 
@@ -71,6 +83,50 @@ them. `docker compose -f deployments/docker-compose.yml ps` shows each service's
 `docker compose -f deployments/docker-compose.yml logs server` the server's logs, one JSON
 object per line.
 
+### The first run
+
+A new instance has no accounts. Make its first admin in the server's container, with
+`neon admin create`, which asks for the password twice:
+
+```sh
+docker compose -f deployments/docker-compose.yml exec server neon admin create --email you@example.com --display-name You
+```
+
+Or set `NEON_ADMIN__EMAIL` and `NEON_ADMIN__PASSWORD` in `deployments/server.env`, a copy
+of `deployments/server.env.example`: the server makes that admin as it starts, while no
+admin can sign in. [Accounts and registration](/docs/guides/accounts/#the-first-admin) has
+the rules of both. Set `NEON_SECRETS__KEYS` in the same file too, with the key its comment
+shows how to make: it seals the secrets the database keeps, so admins can copy invite codes
+again and mail can go out. A change to `server.env` applies once `docker compose -f deployments/docker-compose.yml up -d`
+runs again.
+
+Then, in a browser:
+
+1. Open `http://127.0.0.1:3000/` and sign in as the admin. An account in no workspace gets a
+   page that says so: **Create a workspace** there asks for a name, and the workspace comes
+   with a teamspace named General. [Workspaces and teamspaces](/docs/guides/workspaces/)
+   covers the rest.
+2. **+** on General's row in the sidebar makes a page; [Editing pages](/docs/guides/editing-pages/)
+   covers the editor.
+3. Drop a file onto the page, or paste an image: it uploads into a block of its own, as
+   [Attachments](/docs/guides/attachments/) describes.
+4. For an MCP client, under **Workspace settings**, **Agents** makes an agent, and its card a
+   token for it with the `read` and `write` scopes. [Agents over
+   MCP](/docs/guides/agents-over-mcp/#connecting-with-a-token) has the client's configuration,
+   with `http://127.0.0.1:3000/mcp` as its URL here. Claude Code connects with the
+   [Claude Code plugin](/docs/guides/claude-code-plugin/), over OAuth, with no token to copy.
+
+The foot of the sidebar shows the instance's name and the server's version, which
+`/api/v1/meta` also answers:
+
+```sh
+curl -s http://127.0.0.1:3000/api/v1/meta
+```
+
+```json
+{"name":"Neon Teamspace","version":"0.1.0"}
+```
+
 ### `deployments/.env` and `deployments/server.env`
 
 The settings are in two files beside the Compose file, both ignored by git. Compose reads
@@ -79,7 +135,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, such as `0.1.0`, the same for both. `latest` unless set. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for both: another than the one the Compose file belongs to, which it runs unless set, or `latest`. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
@@ -161,12 +217,12 @@ geolocation and other device features.
 
 ### Upgrading
 
-Set the new release in `NEON_VERSION`, back up, then pull and start again; built from the
-clone, check out the new release and build again. The new server applies the new migrations
-before it takes requests, and they only go forward, so going back to an older release means
-restoring the backup taken before the upgrade. [Upgrading](/docs/self-hosting/upgrading/)
-has the steps, how migrations run and fail, and rolling back. A server that was killed rather
-than stopped may leave pages whose latest text search does not read yet;
+A new release brings its own Compose archive: unpacked over the old one, it brings its images
+with it. The new server applies the new migrations before it takes requests, and they only go
+forward, so going back to an older release means restoring the backup taken before the
+upgrade. [Upgrading](/docs/self-hosting/upgrading/) has the steps, the backup to take first,
+how migrations run and fail, rolling back, and how to check the result. A server that was
+killed rather than stopped may leave pages whose latest text search does not read yet;
 `neon search reindex` stores it, as [Search](/docs/guides/search/#rebuilding-the-text)
 explains.
 
@@ -221,18 +277,23 @@ Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with N
 ### The end-to-end tests
 
 `make e2e` builds both images from the checkout, starts a throwaway stack of them under its
-own Compose project, on a free port of `127.0.0.1`, and runs the tests in `e2e/` against it
-in a headless Chromium with Playwright: accounts and signing in, workspaces, pages edited in
-two browsers at once, databases and boards, comments, search, attachments, import and
-export, agents, OAuth and MCP clients, webhooks delivered to a receiver on the stack's
-network, the docs, the security headers, and that the admin listener is not reachable. The
-stack gets a first admin with a password made for the run, and a secret key, and the tests
-start from that admin. It removes the stack, its data included, however the run ends, and
-leaves Playwright's report in `e2e/playwright-report/`. It needs
-Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the tests'
-packages and the browser. The server image it tests is built with Cargo's `e2e` profile, the
-release profile without link-time optimisation, so it compiles in a fraction of the time; the
-published images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
+own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
+runs the tests in `e2e/` against it in a headless Chromium with Playwright. The stack gets a
+first admin with a password made for the run, a secret key, its public URL on that port, and
+Mailpit, which takes all its mail and whose API the tests read. The tests start from that
+admin and make people of their own. They cover signing up in each registration mode,
+verifying an address and resetting a password with the links mailed, and requests to join,
+approved or denied; workspaces, joined by invitation and by link; pages edited in two
+browsers at once, shared and trashed; databases and boards; comments, mentions, the inbox
+and the mail it sends; search and page history; attachments, and who may download them;
+import and export; agents, OAuth and MCP clients; webhooks delivered to a receiver on the
+stack's network; the layout on a phone's screen; the docs, the security headers, and that
+the admin listener is not reachable. It removes the stack, its data included, however the
+run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs Docker, Bun
+and Node.js; `make e2e-install`, which it runs first, installs the tests' packages and the
+browser. The server image it tests is built with Cargo's `e2e` profile, the release profile
+without link-time optimisation, so it compiles in a fraction of the time; the published
+images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 
@@ -385,8 +446,9 @@ make check
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
 as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
 settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, the block fixtures in both directions, the Claude Code plugin, and the license and
-advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
+checks, the block fixtures in both directions, the Claude Code plugin, the version check,
+which fails unless everything that states the version states the cargo workspace's, and the
+license and advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
 `tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
 `target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:

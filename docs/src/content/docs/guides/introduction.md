@@ -30,8 +30,9 @@ the friends its owner lets in.
 
 ## What exists
 
-Version 0.1.0 is the first release; `CHANGELOG.md` in the repository lists what each
-release brings. What exists:
+Version 0.1.0 is the first release; the
+[changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
+each release brings. What exists:
 
 - The server, `neon`, as a cargo workspace of six crates; see the
   [overview](/docs/architecture/overview/).
