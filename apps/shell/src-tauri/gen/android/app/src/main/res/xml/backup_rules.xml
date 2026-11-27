@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and earlier, which honour allowBackup="false": the same rule as
+     data_extraction_rules.xml, should backups ever be allowed. -->
+<full-backup-content>
+    <include domain="root" path="servers.json" />
+</full-backup-content>
