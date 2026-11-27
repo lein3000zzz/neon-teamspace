@@ -1300,6 +1300,7 @@ async fn rebuilding_stores_the_text_of_documents_never_saved_as_snapshots(pool: 
             &fragment,
             &[Block::paragraph("A starboard entry")],
             &mut SequentialIds::new("b"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         txn.encode_update_v1()
@@ -1357,6 +1358,7 @@ async fn rebuilding_stores_what_a_server_stopped_before_saving_left(pool: PgPool
             &fragment,
             &[Block::paragraph("Albatross sighting logged")],
             &mut SequentialIds::new("c"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         (state, txn.encode_state_as_update_v1(&before))

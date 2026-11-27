@@ -45,6 +45,7 @@ fn edit_in(doc: &Doc, edit: &Edit, room: usize) -> Result<Applied, EditError> {
         edit,
         &mut SequentialIds::new("new"),
         room,
+        Deadline::NONE,
     )
 }
 
@@ -986,7 +987,13 @@ fn writes_that_would_walk_too_far_into_a_long_page_are_refused_whole() {
         let fragment = fragment(&doc);
         let mut txn = doc.transact_mut();
         assert_eq!(
-            crate::ydoc::append(&mut txn, &fragment, &many, &mut SequentialIds::new("new")),
+            crate::ydoc::append(
+                &mut txn,
+                &fragment,
+                &many,
+                &mut SequentialIds::new("new"),
+                Deadline::NONE
+            ),
             Err(crate::ydoc::AppendRefused::TooFar(TooFar))
         );
     }
@@ -1001,6 +1008,90 @@ fn writes_that_would_walk_too_far_into_a_long_page_are_refused_whole() {
     )
     .expect("inserted near the top");
     assert_eq!(read(&doc).blocks.len(), 4001);
+}
+
+/// An edit given a deadline that has passed already.
+fn edit_late(doc: &Doc, edit: &Edit) -> Result<Applied, EditError> {
+    let fragment = fragment(doc);
+    let mut txn = doc.transact_mut();
+    apply(
+        &mut txn,
+        &fragment,
+        edit,
+        &mut SequentialIds::new("new"),
+        usize::MAX,
+        Deadline::at(std::time::Instant::now()),
+    )
+}
+
+#[test]
+fn past_its_deadline_an_edit_writes_and_removes_no_block_past_a_groups_first_place() {
+    // Blocks removed from a group stay in it, unseen, and every write past its first place
+    // walks them: a deadline stops what no count of the blocks there bounds.
+    let doc = page(paragraphs(3));
+    let late = |edit: Edit| edit_late(&doc, &edit);
+    let one = || vec![Block::paragraph("new")];
+    assert_eq!(
+        late(Edit::Append { blocks: one() }),
+        Err(EditError::TooFar(TooFar))
+    );
+    assert_eq!(
+        late(Edit::InsertAfter {
+            block_id: "block-1".into(),
+            blocks: one(),
+        }),
+        Err(EditError::TooFar(TooFar))
+    );
+    assert_eq!(
+        late(Edit::ReplaceRange {
+            from: "block-2".into(),
+            to: "block-3".into(),
+            blocks: one(),
+        }),
+        Err(EditError::TooFar(TooFar))
+    );
+    // Keeping the first block, writing one after it walks.
+    assert_eq!(
+        late(Edit::ReplaceBody {
+            blocks: vec![Block::paragraph("p1"), Block::paragraph("new")],
+        }),
+        Err(EditError::TooFar(TooFar))
+    );
+    // Removing a block past the first walks too.
+    assert_eq!(
+        late(Edit::Restore {
+            blocks: vec![read(&doc).blocks[0].clone(), read(&doc).blocks[1].clone()],
+        }),
+        Err(EditError::TooFar(TooFar))
+    );
+    {
+        let fragment = fragment(&doc);
+        let mut txn = doc.transact_mut();
+        assert_eq!(
+            crate::ydoc::append(
+                &mut txn,
+                &fragment,
+                &one(),
+                &mut SequentialIds::new("new"),
+                Deadline::at(std::time::Instant::now()),
+            ),
+            Err(crate::ydoc::AppendRefused::TooFar(TooFar))
+        );
+    }
+    assert_eq!(md(&doc), "p1\n\np2\n\np3\n");
+    // What goes at a group's first place walks nothing, and goes in whatever the time.
+    late(Edit::ReplaceBody {
+        blocks: vec![Block::paragraph("first"), Block::paragraph("second")],
+    })
+    .expect("written at the start");
+    assert_eq!(md(&doc), "first\n\nsecond\n");
+    late(Edit::FindReplace {
+        find: "second".into(),
+        replace: "last".into(),
+        all: false,
+    })
+    .expect("replaced in place");
+    assert_eq!(md(&doc), "first\n\nlast\n");
 }
 
 #[test]

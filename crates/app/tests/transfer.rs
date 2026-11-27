@@ -989,6 +989,7 @@ async fn write_live(t: &Team, page: Uuid, text: &str) -> Connection {
             fragment,
             &[Block::paragraph(text)],
             &mut SequentialIds::new("live"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
     })
@@ -1058,6 +1059,7 @@ async fn blocks_that_do_not_read_are_left_out_of_exports(pool: PgPool) {
             fragment,
             &[Block::paragraph("After it.")],
             &mut SequentialIds::new("live"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
     })

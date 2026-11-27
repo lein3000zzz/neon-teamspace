@@ -23,6 +23,13 @@ pub struct Limits {
     /// How many such writes run at once on the server, each on a thread of its own; one more
     /// waits for its turn.
     pub parallel_writes: usize,
+    /// How long the server's writes of blocks into a page that holds some already, an
+    /// edit's, the blocks appended or a version restored, may take. They are tried on a
+    /// copy of the document first, and refused, before the document changes, once the try
+    /// takes longer. yrs walks past every block before a place, those removed from the page
+    /// included, which the page keeps unseen as long as it lasts, so no count of its blocks
+    /// bounds the time.
+    pub write_time: Duration,
     /// How many messages a connection may send per second, on average.
     pub messages_per_second: u32,
     /// How many it may send at once, above the average, before it is closed.
@@ -88,6 +95,7 @@ impl Default for Limits {
             max_document: 16 * 1024 * 1024,
             max_nodes: 100_000,
             parallel_writes: std::thread::available_parallelism().map_or(4, NonZeroUsize::get),
+            write_time: Duration::from_secs(1),
             messages_per_second: 100,
             message_burst: 1000,
             client_queue: 512,

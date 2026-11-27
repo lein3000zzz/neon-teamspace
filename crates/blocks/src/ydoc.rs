@@ -33,6 +33,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use yrs::types::Delta;
 use yrs::types::text::YChange;
@@ -103,16 +104,45 @@ pub struct NotADocument;
 /// walking the items of its group that come before that place, once for each block put
 /// there, and finds a block to remove the same way, so `n` blocks written after `m` others
 /// walk `n × m` items: a fraction of a second at most, on the longest pages a document's
-/// size allows.
+/// size allows. The walk passes the blocks removed from the group too, which a document
+/// keeps as long as it lasts and no count of its blocks shows: a [`Deadline`] bounds those.
 pub const MAX_WALK: usize = 4_000_000;
 
-/// Writes that would walk past more than [`MAX_WALK`] items: none of them is made.
+/// Writes that would walk past more than [`MAX_WALK`] items, refused before any is made, or
+/// that ran past their [`Deadline`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error(
     "the edit writes or removes too many blocks this far into a long page at once: make it \
      in smaller edits"
 )]
 pub struct TooFar;
+
+/// When writes into a group that holds blocks already stop, refused with [`TooFar`]. Each
+/// block written past a group's first place, and each run of blocks removed there, walks
+/// every item before its place, those of the blocks removed before included, so a page whose
+/// blocks were removed by the thousand makes writes slow that [`MAX_WALK`] lets through. An
+/// edit past its deadline is left part made: give one only to an edit made on a copy of a
+/// document, to try it first, and make it on the document itself without one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Deadline(Option<Instant>);
+
+impl Deadline {
+    /// No deadline: the writes go on however long they take.
+    pub const NONE: Self = Self(None);
+
+    /// The writes stop once `at` has passed.
+    pub fn at(at: Instant) -> Self {
+        Self(Some(at))
+    }
+
+    /// Refuses once the deadline has passed.
+    pub(crate) fn check(self) -> Result<(), TooFar> {
+        match self.0 {
+            Some(at) if Instant::now() >= at => Err(TooFar),
+            _ => Ok(()),
+        }
+    }
+}
 
 /// Why blocks were not added to a fragment.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -287,31 +317,33 @@ pub fn replace(
         Some(group) => group,
         None => fragment.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP)),
     };
-    write_blocks(txn, &group, &document.blocks, ids);
+    // The group holds no block now: its first place walks nothing.
+    write_blocks_first(txn, &group, &document.blocks, ids);
 }
 
 /// Adds `blocks` after the fragment's last top-level block. Blocks without an id get one
 /// from `ids`, as [`replace`] gives them. Refused, before anything changes, when the
 /// fragment holds no block group, or when writing the blocks after those there would walk
-/// past more than [`MAX_WALK`] items.
+/// past more than [`MAX_WALK`] items; and once past `deadline`, which leaves some of the
+/// blocks written.
 pub fn append(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<(), AppendRefused> {
     if blocks.is_empty() {
         return Ok(());
     }
     let group = match fragment.first_child() {
-        Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => {
-            within(walk(blocks.len(), group.len(txn)))?;
-            group
-        }
+        Some(XmlOut::Element(group)) if group.tag().as_ref() == BLOCK_GROUP => group,
         None => fragment.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP)),
         Some(_) => return Err(NotADocument.into()),
     };
-    write_blocks(txn, &group, blocks, ids);
+    let end = group.len(txn);
+    within(walk(blocks.len(), end))?;
+    write_blocks_at(txn, &group, end, blocks, ids, deadline)?;
     Ok(())
 }
 
@@ -860,28 +892,41 @@ fn read_cell<T: ReadTxn>(txn: &T, cell: &XmlElementRef) -> Result<Vec<Inline>, R
 // only the blocks before it. A text's runs go in as one string, and each mark is then applied
 // to every range it covers in one pass. Writing takes time in proportion to what is written.
 
-fn write_blocks(
-    txn: &mut TransactionMut,
-    group: &XmlElementRef,
-    blocks: &[Block],
-    ids: &mut dyn IdSource,
-) {
-    let end = group.len(txn);
-    write_blocks_at(txn, group, end, blocks, ids);
-}
-
 /// Writes `blocks` into a group from `index` on, and returns the ids of the blocks written
 /// there, those under them left out. Blocks without an id get one from `ids`, parents
-/// before their children, in document order.
+/// before their children, in document order. Past a place other than the first, each block
+/// is written only while `deadline` has not passed; once it has, the rest are not, and the
+/// write is refused.
 pub(crate) fn write_blocks_at(
     txn: &mut TransactionMut,
     group: &XmlElementRef,
     index: u32,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
+) -> Result<Vec<String>, TooFar> {
+    let named = named(blocks, ids);
+    for block in named.iter().rev() {
+        if index > 0 {
+            deadline.check()?;
+        }
+        write_named(txn, group, index, block);
+    }
+    Ok(named.into_iter().map(|block| block.id).collect())
+}
+
+/// Writes `blocks` at the start of a group, as [`write_blocks_at`] does, which walks no item
+/// and so has no deadline.
+pub(crate) fn write_blocks_first(
+    txn: &mut TransactionMut,
+    group: &XmlElementRef,
+    blocks: &[Block],
+    ids: &mut dyn IdSource,
 ) -> Vec<String> {
     let named = named(blocks, ids);
-    write_named(txn, group, index, &named);
+    for block in named.iter().rev() {
+        write_named(txn, group, 0, block);
+    }
     named.into_iter().map(|block| block.id).collect()
 }
 
@@ -908,17 +953,18 @@ fn named<'a>(blocks: &'a [Block], ids: &mut dyn IdSource) -> Vec<Named<'a>> {
         .collect()
 }
 
-/// Writes blocks into a group at `index`, the last first, so each goes in where the walk to
-/// `index` ends and none walks past those written before it.
-fn write_named(txn: &mut TransactionMut, group: &XmlElementRef, index: u32, blocks: &[Named<'_>]) {
-    for named in blocks.iter().rev() {
-        let container = group.insert(txn, index, XmlElementPrelim::empty(BLOCK_CONTAINER));
-        container.insert_attribute(txn, "id", named.id.as_str());
-        let content = container.push_back(txn, XmlElementPrelim::empty(named.block.kind.name()));
-        write_kind(txn, &content, &named.block.kind);
-        if !named.children.is_empty() {
-            let nested = container.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP));
-            write_named(txn, &nested, 0, &named.children);
+/// Writes a block into a group at `index`, with the blocks under it. Its siblings go in at
+/// the same index, the last first, so each goes in where the walk to `index` ends and none
+/// walks past those written before it; its children so at the start of their new group.
+fn write_named(txn: &mut TransactionMut, group: &XmlElementRef, index: u32, named: &Named<'_>) {
+    let container = group.insert(txn, index, XmlElementPrelim::empty(BLOCK_CONTAINER));
+    container.insert_attribute(txn, "id", named.id.as_str());
+    let content = container.push_back(txn, XmlElementPrelim::empty(named.block.kind.name()));
+    write_kind(txn, &content, &named.block.kind);
+    if !named.children.is_empty() {
+        let nested = container.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP));
+        for child in named.children.iter().rev() {
+            write_named(txn, &nested, 0, child);
         }
     }
 }
@@ -1355,6 +1401,7 @@ mod tests {
                 &fragment_two,
                 &crate::markdown::from_markdown("Also @[Dee](user:d1)").blocks,
                 &mut SequentialIds::new("two"),
+                Deadline::NONE,
             )
             .expect("appended");
             txn.encode_update_v1()
@@ -1464,7 +1511,14 @@ mod tests {
             let mut txn = doc.transact_mut();
             let replacement = Document::new(vec![Block::paragraph("new")]);
             replace(&mut txn, &fragment, &replacement, &mut ids);
-            append(&mut txn, &fragment, &[Block::paragraph("more")], &mut ids).expect("a document");
+            append(
+                &mut txn,
+                &fragment,
+                &[Block::paragraph("more")],
+                &mut ids,
+                Deadline::NONE,
+            )
+            .expect("a document");
         }
         let txn = doc.transact();
         assert!(group.is_some());

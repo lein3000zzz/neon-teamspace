@@ -1191,6 +1191,7 @@ async fn a_mention_logged_before_a_restart_is_still_from_its_writer(pool: PgPool
             &fragment,
             &text(&format!("For {}", mention(&t.cy))),
             &mut neon_blocks::SequentialIds::new("b"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("appended");
         txn.encode_update_v1()

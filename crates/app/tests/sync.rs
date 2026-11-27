@@ -220,6 +220,7 @@ impl Client {
             &self.fragment,
             &[Block::paragraph(text)],
             &mut self.ids,
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         Message::Sync(SyncMessage::Update(txn.encode_update_v1()))
@@ -1223,6 +1224,45 @@ async fn content_making_more_nodes_than_are_written_at_once_is_refused_before_wr
     sync.edit(&t.ada, t.page, append("a\n\nb\n"), None)
         .await
         .expect("few enough");
+    sync.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn writes_into_a_page_that_take_longer_than_they_may_are_refused_before_it_changes(
+    pool: PgPool,
+) {
+    let t = team(pool).await;
+    // Blocks removed from a page stay in its document unseen, and writing past them takes
+    // longer the more there are, which no count of its blocks shows: the time is what
+    // bounds it. Here no write past a page's first block has time enough.
+    let sync = t.sync(Limits {
+        write_time: Duration::ZERO,
+        ..quick()
+    });
+    // The first block goes in at the start of the page, which walks nothing.
+    sync.edit(&t.ada, t.page, append("Kept"), None)
+        .await
+        .expect("written at the start");
+
+    let edit = sync.edit(&t.ada, t.page, append("Late"), None).await;
+    assert!(
+        matches!(
+            &edit,
+            Err(ContentError::Refused {
+                index: 0,
+                error: EditError::TooFar(_)
+            })
+        ),
+        "{edit:?}"
+    );
+    let appended = sync
+        .append(&t.ada, t.page, from_markdown("Late").blocks)
+        .await;
+    assert!(
+        matches!(&appended, Err(PageError::InvalidInput(message)) if message.contains("smaller edits")),
+        "{appended:?}"
+    );
+    assert_eq!(text_of(&sync, &t.ada, t.page).await, "Kept");
     sync.shutdown().await;
 }
 

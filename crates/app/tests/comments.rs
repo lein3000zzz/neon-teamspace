@@ -638,6 +638,7 @@ async fn an_inline_thread_keeps_to_its_text_through_two_clients_edits(pool: PgPo
                 Block::paragraph("Another line."),
             ],
             &mut SequentialIds::new("block"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         txn.encode_update_v1()
@@ -754,6 +755,7 @@ async fn a_thread_on_a_block_covers_its_text(pool: PgPool) {
             &ada.fragment,
             &[Block::paragraph("Deploy on Friday")],
             &mut SequentialIds::new("block"),
+            neon_blocks::Deadline::NONE,
         )
         .expect("a document");
         txn.encode_update_v1()

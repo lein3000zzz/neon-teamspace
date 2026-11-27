@@ -282,7 +282,7 @@ pub(super) async fn get_markdown(
     request_body = EditPage,
     responses(
         (status = OK, description = "What each operation did.", body = EditedPage),
-        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, or its blocks would go in so far into a long page that one edit's writes pass more than 4000000 blocks, and nothing changed.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: no operations or more than 50, markdown nesting blocks more than 32 levels deep, or a database; base_required: replace_range or replace_body without base; edit_refused: an operation names a block the page lacks or blocks that are no range, or its text is not in the page, there more than once, or with all more than 10000 times, or its blocks would go in so far into a long page that one edit's writes pass more than 4000000 blocks, or take longer than a second, and nothing changed.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found.", body = ErrorBody),

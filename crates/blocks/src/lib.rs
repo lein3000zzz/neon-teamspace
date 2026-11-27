@@ -34,6 +34,6 @@ pub use model::{
     TextProps, nodes,
 };
 pub use ydoc::{
-    AppendRefused, FRAGMENT, Lenient, MAX_WALK, MentionItem, NotADocument, ReadError, TooFar,
-    append, fragment, mention_items, read, read_doc, read_lenient, replace,
+    AppendRefused, Deadline, FRAGMENT, Lenient, MAX_WALK, MentionItem, NotADocument, ReadError,
+    TooFar, append, fragment, mention_items, read, read_doc, read_lenient, replace,
 };

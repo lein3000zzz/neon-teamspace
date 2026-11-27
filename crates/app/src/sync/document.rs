@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use neon_blocks::Deadline;
 use neon_blocks::edit::{self, Applied, Edit, EditError};
 use neon_domain::auth::UserKind;
 use neon_domain::notifications::{PageMention, TextMention, page_mentions};
@@ -533,9 +534,10 @@ impl Document {
     /// Adds blocks after the document's last one, as `author`: every connection gets the
     /// update, and it is logged at once rather than after the usual pause, so it is kept
     /// once the caller hears it was added; when the database fails then, it stays in memory
-    /// and is logged again later, as every edit is. Refused when it would take the document
-    /// past its size limit, which is told before anything changes, and when the page turns
-    /// out to be gone as it is logged.
+    /// and is logged again later, as every edit is. They are added to a copy first, so that
+    /// an append that would take the document past its size limit, or take longer to write
+    /// than [`Limits::write_time`](super::Limits::write_time), is refused before anything
+    /// changes. Refused too when the page turns out to be gone as it is logged.
     async fn append(
         &mut self,
         author: Uuid,
@@ -548,12 +550,11 @@ impl Document {
         let estimate = self
             .inner
             .write(|| {
-                let scratch = Doc::new();
-                let fragment = neon_blocks::fragment(&scratch);
-                let mut txn = scratch.transact_mut();
-                let mut ids = || Uuid::now_v7().to_string();
-                neon_blocks::append(&mut txn, &fragment, blocks, &mut ids)?;
-                Ok::<_, AppendError>(txn.encode_update_v1().len())
+                self.on_copy(|txn, fragment, deadline| {
+                    let mut ids = || Uuid::now_v7().to_string();
+                    neon_blocks::append(txn, fragment, blocks, &mut ids, deadline)
+                        .map_err(AppendError::from)
+                })
             })
             .await?;
         if self.storage.size() + estimate > max {
@@ -573,7 +574,7 @@ impl Document {
                 let mut txn = self.awareness.doc().transact_mut();
                 let before = txn.state_vector();
                 let mut ids = || Uuid::now_v7().to_string();
-                neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids)?;
+                neon_blocks::append(&mut txn, &self.fragment, blocks, &mut ids, Deadline::NONE)?;
                 Ok::<_, AppendError>((txn.encode_update_v1(), before, txn.state_vector()))
             })
             .await?;
@@ -595,7 +596,9 @@ impl Document {
 
     /// Makes edits of the server's, as one change everyone connected gets at once and the
     /// log keeps as `author`'s. They are tried on a copy first, so that either every part
-    /// is made or none, and the document's growth is known before it grows. With `base`,
+    /// is made or none, the document's growth is known before it grows, and edits whose
+    /// writes take longer than [`Limits::write_time`](super::Limits::write_time) are
+    /// refused before they are made. With `base`,
     /// the revision the edit's author read, an edit that may remove blocks is refused once
     /// the document is at another revision, and one made on that revision tells the one it
     /// leaves.
@@ -636,7 +639,7 @@ impl Document {
             .write(|| {
                 let mut txn = self.awareness.doc().transact_mut();
                 let before = txn.state_vector();
-                let made = make(&mut txn, &self.fragment, edits, room);
+                let made = make(&mut txn, &self.fragment, edits, room, Deadline::NONE);
                 (made, txn.encode_update_v1(), before, txn.state_vector())
             })
             .await;
@@ -722,8 +725,21 @@ impl Document {
             .saturating_sub(self.storage.size())
     }
 
-    /// Makes the edits on a copy of the document, and says how large their update is.
+    /// Makes the edits on a copy of the document, and says how large their update is,
+    /// refusing them once their writes take longer than
+    /// [`Limits::write_time`](super::Limits::write_time).
     fn trial(&self, edits: &[Edit]) -> Result<usize, Unedited> {
+        let room = self.room();
+        self.on_copy(|txn, fragment, deadline| make(txn, fragment, edits, room, deadline).map(drop))
+    }
+
+    /// Makes `write` on a copy of the document, with the deadline of
+    /// [`Limits::write_time`](super::Limits::write_time) from when the copy is made, and
+    /// says how large its update is.
+    fn on_copy<E>(
+        &self,
+        write: impl FnOnce(&mut TransactionMut, &XmlFragmentRef, Deadline) -> Result<(), E>,
+    ) -> Result<usize, E> {
         let doc = self.awareness.doc();
         let (state, before) = {
             let txn = doc.transact();
@@ -742,11 +758,12 @@ impl Document {
             .ok()
             .and_then(|update| txn.apply_update(update).ok());
         if loaded.is_none() {
-            // The document's own state always loads; should it not, the edit is made on the
-            // document itself, whose size check then counts the rest.
+            // The document's own state always loads; should it not, the change is made on
+            // the document itself, whose size check then counts the rest.
             return Ok(0);
         }
-        make(&mut txn, &fragment, edits, self.room())?;
+        let deadline = Deadline::at(std::time::Instant::now() + self.inner.limits.write_time);
+        write(&mut txn, &fragment, deadline)?;
         Ok(txn.encode_state_as_update_v1(&before).len())
     }
 
@@ -1374,17 +1391,19 @@ impl Document {
 /// Makes `edits` in `txn`, in order, until one is refused. What find and replace would add
 /// is weighed, before it is added, against the `room` the document has, less what the parts
 /// before added by replacing: so no part grows the document far past what it keeps, nor
-/// takes the time that would, before its size is checked.
+/// takes the time that would, before its size is checked. Past `deadline`, the part being
+/// made stops part made and is refused: give one only on a copy.
 fn make(
     txn: &mut TransactionMut,
     fragment: &XmlFragmentRef,
     edits: &[Edit],
     mut room: usize,
+    deadline: Deadline,
 ) -> Result<Vec<Applied>, Unedited> {
     let mut ids = new_block_id;
     let mut made = Vec::with_capacity(edits.len());
     for (index, part) in edits.iter().enumerate() {
-        match edit::apply(txn, fragment, part, &mut ids, room) {
+        match edit::apply(txn, fragment, part, &mut ids, room, deadline) {
             Ok(applied) => {
                 room = room.saturating_sub(part.replaced_bytes(&applied));
                 made.push(applied);
@@ -1470,6 +1489,7 @@ mod tests {
                 &fragment,
                 &[neon_blocks::Block::paragraph(text)],
                 &mut neon_blocks::SequentialIds::new("b"),
+                Deadline::NONE,
             )
             .expect("a document");
         }
@@ -1490,13 +1510,13 @@ mod tests {
         let edits = [find("a", "1234"), find("b", "5678")];
         let mut txn = doc.transact_mut();
         assert_eq!(
-            make(&mut txn, &fragment, &edits, 7),
+            make(&mut txn, &fragment, &edits, 7, Deadline::NONE),
             Err(Unedited::TooLarge)
         );
         drop(txn);
         let (doc, fragment) = doc_of("a b");
         let mut txn = doc.transact_mut();
-        let made = make(&mut txn, &fragment, &edits, 8).expect("room for both");
+        let made = make(&mut txn, &fragment, &edits, 8, Deadline::NONE).expect("room for both");
         assert_eq!(made.len(), 2);
         // A refusal of another kind names its part.
         assert_eq!(
@@ -1504,7 +1524,8 @@ mod tests {
                 &mut txn,
                 &fragment,
                 &[find("1", "one"), find("absent", "")],
-                8
+                8,
+                Deadline::NONE
             ),
             Err(Unedited::Refused(1, EditError::NotFound))
         );

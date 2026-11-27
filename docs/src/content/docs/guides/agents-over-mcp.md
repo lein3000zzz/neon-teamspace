@@ -371,7 +371,9 @@ line breaks and mentions: the server counts them before it writes any. Writing b
 into a long page takes the server time for every block before the place, so one edit's
 writes may pass at most 4 million blocks in all, counted once for each block written: 2000
 blocks appended to a page of 2000 do, and are refused with `edit_refused`, while the same
-blocks in two edits, or nearer the top, go in. The server weighs what
+blocks in two edits, or nearer the top, go in. Blocks removed from a page count as well, as
+the server passes them too, so an edit whose writes would take longer than a second is
+refused the same way, before anything changes. The server weighs what
 `find_replace` would add before it adds any of it, so replacements that would grow the page
 past that are refused at once. Markdown, an edit's or `create_page`'s, nests blocks at most
 32 levels deep, as [Page documents](/docs/architecture/documents/) describes; deeper answers

@@ -388,7 +388,7 @@ pub(super) async fn compare_version(
     request_body = RestoreVersion,
     responses(
         (status = OK, description = "The page restored.", body = RestoredPage),
-        (status = BAD_REQUEST, description = "invalid_input: a database.", body = ErrorBody),
+        (status = BAD_REQUEST, description = "invalid_input: a database; edit_refused: writing the version into the page would take longer than a second, and nothing changed.", body = ErrorBody),
         (status = UNAUTHORIZED, description = "unauthenticated.", body = ErrorBody),
         (status = FORBIDDEN, description = "forbidden: the caller views the page and does not edit it, or it is in the trash; or insufficient_scope.", body = ErrorBody),
         (status = NOT_FOUND, description = "not_found: no such page, or no such version of it.", body = ErrorBody),

@@ -225,9 +225,13 @@ restored. Writing takes time in proportion to it, as the server writes each sequ
 siblings at one place, its last first, so yrs, which finds a place by walking the siblings
 before it, walks none of those it wrote. Blocks that go into a long sequence still walk the
 blocks before their place, once each, so the writes of one edit may walk past at most 4
-million blocks, and an edit past that is refused before it changes anything. The work runs
-on a thread where blocking is allowed, in one of as many turns at once as the machine has
-processors, so no write keeps the other requests waiting.
+million blocks, and an edit past that is refused before it changes anything. The walk passes
+the blocks removed from the sequence too, which a document keeps, unseen, as long as it
+lasts, so no count of a page's blocks bounds it: the copy an edit is tried on, and the copy
+blocks appended go to first, give the writes one second, and an edit or append whose writes
+take longer is refused before the document changes. The work runs on a thread where blocking
+is allowed, in one of as many turns at once as the machine has processors, so no write keeps
+the other requests waiting.
 
 ### Mentions settle
 

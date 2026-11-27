@@ -21,13 +21,16 @@ use super::{
 use crate::align::{Key, pairs};
 use crate::ids::IdSource;
 use crate::model::{Block, BlockKind};
-use crate::ydoc::{BLOCK_GROUP, read_kind, write_blocks_at, write_kind};
+use crate::ydoc::{
+    BLOCK_GROUP, Deadline, TooFar, read_kind, write_blocks_at, write_blocks_first, write_kind,
+};
 
 pub(super) fn restore(
     txn: &mut TransactionMut,
     fragment: &yrs::XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
+    deadline: Deadline,
 ) -> Result<Applied, EditError> {
     let Some(group) = top_group(fragment)? else {
         if blocks.is_empty() {
@@ -35,12 +38,12 @@ pub(super) fn restore(
         }
         let group = group_or_new(txn, fragment)?;
         return Ok(Applied {
-            added: write_blocks_at(txn, &group, 0, blocks, ids),
+            added: write_blocks_first(txn, &group, blocks, ids),
             ..Applied::default()
         });
     };
     let mut applied = Applied::default();
-    restore_group(txn, &group, blocks, ids, &mut applied);
+    restore_group(txn, &group, blocks, ids, &mut applied, deadline)?;
     // A version without blocks leaves the empty paragraph a page keeps.
     tidy(txn, &group, ids);
     Ok(applied)
@@ -54,14 +57,16 @@ struct Present {
     kind: Option<BlockKind>,
 }
 
-/// Makes `group` hold `blocks`, a level of the version, and the levels under them.
+/// Makes `group` hold `blocks`, a level of the version, and the levels under them. Past
+/// `deadline`, it stops as [`make_placed`] does.
 fn restore_group(
     txn: &mut TransactionMut,
     group: &XmlElementRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
     applied: &mut Applied,
-) {
+    deadline: Deadline,
+) -> Result<(), TooFar> {
     let present: Vec<Present> = containers(txn, group)
         .into_iter()
         .map(|(_, container)| {
@@ -98,7 +103,14 @@ fn restore_group(
         if present[i].kind.as_ref() != Some(&block.kind) {
             rewrite(txn, &present[i].container, &block.kind);
         }
-        restore_children(txn, &present[i].container, &block.children, ids, applied);
+        restore_children(
+            txn,
+            &present[i].container,
+            &block.children,
+            ids,
+            applied,
+            deadline,
+        )?;
     }
 
     let index: HashMap<BranchID, u32> = containers(txn, group)
@@ -143,11 +155,12 @@ fn restore_group(
     // From the last place back, so the places before stay; at one place, what goes before
     // what comes.
     placed.sort_by_key(|&(place, kind, n)| (Reverse(place), kind, Reverse(n)));
-    make_placed(txn, group, &placed, |txn, place, n| {
+    make_placed(txn, group, &placed, deadline, |txn, place, n| {
         applied
             .added
-            .extend(write_blocks_at(txn, group, place, runs[n], ids));
-    });
+            .extend(write_blocks_at(txn, group, place, runs[n], ids, deadline)?);
+        Ok(())
+    })
 }
 
 /// Writes a block's content element anew, for a block that stays with other content.
@@ -164,7 +177,8 @@ fn restore_children(
     children: &[Block],
     ids: &mut dyn IdSource,
     applied: &mut Applied,
-) {
+    deadline: Deadline,
+) -> Result<(), TooFar> {
     match children_of(txn, container) {
         // The schema has no empty group of children: it goes whole.
         Some(nested) if children.is_empty() => {
@@ -174,15 +188,16 @@ fn restore_children(
             }
             container.remove_range(txn, 1, 1);
         }
-        Some(nested) => restore_group(txn, &nested, children, ids, applied),
+        Some(nested) => restore_group(txn, &nested, children, ids, applied, deadline)?,
         None if children.is_empty() => {}
         None => {
             let nested = container.push_back(txn, XmlElementPrelim::empty(BLOCK_GROUP));
             applied
                 .added
-                .extend(write_blocks_at(txn, &nested, 0, children, ids));
+                .extend(write_blocks_first(txn, &nested, children, ids));
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -196,7 +211,7 @@ mod tests {
     use crate::ids::SequentialIds;
     use crate::markdown::from_markdown;
     use crate::model::{Block, BlockKind, Document, HeadingProps, Inline, TextProps};
-    use crate::ydoc::{fragment, read_doc, replace};
+    use crate::ydoc::{Deadline, fragment, read_doc, replace};
 
     /// A document holding `blocks` as given, ids included, those without one numbered
     /// `block-1` and on.
@@ -223,6 +238,7 @@ mod tests {
             },
             &mut SequentialIds::new("new"),
             usize::MAX,
+            Deadline::NONE,
         )
         .expect("restored")
     }
