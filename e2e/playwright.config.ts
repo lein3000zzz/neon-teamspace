@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// What tells this run of the suite from those before it, for the client addresses of
+// tests/accounts.ts: a group of an IPv6 address, from the seconds since the epoch. The runner
+// sets it before it starts the workers, which then find it in their environment.
+process.env.E2E_SUITE_RUN ??= (Math.floor(Date.now() / 1000) % 0x10000).toString(16);
+
 /**
  * The end-to-end tests drive a running stack through its web origin, as a browser does.
  * `make e2e` starts a throwaway one, built from the checkout, and points them at it with

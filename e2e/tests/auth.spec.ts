@@ -1,6 +1,9 @@
-import { ADMIN, type Meta, SERVER_VERSION, expect, signIn, test } from "./fixtures";
+import { clientAddress } from "./accounts";
+import { ADMIN, type Meta, SERVER_VERSION, expect, loadMoreUntil, signIn, test } from "./fixtures";
 
 test.skip(ADMIN === undefined, "needs the first admin that make e2e creates");
+
+test.use({ extraHTTPHeaders: clientAddress(25) });
 
 /** The first admin, which the skip above makes sure of. */
 function admin() {
@@ -114,7 +117,7 @@ test("an admin invites someone, who signs up with the link in another browser", 
 
   // And the new account is in the list of users.
   await page.goto("/admin");
-  await expect(page.getByText(newcomer)).toBeVisible();
+  await loadMoreUntil(page, page.getByText(newcomer));
 });
 
 test("an admin reads the runtime settings, with what the stack pins", async ({ page }) => {
