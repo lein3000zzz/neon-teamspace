@@ -1,10 +1,12 @@
 # Changelog
 
-What changes in each release of Neon Teamspace, for the people who run it. Versions follow
-[semantic versioning](https://semver.org); until 1.0.0, a minor version may change the API or
-the settings in a way that needs something of you, and says so under **Breaking changes**.
-[Upgrading](docs/src/content/docs/self-hosting/upgrading.md) covers moving an instance from
-one release to the next. The numbers are the pull requests that made each change.
+What changes in each release of Neon Teamspace, for the people who run it. The server and web
+images, the Compose file and the Claude Code plugin share one version, the cargo workspace's.
+Versions follow [semantic versioning](https://semver.org); until 1.0.0, a minor version may
+change the API or the settings in a way that needs something of you, and says so under
+**Breaking changes**. [Upgrading](docs/src/content/docs/self-hosting/upgrading.md) covers
+moving an instance from one release to the next. The numbers are the pull requests that made
+each change.
 
 Each section is a release, newest first, dated the day it was tagged. Between releases, the
 next one's section may say `Unreleased` instead of a date.
@@ -17,8 +19,14 @@ that work beside people over MCP, OAuth, the REST API and webhooks.
 
 ### Breaking changes
 
-None: there is no earlier release to upgrade from. This release sets the shapes later
-releases will be measured against, and calls out when they change:
+None: there is no earlier release to upgrade from. An instance built from the repository's
+`main` or `dev` branch before this release upgrades to it as to any release, as the server
+applies the migrations it lacks as it starts. One thing differs for such an instance: while
+`NEON_VERSION` is unset, the Compose file now runs the images of the release it belongs to,
+where it ran `latest` before.
+
+This release sets the shapes later releases will be measured against, and calls out when
+they change:
 
 - The REST API under `/api/v1`, described by `api/openapi.json` and served at
   `/api/v1/openapi.json`. Every error is `{"error": {"code", "message"}}`, and `code` is the
@@ -37,12 +45,18 @@ releases will be measured against, and calls out when they change:
   the `neon` binary on distroless as an unprivileged user, and
   `ghcr.io/lein3000zzz/neon-teamspace-web`, Caddy with the app and the docs, which passes
   the server's paths on to it on one origin and gets its own TLS certificate given a domain.
-  Release images carry an SBOM and build provenance, and are built only after the
-  end-to-end tests pass. (#8, #9, #31)
-- `deployments/docker-compose.yml` runs them with Postgres 18, pinned by `NEON_VERSION`, with
-  the stack's settings in `deployments/.env` and the server's in `deployments/server.env`.
-  Profiles add Mailpit (`mail`), Grafana's otel-lgtm with a dashboard of the server's metrics
-  (`observability`) and SeaweedFS for attachments (`seaweedfs`). (#8, #41)
+  (#8)
+- Releases from a `v*` tag. The workflow checks that the tag and every file that states the
+  version agree, runs the end-to-end tests on the release build, then pushes both images
+  with OCI labels, an SBOM that lists the crates the server links, and build provenance,
+  tagged `0.1.0`, `0.1` and `latest`. The GitHub release then names the images and attaches
+  the Compose archive: the Compose file with its example settings. Images are signed with
+  cosign's keyless signing once the repository is public. (#9, #31)
+- `deployments/docker-compose.yml` runs them with Postgres 18: the images of its own release,
+  unless `NEON_VERSION` names another, with the stack's settings in `deployments/.env` and the
+  server's in `deployments/server.env`. Profiles add Mailpit (`mail`), Grafana's otel-lgtm
+  with a dashboard of the server's metrics (`observability`) and SeaweedFS for attachments
+  (`seaweedfs`). (#8, #41)
 - The `neon` command line: `serve`, `migrate`, `admin create`, `search reindex`, `openapi`,
   `settings docs`, `config check` and `health`, the containers' health check. (#3, #8, #11, #40)
 - Configuration from `neon.yaml` and `NEON_` variables, and runtime settings that admins

@@ -138,9 +138,10 @@ Restore with the release the backup was taken with, then upgrade if need be, as
 [Upgrading](/docs/self-hosting/upgrading/) describes. A newer release migrates the database
 forward as it starts, and the database cannot then go back without the backup.
 
-1. Install Docker, and get `deployments/` of that release: a clone at its tag, or a copy of
-   the directory. Put the backed-up `.env` and `server.env` back in it, and check that
-   `NEON_VERSION` names the release.
+1. Install Docker, and get `deployments/` of that release: its Compose archive, unpacked as
+   [Install](/docs/self-hosting/install/#starting-it) shows, or a clone at its tag. Put the
+   backed-up `.env` and `server.env` back in it, and check that `NEON_VERSION` is blank or
+   names the release.
 2. Create the stack's containers and empty volumes without starting them, then start
    Postgres alone. The server must not start before the database is restored: it would
    apply the migrations to the empty database, and `pg_restore` would then fail on the

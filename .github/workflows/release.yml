@@ -2,8 +2,9 @@
 # passed, so nothing is published unless every check did: the version check, which needs the
 # tag to name the workspace's version; the end-to-end tests of the release build; the server and
 # web images for linux/amd64 and linux/arm64 on GHCR, with OCI labels, an SBOM and build
-# provenance; and a GitHub release, its notes generated from the merged pull requests, with the
-# Compose archive attached. It needs no secret but the workflow's own token.
+# provenance; and a GitHub release with the Compose archive attached, whose notes name the
+# images and their tags and link the docs, before the ones GitHub generates from the merged
+# pull requests. It needs no secret but the workflow's own token.
 name: Release
 
 on:

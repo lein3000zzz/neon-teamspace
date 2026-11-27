@@ -270,11 +270,14 @@ binary on a minimal base, both for amd64 and arm64, run together by one Compose 
 Postgres, and profiles for Mailpit, SeaweedFS and the observability stack.
 [More](/docs/self-hosting/install/#with-docker).
 
-**Releases from tags.** A `v*` tag runs the end-to-end tests against the images built in
-the release profile, then publishes both images to GitHub's container registry with an SBOM
-and build provenance, and a GitHub release. Images are signed with cosign's keyless signing
-once the repository is public, as the signature records the repository in Sigstore's
-public log. [More](/docs/self-hosting/upgrading/).
+**Releases from tags.** One version, the cargo workspace's, names the images, the Compose
+file and the Claude Code plugin. A `v*` tag checks that the tag and every file that states
+the version agree, runs the end-to-end tests against the images built in the release
+profile, then publishes both images to GitHub's container registry with an SBOM and build
+provenance, tagged with the version, the minor version and `latest`, and from 1.0 on the
+major version, and makes a GitHub release with the Compose archive attached. Images are
+signed with cosign's keyless signing once the repository is public, as the signature records
+the repository in Sigstore's public log. [More](/docs/self-hosting/upgrading/).
 
 **One Makefile.** Every task, local or in CI, is a target of the root `Makefile`, and `make`
 alone lists them, so a check that passes on a laptop is the check CI runs. `make check` runs

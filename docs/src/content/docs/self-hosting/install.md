@@ -135,7 +135,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, the same for both: another than the one the Compose file belongs to, which it runs unless set, or `latest`. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for both, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.1.0`, a minor version such as `0.1`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
