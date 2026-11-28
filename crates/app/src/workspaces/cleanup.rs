@@ -56,7 +56,7 @@ impl WorkspaceService {
 /// ended invitations and links, purges the pages' trash, thins out pages' versions, then
 /// cleans up attachments, after the trash and the versions so the files of pages purged and
 /// of versions thinned out go in the same run; one failing does not keep the others from
-/// running.
+/// running, and the run's failure names every step that failed.
 #[must_use = "dropping the handle leaves the task running with no way to stop it"]
 pub struct Cleanup(Periodic);
 
@@ -78,7 +78,12 @@ impl Cleanup {
                 let trash = pages.purge_trash().await.map_err(|e| e.to_string());
                 let versions = history.thin().await.map_err(|e| e.to_string());
                 let files = attachments.cleanup().await.map_err(|e| e.to_string());
-                invitations.and(trash).and(versions).and(files).map(drop)
+                outcome([
+                    ("invitations", invitations.err()),
+                    ("trash", trash.err()),
+                    ("versions", versions.err()),
+                    ("files", files.err()),
+                ])
             }
         }))
     }
@@ -86,5 +91,38 @@ impl Cleanup {
     /// Stops, waiting for a run in progress, so the pool can close after it.
     pub async fn stop(self) {
         self.0.stop().await;
+    }
+}
+
+/// A run's outcome from its steps, each named with its error if it failed: every failure, in
+/// the order the steps ran, or none.
+fn outcome(steps: impl IntoIterator<Item = (&'static str, Option<String>)>) -> Result<(), String> {
+    let failures: Vec<String> = steps
+        .into_iter()
+        .filter_map(|(step, error)| error.map(|error| format!("{step}: {error}")))
+        .collect();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_fails_with_every_step_that_failed() {
+        assert_eq!(outcome([("invitations", None), ("trash", None)]), Ok(()));
+        assert_eq!(
+            outcome([
+                ("invitations", None),
+                ("trash", Some("database: gone".to_owned())),
+                ("versions", None),
+                ("files", Some("the blob store is down".to_owned())),
+            ]),
+            Err("trash: database: gone; files: the blob store is down".to_owned()),
+        );
     }
 }
