@@ -17,19 +17,20 @@ next one's section may say `Unreleased` instead of a date.
 Desktop and Android apps that open your own server, editing on phones and tablets, and
 updates from inside the product. The server now tells its admins when a new release is out
 and, with the new updater beside it, moves the stack to that release in one click. This
-release also fixes a crash that anyone who could edit a page could cause, so upgrade soon.
+release also fixes a crash that any account on the instance could cause, so upgrade soon.
 
 ### Breaking changes
 
 None. No route, setting or environment variable changed its meaning or went away. The
 Compose file only gained the updater service, which runs only once its profile is on, a
 network the server shares with it, and three variables that may stay blank. Two things
-behave differently and need nothing of you:
+behave differently:
 
 - The server asks GitHub's API for this repository's releases as it starts and once a day,
   sending its version in the `User-Agent` and nothing else. To stop it, set `updates.check`
-  off in **Admin > Settings**, or pin it with `NEON_SETTINGS__UPDATES__CHECK=false` in
-  `deployments/server.env`. (#68)
+  off in **Admin > Settings**. The first check comes as 0.2.0 starts, before an admin can do
+  that, so to keep the server from ever asking, put `NEON_SETTINGS__UPDATES__CHECK=false` in
+  `deployments/server.env` before starting 0.2.0. (#68)
 - An MCP `initialize` whose body cannot be read gets `400 invalid_body` where it got
   `413 payload_too_large`. A body over the 2 MiB limit still gets 413, so only requests cut
   short see the change, which is listed under **Fixed**. (#65)
@@ -40,35 +41,41 @@ behave differently and need nothing of you:
 archive over the install's directory, then pull and start the images, as
 [From 0.1.0 to 0.2.0](docs/src/content/docs/self-hosting/upgrading.md#from-010-to-020) shows.
 Use the new archive rather than setting `NEON_VERSION` alone, since the 0.1.0 Compose file
-has no updater service. `deployments/.env` and `deployments/server.env` need no change for
-the upgrade. If `NEON_VERSION` names `0.1.0`, set it to `0.2.0` or leave it blank.
+has no updater service. Neither `deployments/.env` nor `deployments/server.env` needs a new
+variable. If `NEON_VERSION` names `0.1.0` or `0.1`, set it to `0.2.0` or `0.2`, or leave it
+blank; `latest` needs no change. Left at `0.1.0` or `0.1`, it keeps the stack on the 0.1.0
+images, and on the crash this release fixes. Then check that `GET /api/v1/meta` says 0.2.0.
 
 To update from **Admin > Settings** after that, turn on the `updater` profile. Put a token of
 32 characters or more, such as the output of `openssl rand -hex 32`, in `deployments/.env` as
 `NEON_UPDATER_TOKEN`, add `COMPOSE_PROFILES=updater`, then pull and run `up -d --wait` again.
 [One-click updates](docs/src/content/docs/self-hosting/upgrading.md#one-click-updates) has the
-steps, and says what the updater can do with the Docker socket it holds. Without it, the
-panel shows the commands that update by hand.
+steps, and says what the updater can do with the Docker socket it holds. Without the updater,
+the panel shows the commands that update by hand. Once the token is set, going back to 0.1.0
+takes the 0.1.0 Compose archive: the 0.2.0 Compose file passes the token to the server, and a
+0.1.0 server does not start with a setting it does not know.
 
 ### Added
 
-- **Desktop and mobile apps.** Apps for macOS on Apple silicon and Intel, Windows, Linux and
-  Android are attached to each release, and an iOS and iPadOS app builds from source. Each is
-  a thin shell around the system's web view that opens the web app of a server you pick.
-  Its one screen of its own, the server picker, checks that a Neon Teamspace server answers
-  at the address, keeps a list of servers and reopens the last one. The window stays on the
-  chosen server's origin, and no page of a server can call the picker's commands. The server
-  needs no setting for them. The [Apps guide](docs/src/content/docs/guides/apps.md) covers
-  installing, checking a download and connecting. (#63)
-- **App updates.** The desktop and Android apps look for a newer release a few seconds after
-  they start and once a day. Installed from the `.dmg`, the Windows setup or the AppImage, a
-  desktop app downloads the new release, checks its signature against the key it carries,
-  installs it and restarts. **Check for Updates…** is in the app menu on macOS and under
-  **File** on Windows and Linux. A `.deb` or `.rpm` install belongs to the package manager,
-  so it opens the release page instead. The Android app offers the new signed APK to
-  download in the browser, and its picker has **Check for updates**. The iOS app does not
-  update itself. (#68)
-- **Editing on phones and tablets.** On a touch screen, a toolbar above the on-screen keyboard
+- Apps for macOS on Apple silicon and Intel, Windows and Linux on x86_64, and Android are
+  attached to each release, and an iOS and iPadOS app builds from source. Each is a thin
+  shell around the system's web view that opens the web app of a server you pick. Its one
+  screen of its own, the server picker, checks that a Neon Teamspace server answers at the
+  address, keeps a list of servers and reopens the last one. The window stays on the chosen
+  server's origin, and no page of a server can call the picker's commands. The server needs
+  no setting for them. The macOS and Windows apps are not signed with a developer
+  certificate, so the system warns the first time one opens. The
+  [Apps guide](docs/src/content/docs/guides/apps.md) says how to check a download and open
+  it, and covers installing and connecting. (#63)
+- The desktop and Android apps look for a newer release a few seconds after they start and
+  once a day. Installed from the `.dmg`, the Windows setup or the AppImage, a desktop app
+  downloads the new release, checks its signature against the key it carries, installs it
+  and restarts. **Check for Updates…** is in the app menu on macOS and under **File** on
+  Windows and Linux. A `.deb` or `.rpm` install belongs to the package manager, so it opens
+  the release page instead. The Android app offers the new signed APK to download in the
+  browser, and its picker has **Check for updates**. The iOS app does not update itself.
+  (#68)
+- On a touch screen, such as a phone's or a tablet's, a toolbar above the on-screen keyboard
   takes the place of the block handles and the floating formatting toolbar. It sets block
   types and formatting, adds links, mentions, files and dividers, indents, moves, duplicates
   and deletes blocks, and has comments, undo and redo. The back gesture closes the drawer,
@@ -76,51 +83,53 @@ panel shows the commands that update by hand.
   target of 44 pixels or more.
   [On a phone or a tablet](docs/src/content/docs/guides/editing-pages.md#on-a-phone-or-a-tablet)
   has the rest. (#62)
-- **Release checks.** **Admin > Settings** opens with **Version and updates**. It shows the
+- A new panel, **Version and updates**, comes first in **Admin > Settings**. It shows the
   release the server runs, the newest one its last check saw on GitHub with a link to its
   notes, when it checked, why a check failed, and the updater's state. **Check now** asks
   again, and the **Admin** entry of the sidebar carries a mark for instance admins while a
-  newer release is out. Instance admins have the same in the API: `GET /api/v1/admin/updates`,
-  `POST /api/v1/admin/updates/check`, and `POST /api/v1/admin/updates/apply`, which takes a
-  browser session. (#68)
-- **One-click updates.** With the Compose file's `updater` profile on, **Update to** in that
-  panel asks the updater, `neon-updater`, to update the stack. It pulls the release's server,
-  web and updater images and checks each image's cosign signature, which must come from this
-  repository's release workflow at the release's tag. Then it writes the release into
-  `NEON_VERSION` in `deployments/.env`, recreates the server and web, and updates itself
-  last. A failed pull or signature check changes nothing. The server asks only for a release
-  newer than its own that its last check saw, the updater refuses to go back, and one update
-  runs at a time. The page follows the updater's log and reloads once the server answers with
-  the new version. `NEON_UPDATER_VERIFY=false` turns the signature check off, for images you
-  build and push yourself. The updater keeps the Compose file you have, so a release whose
-  Compose file changes says so in its notes, and you upgrade to it by hand. (#68)
-- **Settings.** Four runtime settings: `updates.check`, on by default; `updates.prereleases`,
-  off; `updates.updater_url`, `http://updater:8080`; and `updates.updater_token`, a secret,
-  empty. The config file's `updates.github_api_url` points the release check at a mirror of
+  newer release is out. Instance admins have the same in the API:
+  `GET /api/v1/admin/updates`, `POST /api/v1/admin/updates/check`, and
+  `POST /api/v1/admin/updates/apply`, which takes a browser session. (#68)
+- With the Compose file's `updater` profile on, **Update to** in that panel asks the updater,
+  `neon-updater`, to update the stack. It pulls the release's server, web and updater images
+  and checks each image's cosign signature, which must come from this repository's release
+  workflow at the release's tag. Then it writes the release into `NEON_VERSION` in
+  `deployments/.env`, recreates the server and web, and updates itself last. A failed pull
+  or signature check changes nothing. The server asks only for a release newer than its own
+  that its last check saw, the updater refuses to go back, and one update runs at a time.
+  The page follows the updater's log and reloads once the server answers with the new
+  version. `NEON_UPDATER_VERIFY=false` turns the signature check off, for images you build
+  and push yourself. The updater keeps the Compose file you have, so a release whose Compose
+  file changes says so in its notes, and you upgrade to it by hand. (#68)
+- Four runtime settings are new: `updates.check`, on by default; `updates.prereleases`, off;
+  `updates.updater_url`, `http://updater:8080`; and `updates.updater_token`, a secret, empty.
+  The config file's `updates.github_api_url` points the release check at a mirror of
   GitHub's API. In the Compose stack, `updates.updater_token` comes from `NEON_UPDATER_TOKEN`
   in `deployments/.env`. The [settings reference](docs/src/content/docs/reference/settings.md)
-  describes each. (#68)
+  describes the four, and
+  [Configuration](docs/src/content/docs/self-hosting/configuration.md#the-config-file) the
+  config key. (#68)
 - `GET /api/v1/meta` also answers `product`, always `neon-teamspace`, which the apps check
   before they open a server. (#63)
 
 ### Changed
 
-- **The Compose file.** A new `updater` service, under the `updater` profile, runs only once
-  you turn the profile on. It holds the Docker socket, drops every capability but `SETUID`
-  and `SETGID`, and is published on no port. It sits on a new network, `updater`, which the
-  server alone joins beside the stack's own. That network is internal, with no way out of
-  the machine. The server takes `updates.updater_token` from `NEON_UPDATER_TOKEN`.
+- The Compose file has a new `updater` service, under the `updater` profile, which runs only
+  once you turn the profile on. It holds the Docker socket, drops every capability but
+  `SETUID` and `SETGID`, and is published on no port. It sits on a new network, `updater`,
+  which the server alone joins beside the stack's own. That network is internal, with no way
+  out of the machine. The server takes `updates.updater_token` from `NEON_UPDATER_TOKEN`.
   `deployments/.env.example` adds `COMPOSE_PROFILES`, `NEON_UPDATER_TOKEN` and
   `NEON_UPDATER_VERIFY`, and `NEON_VERSION` now picks the updater's image too. (#68)
-- **Release assets.** Beside the Compose archive, each release attaches the desktop
-  installers: a `.dmg` for Apple silicon and one for Intel, the Windows setup `.exe`, and the
-  Linux `.deb`, `.rpm` and AppImage. It also attaches the Android APK, signed with the
-  project's key; the files the desktop apps update themselves from, each with its `.sig`
-  signature; and `latest.json`, which those apps read. `SHA256SUMS` lists the checksum of
-  everything attached. The apps build from the tag without the Actions cache, once the
-  end-to-end tests pass, and their files carry build provenance that
+- Beside the Compose archive, each release attaches the desktop installers: a `.dmg` for
+  Apple silicon and one for Intel, the Windows setup `.exe`, and the Linux `.deb`, `.rpm` and
+  AppImage. It also attaches the Android APK, signed with the project's key; the files the
+  desktop apps update themselves from, each with its `.sig` signature; and `latest.json`,
+  which those apps read. `SHA256SUMS` lists the checksum of everything attached. The apps
+  build from the tag without the Actions cache. The desktop apps build, and the APK is
+  signed, only once the end-to-end tests pass. Their files carry build provenance that
   `gh attestation verify` checks. (#63, #68)
-- **The updater image.** `ghcr.io/lein3000zzz/neon-teamspace-updater`, for `linux/amd64` and
+- A new image, `ghcr.io/lein3000zzz/neon-teamspace-updater`, for `linux/amd64` and
   `linux/arm64`, holds `neon-updater`, the docker CLI with its Compose plugin, and cosign,
   with their license notices. Each release builds, signs and attests it beside the server
   and web images, under the same tags. (#68)
@@ -135,13 +144,15 @@ panel shows the commands that update by hand.
 
 ### Fixed
 
-- **Security: editing a page could crash the server.** In 0.1.0, anyone who could edit a
-  page, guests and agents included, could make the server abort. A table cell in an update
-  sent over the page's WebSocket could claim a span of up to about 4 billion columns, and
-  reading the document then tried to allocate up to 64 GiB, which killed the process. The
-  saved page did the same on each later read, so the server went down again every time
-  someone opened it. Reading a table now allocates in proportion to what the document holds,
-  and tables read as before, up to the 1,000-column limit. (#65)
+- A security fix. In 0.1.0, anyone who could edit a page could make the server abort. By
+  default that is every account, since any account may create a workspace and edit its own
+  private pages, and with open registration it is anyone who signs up. A token with the
+  write scope, such as an agent's, could do it too. A table cell in an update sent over the
+  page's WebSocket could claim a span of up to about 4 billion columns, and reading the
+  document then tried to allocate up to 64 GiB, which killed the process. The saved page did
+  the same on each later read, so the server went down again every time someone opened it.
+  Reading a table now allocates in proportion to what the document holds, however wide a
+  cell says it is, and the tables the editor makes read as before. (#65)
 - An MCP `initialize` whose body cannot be read to its end, such as one cut short by a
   dropped connection, gets `400 invalid_body`, as the incoming webhooks' route answers it,
   instead of `413 payload_too_large`. Such requests no longer count as too large in the logs

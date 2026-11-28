@@ -46,10 +46,9 @@ upgrade it, and the backup you take first matches what runs.
 Read them before an upgrade, for every release between the one running and the new one.
 They are in two places:
 
-- `CHANGELOG.md` at the repository's root, by area, with a section for each release. A
-  change that needs something of you, a setting renamed, a route that answers differently, a
-  step to run after the upgrade, is called out there under **Breaking changes**, with what to
-  do.
+- `CHANGELOG.md` at the repository's root, with a section for each release. A change that
+  needs something of you, a setting renamed, a route that answers differently, a step to run
+  after the upgrade, is called out there under **Breaking changes**, with what to do.
 - The release's own page among the repository's
   [releases](https://github.com/lein3000zzz/neon-teamspace/releases). Its notes name the
   images, their platforms and their tags, say how to check their signatures, and link the
@@ -91,8 +90,8 @@ diff deployments/.env.example deployments/.env
 diff deployments/server.env.example deployments/server.env
 ```
 
-With `NEON_VERSION` set in `deployments/.env`, set it to the new release too, or leave it
-blank to run the archive's own.
+With `NEON_VERSION` in `deployments/.env` set to a version or a minor version, set it to the
+new release's, or leave it blank to run the archive's own; `latest` needs no change.
 
 ### Built from a clone
 
@@ -110,28 +109,53 @@ docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.b
 from the 0.2.0 [Compose archive](#with-the-compose-archive). Setting `NEON_VERSION` alone
 would run the 0.2.0 images with the 0.1.0 Compose file, which lacks what 0.2.0 adds to it:
 the `updater` service and its profile, and a network of their own that the server joins.
-0.2.0 has no breaking changes, so nothing else needs doing. Take a [backup](/docs/self-hosting/backups/) first, then, in the
-directory the install unpacked the 0.1.0 archive in:
+0.2.0 has no breaking changes, so nothing else needs doing.
+
+0.2.0 asks GitHub for new releases as soon as it starts, as [Release checks](#release-checks)
+describes. To keep the server from ever asking, put `NEON_SETTINGS__UPDATES__CHECK=false` in
+`deployments/server.env` before starting 0.2.0.
+
+Take a [backup](/docs/self-hosting/backups/) first, then, in the directory the install
+unpacked the 0.1.0 archive in, unpack the new one and compare the examples:
 
 ```sh
 curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 diff deployments/.env.example deployments/.env
-docker compose -f deployments/docker-compose.yml pull
-docker compose -f deployments/docker-compose.yml up -d --wait
 ```
 
 The new `deployments/.env.example` has three variables more, `COMPOSE_PROFILES`,
 `NEON_UPDATER_TOKEN` and `NEON_UPDATER_VERIFY`. Missing or blank, they leave the updater off,
 so `deployments/.env` needs none of them for the upgrade. `deployments/server.env.example`
-changes only in its comments. With `NEON_VERSION` set to `0.1.0` in `deployments/.env`, set
-it to `0.2.0`, or leave it blank to run the archive's own release.
+changes only in its comments. If `NEON_VERSION` in `deployments/.env` names `0.1.0` or `0.1`,
+set it to `0.2.0` or `0.2`, or leave it blank to run the archive's own release; `latest`
+needs no change. Left at `0.1.0` or `0.1`, it keeps the stack on the 0.1.0 images, and on the
+crash 0.2.0 fixes.
 
-Once 0.2.0 runs, it checks GitHub for newer releases as it starts and once a day, as
-[Release checks](#release-checks) describes, and **Admin > Settings** shows them under
-**Version and updates** with the commands that update by hand. To update from there in one
+Then pull and start the images, and check that the server says 0.2.0, as
+[What happens](#what-happens) shows:
+
+```sh
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait
+curl -s http://127.0.0.1:3000/api/v1/meta
+```
+
+Once 0.2.0 runs, **Admin > Settings** shows the newer releases its checks find under
+**Version and updates**, with the commands that update by hand. To update from there in one
 click instead, turn the `updater` profile on, as [Turning it on](#turning-it-on) shows: a
-token in `deployments/.env`, `COMPOSE_PROFILES=updater`, then `pull` and `up -d --wait` again.
-The updater holds the Docker socket, so read [What it may do](#what-it-may-do) first.
+token in `deployments/.env`, `COMPOSE_PROFILES=updater`, then `pull` and `up -d --wait`
+again. The updater holds the Docker socket, so read [What it may do](#what-it-may-do) first.
+
+Going back to 0.1.0 takes the 0.1.0 Compose archive, as [Rolling back](#rolling-back)
+describes. Setting `NEON_VERSION` alone fails once `NEON_UPDATER_TOKEN` is set: the 0.2.0
+Compose file passes the token to the server, and a 0.1.0 server, which has no such setting,
+does not start. The 0.1.0 Compose file has no updater service either, so it would leave a
+running updater in place. Before unpacking the 0.1.0 archive, remove the updater, and take
+`updater` out of `COMPOSE_PROFILES`:
+
+```sh
+docker compose -f deployments/docker-compose.yml rm -sf updater
+```
 
 ## Updating from the admin settings
 
@@ -307,8 +331,10 @@ Caused by:
 So rolling back is a restore of the backup taken before the upgrade. First point the stack
 at the older release: unpack its Compose archive over the directory again, or check out its
 tag in a clone, and set `NEON_VERSION` back if it names the newer one. Setting `NEON_VERSION`
-to the older release runs its images too, with the newer Compose file. Then restore the
-backup [over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs), whose
+alone is not enough: it keeps the newer Compose file, which may give the older server a
+setting it does not know and keep it from starting, as the 0.2.0 file does to a 0.1.0 server
+once `NEON_UPDATER_TOKEN` is set. Then restore the backup
+[over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs), whose
 last command starts the older release's images; built from a clone, start them with
 `docker-compose.build.yml` and `--build` instead, as [above](#built-from-a-clone).
 Everything changed since the backup is lost. An upgrade without migrations can go back by its
