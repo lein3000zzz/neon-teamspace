@@ -70,6 +70,7 @@ jobs:
               # compares the settings page with the settings registry.
               - neon.example.yaml
               - docs/src/content/docs/reference/settings.md
+              - web/src/lib/hue-vectors.json # neon-domain's hue test includes it
             web:
               - *shared
               - web/**
