@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fakeComments } from "@/test/comments";
 import { fakePages, PAGE_IDS } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
@@ -32,6 +32,12 @@ async function openDrawer(user: ReturnType<typeof renderApp>["user"]) {
 }
 
 describe("on a touch screen, an open panel", () => {
+  // The page loads the editor on demand; loaded once here, so no test waits on it. Left to
+  // the first page a test opens, the import would run on into the tests after it.
+  beforeAll(async () => {
+    await import("@/components/editor/page-editor");
+  });
+
   it("has an entry of its own, which back leaves, closing the panel on the same page", async () => {
     pointer("touch");
     const { user, router } = renderApp("/");

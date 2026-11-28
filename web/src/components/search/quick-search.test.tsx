@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { renderApp } from "@/test/render-app";
 import { fakePages, PAGE_IDS, samplePage } from "@/test/pages";
 import { fakeSearch, result } from "@/test/search";
@@ -13,6 +13,12 @@ async function dialog() {
 }
 
 describe("the quick search", () => {
+  // The page loads the editor on demand; loaded once here, so no test waits on it. Left to
+  // the first page a test opens, the import would run on into the tests after it.
+  beforeAll(async () => {
+    await import("@/components/editor/page-editor");
+  });
+
   it("opens on Ctrl+K with the pages changed last, and finds what is typed", async () => {
     fakeWorkspaces();
     fakePages();
