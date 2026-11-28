@@ -78,7 +78,8 @@ stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
 `neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure
 job runs, and `neon-server` for everything else. `neon-updater` stands apart from them all:
-it uses none of the other crates, none uses it, and the server speaks to it over HTTP, as
+it uses none of the other crates, none uses it but the server's tests, which run its routes
+to hold the server's updater client to them, and the server speaks to it over HTTP, as
 [One-click updates](/docs/self-hosting/upgrading/#one-click-updates) describes.
 
 ### Ports

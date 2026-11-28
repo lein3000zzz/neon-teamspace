@@ -2043,6 +2043,7 @@ dependencies = [
  "neon-domain",
  "neon-observability",
  "neon-store",
+ "neon-updater",
  "object_store",
  "rcgen",
  "rmcp",

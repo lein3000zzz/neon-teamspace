@@ -30,9 +30,10 @@ does. Vulnerabilities are reported privately instead; see [Security issues](#sec
 | `.github` | The CI, end-to-end and release workflows, Dependabot's configuration and the security policy. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands beside
-`domain`, depending on neither, and `updater` stands apart, using none of them. Each crate's `Cargo.toml` lists what it may use, so the
-compiler enforces the direction. The [architecture overview](docs/src/content/docs/architecture/overview.md)
-goes further.
+`domain`, depending on neither, and `updater` stands apart, using none of them; only the
+server's tests use it, to hold the server's updater client to the updater's own routes. Each
+crate's `Cargo.toml` lists what it may use, so the compiler enforces the direction. The
+[architecture overview](docs/src/content/docs/architecture/overview.md) goes further.
 
 ## Development setup
 
