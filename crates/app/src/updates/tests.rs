@@ -58,11 +58,11 @@ impl Releases for FakeReleases {
     }
 }
 
-/// The updater: its status, unset to never answer, what it answers to an update, and
-/// every request it was sent.
+/// The updater: its status and what it answers to an update, each unset to never answer,
+/// and every request it was sent.
 struct FakeUpdater {
     status: Mutex<Option<Result<UpdaterStatus, UpdaterError>>>,
-    update: Mutex<Result<UpdaterStatus, UpdaterError>>,
+    update: Mutex<Option<Result<UpdaterStatus, UpdaterError>>>,
     requests: Mutex<Vec<(Url, String, Option<Version>)>>,
 }
 
@@ -70,7 +70,10 @@ impl Default for FakeUpdater {
     fn default() -> Self {
         Self {
             status: Mutex::new(Some(Ok(updater_status(UpdaterState::Idle, None)))),
-            update: Mutex::new(Ok(updater_status(UpdaterState::Updating, Some("0.2.0")))),
+            update: Mutex::new(Some(Ok(updater_status(
+                UpdaterState::Updating,
+                Some("0.2.0"),
+            )))),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -113,7 +116,11 @@ impl Updater for FakeUpdater {
             at.token.expose().to_owned(),
             Some(version.clone()),
         ));
-        self.update.lock().expect("unpoisoned").clone()
+        let answer = self.update.lock().expect("unpoisoned").clone();
+        match answer {
+            Some(answer) => answer,
+            None => std::future::pending().await,
+        }
     }
 }
 
@@ -582,7 +589,7 @@ async fn the_updater_s_refusals_say_what_went_wrong() {
     ];
     for (answer, refused) in cases {
         let fixture = Fixture::new("0.1.0").checked().await.with_updater();
-        *fixture.updater.update.lock().expect("unpoisoned") = Err(answer);
+        *fixture.updater.update.lock().expect("unpoisoned") = Some(Err(answer));
 
         assert_eq!(fixture.apply("0.2.0").await, Err(refused));
     }
@@ -637,6 +644,24 @@ async fn the_status_waits_three_seconds_for_the_updater() {
         status.updater.error.as_deref(),
         Some("the updater did not answer within 3s")
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn asking_for_an_update_waits_ten_seconds_for_the_updater() {
+    let fixture = Fixture::new("0.1.0").checked().await.with_updater();
+    *fixture.updater.update.lock().expect("unpoisoned") = None;
+
+    let started = tokio::time::Instant::now();
+    let answer = fixture.apply("0.2.0").await;
+
+    assert_eq!(
+        answer,
+        Err(UpdatesError::UpdaterUnreachable(
+            "the updater did not answer within 10s".into()
+        ))
+    );
+    assert_eq!(started.elapsed(), APPLY_WAIT);
+    assert_eq!(fixture.updater.updates(), ["0.2.0"]);
 }
 
 #[tokio::test]
