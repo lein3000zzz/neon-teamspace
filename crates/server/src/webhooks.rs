@@ -167,7 +167,10 @@ impl HttpTransport {
             let tls = tokio::time::timeout(self.connect_timeout, self.tls.connect(name, stream))
                 .await
                 .map_err(|_| SendError::Timeout)?
-                .map_err(|_| SendError::Tls)?;
+                .map_err(|error| {
+                    debug!(%error, "a webhook's TLS handshake failed");
+                    SendError::Tls
+                })?;
             post(tls, request).await
         } else {
             post(stream, request).await
@@ -213,7 +216,10 @@ where
 {
     let (mut sender, connection) = http1::handshake::<_, Full<Bytes>>(TokioIo::new(stream))
         .await
-        .map_err(|_| SendError::Protocol)?;
+        .map_err(|error| {
+            debug!(%error, "a webhook's HTTP handshake failed");
+            SendError::Protocol
+        })?;
     let driving = tokio::spawn(connection);
     let answer = async {
         let target = match request.url.query() {
@@ -235,10 +241,10 @@ where
         let built = built
             .body(Full::new(request.body))
             .map_err(|_| SendError::Protocol)?;
-        let response = sender
-            .send_request(built)
-            .await
-            .map_err(|_| SendError::Connect)?;
+        let response = sender.send_request(built).await.map_err(|error| {
+            debug!(%error, "a webhook's request failed");
+            SendError::Connect
+        })?;
         let status = response.status().as_u16();
         let mut body = response.into_body();
         let mut read = BytesMut::new();
