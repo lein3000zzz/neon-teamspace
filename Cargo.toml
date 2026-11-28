@@ -140,14 +140,16 @@ lto = "off"
 codegen-units = 16
 
 # CI's build of the tests, and of the neon binary its end-to-end tests run: the dev profile's
-# assertions and overflow checks, the workspace's own crates compiled without optimisation, and
-# the dependencies optimised. CI caches the dependencies, so their optimisation costs time only
-# when they change, and saves it in every test and every request of the end-to-end tests, such
-# as hashing a password. Line tables keep the workspace's backtraces readable; the
-# dependencies carry no debug info, which keeps the test binaries small to pass between jobs.
-# Never incremental, which CI cannot reuse.
+# assertions and overflow checks, the workspace's own crates compiled with a little
+# optimisation, and the dependencies optimised. CI caches the dependencies, so their
+# optimisation costs time only when they change, and saves it in every test and every request
+# of the end-to-end tests, such as hashing a password. The workspace's crates compile on every
+# run, at the first level of optimisation, which takes little longer than none. Line tables
+# keep the workspace's backtraces readable; the dependencies carry no debug info, which keeps
+# the test binaries small to pass between jobs. Never incremental, which CI cannot reuse.
 [profile.ci]
 inherits = "dev"
+opt-level = 1
 debug = "line-tables-only"
 incremental = false
 
