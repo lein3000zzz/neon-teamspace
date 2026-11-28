@@ -668,6 +668,6 @@ impl WebhookService {
         self.inner
             .envelope
             .seal(secret.as_bytes(), &aad(id))
-            .map_err(|_| WebhookError::NoSecretKey)
+            .map_err(WebhookError::from)
     }
 }

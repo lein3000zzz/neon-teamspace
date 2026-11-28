@@ -5,6 +5,7 @@ use neon_domain::workspaces::Denied;
 
 use super::signature::SignatureError;
 use crate::comments::CommentError;
+use crate::crypto::SealError;
 use crate::databases::DatabaseError;
 use crate::pages::PageError;
 use crate::workspaces::WorkspaceError;
@@ -107,6 +108,15 @@ impl From<PageError> for WebhookError {
             PageError::Forbidden(reason) => Self::Forbidden(reason),
             PageError::Database(error) => Self::Database(error),
             other => Self::Internal(other.to_string()),
+        }
+    }
+}
+
+impl From<SealError> for WebhookError {
+    fn from(error: SealError) -> Self {
+        match error {
+            SealError::NoKey => Self::NoSecretKey,
+            error @ SealError::Encrypt => Self::Internal(error.to_string()),
         }
     }
 }
@@ -322,5 +332,14 @@ mod tests {
             ),
             (401, IncomingError::Signature(SignatureError::Stale).code())
         );
+    }
+
+    #[test]
+    fn only_a_missing_key_is_the_callers_to_fix_when_sealing_fails() {
+        let no_key = WebhookError::from(SealError::NoKey);
+        assert_eq!(no_key.code(), "no_secret_key");
+        let failed = WebhookError::from(SealError::Encrypt);
+        assert!(!failed.is_expected());
+        assert_eq!(failed.to_string(), "encrypting failed");
     }
 }

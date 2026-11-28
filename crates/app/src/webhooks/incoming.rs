@@ -740,7 +740,7 @@ impl WebhookService {
         self.inner
             .envelope
             .seal(secret.as_bytes(), &incoming_aad(id))
-            .map_err(|_| WebhookError::NoSecretKey)
+            .map_err(WebhookError::from)
     }
 
     /// Where the principal stands in a workspace whose incoming webhooks the rules let
