@@ -19,6 +19,12 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
 | `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`, and Caddy's, with those of the Go modules it is built from, are in `/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`. |
 
+A third image runs only with the `updater` [profile](#profiles):
+
+| Image | What it holds |
+|---|---|
+| `ghcr.io/lein3000zzz/neon-teamspace-updater` | The `neon-updater` binary beside the docker CLI, its Compose plugin and cosign, on Docker's official Alpine image of the CLI. It updates the server and web to a release when an instance admin asks, as [One-click updates](/docs/self-hosting/upgrading/#one-click-updates) describes. The license notices of the crates `neon-updater` is built from are in `/usr/share/doc/neon-updater/THIRD_PARTY_NOTICES.txt`, and those of the docker CLI, its plugins and cosign, with the Go modules each is built from, in `/usr/share/doc/docker/` and `/usr/share/doc/cosign/`. |
+
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the Compose file with
 the example settings beside it: from a release's Compose archive, to run the published
 images, or from a clone of the repository, to build both images from it.
@@ -274,17 +280,23 @@ Compose profiles add services next to the stack:
 | `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. Point the server at it in `deployments/server.env`; see [Mail](/docs/self-hosting/mail/#development). |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
 | `seaweedfs` | [SeaweedFS](https://github.com/seaweedfs/seaweedfs), an S3-compatible store for attachments, on `seaweedfs:8333` inside the network; see [File storage](/docs/self-hosting/storage/#seaweedfs-in-the-compose-stack). |
+| `updater` | The updater, on `updater:8080`, reachable from the server alone, which updates the server and web to a release when an instance admin presses **Update** in **Admin > Settings**. It holds the Docker socket, and needs `NEON_UPDATER_TOKEN` in `deployments/.env`; see [One-click updates](/docs/self-hosting/upgrading/#one-click-updates). |
 
 A profile goes on the command that starts the stack, with the same files, for example
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
-in a clone. These are separate programs under their own licenses: Postgres under the PostgreSQL License,
-Caddy and SeaweedFS under Apache-2.0, Mailpit under MIT, and the observability stack's
-Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Teamspace's code.
+in a clone. `COMPOSE_PROFILES` in `deployments/.env`, such as `COMPOSE_PROFILES=updater`,
+turns profiles on instead, for every command that names none with `--profile`, which replaces
+it: list every profile there, such as `COMPOSE_PROFILES=updater,mail`. These are separate
+programs under their own licenses: Postgres under the PostgreSQL License, Caddy, SeaweedFS,
+the docker CLI and its plugins, and cosign under Apache-2.0, Mailpit under MIT, and the
+observability stack's Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is
+linked with Neon Teamspace's code.
 
 ### The end-to-end tests
 
-`make e2e` builds both images from the checkout, starts a throwaway stack of them under its
-own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
+`make e2e` builds the images from the checkout, checks that the updater image states the
+checkout's version and holds the programs it runs, starts a throwaway stack of the server and
+web images under its own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
 runs the tests in `e2e/` against it in a headless Chromium with Playwright. The stack gets a
 first admin with a password made for the run, a secret key, its public URL on that port, and
 Mailpit, which takes all its mail and whose API the tests read. The tests start from that

@@ -45,7 +45,7 @@ flowchart LR
 
 ## The crates
 
-The server is a cargo workspace of six crates:
+The cargo workspace has seven crates: six make the server, and one the updater.
 
 | Crate | What it holds |
 |---|---|
@@ -55,6 +55,7 @@ The server is a cargo workspace of six crates:
 | `neon-app` | The use cases. They own transactions and define the ports for side effects. |
 | `neon-observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `neon-server` | The `neon` binary: the HTTP API, the WebSockets of real-time sync, the MCP server and the webhooks' endpoints; the adapters for mail, storage and webhooks' deliveries; the command line; and the wiring of it all. |
+| `neon-updater` | The `neon-updater` binary, which the Compose file's `updater` profile runs beside the stack: a small HTTP server that updates the stack to a release when the server asks, through the docker CLI and cosign. |
 
 Dependencies point inward. An arrow reads "may depend on", and a crate may use any crate
 further in, never one further out:
@@ -76,7 +77,9 @@ describes. `neon-observability`
 stands alone.
 Any crate but `neon-domain` may use it, and the server installs it as it starts.
 `neon-store` uses it to keep the trace context in job rows, `neon-app` to trace and measure
-job runs, and `neon-server` for everything else.
+job runs, and `neon-server` for everything else. `neon-updater` stands apart from them all:
+it uses none of the other crates, none uses it, and the server speaks to it over HTTP, as
+[One-click updates](/docs/self-hosting/upgrading/#one-click-updates) describes.
 
 ### Ports
 

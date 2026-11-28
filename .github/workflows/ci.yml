@@ -87,6 +87,7 @@ jobs:
               - about.toml # a scripts/ test compares it with deny.toml
               - apps/shell/about.toml # and this one
               - .github/dependabot.yml # a scripts/ test checks it covers each project
+              - deployments/docker-compose.yml # a scripts/ test checks who reaches the updater
               - .editorconfig # Prettier reads it
               - docs/package.json # the Bun version
             docs:
@@ -115,13 +116,16 @@ jobs:
               - deny.toml
               - .editorconfig
               - docs/package.json
-            # What make version-check reads, and what builds neon --version.
+            # What make version-check reads, and what builds neon --version and
+            # neon-updater version.
             versions:
               - *shared
               - Cargo.toml
               - Cargo.lock
               - crates/*/Cargo.toml
               - crates/server/src/cli.rs
+              - crates/updater/src/cli.rs
+              - crates/updater/src/lib.rs
               - apps/shell/package.json
               - apps/shell/src-tauri/Cargo.toml
               - apps/shell/src-tauri/Cargo.lock
@@ -381,9 +385,10 @@ jobs:
       - name: Licenses of the installed packages
         run: bun scripts/licenses.ts tools/blocknote-fixtures
 
-  # Every place that states the version states the workspace's, neon --version among them,
-  # which builds the server from the query cache. The release workflow runs the same check
-  # with the tag, and reads the cache this job saves on main.
+  # Every place that states the version states the workspace's, neon --version and
+  # neon-updater version among them, which build the server from the query cache and the
+  # updater. The release workflow runs the same check with the tag, and reads the cache this
+  # job saves on main.
   versions:
     name: Versions
     needs: changes

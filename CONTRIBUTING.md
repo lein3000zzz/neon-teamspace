@@ -15,13 +15,14 @@ does. Vulnerabilities are reported privately instead; see [Security issues](#sec
 | `crates/app` | Use cases, transactions, and the ports for side effects. |
 | `crates/observability` | Logs, metrics, traces, profiles, the admin listener and ordered shutdown. |
 | `crates/server` | The `neon` binary: HTTP API, realtime sync, MCP, webhooks, wiring. |
+| `crates/updater` | The `neon-updater` binary: the sidecar that updates a Compose stack to a release, which the updater image holds beside the docker CLI and cosign. |
 | `migrations` | The database's migrations, plain SQL, built into the binary, which applies them as it starts. |
 | `.sqlx` | The query cache, which lets the build check SQL without a database. |
 | `api/openapi.json` | The HTTP API description, generated from the server code. |
 | `web` | The web app: React, Vite and TanStack. Its `Dockerfile` and `Caddyfile` make the web image. |
 | `apps/shell` | The desktop and mobile apps: a Tauri project whose bundled server picker opens the chosen server's web app. Its Rust side, in `src-tauri/`, is a Cargo workspace of its own. |
 | `docs` | The documentation site, Astro Starlight. |
-| `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
+| `deployments` | The `Dockerfile` of the server image and the updater image, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
 | `scripts` | Tooling shared by the web app, the docs and the tests: the version check, the license check and the Claude Code plugin's check. |
 | `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
@@ -29,7 +30,7 @@ does. Vulnerabilities are reported privately instead; see [Security issues](#sec
 | `.github` | The CI, end-to-end and release workflows, Dependabot's configuration and the security policy. |
 
 Dependencies only point inward: `server` → `app` → `store` → `domain`. `blocks` stands beside
-`domain`, depending on neither. Each crate's `Cargo.toml` lists what it may use, so the
+`domain`, depending on neither, and `updater` stands apart, using none of them. Each crate's `Cargo.toml` lists what it may use, so the
 compiler enforces the direction. The [architecture overview](docs/src/content/docs/architecture/overview.md)
 goes further.
 
@@ -162,9 +163,12 @@ them to a server, and their security model, which a change to the apps must keep
 
 `make up` builds both images from the checkout and runs the stack in the foreground on
 `http://127.0.0.1:3000/`, once `deployments/.env` is copied from `deployments/.env.example`
-with `POSTGRES_PASSWORD` set. `make down` stops it and keeps the data. The server's own
+with `POSTGRES_PASSWORD` set. `make down` stops it and keeps the data. `make updater-image`
+builds the updater image for this machine, and `make updater-image-check` checks its version
+and the programs and notices in it. The server's own
 settings go in `deployments/server.env`, as the [install page](docs/src/content/docs/self-hosting/install.md)
-describes, along with the Compose profiles `mail`, `observability` and `seaweedfs`.
+describes, along with the Compose profiles `mail`, `observability`, `seaweedfs` and
+`updater`.
 
 ## Generated files
 
@@ -222,7 +226,8 @@ make test-s3               # needs Docker
 make sqlx-check            # fails when .sqlx/ no longer matches the queries
 ```
 
-`make e2e` builds both images, starts a throwaway stack of them on a free local port, with
+`make e2e` builds the images, checks the updater image as `make updater-image-check` does,
+starts a throwaway stack of the server and web images on a free local port, with
 Mailpit catching its mail, runs the Playwright tests in `e2e/` against it in a headless
 Chromium, and removes it, leaving the report in `e2e/playwright-report/`. It installs the
 tests' packages and the browser itself. The server image it tests builds with Cargo's `e2e`
@@ -315,6 +320,13 @@ What ships carries its dependencies' license notices:
   stage of `web/Dockerfile` downloads each Go module that `caddy build-info` lists, checks it
   against the hash the binary records, and copies its license files, failing when a module
   has none.
+- The updater image holds the notices of the crates `neon-updater` links at
+  `/usr/share/doc/neon-updater/THIRD_PARTY_NOTICES.txt`, written as the server image's are,
+  and those of the docker CLI, its plugins and cosign with the Go modules each links at
+  `/usr/share/doc/docker/` and `/usr/share/doc/cosign/`, collected as Caddy's are. A module
+  that ships no license file but names its license in another file is listed in that stage
+  of `deployments/Dockerfile`, with the file that names it, and the stage fails on an entry
+  that no module needs.
 - The apps embed `THIRD_PARTY_NOTICES.txt` with their server picker, which links to it. The
   picker's build writes the notices of its packages and, with cargo-about and
   `apps/shell/about.toml`, of the crates the apps link on every platform, with where to get

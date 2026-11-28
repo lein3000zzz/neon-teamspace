@@ -12,6 +12,9 @@ DENY_FLAGS ?=
 E2E_PROJECT       ?= neon-e2e
 E2E_SERVER_IMAGE  ?= neon-teamspace-server:local
 E2E_WEB_IMAGE     ?= neon-teamspace-web:local
+# The updater image make e2e builds and checks beside them, and the one make updater-image builds.
+E2E_UPDATER_IMAGE ?= neon-teamspace-updater:local
+UPDATER_IMAGE     ?= neon-teamspace-updater:local
 # The Cargo profile of the server image make e2e tests: e2e, the release profile's quicker
 # build, unless set to release, as the run before a release does to test the published build.
 E2E_CARGO_PROFILE ?= e2e
@@ -48,19 +51,22 @@ NO_DATABASE   := POSTGRES_PASSWORD=unused
 # deployments/server.env, so the tests see the defaults.
 E2E_COMPOSE   := docker compose -p $(E2E_PROJECT) --env-file /dev/null -f deployments/docker-compose.yml \
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
-# Builds the e2e stack's images as docker-compose.build.yml describes them, with bake rather
-# than Compose, as bake takes cache options; the server in E2E_CARGO_PROFILE. Bake reads a
-# Compose file's build context from the directory it runs in, not from the file's, so the root
-# is named again.
+# Builds the e2e stack's images, and the updater's, as docker-compose.build.yml describes them,
+# with bake rather than Compose, as bake takes cache options; the server and the updater in
+# E2E_CARGO_PROFILE. Bake reads a Compose file's build context from the directory it runs in,
+# not from the file's, so the root is named again.
 E2E_BAKE      := docker buildx bake -f deployments/docker-compose.build.yml \
-	--set server.context=. --set web.context=. --set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
-	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE)
+	--set server.context=. --set web.context=. --set updater.context=. \
+	--set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) --set updater.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
+	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE) --set updater.tags=$(E2E_UPDATER_IMAGE)
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
 # The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
 E2E_ADMIN     := admin@e2e.example
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
+# The updater's binary, which needs no database.
+NEON_UPDATER  := $(CARGO) run --quiet -p neon-updater --
 # Where check builds, apart from the builds checked against a database.
 OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
 # The apps' Tauri project: the bundled server picker in APP_DIR, and its Rust side, a Cargo
@@ -108,6 +114,26 @@ up: ## Build both images from this checkout and run the stack on http://127.0.0.
 .PHONY: down
 down: ## Stop what make up and make obs-up started; the data stays in volumes
 	$(NO_DATABASE) $(STACK_COMPOSE) --profile mail --profile observability down
+
+.PHONY: updater-image
+updater-image: ## Build the updater image for this machine from the checkout, as neon-teamspace-updater:local
+	docker buildx build -f deployments/Dockerfile --target updater --load -t $(UPDATER_IMAGE) .
+
+.PHONY: updater-image-check
+# Each program the updater runs is in the image, with its notices, and the binary is this
+# checkout's version.
+updater-image-check: ## Check the updater image UPDATER_IMAGE names: its version, and docker, Compose and cosign in it
+	@set -e; said="$$(docker run --rm $(UPDATER_IMAGE) version)"; \
+	if [ "$$said" != "neon-updater $(VERSION)" ]; then \
+		echo "$(UPDATER_IMAGE) says $$said, not neon-updater $(VERSION)"; exit 1; \
+	fi; \
+	docker run --rm --entrypoint docker $(UPDATER_IMAGE) compose version; \
+	docker run --rm --entrypoint cosign $(UPDATER_IMAGE) version >/dev/null; \
+	for doc in neon-updater docker cosign; do \
+		docker run --rm --entrypoint test $(UPDATER_IMAGE) -s /usr/share/doc/$$doc/THIRD_PARTY_NOTICES.txt \
+			|| { echo "$(UPDATER_IMAGE) has no notices for $$doc"; exit 1; }; \
+	done; \
+	echo "$(UPDATER_IMAGE) is neon-updater $(VERSION), with docker, Compose, cosign and their notices"
 
 .PHONY: obs-up
 obs-up: ## Start Grafana, Prometheus, Tempo, Loki and Pyroscope on http://127.0.0.1:3001, for make run
@@ -266,15 +292,17 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 	cd e2e && $(BUN) run check
 
 .PHONY: e2e-images
-e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
-	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
+e2e-images: ## Build the images for make e2e, and the updater's, the Rust ones in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
+	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web updater
 
 .PHONY: e2e
-# Under make -j the images build while e2e-install runs. The server's public URL names the web
-# origin's port, so the port is picked before the stack starts, from those free then. The trap
-# removes the stack, its volumes too, however the run ends, after printing the containers'
-# logs when it failed, and keeps the run's exit status.
-e2e: e2e-install e2e-images ## Build both images, test a throwaway stack of them in Chromium, then remove it
+# Under make -j the images build while e2e-install runs. The updater image, which the stack does
+# not run, is checked first. The server's public URL names the web origin's port, so the port is
+# picked before the stack starts, from those free then. The trap removes the stack, its volumes
+# too, however the run ends, after printing the containers' logs when it failed, and keeps the
+# run's exit status.
+e2e: e2e-install e2e-images ## Build the images, test a throwaway stack of them in Chromium, then remove it
+	@$(MAKE) --no-print-directory updater-image-check UPDATER_IMAGE=$(E2E_UPDATER_IMAGE)
 	@set -e; \
 	port="$(E2E_WEB_PORT)"; if [ -z "$$port" ]; then port="$$($(BUN) e2e/free-port.ts)"; fi; \
 	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
@@ -374,9 +402,9 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 .PHONY: version-check
 # The release workflow passes the tag it runs for as TAG, which the recipe reads from the
 # environment rather than pasted into the command.
-version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
-	@set -e; neon="$$($(NEON) --version)"; \
-	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, neon-updater version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; updater="$$($(NEON_UPDATER) version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" --updater "$$updater" $(if $(TAG),--tag "$$TAG")
 
 .PHONY: compose-archive
 # From the commit checked out, not the working tree, so the archive holds what the tag holds.
