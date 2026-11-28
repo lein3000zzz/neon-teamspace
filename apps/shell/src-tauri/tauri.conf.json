@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Neon Teamspace",
+  "version": "../package.json",
   "mainBinaryName": "neon-teamspace",
   "identifier": "io.github.lein3000zzz.neonteamspace",
   "build": {
@@ -58,6 +59,7 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
+    "publisher": "Neon Teamspace",
     "shortDescription": "The Neon Teamspace app for your own server",
     "longDescription": "Opens the Neon Teamspace server you choose, a self-hosted team workspace, in a window of its own. The app keeps a list of servers to switch between; everything else is the server's own web interface.",
     "homepage": "https://github.com/lein3000zzz/neon-teamspace",
