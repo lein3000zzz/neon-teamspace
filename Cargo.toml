@@ -143,12 +143,12 @@ lto = "off"
 codegen-units = 16
 
 # CI's build of the tests, and of the neon binary its end-to-end tests run: the dev profile's
-# assertions and overflow checks, the workspace's own crates compiled without optimisation, and
-# the dependencies optimised. CI caches the dependencies, so their optimisation costs time only
-# when they change, and saves it in every test and every request of the end-to-end tests, such
-# as hashing a password. Line tables keep the workspace's backtraces readable; the
-# dependencies carry no debug info, which keeps the test binaries small to pass between jobs.
-# Never incremental, which CI cannot reuse.
+# overflow checks, and its debug assertions but for the server's, below; the workspace's own
+# crates compiled without optimisation, and the dependencies optimised. CI caches the
+# dependencies, so their optimisation costs time only when they change, and saves it in every
+# test and every request of the end-to-end tests, such as hashing a password. Line tables keep
+# the workspace's backtraces readable; the dependencies carry no debug info, which keeps the
+# test binaries small to pass between jobs. Never incremental, which CI cannot reuse.
 [profile.ci]
 inherits = "dev"
 debug = "line-tables-only"
@@ -157,3 +157,9 @@ incremental = false
 [profile.ci.package."*"]
 opt-level = 2
 debug = false
+
+# The neon binary CI's end-to-end tests run reports a release build, as the published image
+# does: a server built with debug assertions is a development build, which is never behind a
+# release, so the release check's tests would find no update. Overflow checks stay on.
+[profile.ci.package.neon-server]
+debug-assertions = false
