@@ -9,41 +9,17 @@ use crate::hue::MAX_HUE;
 /// workspace frames, is drawn in it.
 pub const DEFAULT_ACCENT_HUE: u16 = 250;
 
-macro_rules! options {
-    ($(#[$doc:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum $name {
-            $($variant),+
-        }
-
-        impl $name {
-            pub const ALL: &[Self] = &[$(Self::$variant),+];
-
-            pub fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $text),+
-                }
-            }
-
-            pub fn parse(text: &str) -> Option<Self> {
-                Self::ALL.iter().copied().find(|option| option.as_str() == text)
-            }
-        }
-    };
-}
-
-options! {
+text_enum! {
     /// The colour set.
     Palette { Nothing => "nothing", Soft => "soft", Warm => "warm" }
 }
 
-options! {
+text_enum! {
     /// Light or dark, or whichever the system prefers.
     Mode { System => "system", Light => "light", Dark => "dark" }
 }
 
-options! {
+text_enum! {
     /// The interface's typeface.
     UiFont { Default => "default", Mono => "mono" }
 }
