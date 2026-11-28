@@ -6,6 +6,6 @@ mod service;
 
 pub use definitions::{
     INSTANCE_NAME, attachments, auth, history, mail, mail_set_up, mcp, notifications, oauth, pages,
-    registry, webhooks, workspaces,
+    registry, updates, webhooks, workspaces,
 };
 pub use service::{Change, Entry, LoadError, SettingsService, UpdateError};

@@ -14,6 +14,7 @@ import {
 import { useId } from "react";
 import { useLogout } from "@/api/auth";
 import { inboxCountQuery } from "@/api/inbox";
+import { updatesQuery } from "@/api/updates";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { commandIsMeta, useQuickSearch } from "@/components/search/quick-search";
 import { HueDot } from "@/components/nodes/hue-dot";
@@ -185,14 +186,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 {strings.nav.account}
               </Link>
             </li>
-            {me.role === "admin" && (
-              <li>
-                <Link to="/admin" onClick={onNavigate} className={navLink}>
-                  <ShieldCheck aria-hidden className="size-4" />
-                  {strings.nav.admin}
-                </Link>
-              </li>
-            )}
+            {me.role === "admin" && <AdminLink onNavigate={onNavigate} />}
           </ul>
         </div>
       </nav>
@@ -206,6 +200,37 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * How long the Admin entry keeps what it heard of releases before asking again: the server
+ * checks GitHub once a day, and the settings page asks afresh whenever it opens.
+ */
+const UPDATES_STALE_MS = 60 * 60 * 1000;
+
+/** The admin pages, for instance admins, marked while a newer release is out. */
+function AdminLink({ onNavigate }: { onNavigate: (() => void) | undefined }) {
+  const newer = useQuery({ ...updatesQuery, staleTime: UPDATES_STALE_MS }).data?.newer === true;
+  return (
+    <li>
+      <Link
+        to="/admin"
+        onClick={onNavigate}
+        {...(newer ? { "aria-label": strings.nav.adminUpdate } : {})}
+        className={navLink}
+      >
+        <ShieldCheck aria-hidden className="size-4" />
+        <span className="flex-1">{strings.nav.admin}</span>
+        {newer && (
+          <span
+            aria-hidden
+            title={strings.nav.adminUpdate}
+            className="size-2 rounded-full bg-primary shadow-glow"
+          />
+        )}
+      </Link>
+    </li>
   );
 }
 

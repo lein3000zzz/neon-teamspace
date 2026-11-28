@@ -12,7 +12,7 @@
 //! bytes of the answer's body are read.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,11 +31,9 @@ use neon_domain::webhooks::{check_ip, literal_ip};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
-use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_util::task::AbortOnDropHandle;
 use tracing::debug;
-use url::{Host, Url};
+use url::Url;
 
 /// Finds the addresses of a host name.
 #[async_trait]
@@ -87,20 +85,10 @@ impl Default for HttpTransport {
 impl HttpTransport {
     /// A transport that resolves with `resolver` and connects with `dialer`.
     pub fn new(resolver: Arc<dyn Resolve>, dialer: Arc<dyn Dial>) -> Self {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-        let mut config = ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("ring supports the default protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Self {
             resolver,
             dialer,
-            tls: TlsConnector::from(Arc::new(config)),
+            tls: TlsConnector::from(Arc::new(crate::tls::http_client_config())),
             connect_timeout: CONNECT_TIMEOUT,
             total_timeout: TOTAL_TIMEOUT,
         }
@@ -164,7 +152,7 @@ impl HttpTransport {
         let addresses = self.addresses(&url, allow_private).await?;
         let stream = self.connect(&addresses).await?;
         if url.scheme() == "https" {
-            let name = server_name(&url).ok_or(SendError::Tls)?;
+            let name = crate::tls::server_name(&url).ok_or(SendError::Tls)?;
             let tls = tokio::time::timeout(self.connect_timeout, self.tls.connect(name, stream))
                 .await
                 .map_err(|_| SendError::Timeout)?
@@ -189,15 +177,6 @@ impl WebhookTransport for HttpTransport {
         tokio::time::timeout(self.total_timeout, self.exchange(request, allow_private))
             .await
             .unwrap_or(Err(SendError::Timeout))
-    }
-}
-
-/// The name a TLS certificate must have: the URL's host.
-fn server_name(url: &Url) -> Option<ServerName<'static>> {
-    match url.host()? {
-        Host::Domain(name) => ServerName::try_from(name.trim_end_matches('.').to_owned()).ok(),
-        Host::Ipv4(ip) => Some(ServerName::IpAddress(IpAddr::V4(ip).into())),
-        Host::Ipv6(ip) => Some(ServerName::IpAddress(IpAddr::V6(ip).into())),
     }
 }
 

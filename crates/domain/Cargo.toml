@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # The width and height of uploaded images, read from their first bytes.
 imagesize.workspace = true
+# Releases' versions, and which is newer.
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

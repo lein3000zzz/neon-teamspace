@@ -1,12 +1,25 @@
 ---
 title: Settings
-description: The runtime settings on the admin page, where each value comes from, pinned settings, secrets, saving changes and the problems the server names.
+description: The server's version and updates, the runtime settings on the admin page, where each value comes from, pinned settings, secrets, saving changes and the problems the server names.
 ---
 
-**Settings** lists every runtime setting, in groups by the part of its key before the first
-dot, such as **Accounts** for `auth.*` and **Instance** for `instance.*`. The [settings
+**Settings** opens with the server's [version and updates](#version-and-updates), then lists
+every runtime setting, in groups by the part of its key before the first dot, such as
+**Accounts** for `auth.*` and **Instance** for `instance.*`. The [settings
 reference](/docs/reference/settings/) describes each one. A saved change applies without a
 restart.
+
+## Version and updates
+
+The panel at the top shows the release the server runs and the newest release on GitHub,
+linked to its notes, with when the server last checked and why a check failed. **Check now**
+asks GitHub again. While a newer release is out, it offers **Update to** that release where
+an updater is set up, and otherwise the commands that update by hand; the **Admin** entry of
+the sidebar is marked meanwhile. The **Updates** group below holds its settings: whether the
+server checks, whether pre-releases count, and where the updater is.
+[Updating from the admin settings](/docs/self-hosting/upgrading/#updating-from-the-admin-settings)
+covers an update from start to end, and [Release checks](/docs/self-hosting/upgrading/#release-checks)
+what a check sends GitHub and how to turn it off.
 
 ## Where a value comes from
 
