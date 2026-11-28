@@ -503,6 +503,66 @@ export interface paths {
         patch: operations["update_settings"];
         trace?: never;
     };
+    "/api/v1/admin/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The server's version and updates
+         * @description The server's version; the newest release of Neon Teamspace the last check saw on GitHub, as `updates.prereleases` counts releases, and whether it is newer; and, where an updater is set up, its latest update, asked for 3 seconds at most. The server checks GitHub once a day while `updates.check` is on.
+         */
+        get: operations["get_updates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/updates/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update the server to a release
+         * @description Has the updater update the stack to a release newer than the server's that the last check saw on GitHub: it pulls the release's images and restarts the services with them, and the new server migrates the database as it starts. Answers once the updater has started, with its status; `GET /admin/updates` follows it, and `GET /meta` says the new version once the server is back. Only from a browser session.
+         */
+        post: operations["apply_update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/updates/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check for a newer release now
+         * @description Asks GitHub for the releases now, while `updates.check` is on, then answers as `GET /admin/updates` does. Off, it asks nothing. A check that fails answers 200 too, saying why in `error`.
+         */
+        post: operations["check_updates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users": {
         parameters: {
             query?: never;
@@ -3135,6 +3195,14 @@ export interface components {
             /** @example design */
             slug: string;
         };
+        /** @description The release to update to. */
+        ApplyUpdate: {
+            /**
+             * @description A release newer than the server's that the last check saw, without the `v`.
+             * @example 0.2.1
+             */
+            version: string;
+        };
         /** @description The person's answer: the request, and what they chose. */
         ApproveConsent: {
             /**
@@ -5034,6 +5102,22 @@ export interface components {
          * @enum {string}
          */
         Registration: "open" | "invite" | "closed";
+        /** @description A release on GitHub. */
+        Release: {
+            prerelease: boolean;
+            /** Format: date-time */
+            published_at?: string | null;
+            /**
+             * @description Its page on GitHub, with its notes.
+             * @example https://github.com/lein3000zzz/neon-teamspace/releases/tag/v0.2.1
+             */
+            url: string;
+            /**
+             * @description Its tag without the `v`.
+             * @example 0.2.1
+             */
+            version: string;
+        };
         ResetPasswordRequest: {
             /** Format: password */
             password: string;
@@ -5677,6 +5761,11 @@ export interface components {
              */
             changes: Record<string, never>;
         };
+        /**
+         * @description Where the updater is with updating the stack.
+         * @enum {string}
+         */
+        UpdateState: "idle" | "updating" | "done" | "failed";
         UpdateTeamspace: {
             access?: components["schemas"]["TeamspaceAccess"] | null;
             /**
@@ -5721,6 +5810,71 @@ export interface components {
             name?: string | null;
             /** @description A new name leaves the slug as it is; this changes it. */
             slug?: string | null;
+        };
+        /** @description The updater beside the stack. */
+        Updater: {
+            /**
+             * @description Why it could not be asked, when it did not answer.
+             * @example the updater did not answer within 3s
+             */
+            error?: string | null;
+            /** @description One is set up: `updates.updater_token` is set. */
+            set_up: boolean;
+            status?: components["schemas"]["UpdaterStatus"] | null;
+        };
+        /** @description The updater's latest update. */
+        UpdaterStatus: {
+            /** @description Why the update failed. */
+            error?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** @description The end of what it did, 16 KiB at most. */
+            log?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            state: components["schemas"]["UpdateState"];
+            /**
+             * @description The updater's own version.
+             * @example 0.1.0
+             */
+            updater_version: string;
+            /**
+             * @description The release it updates or updated to.
+             * @example 0.2.1
+             */
+            version?: string | null;
+        };
+        /** @description What is known of updates. */
+        Updates: {
+            /** @description `updates.check`: off, the server asks GitHub nothing, and no release is known. */
+            check: boolean;
+            /**
+             * Format: date-time
+             * @description When the last check ran.
+             */
+            checked_at?: string | null;
+            /**
+             * @description The server's version, as `GET /meta` says it.
+             * @example 0.1.0
+             */
+            current: string;
+            /**
+             * @description A development build, compiled with debug assertions, which is never behind a
+             *     release.
+             */
+            development: boolean;
+            /**
+             * @description Why the last check failed, when it did. `latest` is then what the check before it
+             *     saw.
+             * @example GitHub answered 403: it limits how often one address asks, so the next check tries again
+             */
+            error?: string | null;
+            latest?: components["schemas"]["Release"] | null;
+            /** @description `latest` is newer than the server's version. */
+            newer: boolean;
+            /** @description `updates.prereleases`: pre-releases count as newer releases too. */
+            prereleases: boolean;
+            updater: components["schemas"]["Updater"];
         };
         /** @description A person's account. */
         User: {
@@ -7787,6 +7941,178 @@ export interface operations {
                 };
             };
             /** @description forbidden, with a problem for each browser-only setting an API token tried to change; or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_updates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What is known of updates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    apply_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updater started the update. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description update_not_allowed: not a release newer than the server's that the last check saw, or one the updater refused; or invalid_input. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden, as for an API token, or insufficient_scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no_updater, as `updates.updater_token` is empty; or update_in_progress. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description updater_unreachable: the updater did not answer, or refused the server's token. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_updates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What is known of updates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description forbidden or insufficient_scope. */
             403: {
                 headers: {
                     [name: string]: unknown;
