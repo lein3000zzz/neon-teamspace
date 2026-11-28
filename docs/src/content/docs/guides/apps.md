@@ -222,11 +222,12 @@ its repository, where its source is.
 ## Updates
 
 An app always shows a server's own interface, so only the app itself needs updating: the
-picker and the window around the server's pages. Each app checks for a newer release a few
-seconds after it starts, and once a day while it runs, without holding up the window. When there is one, it asks:
-**Neon Teamspace 0.2.0 is available. You have 0.1.0.**, with the first lines of the release's
-notes. **Later** puts it off until the app starts again. A check that fails as the
-app starts, such as one without a network, only goes in the [log](#security-model).
+picker and the window around the server's pages. The desktop and Android apps check for a
+newer release a few seconds after they start, and once a day while they run, without holding
+up the window. When there is one, the app asks: **Neon Teamspace 0.2.0 is available. You have
+0.1.0.**, on the desktop with the first lines of the release's notes. **Later** puts it off
+until the app starts again. A check that fails as the app starts, such as one without a
+network, only goes in the [log](#security-model).
 
 ### macOS, Windows and Linux
 
