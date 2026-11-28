@@ -456,3 +456,104 @@ test("the picker links to the third-party notices of the packages and the crates
     await expect(notices).toContainText(new RegExp(`\\n  ${crate} \\d`));
   }
 });
+
+test("the picker offers no check for updates where the app has a menu, or none to make", async ({
+  page,
+}) => {
+  await launch(page, { servers: [ACME], last: null });
+  await expect(page.getByRole("button", { name: "Check for updates" })).toHaveCount(0);
+  await expect(page.locator("#updates")).toBeHidden();
+});
+
+test("on Android, a check for updates says the app is the latest", async ({ page }) => {
+  await launch(page, {
+    servers: [ACME],
+    last: null,
+    updates: [{ state: "current", version: "0.1.0", waits: true }],
+  });
+  // The status is a live region in the page before the first press, empty, so that a screen
+  // reader announces its first message.
+  const status = page.locator("#update-status");
+  await expect(status).toBeVisible();
+  await expect(status).toHaveText("");
+  await expect(page.getByRole("status").and(status)).toHaveCount(1);
+  // From the keyboard, which keeps the focus on the button in every engine: WebKit focuses no
+  // button a click presses.
+  const check = page.getByRole("button", { name: "Check for updates" });
+  await check.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#update-status")).toHaveText("Checking for updates…");
+  await expect(check).toHaveAttribute("aria-disabled", "true");
+  await expect(check).toBeFocused();
+  // A second press while the first is under way asks nothing more.
+  await page.keyboard.press("Enter");
+  await page.evaluate(() => window.__answerChecks());
+  await expect(page.locator("#update-status")).toHaveText(
+    "Neon Teamspace 0.1.0 is the latest version.",
+  );
+  await expect(check).not.toHaveAttribute("aria-disabled");
+  await expect(check).toBeFocused();
+  await expect(check).toHaveAccessibleDescription("Neon Teamspace 0.1.0 is the latest version.");
+  expect((await calls(page)).filter((call) => call.cmd === "check_for_updates")).toEqual([
+    { cmd: "check_for_updates", args: {} },
+  ]);
+});
+
+test("on Android, a newer release is named while the app's dialog offers it", async ({ page }) => {
+  await launch(page, {
+    servers: [],
+    last: null,
+    updates: [{ state: "available", version: "0.2.0", current: "0.1.0" }],
+  });
+  await page.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.locator("#update-status")).toHaveText(
+    "Neon Teamspace 0.2.0 is available. You have 0.1.0.",
+  );
+  // The check is the footer's: the address field keeps what it had, and nothing opened.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect to a server");
+  expect(await opened(page)).toEqual([]);
+});
+
+test("on Android, a check that fails says why, and can be made again", async ({ page }) => {
+  await launch(page, {
+    servers: [ACME],
+    last: null,
+    updates: [
+      {
+        code: "unreachable",
+        message:
+          "The app could not reach GitHub, where its updates are published. Check the connection, then try again.",
+      },
+      { state: "current", version: "0.1.0" },
+    ],
+  });
+  const check = page.getByRole("button", { name: "Check for updates" });
+  await check.click();
+  await expect(page.locator("#update-error")).toHaveText(/could not reach GitHub/);
+  await expect(page.getByRole("alert")).toHaveCount(1);
+  await expect(page.locator("#update-status")).toHaveText("");
+  await check.click();
+  await expect(page.locator("#update-status")).toHaveText(
+    "Neon Teamspace 0.1.0 is the latest version.",
+  );
+  await expect(page.locator("#update-error")).toHaveText("");
+});
+
+test("on Android, the check for updates is a 44px target that fits a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await launch(page, {
+    servers: [ACME, LAB],
+    last: null,
+    updates: [{ state: "current", version: "0.1.0" }],
+  });
+  const check = page.getByRole("button", { name: "Check for updates" });
+  await check.click();
+  await expect(page.locator("#update-status")).not.toHaveText("");
+  const box = await check.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(0);
+});

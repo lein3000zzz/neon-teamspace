@@ -10,6 +10,16 @@ export type Finding =
   | { code: string; message: string }
   | { name: string; version: string; waits: true };
 
+/**
+ * What a check for updates finds, as the app's Rust side answers: the app is the latest, a
+ * newer release is available, or a failure; or, with `waits`, nothing until the test answers it
+ * with `window.__answerChecks`.
+ */
+export type UpdateFinding =
+  | { state: "current"; version: string; waits?: true }
+  | { state: "available"; version: string; current: string; waits?: true }
+  | { code: string; message: string; waits?: true };
+
 export interface Saved {
   origin: string;
   name: string;
@@ -31,6 +41,11 @@ export interface FakeConfig {
    * loads in the fake.
    */
   pageTimeout?: number;
+  /**
+   * What each check for updates finds, in turn, the last one again and again after. Unless set,
+   * the app offers no check, as on the desktop and iOS.
+   */
+  updates?: UpdateFinding[];
 }
 
 /** Why the window came back to the picker, as the app's Rust side says. */
@@ -156,13 +171,37 @@ export async function fakeBackend(page: Page, config: FakeConfig): Promise<void>
       }
     };
 
+    // The checks for updates made so far.
+    let updateChecks = 0;
+
     const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
       startup() {
         const openNow = state.offered ? null : state.last;
         state.offered = true;
         const interrupted = state.interrupted;
         state.interrupted = null;
-        return { ...view(), open: openNow, interrupted };
+        return {
+          ...view(),
+          open: openNow,
+          interrupted,
+          updateCheck: initial.updates !== undefined,
+        };
+      },
+      async check_for_updates() {
+        const findings = initial.updates ?? [];
+        const finding = findings[Math.min(updateChecks, findings.length - 1)];
+        updateChecks += 1;
+        if (finding === undefined) {
+          throw fail("unsupported", "This app does not update itself here.");
+        }
+        if (finding.waits === true) {
+          await new Promise<void>((answer) => waiting.push(answer));
+        }
+        if ("code" in finding) {
+          throw fail(finding.code, finding.message);
+        }
+        const { waits: _, ...found } = finding;
+        return found;
       },
       async connect(args) {
         const typed = String(args.address).trim();

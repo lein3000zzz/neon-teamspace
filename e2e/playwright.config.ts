@@ -5,7 +5,12 @@ import { defineConfig, devices } from "@playwright/test";
  * that read them. They run one at a time, so each sees the settings it set or the defaults;
  * the others change none of them, and run side by side with these.
  */
-const INSTANCE_SPECS = ["**/app.spec.ts", "**/auth.spec.ts", "**/registration.spec.ts"];
+const INSTANCE_SPECS = [
+  "**/app.spec.ts",
+  "**/auth.spec.ts",
+  "**/registration.spec.ts",
+  "**/updates.spec.ts",
+];
 
 /**
  * The specs that use the app on a phone, in each of the phones below: a touch screen, which

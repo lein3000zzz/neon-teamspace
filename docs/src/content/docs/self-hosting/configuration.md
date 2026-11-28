@@ -17,7 +17,7 @@ Both come from the same two places, a YAML file and the environment.
 ## The config file
 
 The server reads `neon.yaml` in the directory it runs from, or the file `NEON_CONFIG` names
-instead. It has six sections:
+instead. It has seven sections:
 
 | Section | What it holds |
 |---|---|
@@ -25,6 +25,7 @@ instead. It has six sections:
 | `database` | `url`, the Postgres connection URL; `max_connections`, the size of the connection pool; `auto_migrate`, whether the server updates the schema as it starts, `true` unless set. |
 | `admin` | `email` and `password` of the first admin; see [below](#the-first-admin). |
 | `secrets` | `keys`, the keys that seal secrets kept in the database; see [below](#secret-keys). |
+| `updates` | `github_api_url`, the GitHub API the [release check](/docs/self-hosting/upgrading/#release-checks) asks for the releases of Neon Teamspace, `https://api.github.com` unless set: another for a mirror of the API, whose path, if any, comes before the API's own. |
 | `observability` | Logs, metrics, traces, profiles and the internal [admin listener](/docs/architecture/observability/#the-admin-listener), in five sections; see [below](#the-observability-section). |
 | `settings` | Runtime settings, each under its key, nested at its dots. |
 
@@ -169,6 +170,7 @@ underscores, between its levels.
 | `admin.email` | `NEON_ADMIN__EMAIL` |
 | `admin.password` | `NEON_ADMIN__PASSWORD` |
 | `secrets.keys` | `NEON_SECRETS__KEYS` |
+| `updates.github_api_url` | `NEON_UPDATES__GITHUB_API_URL` |
 | `database.max_connections` | `NEON_DATABASE__MAX_CONNECTIONS` |
 | `observability.logging.level` | `NEON_OBSERVABILITY__LOGGING__LEVEL` |
 | `observability.tracing.trust_incoming` | `NEON_OBSERVABILITY__TRACING__TRUST_INCOMING` |

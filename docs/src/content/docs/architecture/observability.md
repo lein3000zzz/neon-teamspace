@@ -91,6 +91,7 @@ request, so the number of label sets stays small. These subsystems record them:
 | `comments`, the comment use cases | The use case, such as `start_thread`, `reply`, `edit`, `resolve`, `follow` or `candidates`, a search for mentions. | A failure of the server. A refusal of the rules, such as `forbidden` or `too_many_threads`, is `ok`. | 5 ms to 5 s |
 | `notifications`, the inbox | The use case, such as `list`, `count`, `mark`, `mark_all_read`, `set_mail` or `unsubscribe`; `mail`, one notification's mail written, and `digests`, a run of the digests. | A failure of the server. A refusal, such as `invalid_token`, is `ok`. | 5 ms to 5 s |
 | `webhooks`, webhooks' use cases, deliveries and requests | The use case, such as `create_webhook`, `test_webhook` or `create_incoming`; `deliver`, an attempt at a delivery; `receive`, a request to an incoming webhook. | A failure of the server. A refusal, a receiver that fails or times out, and a request refused for its signature, payload or rate are `ok`. | 5 ms to 10 s |
+| `updates`, the release check and updates | `status`, `check_now` and `apply`, an instance admin's; `check`, the daily [release check](/docs/self-hosting/upgrading/#release-checks). | Never: a refusal, such as `update_not_allowed` or `no_updater`, a GitHub that does not answer and an updater that does not are `ok`, and the status or the error says why. | 5 ms to 10 s |
 
 Deliveries are jobs of the kind `webhooks.deliver`, so the `jobs` subsystem counts their runs
 too: a run that the receiver fails is retried and `ok`, the last failed one `error`.

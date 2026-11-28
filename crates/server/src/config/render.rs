@@ -6,7 +6,7 @@ use neon_domain::settings::{Registry, Source, Stored};
 use neon_observability::config::redact_url;
 use serde::Serialize;
 
-use super::{AdminConfig, DatabaseConfig, Loaded, SecretsConfig, ServerConfig};
+use super::{AdminConfig, DatabaseConfig, Loaded, SecretsConfig, ServerConfig, UpdatesConfig};
 
 #[derive(Serialize)]
 struct Shown<'a> {
@@ -14,6 +14,7 @@ struct Shown<'a> {
     database: &'a DatabaseConfig,
     admin: &'a AdminConfig,
     secrets: &'a SecretsConfig,
+    updates: &'a UpdatesConfig,
     observability: neon_observability::Config,
 }
 
@@ -51,6 +52,7 @@ impl Loaded {
             database: &self.config.database,
             admin: &self.config.admin,
             secrets: &self.config.secrets,
+            updates: &self.config.updates,
             observability: without_credentials(&self.config.observability),
         })?);
 

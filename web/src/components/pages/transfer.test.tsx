@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { attachmentName } from "@/api/pages";
 import { apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
@@ -50,6 +50,12 @@ beforeEach(() => {
 });
 
 describe("importing markdown", () => {
+  // The page loads the editor on demand; loaded once here, so no test waits on it. Left to
+  // the first page a test opens, the import would run on into the tests after it.
+  beforeAll(async () => {
+    await import("@/components/editor/page-editor");
+  });
+
   it("imports a file into a page from its menu, and opens what it made", async () => {
     fakeWorkspaces();
     const api = fakePages();

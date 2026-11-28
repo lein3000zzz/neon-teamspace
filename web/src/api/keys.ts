@@ -29,6 +29,10 @@ export const keys = {
   joinRequests: ["admin", "join-requests"],
   settings: ["admin", "settings"],
   adminWorkspaces: ["admin", "workspaces"],
+  /** The server's version, the newest release and the updater. */
+  updates: ["admin", "updates"],
+  /** How an update to a release goes, asked again and again until it is over. */
+  updateProgress: (version: string) => ["admin", "update-progress", version],
   workspaces: ["workspaces", "list"],
   workspace: (id: string) => ["workspaces", id],
   workspaceDetail: (id: string) => ["workspaces", id, "detail"],

@@ -38,6 +38,7 @@ pub mod settings;
 mod standing;
 pub mod sync;
 pub mod transfer;
+pub mod updates;
 pub mod webhooks;
 pub mod workspaces;
 

@@ -22,6 +22,7 @@ use neon_app::search::SearchError;
 use neon_app::settings::UpdateError;
 use neon_app::sync::ContentError;
 use neon_app::transfer::TransferError;
+use neon_app::updates::UpdatesError;
 use neon_app::webhooks::{IncomingError, WebhookError};
 use neon_app::workspaces::WorkspaceError;
 use neon_domain::settings::Problem;
@@ -609,6 +610,19 @@ impl From<IncomingError> for ApiError {
             api.retry_after = Some(retry_after);
         }
         api
+    }
+}
+
+impl From<UpdatesError> for ApiError {
+    /// Every refusal answers with its message, which never holds the updater's token.
+    fn from(error: UpdatesError) -> Self {
+        let status = match &error {
+            UpdatesError::Forbidden(_) => StatusCode::FORBIDDEN,
+            UpdatesError::NoUpdater | UpdatesError::UpdateInProgress => StatusCode::CONFLICT,
+            UpdatesError::NotAllowed(_) => StatusCode::BAD_REQUEST,
+            UpdatesError::UpdaterUnreachable(_) => StatusCode::BAD_GATEWAY,
+        };
+        Self::new(status, error.code(), error.to_string())
     }
 }
 

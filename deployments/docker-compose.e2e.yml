@@ -3,8 +3,9 @@
 # names, which make e2e picks free. Both images are the ones make e2e built, under the tags
 # it names. The server gets the instance name the tests expect, the first admin they sign in
 # as, a key to seal invite codes, webhooks' secrets and waiting mail with, its public URL, mail
-# through the Mailpit below, and none of the settings a deployments/server.env in this
-# checkout may hold. make e2e makes the password and the key afresh for each run.
+# through the Mailpit below, its release check and its updater on the receiver below, and none
+# of the settings a deployments/server.env in this checkout may hold. make e2e makes the
+# password and the key afresh for each run.
 services:
   server:
     image: ${E2E_SERVER_IMAGE:?make e2e sets E2E_SERVER_IMAGE}
@@ -19,6 +20,10 @@ services:
       NEON_SERVER__PUBLIC_URL: http://127.0.0.1:${E2E_WEB_PORT:?make e2e sets E2E_WEB_PORT}
       # The receiver below is on the stack's network, at a private address.
       NEON_SETTINGS__WEBHOOKS__ALLOW_PRIVATE: "true"
+      # The release check asks the receiver, which lists made-up releases, and never GitHub;
+      # the receiver stands in for the updater too, once a test saves its token.
+      NEON_UPDATES__GITHUB_API_URL: http://receiver:8080/github
+      NEON_SETTINGS__UPDATES__UPDATER_URL: http://receiver:8080/updater
       # Every mail goes to Mailpit, in the clear on the stack's network. Notification mail
       # goes as soon as a notification comes, rather than after the five minutes by default
       # in which reading it would hold the mail back.
@@ -32,7 +37,8 @@ services:
 
   # A webhook receiver the server delivers to at http://receiver:8080, which keeps what it
   # gets and lists it at GET /deliveries, on a free port of this machine's loopback that
-  # `docker compose port receiver 8080` reports.
+  # `docker compose port receiver 8080` reports. It stands in for GitHub's releases and for
+  # the updater as well.
   receiver:
     image: oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643
     command: ["bun", "/receiver/server.ts"]

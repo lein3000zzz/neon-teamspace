@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DATABASE_PATH,
   databasePages,
@@ -295,6 +295,12 @@ describe("a long board", () => {
 });
 
 describe("a database's list", () => {
+  // The row this test opens loads the editor on demand, and the import runs while the test
+  // waits for the row's properties. Loaded once here, it cannot use up that wait.
+  beforeAll(async () => {
+    await import("@/components/editor/page-editor");
+  });
+
   it("lists each row with the values the view picks, and opens one as its page", async () => {
     const { user, router } = openView(DB.list);
     const view = await database();

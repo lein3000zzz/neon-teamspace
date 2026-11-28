@@ -3,7 +3,8 @@
  * gives every crate, in the root Cargo.toml: the crates and Cargo.lock, the apps' crate, its
  * Cargo.lock and their package, the Claude Code plugin,
  * the packages of the web app and the docs, the API description, the Compose file's images,
- * the changelog, the docs, `neon --version`, and the release tag when there is one.
+ * the changelog, the docs, `neon --version`, `neon-updater version`, and the release tag when
+ * there is one.
  *
  * The server answers GET /api/v1/meta, and the web app shows, the version the neon binary was
  * built with, the one `neon --version` prints; a server test and the end-to-end tests check both
@@ -13,7 +14,8 @@
  * `-rc.` and a number, rehearses the release of that version: everything states the version
  * alone, so the release itself can then tag the same commit.
  *
- * Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z[-rc.N]]
+ * Usage: bun scripts/version.ts --neon "<what neon --version printed>"
+ *          [--updater "<what neon-updater version printed>"] [--tag vX.Y.Z[-rc.N]]
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -35,7 +37,10 @@ const CANDIDATE = /^-rc\.(?:0|[1-9]\d*)$/;
  */
 const DOC_FORMS: { name: string; pattern: RegExp }[] = [
   { name: "NEON_VERSION", pattern: new RegExp(`NEON_VERSION=(${SEMVER})`, "g") },
-  { name: "an image", pattern: new RegExp(`neon-teamspace-(?:server|web):(${SEMVER})`, "g") },
+  {
+    name: "an image",
+    pattern: new RegExp(`neon-teamspace-(?:server|web|updater):(${SEMVER})`, "g"),
+  },
   { name: "a version in JSON", pattern: new RegExp(`"version": ?"(${SEMVER})"`, "g") },
   { name: "the Compose archive", pattern: new RegExp(`neon-teamspace-compose-(${SEMVER})`, "g") },
   {
@@ -140,11 +145,11 @@ function checkJsonField(root: string, file: string, path: string[], version: str
   return value === version ? [] : [`${file}: ${path.join(".")} is ${JSON.stringify(value)}`];
 }
 
-/** The release the Compose file runs when NEON_VERSION is unset, for both images. */
+/** The release the Compose file runs when NEON_VERSION is unset, for each of its images. */
 function checkCompose(root: string, version: string): string[] {
   const file = "deployments/docker-compose.yml";
   const source = readFileSync(join(root, file), "utf8");
-  return ["server", "web"].flatMap((image) => {
+  return ["server", "web", "updater"].flatMap((image) => {
     const line = new RegExp(
       `^\\s+image: ghcr\\.io/[^/]+/neon-teamspace-${image}:\\$\\{NEON_VERSION:-([^}]*)\\}$`,
       "m",
@@ -218,11 +223,16 @@ export function isReleaseTag(tag: string, version: string): boolean {
 
 /**
  * Every place that states another version than the workspace's. `neon` is what
- * `neon --version` printed; `tag`, when given, is the release's tag, which must be `v` and
- * the version or a release candidate of it, and whose changelog section must then have its
- * date.
+ * `neon --version` printed, and `updater`, when given, what `neon-updater version` printed;
+ * `tag`, when given, is the release's tag, which must be `v` and the version or a release
+ * candidate of it, and whose changelog section must then have its date.
  */
-export function checkVersions(root: string, neon: string, tag?: string): string[] {
+export function checkVersions(
+  root: string,
+  neon: string,
+  tag?: string,
+  updater?: string,
+): string[] {
   const version = workspaceVersion(root);
   if (!SEMVER_ONLY.test(version)) {
     return [`Cargo.toml: the workspace's version ${version} is not major.minor.patch`];
@@ -253,6 +263,9 @@ export function checkVersions(root: string, neon: string, tag?: string): string[
   if (neon.trim() !== `neon ${version}`) {
     problems.push(`neon --version: printed ${JSON.stringify(neon.trim())}`);
   }
+  if (updater !== undefined && updater.trim() !== `neon-updater ${version}`) {
+    problems.push(`neon-updater version: printed ${JSON.stringify(updater.trim())}`);
+  }
   if (tag !== undefined && !isReleaseTag(tag, version)) {
     problems.push(
       RELEASE_ONLY.test(version)
@@ -265,11 +278,12 @@ export function checkVersions(root: string, neon: string, tag?: string): string[
 
 function main(args: readonly string[]): number {
   const usage =
-    'Usage: bun scripts/version.ts --neon "<what neon --version printed>" [--tag vX.Y.Z[-rc.N]]';
+    'Usage: bun scripts/version.ts --neon "<what neon --version printed>" ' +
+    '[--updater "<what neon-updater version printed>"] [--tag vX.Y.Z[-rc.N]]';
   const options = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const [name, value] = [args[index], args[index + 1]];
-    if ((name !== "--neon" && name !== "--tag") || value === undefined) {
+    if ((name !== "--neon" && name !== "--updater" && name !== "--tag") || value === undefined) {
       console.error(usage);
       return 2;
     }
@@ -282,7 +296,7 @@ function main(args: readonly string[]): number {
   }
   const root = resolve(import.meta.dir, "..");
   const version = workspaceVersion(root);
-  const problems = checkVersions(root, neon, options.get("--tag"));
+  const problems = checkVersions(root, neon, options.get("--tag"), options.get("--updater"));
   if (problems.length > 0) {
     console.error(`Not the workspace's version, ${version} in Cargo.toml:`);
     for (const problem of problems) {

@@ -22,5 +22,6 @@ pub mod oauth;
 pub mod pages;
 pub mod search;
 pub mod settings;
+pub mod updates;
 pub mod webhooks;
 pub mod workspaces;
