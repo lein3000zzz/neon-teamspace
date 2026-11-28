@@ -132,7 +132,13 @@ pub struct Edited {
 /// first 128 bits of the SHA-256 of their markdown with ids, which changes whenever what
 /// reading shows does.
 pub fn revision(document: &Document) -> String {
-    let digest = Sha256::digest(to_markdown_with_ids(document).as_bytes());
+    revision_of_markdown(&to_markdown_with_ids(document))
+}
+
+/// The [`revision`] of blocks whose markdown with ids is `markdown`, for a reader that has
+/// it already.
+pub fn revision_of_markdown(markdown: &str) -> String {
+    let digest = Sha256::digest(markdown.as_bytes());
     URL_SAFE_NO_PAD.encode(&digest[..16])
 }
 
