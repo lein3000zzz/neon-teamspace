@@ -145,7 +145,7 @@ pub fn setup<R: Runtime>(
     );
     let config = main_config(app.handle())?;
     let origin = app_origin(app);
-    let picker = picker_url(&origin, &config).ok_or(tauri::Error::WebviewNotFound)?;
+    let picker = picker_url(&origin, &config).map_err(tauri::Error::InvalidUrl)?;
     log::info!("the picker is {picker}");
     app.manage(Shell {
         store,
@@ -175,12 +175,12 @@ fn main_config<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WindowConfig> {
 
 /// Where the picker is: the window's page on the app's own origin, as Tauri loads it. Worked
 /// out from the configuration, as a webview only knows its URL once it has started loading.
-fn picker_url(app: &Origin, config: &WindowConfig) -> Option<Url> {
+fn picker_url(app: &Origin, config: &WindowConfig) -> Result<Url, url::ParseError> {
     let page = match &config.url {
         WebviewUrl::App(path) => path.to_string_lossy().into_owned(),
         _ => String::new(),
     };
-    Url::parse(&format!("{app}/")).ok()?.join(&page).ok()
+    Url::parse(&format!("{app}/"))?.join(&page)
 }
 
 /// The origin the app's own pages are served from: `tauri://localhost` on macOS, iOS and
@@ -563,7 +563,7 @@ mod tests {
         ] {
             assert_eq!(
                 picker_url(&origin, &config).map(String::from).as_deref(),
-                Some(picker)
+                Ok(picker)
             );
         }
     }
