@@ -25,9 +25,11 @@ use neon_app::sync::{
     Broadcaster, Limits as SyncLimits, LocalBroadcaster, SyncService, access_feed,
 };
 use neon_app::transfer::TransferService;
+use neon_app::updates::{Releases, UpdateService, Updater};
 use neon_app::webhooks::{Services, WebhookService, WebhookTransport};
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::settings::Pinned;
+use neon_domain::updates::Running;
 use neon_observability::http::X_REQUEST_ID;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -149,6 +151,40 @@ pub(super) async fn state_with_blobs(
     .await
 }
 
+/// The state with a secret key, whose release check asks `releases` and whose updates go
+/// to `updater`, on a server that runs `running`.
+pub(super) async fn state_for_updates(
+    pool: PgPool,
+    releases: Arc<dyn Releases>,
+    updater: Arc<dyn Updater>,
+    running: Running,
+) -> AppState {
+    build_state(
+        pool,
+        super::auth_tests::keyed(),
+        WebConfig::new(None, Vec::new()),
+        Setup {
+            releases,
+            updater,
+            running,
+            ..Setup::default()
+        },
+    )
+    .await
+}
+
+/// GitHub as the tests see it unless they say: no release yet.
+struct NoReleases;
+
+#[async_trait::async_trait]
+impl Releases for NoReleases {
+    async fn list(
+        &self,
+    ) -> Result<Vec<neon_domain::updates::Release>, neon_app::updates::ReleasesError> {
+        Ok(Vec::new())
+    }
+}
+
 /// What a test's state is built with, beside its database, key and web configuration.
 struct Setup {
     sync: SyncLimits,
@@ -161,6 +197,10 @@ struct Setup {
     clock: Clock,
     /// Where files are kept: in memory unless a test says.
     blobs: Arc<dyn BlobStore>,
+    /// Where the release check asks, the updater, and the build the server runs.
+    releases: Arc<dyn Releases>,
+    updater: Arc<dyn Updater>,
+    running: Running,
 }
 
 impl Default for Setup {
@@ -175,6 +215,9 @@ impl Default for Setup {
             blobs: Arc::new(ObjectBlobs::new(Arc::new(
                 object_store::memory::InMemory::new(),
             ))),
+            releases: Arc::new(NoReleases),
+            updater: Arc::new(crate::updates::UpdaterClient::default()),
+            running: crate::updates::running(),
         }
     }
 }
@@ -188,6 +231,9 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         limiter,
         clock,
         blobs,
+        releases,
+        updater,
+        running,
     } = setup;
     let (settings, warnings) = SettingsService::load(
         pool.clone(),
@@ -314,6 +360,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         limiter,
         mcp_feed,
     );
+    let updates = UpdateService::builder(Arc::clone(&settings), releases, updater, running).build();
     AppState {
         settings,
         auth,
@@ -332,6 +379,7 @@ async fn build_state(pool: PgPool, envelope: Envelope, web: WebConfig, setup: Se
         transfer,
         attachments,
         webhooks,
+        updates,
         web: Arc::new(web),
         mcp,
     }
@@ -440,7 +488,11 @@ async fn meta_names_the_instance_and_the_version(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({"name": "Neon Teamspace", "version": env!("CARGO_PKG_VERSION")})
+        json!({
+            "product": "neon-teamspace",
+            "name": "Neon Teamspace",
+            "version": env!("CARGO_PKG_VERSION"),
+        })
     );
 
     state

@@ -6,9 +6,11 @@ use std::time::Instant;
 
 use neon_domain::webhooks::Blocked;
 use tokio::net::TcpListener;
+use tokio_rustls::rustls::pki_types::ServerName;
 
 use super::receiver::{Receiver, Reply, ScriptedResolver};
 use super::*;
+use crate::tls::server_name;
 
 /// Connects as the system does, after noting each address it is asked for; or refuses
 /// every one, when told to.
@@ -279,6 +281,39 @@ async fn a_receiver_that_never_answers_times_out() {
         "{:?}",
         started.elapsed()
     );
+    silent.abort();
+}
+
+#[tokio::test]
+async fn a_send_that_times_out_stops_driving_its_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
+    let addr = listener.local_addr().expect("bound");
+    // Takes the connection and reads nothing, so writing a large body stalls.
+    let silent = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let tasks = metrics.num_alive_tasks();
+    let transport =
+        HttpTransport::default().timeouts(Duration::from_millis(500), Duration::from_millis(500));
+    let large = Outgoing {
+        body: Bytes::from(vec![b' '; 64 * 1024 * 1024]),
+        ..request(&format!("http://{addr}/hook"))
+    };
+
+    let sent = transport.send(large, true).await;
+
+    assert_eq!(sent, Err(SendError::Timeout));
+    let stopped = tokio::time::timeout(Duration::from_secs(5), async {
+        while metrics.num_alive_tasks() > tasks {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(stopped.is_ok(), "the connection's task outlived the send");
     silent.abort();
 }
 

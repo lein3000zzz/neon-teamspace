@@ -2,15 +2,29 @@ import { cn } from "cn";
 import { X } from "lucide-react";
 import { Dialog as SheetPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
+import { useBackCloses } from "@/lib/panel-history";
 import { Button } from "./button";
+
+type SheetProps = ComponentProps<typeof SheetPrimitive.Root> & {
+  /**
+   * Whether the back gesture or Back closes it on a touch screen: not for one the address
+   * opens, whose entry in the history is the address's own.
+   */
+  backCloses?: boolean;
+};
 
 /**
  * A modal panel that slides in from an edge: from the left, the sidebar on
- * narrow screens; from the right, a row opened beside its database.
+ * narrow screens; from the right, a row opened beside its database. On a
+ * touch screen, the back gesture or Back closes it.
  */
-function Sheet(props: ComponentProps<typeof SheetPrimitive.Root>) {
+function Sheet({ backCloses = true, ...props }: SheetProps) {
+  const { open, onOpenChange } = props;
+  useBackCloses(open ?? false, onOpenChange ?? ignore, backCloses && onOpenChange !== undefined);
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
 }
+
+function ignore() {}
 
 function SheetTrigger(props: ComponentProps<typeof SheetPrimitive.Trigger>) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;

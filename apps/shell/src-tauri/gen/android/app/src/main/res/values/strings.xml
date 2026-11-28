@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">"Neon Teamspace"</string>
+    <string name="main_activity_title">"Neon Teamspace"</string>
+    <string name="download_started">"Downloading %1$s"</string>
+    <string name="download_refused">"This file cannot be saved from the app. Open the server in a browser to save it."</string>
+</resources>

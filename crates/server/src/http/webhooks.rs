@@ -41,17 +41,6 @@ pub enum WebhookEvent {
     CommentReplied,
 }
 
-impl WebhookEvent {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::RowAssigned => EventType::Assigned.as_str(),
-            Self::RowStatusChanged => EventType::StatusChanged.as_str(),
-            Self::PageMentioned => EventType::Mentioned.as_str(),
-            Self::CommentReplied => EventType::Replied.as_str(),
-        }
-    }
-}
-
 impl From<EventType> for WebhookEvent {
     fn from(event: EventType) -> Self {
         match event {
@@ -59,6 +48,17 @@ impl From<EventType> for WebhookEvent {
             EventType::StatusChanged => Self::RowStatusChanged,
             EventType::Mentioned => Self::PageMentioned,
             EventType::Replied => Self::CommentReplied,
+        }
+    }
+}
+
+impl From<WebhookEvent> for EventType {
+    fn from(event: WebhookEvent) -> Self {
+        match event {
+            WebhookEvent::RowAssigned => Self::Assigned,
+            WebhookEvent::RowStatusChanged => Self::StatusChanged,
+            WebhookEvent::PageMentioned => Self::Mentioned,
+            WebhookEvent::CommentReplied => Self::Replied,
         }
     }
 }
@@ -193,15 +193,22 @@ pub enum AttemptOutcome {
     Skipped,
 }
 
+impl From<neon_domain::webhooks::AttemptOutcome> for AttemptOutcome {
+    fn from(outcome: neon_domain::webhooks::AttemptOutcome) -> Self {
+        use neon_domain::webhooks::AttemptOutcome as Domain;
+        match outcome {
+            Domain::Delivered => Self::Delivered,
+            Domain::Retrying => Self::Retrying,
+            Domain::Failed => Self::Failed,
+            Domain::Skipped => Self::Skipped,
+        }
+    }
+}
+
 impl From<AppAttempt> for DeliveryAttempt {
     fn from(attempt: AppAttempt) -> Self {
         Self {
-            outcome: match attempt.outcome.as_str() {
-                "delivered" => AttemptOutcome::Delivered,
-                "retrying" => AttemptOutcome::Retrying,
-                "skipped" => AttemptOutcome::Skipped,
-                _ => AttemptOutcome::Failed,
-            },
+            outcome: attempt.outcome.into(),
             id: attempt.id,
             delivery_id: attempt.delivery_id,
             event_id: attempt.event_id,
@@ -309,11 +316,7 @@ pub(super) async fn create_webhook(
     let new = NewWebhook {
         user_id: body.user_id,
         url: body.url,
-        events: body
-            .events
-            .iter()
-            .map(|event| event.as_str().to_owned())
-            .collect(),
+        events: body.events.into_iter().map(EventType::from).collect(),
         include_own: body.include_own,
     };
     let (secret, webhook) = state.webhooks.create_webhook(&principal, id, new).await?;
@@ -407,12 +410,9 @@ pub(super) async fn update_webhook(
 ) -> Result<Json<Webhook>, ApiError> {
     let update = WebhookUpdate {
         url: body.url,
-        events: body.events.map(|events| {
-            events
-                .iter()
-                .map(|event| event.as_str().to_owned())
-                .collect()
-        }),
+        events: body
+            .events
+            .map(|events| events.into_iter().map(EventType::from).collect()),
         include_own: body.include_own,
         enabled: body.enabled,
     };

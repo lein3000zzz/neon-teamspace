@@ -17,6 +17,9 @@ function repository(version: string, files: Record<string, string> = {}): string
         `[[package]]\nname = "neon-server"\nversion = "${version}"\n`,
         `[[package]]\nname = "serde"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n`,
       ].join("\n"),
+      "apps/shell/src-tauri/Cargo.toml": `[package]\nname = "neon-teamspace-shell"\nversion = "${version}"\n`,
+      "apps/shell/src-tauri/Cargo.lock": `[[package]]\nname = "neon-teamspace-shell"\nversion = "${version}"\n`,
+      "apps/shell/package.json": JSON.stringify({ version }),
       "integrations/claude-code/.claude-plugin/plugin.json": JSON.stringify({ version }),
       "web/package.json": JSON.stringify({ version }),
       "docs/package.json": JSON.stringify({ version }),
@@ -24,7 +27,7 @@ function repository(version: string, files: Record<string, string> = {}): string
         info: { version },
         components: { schemas: { Meta: { properties: { version: { example: version } } } } },
       }),
-      "deployments/docker-compose.yml": `services:\n  server:\n${image("server")}  web:\n${image("web")}`,
+      "deployments/docker-compose.yml": `services:\n  server:\n${image("server")}  web:\n${image("web")}  updater:\n${image("updater")}`,
       "CHANGELOG.md": `# Changelog\n\n## ${version} - 2026-11-27\n\nThe first release.\n`,
       "docs/src/content/docs/install.md": `Run \`NEON_VERSION=${version}\`.\n`,
       ...files,
@@ -38,6 +41,19 @@ describe("checkVersions", () => {
     const root = repository("1.2.3");
 
     expect(checkVersions(root, "neon 1.2.3\n", "v1.2.3")).toEqual([]);
+    expect(checkVersions(root, "neon 1.2.3\n", "v1.2.3", "neon-updater 1.2.3\n")).toEqual([]);
+  });
+
+  it("names an updater that says another version, and its image in the docs", () => {
+    const root = repository("1.2.3", {
+      "docs/src/content/docs/self-hosting/upgrading.md":
+        "Pull `ghcr.io/lein3000zzz/neon-teamspace-updater:1.2.2`.\n",
+    });
+
+    expect(checkVersions(root, "neon 1.2.3", undefined, "neon-updater 1.2.2")).toEqual([
+      "docs/src/content/docs/self-hosting/upgrading.md:1: an image names 1.2.2",
+      'neon-updater version: printed "neon-updater 1.2.2"',
+    ]);
   });
 
   it("names each file that states another version, and a tag and a binary of another", () => {
@@ -72,6 +88,22 @@ describe("checkVersions", () => {
     ]);
   });
 
+  it("names the apps' crate, its Cargo.lock and their package when they state another", () => {
+    const root = repository("1.2.3", {
+      "apps/shell/src-tauri/Cargo.toml":
+        '[package]\nname = "neon-teamspace-shell"\nversion = "1.2.2"\n',
+      "apps/shell/src-tauri/Cargo.lock":
+        '[[package]]\nname = "neon-teamspace-shell"\nversion = "1.2.2"\n',
+      "apps/shell/package.json": JSON.stringify({ version: "0.0.0" }),
+    });
+
+    expect(checkVersions(root, "neon 1.2.3")).toEqual([
+      'apps/shell/src-tauri/Cargo.toml: its version is "1.2.2"',
+      "apps/shell/src-tauri/Cargo.lock: neon-teamspace-shell is 1.2.2: build once to update it",
+      'apps/shell/package.json: version is "0.0.0"',
+    ]);
+  });
+
   it("fails a Compose file that runs another release, or latest, unless NEON_VERSION says", () => {
     const root = repository("1.2.3", {
       "deployments/docker-compose.yml": [
@@ -80,12 +112,15 @@ describe("checkVersions", () => {
         "    image: ghcr.io/lein3000zzz/neon-teamspace-server:${NEON_VERSION:-latest}",
         "  web:",
         "    image: ghcr.io/lein3000zzz/neon-teamspace-web:1.2.3",
+        "  updater:",
+        "    image: ghcr.io/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:-1.2.2}",
       ].join("\n"),
     });
 
     expect(checkVersions(root, "neon 1.2.3")).toEqual([
       "deployments/docker-compose.yml: neon-teamspace-server defaults to latest, not the release it belongs to",
       "deployments/docker-compose.yml: has no image line for neon-teamspace-web with ${NEON_VERSION:-...}",
+      "deployments/docker-compose.yml: neon-teamspace-updater defaults to 1.2.2, not the release it belongs to",
     ]);
   });
 
@@ -158,7 +193,9 @@ describe("checkVersions", () => {
     const version = workspaceVersion(repoRoot);
 
     expect(version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(checkVersions(repoRoot, `neon ${version}`)).toEqual([]);
+    expect(
+      checkVersions(repoRoot, `neon ${version}`, undefined, `neon-updater ${version}`),
+    ).toEqual([]);
   });
 });
 

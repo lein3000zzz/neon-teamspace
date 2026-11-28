@@ -37,7 +37,7 @@ async fn metrics(telemetry: &Telemetry) -> String {
 
 #[tokio::test]
 async fn installs_traces_propagation_and_metrics_once() {
-    let telemetry = init(&quiet(), service(), &[("jobs", Buckets::XLong)]).unwrap();
+    let telemetry = init(&quiet(), &service(), &[("jobs", Buckets::XLong)]).unwrap();
 
     let traceparent = tracing::info_span!("enqueue").in_scope(propagation::current_traceparent);
     let traceparent = traceparent.expect("spans get a trace context without export");
@@ -52,7 +52,7 @@ async fn installs_traces_propagation_and_metrics_once() {
         "{output}"
     );
 
-    let again = init(&quiet(), service(), &[]);
+    let again = init(&quiet(), &service(), &[]);
     assert!(matches!(again, Err(InitError::AlreadyInitialized)));
 
     telemetry.shutdown().run().await.unwrap();
@@ -65,7 +65,7 @@ async fn rejects_invalid_config_before_installing_anything() {
     config.tracing.protocol = OtlpProtocol::Grpc;
     config.tracing.sample_ratio = 2.0;
 
-    match init(&config, service(), &[]) {
+    match init(&config, &service(), &[]) {
         Err(InitError::Config(invalid)) => assert_eq!(invalid.errors.len(), 2),
         other => panic!("expected a config error, got {other:?}"),
     }
@@ -73,14 +73,14 @@ async fn rejects_invalid_config_before_installing_anything() {
 
 #[tokio::test]
 async fn rejects_malformed_subsystems() {
-    let result = init(&quiet(), service(), &[("web-socket", Buckets::Short)]);
+    let result = init(&quiet(), &service(), &[("web-socket", Buckets::Short)]);
     assert!(matches!(result, Err(InitError::Subsystem(name)) if name == "web-socket"));
 }
 
 #[test]
 fn needs_a_tokio_runtime() {
     assert!(matches!(
-        init(&quiet(), service(), &[]),
+        init(&quiet(), &service(), &[]),
         Err(InitError::NoRuntime)
     ));
 }

@@ -11,15 +11,30 @@ type DragHandlers = {
   onCancel: () => void;
 };
 
+type DragOptions = {
+  /** How far, in pixels, the pointer moves before the press is a drag. */
+  threshold?: number;
+  /**
+   * Whether a finger drags too, from a grip that shows on touch screens only
+   * and takes no scroll (`touch-action: none`).
+   */
+  touch?: boolean;
+};
+
 /**
  * Follows a press of the mouse or a pen as a drag, once it moves `threshold`
  * pixels: the page's own reaction to the press is held back, so no text is
  * selected and an editor around it does not take it, and the click that ends
  * a drag is swallowed. A press that never moves far is a click as usual.
- * Touch is left to scroll; touch screens move things with their menus.
+ * Touch is left to scroll, and touch screens move things with their menus,
+ * but from a grip made for a finger.
  */
-export function startDrag(event: ReactPointerEvent, handlers: DragHandlers, threshold = 5) {
-  if (event.button !== 0 || event.pointerType === "touch") {
+export function startDrag(
+  event: ReactPointerEvent,
+  handlers: DragHandlers,
+  { threshold = 5, touch = false }: DragOptions = {},
+) {
+  if (event.button !== 0 || (event.pointerType === "touch" && !touch)) {
     return;
   }
   event.preventDefault();

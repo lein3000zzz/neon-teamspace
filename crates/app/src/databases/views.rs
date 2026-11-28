@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::events::Event;
 use super::schema::config_json;
 use super::{DatabaseError, DatabaseService, NO_VIEW, Opened, key_for, shown_view};
+use crate::Read;
 
 /// A view to make.
 #[derive(Debug, Clone)]
@@ -48,7 +49,9 @@ impl DatabaseService {
     ) -> Result<View, DatabaseError> {
         self.observe("create_view", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let name = check_view_name(&new.name)?;
             let settings = new
@@ -77,7 +80,7 @@ impl DatabaseService {
                 layout = %view.layout,
                 "database view created"
             );
-            self.view_changed(database_id, view.id, false).await;
+            self.view_changed(database_id, view.id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -95,7 +98,9 @@ impl DatabaseService {
     ) -> Result<View, DatabaseError> {
         self.observe("update_view", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let mut stored = find(&mut tx, database_id, view_id).await?;
             if let Some(name) = &change.name {
@@ -133,7 +138,7 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view changed"
             );
-            self.view_changed(database_id, view_id, false).await;
+            self.view_changed(database_id, view_id, false);
             Ok(one(&opened, stored))
         })
         .await
@@ -149,7 +154,9 @@ impl DatabaseService {
     ) -> Result<View, DatabaseError> {
         self.observe("move_view", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let stored = repo::views(&mut *tx, database_id).await?;
             let mut view = stored
@@ -166,7 +173,7 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view moved"
             );
-            self.view_changed(database_id, view_id, false).await;
+            self.view_changed(database_id, view_id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -182,7 +189,9 @@ impl DatabaseService {
     ) -> Result<View, DatabaseError> {
         self.observe("duplicate_view", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let stored = repo::views(&mut *tx, database_id).await?;
             let original = stored
@@ -219,7 +228,7 @@ impl DatabaseService {
                 from = %view_id,
                 "database view duplicated"
             );
-            self.view_changed(database_id, view.id, false).await;
+            self.view_changed(database_id, view.id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -234,7 +243,9 @@ impl DatabaseService {
     ) -> Result<(), DatabaseError> {
         self.observe("delete_view", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let stored = repo::views(&mut *tx, database_id).await?;
             if !stored.iter().any(|view| view.id == view_id) {
@@ -253,15 +264,14 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view deleted"
             );
-            self.view_changed(database_id, view_id, true).await;
+            self.view_changed(database_id, view_id, true);
             Ok(())
         })
         .await
     }
 
-    async fn view_changed(&self, database_id: Uuid, view_id: Uuid, deleted: bool) {
-        self.publish(database_id, &Event::ViewChanged { view_id, deleted })
-            .await;
+    fn view_changed(&self, database_id: Uuid, view_id: Uuid, deleted: bool) {
+        self.publish(database_id, &Event::ViewChanged { view_id, deleted });
     }
 }
 

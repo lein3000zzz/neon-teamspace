@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use neon_domain::agents::IdentityMode;
+use neon_domain::attachments::StorageBackend;
 use neon_domain::auth::invite::MAX_LIFETIME;
 use neon_domain::auth::password::{DEFAULT_MIN_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH_BOUNDS};
 use neon_domain::auth::{Email, RegistrationMode, session};
@@ -9,7 +10,8 @@ use neon_domain::mail::{self as rules, Security};
 use neon_domain::oauth::{
     ACCESS_TTL_BOUNDS, DEFAULT_ACCESS_TTL, DEFAULT_REFRESH_TTL, REFRESH_TTL_BOUNDS,
 };
-use neon_domain::settings::{Definition, Key, Registry, Snapshot, checks};
+use neon_domain::settings::{Definition, Key, Registry, Secret, Snapshot, checks};
+use neon_domain::updates::{check_updater_token, check_updater_url};
 use neon_domain::workspaces::WorkspaceCreation;
 
 /// The instance's name, shown in the interface, in mail and by `GET /api/v1/meta`.
@@ -156,9 +158,6 @@ pub mod attachments {
     pub const ORPHAN_GRACE: Key<Duration> = Key::new("attachments.orphan_grace");
 }
 
-/// What `attachments.storage` may be.
-pub const STORAGE_OPTIONS: &[&str] = &["local", "s3"];
-
 /// The bounds of the largest file an upload takes: 1 KiB to 5 GiB.
 const MAX_FILE_BYTES_BOUNDS: (i64, i64) = (1024, 5 * 1024 * 1024 * 1024);
 
@@ -203,6 +202,21 @@ pub mod notifications {
     pub const MAIL_DELAY: Key<Duration> = Key::new("notifications.mail_delay");
     /// How often, at most, someone who wants a digest gets one.
     pub const DIGEST_INTERVAL: Key<Duration> = Key::new("notifications.digest_interval");
+}
+
+/// Release checks and updates: whether the server asks GitHub for newer releases, and the
+/// updater that moves the stack to one.
+pub mod updates {
+    use neon_domain::settings::{Key, Secret};
+
+    /// The server asks GitHub once a day for the newest release.
+    pub const CHECK: Key<bool> = Key::new("updates.check");
+    /// Pre-releases count as newer releases too.
+    pub const PRERELEASES: Key<bool> = Key::new("updates.prereleases");
+    /// Where the server reaches the updater.
+    pub const UPDATER_URL: Key<str> = Key::new("updates.updater_url");
+    /// The token the updater takes; empty, no updater is set up.
+    pub const UPDATER_TOKEN: Key<Secret> = Key::new("updates.updater_token");
 }
 
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
@@ -274,7 +288,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::enumeration(
             auth::REGISTRATION,
-            RegistrationMode::OPTIONS,
+            RegistrationMode::TEXTS,
             RegistrationMode::DEFAULT.as_str(),
             "Who may create an account: anyone (open), people with an invite an admin made \
              (invite), or nobody but admins, who add accounts themselves (closed).",
@@ -394,7 +408,7 @@ pub fn registry() -> Registry {
         .define(
             Definition::enumeration(
                 mail::TLS,
-                Security::OPTIONS,
+                Security::TEXTS,
                 Security::DEFAULT.as_str(),
                 "How the connection is secured. starttls upgrades it with STARTTLS and \
                  refuses a server that does not offer it; tls speaks TLS from the start; none \
@@ -452,7 +466,7 @@ pub fn registry() -> Registry {
         ))
         .define(Definition::enumeration(
             workspaces::CREATION,
-            WorkspaceCreation::OPTIONS,
+            WorkspaceCreation::TEXTS,
             WorkspaceCreation::DEFAULT.as_str(),
             "Who may create a workspace: every account (anyone), or instance admins only \
              (admins). Workspaces made before a change stay.",
@@ -491,7 +505,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::set(
             mcp::IDENTITIES,
-            IdentityMode::OPTIONS,
+            IdentityMode::TEXTS,
             IdentityMode::DEFAULT,
             "Whom MCP clients may act as: the person who connects them (user), one of that \
              person's agents (agent), or both. Without user, /mcp refuses people's tokens, \
@@ -705,8 +719,8 @@ pub fn registry() -> Registry {
         .define(
             Definition::enumeration(
                 attachments::STORAGE,
-                STORAGE_OPTIONS,
-                "local",
+                StorageBackend::TEXTS,
+                StorageBackend::DEFAULT.as_str(),
                 "Where uploaded files are kept: local, in the attachments directory under \
                  server.data_dir, or s3, in the bucket attachments.s3.bucket of an \
                  S3-compatible store such as SeaweedFS. Applies to files uploaded from now; \
@@ -795,9 +809,44 @@ pub fn registry() -> Registry {
             )
             .check(between(MIN_ORPHAN_GRACE, MAX_ORPHAN_GRACE)),
         )
+        .define(Definition::bool(
+            updates::CHECK,
+            true,
+            "Asks GitHub once a day for the newest release of Neon Teamspace, and when an \
+             admin presses Check now, to show in Admin > Settings beside the server's version. \
+             A check sends GitHub the server's version in its User-Agent, from the server's \
+             address, and nothing else. Off, the server never asks GitHub.",
+        ))
+        .define(Definition::bool(
+            updates::PRERELEASES,
+            false,
+            "Counts pre-releases, such as 0.3.0-rc.1, as newer releases too, to update to \
+             before they are stable. Off, only stable releases count.",
+        ))
+        .define(
+            Definition::string(
+                updates::UPDATER_URL,
+                "http://updater:8080",
+                "Where the server reaches the updater, which updates the stack to a release \
+                 when an admin asks in Admin > Settings. The Compose file's updater profile \
+                 runs it at http://updater:8080.",
+            )
+            .check(check_updater_url)
+            .browser_only(),
+        )
+        .define(
+            Definition::secret(
+                updates::UPDATER_TOKEN,
+                "The token the updater takes, the same as its NEON_UPDATER_TOKEN: at least 32 \
+                 characters, such as the output of openssl rand -hex 32. Empty, no updater is \
+                 set up, and Admin > Settings shows the commands to update by hand. Saved \
+                 here, it is kept encrypted, which needs secrets.keys.",
+            )
+            .check(|token: &Secret| check_updater_token(token.expose())),
+        )
         // An S3 store needs a bucket.
         .rule(attachments::S3_BUCKET.name(), |settings| {
-            if settings.get(attachments::STORAGE) == "s3"
+            if StorageBackend::parse(settings.get(attachments::STORAGE)) == Some(StorageBackend::S3)
                 && settings.get(attachments::S3_BUCKET).is_empty()
             {
                 Err("must name a bucket while attachments.storage is s3".to_owned())
@@ -1011,6 +1060,10 @@ mod tests {
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
         );
+        assert!(*snapshot.get(updates::CHECK));
+        assert!(!*snapshot.get(updates::PRERELEASES));
+        assert_eq!(snapshot.get(updates::UPDATER_URL), "http://updater:8080");
+        assert_eq!(snapshot.get(updates::UPDATER_TOKEN).expose(), "");
         assert!(!mail_set_up(&snapshot));
         assert!(snapshot.iter().all(|(_, r)| r.source == Source::Default));
         assert_eq!(registry.check_rules(&snapshot), Ok(()));
@@ -1143,6 +1196,17 @@ mod tests {
             refuse("mail.from_name", "Neon\r\nBcc: everyone@example.com"),
             "must not hold line breaks or other control characters"
         );
+        assert_eq!(
+            refuse("updates.updater_url", "updater:8080"),
+            "want an http or https URL, such as http://updater:8080"
+        );
+        let short = "not-long-enough";
+        let refused = refuse("updates.updater_token", short);
+        assert!(
+            refused.starts_with("must be at least 32 characters"),
+            "{refused}"
+        );
+        assert!(!refused.contains(short));
     }
 
     #[test]
@@ -1169,6 +1233,8 @@ mod tests {
                 "mail.port",
                 "mail.tls",
                 "mail.username",
+                "updates.updater_token",
+                "updates.updater_url",
                 "webhooks.allow_private"
             ]
         );

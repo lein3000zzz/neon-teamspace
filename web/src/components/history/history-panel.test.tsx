@@ -18,8 +18,11 @@ function glyphOf(text: HTMLElement | undefined) {
 }
 
 describe("a page's history", () => {
-  // The preview loads the editor on demand; loaded once here, so no test waits on it.
+  // The page and the preview load the editor on demand; loaded once here, so no test waits
+  // on it. Left to the page the first test opens, the import would run on into the tests
+  // after it.
   beforeAll(async () => {
+    await import("@/components/editor/page-editor");
     await import("@/components/editor/version-view");
   });
 

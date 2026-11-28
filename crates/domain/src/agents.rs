@@ -58,10 +58,8 @@ text_enum! {
 }
 
 impl IdentityMode {
-    /// The setting's options, in the order the docs list them.
-    pub const OPTIONS: &'static [&'static str] = &["user", "agent"];
     /// Both modes.
-    pub const DEFAULT: &'static [&'static str] = Self::OPTIONS;
+    pub const DEFAULT: &'static [&'static str] = Self::TEXTS;
 
     /// Whether the modes a setting holds, as their texts, include this one.
     pub fn among<S: AsRef<str>>(self, modes: &[S]) -> bool {
@@ -239,8 +237,6 @@ mod tests {
         for status in AgentStatus::ALL {
             assert_eq!(AgentStatus::parse(status.as_str()), Some(*status));
         }
-        let modes: Vec<&str> = IdentityMode::ALL.iter().map(|m| m.as_str()).collect();
-        assert_eq!(modes, IdentityMode::OPTIONS);
         assert_eq!(AgentCreation::DEFAULT, AgentCreation::Members);
     }
 

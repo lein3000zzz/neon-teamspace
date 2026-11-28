@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Neon Teamspace</title>
+    <!-- Blocking on purpose: it sets the theme attributes before first paint. -->
+    <script src="/theme.js"></script>
+  </head>
+  <body>
+    <main id="picker" class="picker" aria-labelledby="title" aria-busy="true">
+      <p class="brand"><span class="dot" aria-hidden="true"></span>neon teamspace</p>
+      <h1 id="title" tabindex="-1">Neon Teamspace</h1>
+      <div id="view"></div>
+      <p id="status" class="status" role="status"></p>
+      <div id="actions" class="actions"></div>
+    </main>
+    <footer class="theme">
+      <fieldset>
+        <legend>Theme</legend>
+        <label><input type="radio" name="palette" value="nothing" /> Nothing</label>
+        <label><input type="radio" name="palette" value="soft" /> Soft</label>
+        <label><input type="radio" name="palette" value="warm" /> Warm</label>
+      </fieldset>
+      <div id="updates" class="updates" hidden></div>
+      <p class="notices"><a href="/THIRD_PARTY_NOTICES.txt">Third-party licenses</a></p>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

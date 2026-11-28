@@ -19,6 +19,12 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
 | `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`, and Caddy's, with those of the Go modules it is built from, are in `/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`. |
 
+A third image runs only with the `updater` [profile](#profiles):
+
+| Image | What it holds |
+|---|---|
+| `ghcr.io/lein3000zzz/neon-teamspace-updater` | The `neon-updater` binary beside the docker CLI, its Compose plugin and cosign, on Docker's official Alpine image of the CLI. It updates the server and web to a release when an instance admin asks, as [One-click updates](/docs/self-hosting/upgrading/#one-click-updates) describes. The license notices of the crates `neon-updater` is built from are in `/usr/share/doc/neon-updater/THIRD_PARTY_NOTICES.txt`, and those of the docker CLI, its plugins and cosign, with the Go modules each is built from, in `/usr/share/doc/docker/` and `/usr/share/doc/cosign/`. |
+
 You need Docker Engine 25 or later with Compose 2.24.4 or later, and the Compose file with
 the example settings beside it: from a release's Compose archive, to run the published
 images, or from a clone of the repository, to build both images from it.
@@ -35,7 +41,7 @@ start the stack:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
 docker compose -f deployments/docker-compose.yml pull
@@ -53,8 +59,8 @@ Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed
 fetch the archive instead, for `tar` to unpack:
 
 ```sh
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+gh release download v0.2.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.2.0.tar.gz --strip-components=1
 ```
 
 In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
@@ -126,7 +132,7 @@ curl -s http://127.0.0.1:3000/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.2.0"}
 ```
 
 ### `deployments/.env` and `deployments/server.env`
@@ -137,7 +143,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, the same for both, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.1.0`, a minor version such as `0.1`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for each, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.2.0`, a minor version such as `0.2`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
@@ -168,12 +174,20 @@ The first admin is made as the server starts, while no admin can sign in. Withou
 `ADMIN` variables, `neon admin create` makes one in the running stack instead, as
 [the first run](#the-first-run) shows.
 
-The stack sets two of the server's keys itself, over anything `server.env` says:
-`database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
-`0.0.0.0:9090`. The admin listener then answers on the stack's own network, for Prometheus
-to scrape, and is never published. The server logs a warning at start that it is not bound
-to loopback; in the stack, that is meant. Caddy never passes the admin listener's paths on,
-so `/metrics`, `/readyz` and `/debug/pprof` on the instance's address are routes of the app
+The stack sets four of the server's keys itself, over anything `server.env` says:
+
+- `database.url`, from `POSTGRES_PASSWORD`;
+- `server.trusted_proxies`, the private address ranges, as only the stack's containers reach
+  the server;
+- `observability.admin.addr`, which it sets to `0.0.0.0:9090`;
+- `updates.updater_token`, from `NEON_UPDATER_TOKEN` in `deployments/.env`, even when that is
+  blank: the updater's token goes there, as
+  [Turning it on](/docs/self-hosting/upgrading/#turning-it-on) shows, and not in `server.env`.
+
+On that address, the admin listener answers on the stack's own network, for Prometheus to
+scrape, and is never published. The server logs a warning at start that it is not bound to
+loopback; in the stack, that is meant. Caddy never passes the admin listener's paths on, so
+`/metrics`, `/readyz` and `/debug/pprof` on the instance's address are routes of the app
 like any other.
 
 ### A domain and TLS
@@ -274,17 +288,23 @@ Compose profiles add services next to the stack:
 | `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. Point the server at it in `deployments/server.env`; see [Mail](/docs/self-hosting/mail/#development). |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
 | `seaweedfs` | [SeaweedFS](https://github.com/seaweedfs/seaweedfs), an S3-compatible store for attachments, on `seaweedfs:8333` inside the network; see [File storage](/docs/self-hosting/storage/#seaweedfs-in-the-compose-stack). |
+| `updater` | The updater, on `updater:8080`, reachable from the server alone, which updates the server and web to a release when an instance admin presses **Update** in **Admin > Settings**. It holds the Docker socket, and needs `NEON_UPDATER_TOKEN` in `deployments/.env`; see [One-click updates](/docs/self-hosting/upgrading/#one-click-updates). |
 
 A profile goes on the command that starts the stack, with the same files, for example
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
-in a clone. These are separate programs under their own licenses: Postgres under the PostgreSQL License,
-Caddy and SeaweedFS under Apache-2.0, Mailpit under MIT, and the observability stack's
-Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon Teamspace's code.
+in a clone. `COMPOSE_PROFILES` in `deployments/.env`, such as `COMPOSE_PROFILES=updater`,
+turns profiles on instead, for every command that names none with `--profile`, which replaces
+it: list every profile there, such as `COMPOSE_PROFILES=updater,mail`. These are separate
+programs under their own licenses: Postgres under the PostgreSQL License, Caddy, SeaweedFS,
+the docker CLI and its plugins, and cosign under Apache-2.0, Mailpit under MIT, and the
+observability stack's Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is
+linked with Neon Teamspace's code.
 
 ### The end-to-end tests
 
-`make e2e` builds both images from the checkout, starts a throwaway stack of them under its
-own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
+`make e2e` builds the images from the checkout, checks that the updater image states the
+checkout's version and holds the programs it runs, starts a throwaway stack of the server and
+web images under its own Compose project, on a free port of `127.0.0.1` (or the one `E2E_WEB_PORT` names), and
 runs the tests in `e2e/` against it in a headless Chromium with Playwright. The stack gets a
 first admin with a password made for the run, a secret key, its public URL on that port, and
 Mailpit, which takes all its mail and whose API the tests read. The tests start from that
@@ -295,12 +315,16 @@ browsers at once, shared and trashed; databases and boards; comments, mentions, 
 and the mail it sends; search and page history; attachments, and who may download them;
 import and export; agents, OAuth and MCP clients; webhooks delivered to a receiver on the
 stack's network; the layout on a phone's screen; the docs, the security headers, and that
-the admin listener is not reachable. It removes the stack, its data included, however the
-run ends, and leaves Playwright's report in `e2e/playwright-report/`. It needs Docker, Bun
-and Node.js; `make e2e-install`, which it runs first, installs the tests' packages and the
-browser. The server image it tests is built with Cargo's `e2e` profile, the release profile
-without link-time optimisation, so it compiles in a fraction of the time; the published
-images are built with `release`, which `make e2e E2E_CARGO_PROFILE=release` tests.
+the admin listener is not reachable. The `phone-*.spec.ts` specs run with an iPhone's and an
+Android phone's screen, touch and browser name, in the same Chromium: they sign in, find
+pages from the drawer and the search, edit and rearrange a page from the toolbar above the
+keyboard, comment, open the inbox and edit a board's cards. It removes the stack, its data
+included, however the run ends, and leaves Playwright's report in `e2e/playwright-report/`.
+It needs Docker, Bun and Node.js; `make e2e-install`, which it runs first, installs the
+tests' packages and the browser. The server image it tests is built with Cargo's `e2e`
+profile, the release profile without link-time optimisation, so it compiles in a fraction of
+the time; the published images are built with `release`, which
+`make e2e E2E_CARGO_PROFILE=release` tests.
 
 ## From source
 
@@ -378,7 +402,7 @@ curl http://localhost:8080/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.2.0"}
 ```
 
 The name is the [`instance.name`](/docs/reference/settings/) setting. Everything else the
@@ -451,15 +475,16 @@ make check
 
 `make check` runs everything that needs neither Docker nor, once the crates, the packages and
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
-as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
-settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, the block fixtures in both directions, the Claude Code plugin, the version check,
-which fails unless everything that states the version states the cargo workspace's, and the
-license and advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
-`tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+as errors, the Rust docs with warnings as errors, a build, the checks that `api/openapi.json`,
+the web app's API types and the settings reference are current, the web app's, the docs' and
+the end-to-end tests' own checks, the block fixtures in both directions, the Claude Code
+plugin, the version check, which fails unless everything that states the version states the
+cargo workspace's, and the license and advisory checks, which read the packages installed in
+`web/`, `docs/`, `e2e/` and `tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
-`target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
-in `target/`, it could reuse queries last checked against the database instead of the cache.
+`target/offline/`, so that switching between it and the builds checked against the database
+does not rebuild `neon-store` and every crate above it each time: `neon-store`'s build script
+makes each build read the right source, the cache or the database.
 cargo-deny reads the advisory database it last fetched and fails once that copy is more than
 90 days old; `make licenses` fetches a new one.
 

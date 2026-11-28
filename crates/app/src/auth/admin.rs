@@ -10,8 +10,8 @@ use super::{AuthError, AuthService, require_admin};
 use crate::mail::{Mail, Message};
 
 /// The most accounts one page lists, and how many it lists unless told.
-pub const MAX_PAGE: i64 = 200;
-pub const DEFAULT_PAGE: i64 = 50;
+pub(crate) const MAX_PAGE: i64 = 200;
+pub(crate) const DEFAULT_PAGE: i64 = 50;
 
 /// A page of accounts in the order they were made.
 #[derive(Debug, Clone)]

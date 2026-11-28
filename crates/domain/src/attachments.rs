@@ -36,6 +36,20 @@ pub const MAX_NAME: usize = 255;
 pub const UNNAMED: &str = "file";
 
 text_enum! {
+    /// Where uploaded files are kept, as the `attachments.storage` setting names it.
+    StorageBackend {
+        /// The attachments directory under the server's data directory. The default.
+        Local => "local",
+        /// A bucket of an S3-compatible store.
+        S3 => "s3",
+    }
+}
+
+impl StorageBackend {
+    pub const DEFAULT: Self = Self::Local;
+}
+
+text_enum! {
     /// What a file is uploaded for: the kind of block it backs, or a page's cover, which
     /// takes images.
     FileKind {
@@ -447,11 +461,7 @@ pub fn clean_name(raw: &str, media: MediaType) -> String {
     let last = raw.rsplit(['/', '\\']).next().unwrap_or_default();
     let cleaned: String = last.chars().filter(|c| !c.is_control()).collect();
     let trimmed = cleaned.trim();
-    let mut end = trimmed.len().min(MAX_NAME);
-    while !trimmed.is_char_boundary(end) {
-        end -= 1;
-    }
-    let name = trimmed[..end].trim_end();
+    let name = trimmed[..trimmed.floor_char_boundary(MAX_NAME)].trim_end();
     if name.is_empty() || name.chars().all(|c| c == '.') {
         return match media.extension() {
             Some(extension) => format!("{UNNAMED}.{extension}"),
@@ -847,8 +857,10 @@ mod tests {
         assert_eq!(clean_name("", M::Png), "file.png");
         assert_eq!(clean_name("...", M::Unknown), "file");
         assert_eq!(clean_name("dir/", M::Pdf), "file.pdf");
-        let long = clean_name(&"é".repeat(200), M::Text);
-        assert!(long.len() <= MAX_NAME && long.len() >= MAX_NAME - 1);
+        assert_eq!(
+            clean_name(&"é".repeat(200), M::Text),
+            "é".repeat(MAX_NAME / 2)
+        );
     }
 
     #[test]

@@ -3,8 +3,10 @@
 //! These tests sit in their own binary: `figment::Jail` changes the process's working
 //! directory and environment, which tests running beside them would see.
 
-// `figment::Jail` takes closures returning `figment::Result`, whose error is large.
-#![allow(clippy::result_large_err)]
+#![expect(
+    clippy::result_large_err,
+    reason = "figment::Jail's closures return figment::Result, whose error is large"
+)]
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -15,7 +17,7 @@ use neon_domain::settings::{Problem, Source, Stored};
 use neon_observability::config::{LogFormat, LoggingConfig, ProfilingMode};
 use neon_server::config::{
     self, AdminConfig, ConfigError, DEFAULT_LOG_LEVEL, DatabaseConfig, Loaded, MIN_CONNECTIONS,
-    SecretsConfig, ServerConfig,
+    SecretsConfig, ServerConfig, UpdatesConfig,
 };
 
 const URL: &str = "postgres://neon:hunter2@127.0.0.1:55432/neon";
@@ -414,6 +416,10 @@ fn errors_describe_values_without_showing_them() {
         check(load(), "NEON_SERVER__PUBLIC_URL");
         jail.set_env("NEON_SERVER__PUBLIC_URL", "");
 
+        jail.set_env("NEON_UPDATES__GITHUB_API_URL", format!("api {PASSWORD}"));
+        check(load(), "NEON_UPDATES__GITHUB_API_URL");
+        jail.set_env("NEON_UPDATES__GITHUB_API_URL", "");
+
         jail.create_file("neon.yaml", &format!("database: {URL}\n"))?;
         check(load(), "database");
 
@@ -422,6 +428,61 @@ fn errors_describe_values_without_showing_them() {
 
         jail.create_file("neon.yaml", &format!("{URL}\n"))?;
         check(load(), "neon.yaml");
+        Ok(())
+    });
+}
+
+#[test]
+fn the_release_check_asks_github_unless_told_to_ask_another() {
+    jailed(|jail| {
+        jail.set_env("NEON_DATABASE__URL", URL);
+
+        let loaded = load().expect("valid configuration");
+        assert_eq!(loaded.config.updates, UpdatesConfig::default());
+        assert_eq!(
+            loaded.config.updates.github_api_url.as_str(),
+            "https://api.github.com/"
+        );
+        let shown = loaded.render(&registry()).expect("renders");
+        assert!(
+            shown.contains("updates:\n  github_api_url: https://api.github.com/\n"),
+            "{shown}"
+        );
+
+        jail.set_env(
+            "NEON_UPDATES__GITHUB_API_URL",
+            "http://receiver:8080/github",
+        );
+        let loaded = load().expect("valid configuration");
+        assert_eq!(
+            loaded.config.updates.github_api_url.as_str(),
+            "http://receiver:8080/github"
+        );
+
+        for (url, message) in [
+            (
+                "ftp://mirror.example.com",
+                "must be an http or https URL, like https://api.github.com",
+            ),
+            (
+                "https://ci:hunter2@mirror.example.com",
+                "must not hold a user name or password",
+            ),
+            (
+                "https://mirror.example.com/?token=1",
+                "must not hold a query or a fragment",
+            ),
+        ] {
+            jail.set_env("NEON_UPDATES__GITHUB_API_URL", url);
+            assert_eq!(
+                invalid(load()),
+                [Problem::new(
+                    "updates.github_api_url (NEON_UPDATES__GITHUB_API_URL)",
+                    message
+                )],
+                "{url}"
+            );
+        }
         Ok(())
     });
 }
@@ -686,6 +747,7 @@ fn the_example_file_holds_the_defaults() {
         assert_eq!(loaded.config.server, ServerConfig::default());
         assert_eq!(loaded.config.admin, AdminConfig::default());
         assert_eq!(loaded.config.secrets, SecretsConfig::default());
+        assert_eq!(loaded.config.updates, UpdatesConfig::default());
         assert_eq!(
             loaded.config.database,
             DatabaseConfig {

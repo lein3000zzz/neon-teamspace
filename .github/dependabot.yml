@@ -2,15 +2,18 @@
 # directories. Each runs the checks like any other pull request.
 #
 # In the workflows Dependabot reads only the uses: lines, so their other pins are bumped by
-# hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and cargo-deny; in
-# release.yml and e2e.yml the BuildKit image; in release.yml the SBOM scanner image. So are the
+# hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and the tools
+# install-action installs; in ci.yml, release.yml and e2e.yml the BuildKit image; in
+# release.yml the SBOM scanner image. So are the
 # cargo-chef, cargo-about and cargo-auditable downloads in deployments/Dockerfile, with their
-# checksums.
+# checksums, and the server's tokio-tungstenite dev-dependency, which follows the version axum
+# uses, with axum.
 version: 2
 
 updates:
+  # The server's workspace, and the apps', which is one of its own.
   - package-ecosystem: cargo
-    directory: /
+    directories: ['/', '/apps/shell/src-tauri']
     target-branch: dev
     schedule:
       interval: monthly
@@ -20,12 +23,17 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+    ignore:
+      # The real-time sync tests' WebSocket client, on the version axum's server side uses, so
+      # that the tests build one tungstenite and not two.
+      - dependency-name: tokio-tungstenite
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
 
   # Bun's text lockfile, bun.lock, in each JS project. tools/blocknote-fixtures pins the
   # BlockNote packages the web app uses, so a bump there regenerates the block fixtures
   # (make blocks-fixtures) in the same pull request.
   - package-ecosystem: bun
-    directories: ['/web', '/docs', '/e2e', '/tools/blocknote-fixtures']
+    directories: ['/web', '/docs', '/e2e', '/tools/blocknote-fixtures', '/apps/shell']
     target-branch: dev
     schedule:
       interval: monthly
@@ -41,6 +49,20 @@ updates:
       # the projects stay on 6.x until both support 7.
       - dependency-name: typescript
         update-types: ['version-update:semver-major']
+
+  # The Android app's Gradle build: the Android Gradle plugin, Kotlin and the AndroidX
+  # libraries. Tauri generated the project, and keeps only its generated/ files up to date.
+  - package-ecosystem: gradle
+    directory: /apps/shell/src-tauri/gen/android
+    target-branch: dev
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      gradle:
+        patterns: ['*']
 
   # The actions in .github/workflows, pinned to commit SHAs: Dependabot moves the SHA and the
   # version comment beside it together.

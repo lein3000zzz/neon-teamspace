@@ -80,8 +80,10 @@ pub enum ContentError {
     #[error("the page's document is not available now: {0}")]
     Unavailable(CloseReason),
     #[error("the page's document does not load: {0}")]
-    Load(#[from] LoadError),
+    Load(LoadError),
 }
+
+from_cause!(ContentError { Load(LoadError) });
 
 impl ContentError {
     /// A stable code for programs, as the API's error shape carries it.
@@ -132,7 +134,13 @@ pub struct Edited {
 /// first 128 bits of the SHA-256 of their markdown with ids, which changes whenever what
 /// reading shows does.
 pub fn revision(document: &Document) -> String {
-    let digest = Sha256::digest(to_markdown_with_ids(document).as_bytes());
+    revision_of_markdown(&to_markdown_with_ids(document))
+}
+
+/// The [`revision`] of blocks whose markdown with ids is `markdown`, for a reader that has
+/// it already.
+pub fn revision_of_markdown(markdown: &str) -> String {
+    let digest = Sha256::digest(markdown.as_bytes());
     URL_SAFE_NO_PAD.encode(&digest[..16])
 }
 
@@ -242,7 +250,7 @@ impl SyncService {
                 });
             }
             let made = self
-                .send(view.page.workspace_id, page_id, |done| Command::Restore {
+                .send(page_id, view.page.workspace_id, |done| Command::Restore {
                     author: principal.user.id,
                     blocks: blocks.clone(),
                     from,
@@ -301,7 +309,7 @@ impl SyncService {
         edits: Vec<Edit>,
         base: Option<String>,
     ) -> Result<Made, ContentError> {
-        self.send(workspace_id, page_id, |done| Command::Edit {
+        self.send(page_id, workspace_id, |done| Command::Edit {
             author,
             edits: edits.clone(),
             base: base.clone(),
@@ -314,8 +322,8 @@ impl SyncService {
     /// unload meanwhile, and reads what it made.
     async fn send(
         &self,
-        workspace_id: Uuid,
         page_id: Uuid,
+        workspace_id: Uuid,
         command: impl Fn(oneshot::Sender<Result<Made, Unedited>>) -> Command,
     ) -> Result<Made, ContentError> {
         for _ in 0..JOIN_ATTEMPTS {

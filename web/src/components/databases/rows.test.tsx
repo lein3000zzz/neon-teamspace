@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DATABASE_PATH,
   databasePages,
@@ -13,7 +13,7 @@ import {
 import { fakePages, samplePages } from "@/test/pages";
 import { renderApp } from "@/test/render-app";
 import { fakeWorkspaces } from "@/test/workspaces";
-import { WIDE_QUERY } from "@/lib/media";
+import { COARSE_QUERY, WIDE_QUERY } from "@/lib/media";
 
 const ROW_PATH = `/w/design/p/${DB.docs}`;
 
@@ -34,6 +34,12 @@ function wideScreen() {
     removeEventListener: () => {},
   }));
 }
+
+// The page loads the editor on demand; loaded once here, so no test waits on it. Left to the
+// first page a test opens, the import would run on into the tests after it.
+beforeAll(async () => {
+  await import("@/components/editor/page-editor");
+});
 
 describe("a row's page", () => {
   it("shows its id and properties above its content, editable as in the views", async () => {
@@ -155,6 +161,47 @@ describe("opening a row", () => {
     await user.click(peek.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(router.state.location.search).toEqual({}));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("on a wide touch screen, closes it back to the database, leaving no entry to open it again", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === WIDE_QUERY || query === COARSE_QUERY,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { user, router } = setUp(DATABASE_PATH);
+    const start = router.history.location.state["__TSR_index"];
+    const table = within(await screen.findByRole("table", { name: "Table" }));
+
+    await user.click(await table.findByRole("button", { name: "Open Fix login" }));
+    const peek = within(
+      await screen.findByRole("dialog", { name: "Fix login, beside the database" }),
+    );
+    expect(router.history.location.state["__TSR_index"]).toBe(start + 1);
+    await user.click(peek.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(router.history.location.state["__TSR_index"]).toBe(start);
+  });
+
+  it("on a touch screen, closes a row opened from its address in that entry's place", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === WIDE_QUERY || query === COARSE_QUERY,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { user, router } = setUp(`${DATABASE_PATH}?peek=${DB.login}`);
+    const start = router.history.location.state["__TSR_index"];
+    const peek = within(
+      await screen.findByRole("dialog", { name: "Fix login, beside the database" }),
+    );
+
+    await user.click(peek.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+    expect(router.history.location.state["__TSR_index"]).toBe(start);
   });
 
   it("finds a row by its unique id, in any case", async () => {

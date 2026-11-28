@@ -12,16 +12,31 @@ DENY_FLAGS ?=
 E2E_PROJECT       ?= neon-e2e
 E2E_SERVER_IMAGE  ?= neon-teamspace-server:local
 E2E_WEB_IMAGE     ?= neon-teamspace-web:local
+# The updater image make e2e builds and checks beside them, and the one make updater-image builds.
+E2E_UPDATER_IMAGE ?= neon-teamspace-updater:local
+UPDATER_IMAGE     ?= neon-teamspace-updater:local
 # The Cargo profile of the server image make e2e tests: e2e, the release profile's quicker
 # build, unless set to release, as the run before a release does to test the published build.
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# A directory holding a neon binary built for Linux, and the THIRD_PARTY_NOTICES.txt make
+# server-notices writes: set, make e2e wraps them in the server image's prebuilt target
+# instead of compiling the server, and E2E_CARGO_PROFILE applies to the updater alone. CI sets
+# it to the binary its Rust tests were built with.
+E2E_SERVER_PREBUILT ?=
+# The Compose project of make updates-e2e's stack, which also names its registry's container.
+UPDATES_E2E_PROJECT ?= neon-updates-e2e
 # The port of 127.0.0.1 the e2e stack's web origin is on: one free when make e2e starts it,
 # unless set.
 E2E_WEB_PORT      ?=
 # The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
 S3_TEST_CONTAINER ?= neon-s3-test
+# The command make test-s3 runs the S3 blob store's tests with once SeaweedFS takes writes. CI
+# runs them from the archive of test binaries its other Rust tests ran from.
+S3_TESTS          ?= $(CARGO) test --workspace --test blobs
+# Where make server-notices writes the license notices of the crates the neon binary links.
+SERVER_NOTICES    ?= target/THIRD_PARTY_NOTICES.txt
 # The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
 SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
@@ -48,21 +63,32 @@ NO_DATABASE   := POSTGRES_PASSWORD=unused
 # deployments/server.env, so the tests see the defaults.
 E2E_COMPOSE   := docker compose -p $(E2E_PROJECT) --env-file /dev/null -f deployments/docker-compose.yml \
 	-f deployments/docker-compose.build.yml -f deployments/docker-compose.e2e.yml
-# Builds the e2e stack's images as docker-compose.build.yml describes them, with bake rather
-# than Compose, as bake takes cache options; the server in E2E_CARGO_PROFILE. Bake reads a
-# Compose file's build context from the directory it runs in, not from the file's, so the root
-# is named again.
+# Builds the e2e stack's images, and the updater's, as docker-compose.build.yml describes them,
+# with bake rather than Compose, as bake takes cache options; the server and the updater in
+# E2E_CARGO_PROFILE. Bake reads a Compose file's build context from the directory it runs in,
+# not from the file's, so the root is named again.
 E2E_BAKE      := docker buildx bake -f deployments/docker-compose.build.yml \
-	--set server.context=. --set web.context=. --set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
-	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE)
+	--set server.context=. --set web.context=. --set updater.context=. \
+	--set server.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) --set updater.args.CARGO_PROFILE=$(E2E_CARGO_PROFILE) \
+	--set server.tags=$(E2E_SERVER_IMAGE) --set web.tags=$(E2E_WEB_IMAGE) --set updater.tags=$(E2E_UPDATER_IMAGE)
 # The instance name the e2e stack is given, and its tests expect.
 E2E_INSTANCE  := Neon E2E
 # The first admin of the e2e stack, whom the tests sign in as. make e2e makes the password.
 E2E_ADMIN     := admin@e2e.example
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
-# Where check builds, so that its offline build never reuses one checked against a database.
+# The updater's binary, which needs no database.
+NEON_UPDATER  := $(CARGO) run --quiet -p neon-updater --
+# Where check builds, apart from the builds checked against a database.
 OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
+# The apps' Tauri project: the bundled server picker in APP_DIR, and its Rust side, a Cargo
+# workspace of its own, which builds into its own target directory, where Tauri's CLI looks
+# for it, whatever CARGO_TARGET_DIR says for the server's.
+APP_DIR       := apps/shell
+APP_MANIFEST  := $(APP_DIR)/src-tauri/Cargo.toml
+APP_CARGO     := CARGO_TARGET_DIR=$(CURDIR)/$(APP_DIR)/src-tauri/target $(CARGO)
+# The port make app-test previews the picker on: a run from another checkout can name its own.
+PICKER_PORT   ?= 1421
 
 # Astro reports usage over the network unless told not to.
 export ASTRO_TELEMETRY_DISABLED := 1
@@ -101,6 +127,26 @@ up: ## Build both images from this checkout and run the stack on http://127.0.0.
 down: ## Stop what make up and make obs-up started; the data stays in volumes
 	$(NO_DATABASE) $(STACK_COMPOSE) --profile mail --profile observability down
 
+.PHONY: updater-image
+updater-image: ## Build the updater image for this machine from the checkout, as neon-teamspace-updater:local
+	docker buildx build -f deployments/Dockerfile --target updater --load -t $(UPDATER_IMAGE) .
+
+.PHONY: updater-image-check
+# Each program the updater runs is in the image, with its notices, and the binary is this
+# checkout's version.
+updater-image-check: ## Check the updater image UPDATER_IMAGE names: its version, and docker, Compose and cosign in it
+	@set -e; said="$$(docker run --rm $(UPDATER_IMAGE) version)"; \
+	if [ "$$said" != "neon-updater $(VERSION)" ]; then \
+		echo "$(UPDATER_IMAGE) says $$said, not neon-updater $(VERSION)"; exit 1; \
+	fi; \
+	docker run --rm --entrypoint docker $(UPDATER_IMAGE) compose version; \
+	docker run --rm --entrypoint cosign $(UPDATER_IMAGE) version >/dev/null; \
+	for doc in neon-updater docker cosign; do \
+		docker run --rm --entrypoint test $(UPDATER_IMAGE) -s /usr/share/doc/$$doc/THIRD_PARTY_NOTICES.txt \
+			|| { echo "$(UPDATER_IMAGE) has no notices for $$doc"; exit 1; }; \
+	done; \
+	echo "$(UPDATER_IMAGE) is neon-updater $(VERSION), with docker, Compose, cosign and their notices"
+
 .PHONY: obs-up
 obs-up: ## Start Grafana, Prometheus, Tempo, Loki and Pyroscope on http://127.0.0.1:3001, for make run
 	$(NO_DATABASE) $(STACK_COMPOSE) --profile observability up --detach --wait otel-lgtm
@@ -127,8 +173,9 @@ migrate: ## Apply pending migrations to the database DATABASE_URL names (.env)
 ## Rust
 
 .PHONY: fmt
-fmt: ## Format the Rust code
+fmt: ## Format the Rust code, the apps' too
 	$(CARGO) fmt --all
+	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all
 
 .PHONY: fmt-check
 fmt-check: ## Fail if any Rust file needs formatting
@@ -137,6 +184,10 @@ fmt-check: ## Fail if any Rust file needs formatting
 .PHONY: lint
 lint: ## Run clippy on every target, warnings as errors
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
+
+.PHONY: doc-check
+doc-check: ## Build the Rust docs, private items included, warnings as errors
+	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps --document-private-items
 
 .PHONY: test
 test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
@@ -172,7 +223,18 @@ test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (D
 	curl -fsS $$signed -X DELETE "http://$$address/neon-test/ready-probe" >/dev/null; \
 	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
 		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
-		$(CARGO) test --workspace --test blobs
+		$(S3_TESTS)
+
+.PHONY: server-notices
+# The command and the check of the notices stage of deployments/Dockerfile, which writes the
+# server image's in the about stage's skeleton of the workspace: keep the two in step. For the
+# image make e2e makes of a prebuilt binary.
+server-notices: ## Write the license notices of the crates the neon binary links, as the server image holds them, into SERVER_NOTICES (needs cargo-about)
+	@mkdir -p $(dir $(SERVER_NOTICES))
+	$(CARGO) about generate --locked --fail -m crates/server/Cargo.toml -c about.toml -o $(SERVER_NOTICES) about.hbs
+	@grep -q "Jason Evans" $(SERVER_NOTICES) \
+		|| { echo "jemalloc's notice is missing: update the tikv-jemalloc-sys checksums in about.toml" >&2; exit 1; }
+	@echo "wrote $(SERVER_NOTICES)"
 
 ## Generated files
 
@@ -253,15 +315,22 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 	cd e2e && $(BUN) run check
 
 .PHONY: e2e-images
-e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
-	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
+# With E2E_SERVER_PREBUILT, the server is its image's prebuilt target, which reads the binary
+# and its notices from that directory as the build context neon-prebuilt. Bake reads a
+# directory outside the one it runs in only when allowed to.
+e2e-images: ## Build the images for make e2e, and the updater's, the Rust ones in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise, the server from E2E_SERVER_PREBUILT if set
+	$(E2E_BAKE) --load $(if $(E2E_SERVER_PREBUILT),--set server.target=prebuilt \
+		--set server.contexts.neon-prebuilt=$(abspath $(E2E_SERVER_PREBUILT)) \
+		--allow=fs.read=$(abspath $(E2E_SERVER_PREBUILT))) $(E2E_BUILD_FLAGS) server web updater
 
 .PHONY: e2e
-# Under make -j the images build while e2e-install runs. The server's public URL names the web
-# origin's port, so the port is picked before the stack starts, from those free then. The trap
-# removes the stack, its volumes too, however the run ends, after printing the containers'
-# logs when it failed, and keeps the run's exit status.
-e2e: e2e-install e2e-images ## Build both images, test a throwaway stack of them in Chromium, then remove it
+# Under make -j the images build while e2e-install runs. The updater image, which the stack does
+# not run, is checked first. The server's public URL names the web origin's port, so the port is
+# picked before the stack starts, from those free then. The trap removes the stack, its volumes
+# too, however the run ends, after printing the containers' logs when it failed, and keeps the
+# run's exit status.
+e2e: e2e-install e2e-images ## Build the images, test a throwaway stack of them in Chromium, then remove it
+	@$(MAKE) --no-print-directory updater-image-check UPDATER_IMAGE=$(E2E_UPDATER_IMAGE)
 	@set -e; \
 	port="$(E2E_WEB_PORT)"; if [ -z "$$port" ]; then port="$$($(BUN) e2e/free-port.ts)"; fi; \
 	export POSTGRES_PASSWORD="$$(openssl rand -hex 16)" E2E_INSTANCE_NAME="$(E2E_INSTANCE)" \
@@ -276,6 +345,13 @@ e2e: e2e-install e2e-images ## Build both images, test a throwaway stack of them
 	echo "testing http://127.0.0.1:$$port; the report goes to e2e/playwright-report/"; \
 	(cd e2e && E2E_BASE_URL="http://127.0.0.1:$$port" E2E_RECEIVER_URL="http://$$receiver" \
 		E2E_MAIL_URL="http://$$mail" $(BUN) run test)
+
+.PHONY: updates-e2e
+# Not run by CI: it builds the images twice. e2e/updates/run.ts says what it does, and removes
+# all it made however the run ends.
+updates-e2e: e2e-install ## Update a throwaway stack from this checkout's release to the next patch, from the admin settings, through a registry on loopback
+	UPDATES_E2E_PROJECT="$(UPDATES_E2E_PROJECT)" E2E_CARGO_PROFILE="$(E2E_CARGO_PROFILE)" \
+		$(BUN) e2e/updates/run.ts
 
 ## Block fixtures (tools/blocknote-fixtures/)
 
@@ -292,6 +368,57 @@ blocks-fixtures: ## Rewrite the block fixtures: BlockNote's for the corpus, then
 blocks-check: ## Test neon-blocks against BlockNote's fixtures, and check BlockNote loads neon-blocks' updates
 	$(CARGO) test -p neon-blocks
 	cd tools/blocknote-fixtures && $(BUN) run check
+
+## Apps (apps/shell/)
+
+.PHONY: app-install
+app-install: ## Install the apps' packages: the server picker's, its tests' and Tauri's CLI
+	cd $(APP_DIR) && $(BUN) install --frozen-lockfile
+
+.PHONY: app-browsers
+app-browsers: ## Install the headless Chromium and WebKit make app-test runs, with their system libraries on CI
+	cd $(APP_DIR) && $(BUN) x playwright install $(if $(CI),--with-deps) --only-shell chromium
+	cd $(APP_DIR) && $(BUN) x playwright install $(if $(CI),--with-deps) webkit
+
+.PHONY: app-picker
+app-picker: ## Build the bundled server picker into apps/shell/dist, which the app's Rust build embeds
+	cd $(APP_DIR) && $(BUN) run build
+
+.PHONY: app-dev
+app-dev: ## Run the desktop app, the picker reloading as it changes
+	cd $(APP_DIR) && $(BUN) run tauri dev
+
+.PHONY: app-check
+app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint, doc-check and test the app's Rust side
+	cd $(APP_DIR) && $(BUN) run check
+	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all --check
+	$(APP_CARGO) clippy --manifest-path $(APP_MANIFEST) --all-targets -- -D warnings
+	RUSTDOCFLAGS="-D warnings" $(APP_CARGO) doc --manifest-path $(APP_MANIFEST) --no-deps --document-private-items
+	$(APP_CARGO) test --manifest-path $(APP_MANIFEST)
+
+.PHONY: app-test
+app-test: app-picker ## Test the picker on its own, under the app's policy, in Chromium and WebKit at desktop and phone sizes
+	cd $(APP_DIR) && PICKER_PORT=$(PICKER_PORT) $(BUN) run test
+
+.PHONY: app-build
+# CI=true makes the disk image's script skip the AppleScript that lays out its Finder window,
+# which needs permission to control Finder; the image is the same otherwise.
+app-build: ## Build the desktop app and its installers for this machine, into apps/shell/src-tauri/target/release/bundle
+	cd $(APP_DIR) && CI=true $(BUN) run tauri build
+
+.PHONY: app-webview-check
+# The binary make app-build leaves, as CI's Linux build does too. Under xvfb-run -a where there
+# is no display.
+app-webview-check: ## On Linux, run the built app against a hostile server in WebKitGTK: no page of a server may call the picker's commands
+	cd $(APP_DIR) && $(BUN) scripts/webview-check.ts src-tauri/target/release/neon-teamspace
+
+.PHONY: app-android
+app-android: ## Build an Android APK signed with the debug key, for testing (needs JAVA_HOME, ANDROID_HOME and NDK_HOME)
+	cd $(APP_DIR) && CI=true $(BUN) run tauri android build --apk --debug
+
+.PHONY: app-ios
+app-ios: ## Build the iOS app with Xcode, signed for APPLE_DEVELOPMENT_TEAM and exported for App Store Connect
+	cd $(APP_DIR) && CI=true $(BUN) run tauri ios build --export-method app-store-connect
 
 ## Claude Code plugin (.claude-plugin/ and integrations/claude-code/)
 
@@ -310,9 +437,9 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 .PHONY: version-check
 # The release workflow passes the tag it runs for as TAG, which the recipe reads from the
 # environment rather than pasted into the command.
-version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
-	@set -e; neon="$$($(NEON) --version)"; \
-	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, neon-updater version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; updater="$$($(NEON_UPDATER) version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" --updater "$$updater" $(if $(TAG),--tag "$$TAG")
 
 .PHONY: compose-archive
 # From the commit checked out, not the working tree, so the archive holds what the tag holds.
@@ -328,23 +455,28 @@ compose-archive: ## Write dist/neon-teamspace-compose-VERSION.tar.gz, the Compos
 # Without --offline, cargo-deny first updates its copy of the RustSec advisory database.
 licenses: ## Run cargo-deny's license, advisory, ban and source checks; check the JS packages' licenses
 	$(CARGO) deny $(DENY_FLAGS) check
+	$(CARGO) deny $(DENY_FLAGS) --manifest-path $(APP_MANIFEST) check
 	$(BUN) scripts/licenses.ts web
 	$(BUN) scripts/licenses.ts docs
 	$(BUN) scripts/licenses.ts e2e
 	$(BUN) scripts/licenses.ts tools/blocknote-fixtures
+	$(BUN) scripts/licenses.ts $(APP_DIR)
 
 .PHONY: check
 # Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
-# a target directory of its own: cargo does not rebuild a crate when only SQLX_OFFLINE changes,
-# so in target/ it would reuse queries last checked against the database. cargo-deny reads the
-# advisory database it last fetched, and fails when that copy is more than 90 days old.
+# a target directory of its own: neon-store's build script rebuilds it whenever SQLX_OFFLINE or
+# DATABASE_URL changes, so that each build reads the right source, and in target/ each switch
+# between this build and one checked against a database would rebuild neon-store and every
+# crate above it. cargo-deny reads the advisory database it last fetched, and fails when that
+# copy is more than 90 days old.
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test and e2e)
+check: fmt-check lint doc-check build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
 	@echo "all checks passed"
 
 .PHONY: clean
-clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro and docs/csp.caddy
+clean: ## Remove build output: target/, dist/, web/dist, docs/dist, docs/.astro, docs/csp.caddy and the apps'
 	$(CARGO) clean
 	rm -rf "$(OFFLINE_TARGET_DIR)" dist web/dist docs/dist docs/.astro docs/csp.caddy
+	rm -rf $(APP_DIR)/dist $(APP_DIR)/src-tauri/target

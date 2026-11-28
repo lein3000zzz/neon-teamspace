@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "picker",
+  "description": "The bundled server picker, on the app's own origin: the app's commands and nothing else. It names no remote URL, so the server's pages, on another origin, get no command at all.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-startup",
+    "allow-connect",
+    "allow-open-server",
+    "allow-rename-server",
+    "allow-remove-server",
+    "allow-cancel-opening",
+    "allow-check-for-updates"
+  ]
+}

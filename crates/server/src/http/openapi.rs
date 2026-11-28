@@ -26,8 +26,8 @@ the agent, which may do only what both it and its owner may. An OAuth access tok
 the workspace its person chose, acting as them or as one of their agents. The OAuth \
 endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in \
 OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from \
-any origin. Deleting a workspace \
-and transferring its ownership need a browser session. A request that \
+any origin. Deleting a workspace, \
+transferring its ownership and updating the server need a browser session. A request that \
 changes something and carries no `Authorization` header must come from the server's own \
 origin: its `Origin`, or else its `Referer`, must match the public URL.";
 
@@ -52,7 +52,7 @@ origin: its `Origin`, or else its `Referer`, must match the public URL.";
         (name = "comments", description = "Threads of comments on pages, on a page as a whole or on a range of its text, their replies, following a page's comments, and what a mention may name. Open pages' editors hear that a thread changed over `GET /ws/pages/{id}`, which the docs describe."),
         (name = "notifications", description = "The inbox: mentions, replies, comments on followed pages, assignments and invitations, each checked again against what its person may see; how one wants mail of it, and the link that stops that mail. The app follows it live at `GET /ws/inbox`, which the docs describe."),
         (name = "databases", description = "Databases: their properties and views, and their rows with their values. A database and its rows are pages too. Their changes are followed live at `GET /ws/databases/{id}`, which the docs describe."),
-        (name = "admin", description = "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."),
+        (name = "admin", description = "Accounts, invites, requests to join, settings, workspaces' limits, and the server's version and updates, for instance admins."),
     )
 )]
 struct ApiDoc;

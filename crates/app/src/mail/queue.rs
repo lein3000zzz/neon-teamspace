@@ -79,10 +79,12 @@ pub struct Queued {
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
     #[error("mail cannot be queued: {0}")]
-    Seal(#[from] SealError),
+    Seal(SealError),
     #[error("queueing mail: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(QueueError { Seal(SealError), Database(sqlx::Error) });
 
 impl MailQueue {
     /// Mail sealed with `envelope`, its links pointing to `public_url`, which mail needs,
@@ -143,7 +145,9 @@ impl MailQueue {
     pub async fn queue(&self, conn: &mut PgConnection, mail: &Mail) -> Result<Uuid, QueueError> {
         let id = Uuid::now_v7();
         let payload = Payload::new(mail, self.now());
-        let plain = Zeroizing::new(serde_json::to_vec(&payload).map_err(|_| SealError::Encrypt)?);
+        let plain = Zeroizing::new(
+            serde_json::to_vec(&payload).expect("a payload of strings and numbers serializes"),
+        );
         let sealed = self.inner.envelope.seal(&plain, &aad(id))?;
         let payload = json!({ SEALED: STANDARD.encode(sealed) });
         jobs::enqueue(&mut *conn, &NewJob::new(KIND, payload).id(id)).await?;

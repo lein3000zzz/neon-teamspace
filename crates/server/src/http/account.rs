@@ -11,7 +11,7 @@ use neon_app::auth::ProfileUpdate;
 use neon_domain::auth::preferences::{
     Mode as DomainMode, Palette as DomainPalette, UiFont as DomainUiFont,
 };
-use neon_domain::auth::{Credential, Preferences as DomainPreferences};
+use neon_domain::auth::{Credential, Preferences as DomainPreferences, Scope as DomainScope};
 use neon_domain::settings::Secret;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -533,7 +533,7 @@ pub(super) async fn create_token(
     Account(principal): Account,
     Json(body): Json<CreateApiToken>,
 ) -> Result<(StatusCode, Json<CreatedApiToken>), ApiError> {
-    let scopes: Vec<&str> = body.scopes.iter().map(|scope| scope.as_str()).collect();
+    let scopes: Vec<DomainScope> = body.scopes.into_iter().map(DomainScope::from).collect();
     let (secret, token) = state
         .auth
         .create_api_token(

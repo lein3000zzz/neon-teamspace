@@ -161,10 +161,12 @@ impl OAuthService {
                     Vec::new()
                 };
                 offered.push(ConsentWorkspace {
-                    as_person: modes.person.then(|| offered_scopes(false, role)),
+                    as_person: modes
+                        .person
+                        .then(|| offered_scopes(IdentityMode::User, role)),
                     agents_on: modes.agents && role.joins_teamspaces(),
                     agents,
-                    agent_scopes: offered_scopes(true, role),
+                    agent_scopes: offered_scopes(IdentityMode::Agent, role),
                     workspace,
                     role,
                 });
@@ -211,7 +213,7 @@ impl OAuthService {
                 }));
             }
             let (user_id, offered) = match approval.identity {
-                Identity::Person => (principal.user.id, offered_scopes(false, role)),
+                Identity::Person => (principal.user.id, offered_scopes(IdentityMode::User, role)),
                 Identity::Agent(agent_id) => {
                     let stored = agent_store::get(&mut *tx, workspace_id, agent_id)
                         .await?
@@ -222,7 +224,7 @@ impl OAuthService {
                         stored,
                         IdentityMode::Agent.among(identities),
                     )?;
-                    (agent_id, offered_scopes(true, role))
+                    (agent_id, offered_scopes(IdentityMode::Agent, role))
                 }
             };
             let scopes = chosen_scopes(&approval.scopes, &offered)?;

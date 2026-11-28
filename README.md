@@ -36,10 +36,10 @@ you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
   area that never sees inside a workspace.
 - **Self-hosting with Docker.** Signed images for `linux/amd64` and `linux/arm64`, a Compose
   file with Postgres, TLS from Caddy given a domain, settings that change while the server
-  runs, and logs, metrics, traces and profiles.
-
-Desktop and mobile apps, thin shells that load the web app from your server, are planned and
-not released yet.
+  runs, one-click updates from the admin settings, and logs, metrics, traces and profiles.
+- **Desktop and mobile apps.** Apps for macOS, Windows, Linux and Android, thin shells that
+  open your server's web app, are attached to each release and offer each newer one. An iOS
+  app builds from source. The [Apps guide](docs/src/content/docs/guides/apps.md) covers them.
 
 ## Quick start
 
@@ -48,7 +48,7 @@ archive into a directory of its own, and copy the example settings:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 cp deployments/server.env.example deployments/server.env
 ```
@@ -107,13 +107,18 @@ server. The source is a Starlight site in `docs/`, one Markdown file per page un
 [introduction](docs/src/content/docs/guides/introduction.md).
 [docs/README.md](docs/README.md) covers building them.
 
+The pages link to each other by their paths under `/docs`, so those links work at an
+instance's `/docs` but not when the Markdown is read here on GitHub. To read the docs with
+working links without running the server, `make docs-install docs-dev` serves them at
+`http://localhost:4321/docs/`.
+
 ## Development
 
 You need Rust through [rustup](https://rustup.rs), [sqlx-cli](https://crates.io/crates/sqlx-cli),
-[cargo-deny](https://crates.io/crates/cargo-deny), [Bun](https://bun.sh), Docker,
-[Node.js](https://nodejs.org) for the end-to-end tests, and GNU make 3.81 or later, which
-macOS ships. [CONTRIBUTING.md](CONTRIBUTING.md#what-you-need) has the commands that
-install them. `make` on its own lists every target.
+[cargo-deny](https://crates.io/crates/cargo-deny), [cargo-about](https://crates.io/crates/cargo-about),
+[Bun](https://bun.sh), Docker, [Node.js](https://nodejs.org) for the end-to-end tests, and
+GNU make 3.81 or later, which macOS ships. [CONTRIBUTING.md](CONTRIBUTING.md#what-you-need)
+has the commands that install them. `make` on its own lists every target.
 
 A development server, against Postgres and Mailpit in Docker:
 
@@ -134,7 +139,7 @@ make web-dev               # http://localhost:5173/, passing the server's paths 
 The checks and the tests:
 
 ```sh
-make docs-install e2e-install blocks-install   # once: the packages make check reads too
+make docs-install e2e-install blocks-install app-install   # once: the packages make check reads too
 make check                 # every check that needs neither Docker nor the network
 make test                  # the Rust tests, against the development database
 make e2e                   # the whole stack in Docker, tested in Chromium

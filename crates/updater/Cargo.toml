@@ -1,0 +1,44 @@
+[package]
+name = "neon-updater"
+description = "The updater: a sidecar beside the Compose stack that updates it to a release when the server asks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "neon-updater"
+path = "src/main.rs"
+
+# None of the workspace's other crates: the updater needs no database, and its image holds this
+# binary alone, beside the docker CLI and cosign.
+[dependencies]
+anyhow.workspace = true
+# Not the workspace's axum, which keeps the default features: only what three routes use.
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+clap.workspace = true
+# A version's precedence, so that the updater never goes back to an older release.
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The token is compared by its SHA-256, in constant time.
+sha2.workspace = true
+subtle = "2.6.1"
+time = { workspace = true, features = ["formatting", "parsing", "serde"] }
+tokio = { workspace = true, features = ["io-util", "process"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["json"] }
+
+[dev-dependencies]
+# A request body that never ends, for the request timeout's test.
+futures-util.workspace = true
+tempfile.workspace = true
+time = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["io-util", "process", "test-util"] }
+# Requests sent straight to the router, in the server's tests.
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

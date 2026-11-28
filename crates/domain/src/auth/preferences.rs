@@ -3,55 +3,30 @@
 
 use serde_json::{Map, Value as Json, json};
 
-/// The largest accent hue, in degrees; 360 would be 0 again.
-pub const HUE_MAX: u16 = 359;
+use crate::hue::MAX_HUE;
 
 /// The accent where neither the user nor a workspace gives one: a blue. Mail, which no
 /// workspace frames, is drawn in it.
 pub const DEFAULT_ACCENT_HUE: u16 = 250;
 
-macro_rules! options {
-    ($(#[$doc:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum $name {
-            $($variant),+
-        }
-
-        impl $name {
-            pub const ALL: &[Self] = &[$(Self::$variant),+];
-
-            pub fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $text),+
-                }
-            }
-
-            pub fn parse(text: &str) -> Option<Self> {
-                Self::ALL.iter().copied().find(|option| option.as_str() == text)
-            }
-        }
-    };
-}
-
-options! {
+text_enum! {
     /// The colour set.
     Palette { Nothing => "nothing", Soft => "soft", Warm => "warm" }
 }
 
-options! {
+text_enum! {
     /// Light or dark, or whichever the system prefers.
     Mode { System => "system", Light => "light", Dark => "dark" }
 }
 
-options! {
+text_enum! {
     /// The interface's typeface.
     UiFont { Default => "default", Mono => "mono" }
 }
 
-/// An accent hue past [`HUE_MAX`].
+/// An accent hue past [`MAX_HUE`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the accent hue is a whole number of degrees from 0 to {HUE_MAX}")]
+#[error("the accent hue is a whole number of degrees from 0 to {MAX_HUE}")]
 pub struct InvalidHue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +58,7 @@ impl Preferences {
         accent_hue: Option<u16>,
         ui_font: UiFont,
     ) -> Result<Self, InvalidHue> {
-        if accent_hue.is_some_and(|hue| hue > HUE_MAX) {
+        if accent_hue.is_some_and(|hue| hue > MAX_HUE) {
             return Err(InvalidHue);
         }
         Ok(Self {
@@ -115,7 +90,7 @@ impl Preferences {
                 .get("accent_hue")
                 .and_then(Json::as_u64)
                 .and_then(|hue| u16::try_from(hue).ok())
-                .filter(|hue| *hue <= HUE_MAX)
+                .filter(|hue| *hue <= MAX_HUE)
                 .or(defaults.accent_hue),
             ui_font: text("ui_font")
                 .and_then(UiFont::parse)
@@ -199,7 +174,7 @@ mod tests {
             Preferences::new(
                 Palette::Nothing,
                 Mode::Light,
-                Some(HUE_MAX),
+                Some(MAX_HUE),
                 UiFont::Default
             )
             .is_ok()

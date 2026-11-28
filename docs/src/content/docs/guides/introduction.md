@@ -30,7 +30,7 @@ the friends its owner lets in.
 
 ## What exists
 
-Version 0.1.0 is the first release; the
+Version 0.2.0 is the latest release; the
 [changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
 each release brings. What exists:
 
@@ -61,6 +61,9 @@ each release brings. What exists:
 - Pages, through the API and the web app's page trees, headers and live editor: nesting,
   private pages, sharing with members and guests, moving, the trash and favorites; see
   [Editing pages](/docs/guides/editing-pages/) and [Pages](/docs/guides/pages/).
+- Editing on a touch screen, from a toolbar above the keyboard in place of the block handles
+  and the formatting toolbar; see
+  [On a phone or a tablet](/docs/guides/editing-pages/#on-a-phone-or-a-tablet).
 - Real-time sync of pages' documents over WebSocket, in y-websocket's protocol, saved as a
   log of updates and snapshots, with connections closed or made read-only as access
   changes; see [Real-time sync](/docs/architecture/realtime/).
@@ -94,18 +97,21 @@ each release brings. What exists:
   [File storage](/docs/self-hosting/storage/).
 - The web app's shell, with its palettes, modes and accent hue; see
   [The web app](/docs/architecture/web/).
+- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that open the web app of the
+  server a person names; see [Apps](/docs/guides/apps/).
 - These docs.
 - The server and web images, published for each release, and a Compose file that runs
   them with Postgres; see [Install](/docs/self-hosting/install/),
   [Backups and restore](/docs/self-hosting/backups/) and
   [Upgrading](/docs/self-hosting/upgrading/).
+- Release checks in **Admin > Settings**, and one-click updates through the updater that the
+  Compose file's `updater` profile runs; see
+  [Updating from the admin settings](/docs/self-hosting/upgrading/#updating-from-the-admin-settings).
 
 ## What is planned
 
 These pages describe the design beyond what exists too, and mark it **Planned**:
 
-- Desktop and mobile apps: thin [Tauri](https://tauri.app) shells that load the web app
-  from the server a person names, with a toolbar for editing on a phone.
 - Callouts among the blocks of a page.
 - A hue of each database's own, as people, workspaces and teamspaces have.
 
@@ -114,8 +120,8 @@ These pages describe the design beyond what exists too, and mark it **Planned**:
 - It has no billing. Instance admins set limits per workspace instead.
 - Its interface is in English, with its strings kept in one place so translations can follow.
 - It has no native clients of its own. It is a responsive web app, and the desktop and
-  mobile apps, **planned**, only load it from a server, so they never fall behind it. No
-  app-store release is planned yet.
+  mobile apps only load it from a server, so they never fall behind it. No app-store release
+  is planned yet.
 - It runs as one server process beside Postgres. The reasons are in
   [Key decisions](/docs/architecture/decisions/#one-process-no-redis).
 

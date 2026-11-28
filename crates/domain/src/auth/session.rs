@@ -79,11 +79,7 @@ impl Session {
 
 /// A user agent as kept: at most [`MAX_USER_AGENT`] bytes, cut at a character boundary.
 pub fn truncate_user_agent(user_agent: &str) -> String {
-    let mut end = user_agent.len().min(MAX_USER_AGENT);
-    while !user_agent.is_char_boundary(end) {
-        end -= 1;
-    }
-    user_agent[..end].to_owned()
+    user_agent[..user_agent.floor_char_boundary(MAX_USER_AGENT)].to_owned()
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 The browser UI of Neon Teamspace. It is a single-page app built with React 19, Vite, TanStack
 Router and Query, Tailwind CSS v4 and shadcn/ui components. The `neon` server and this app share
 one origin, so the UI calls `/api/v1/...` directly and session cookies need no CORS setup. The
-planned mobile and desktop shells will load the same UI, which is why every screen works from
+desktop and mobile apps in `apps/shell/` load the same UI, which is why every screen works from
 360px wide with touch input.
 
 ## Scripts

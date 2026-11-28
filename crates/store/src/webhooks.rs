@@ -1,10 +1,12 @@
 //! Outgoing webhooks, and the log of their deliveries' attempts.
 
+use neon_domain::webhooks::AttemptOutcome;
 use neon_domain::workspaces::Person;
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::decode;
 use crate::users::PersonColumns;
 
 /// How many attempts each webhook's log keeps: the latest.
@@ -372,12 +374,53 @@ pub struct Attempt {
     pub event_id: Uuid,
     pub event_type: String,
     pub attempt: i32,
-    pub outcome: String,
+    pub outcome: AttemptOutcome,
     pub status_code: Option<i32>,
     pub latency_ms: Option<i32>,
     pub error_kind: Option<String>,
     pub excerpt: Option<String>,
     pub at: OffsetDateTime,
+}
+
+/// An [`Attempt`] as its row holds it.
+struct AttemptRow {
+    id: Uuid,
+    webhook_id: Uuid,
+    delivery_id: Option<Uuid>,
+    event_id: Uuid,
+    event_type: String,
+    attempt: i32,
+    outcome: String,
+    status_code: Option<i32>,
+    latency_ms: Option<i32>,
+    error_kind: Option<String>,
+    excerpt: Option<String>,
+    at: OffsetDateTime,
+}
+
+impl TryFrom<AttemptRow> for Attempt {
+    type Error = sqlx::Error;
+
+    fn try_from(row: AttemptRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.id,
+            webhook_id: row.webhook_id,
+            delivery_id: row.delivery_id,
+            event_id: row.event_id,
+            event_type: row.event_type,
+            attempt: row.attempt,
+            outcome: decode(
+                "webhook attempt outcome",
+                &row.outcome,
+                AttemptOutcome::parse,
+            )?,
+            status_code: row.status_code,
+            latency_ms: row.latency_ms,
+            error_kind: row.error_kind,
+            excerpt: row.excerpt,
+            at: row.at,
+        })
+    }
 }
 
 /// Adds an attempt to its webhook's log, which then keeps its last [`LOG_LENGTH`].
@@ -394,7 +437,7 @@ pub async fn record_attempt(conn: &mut sqlx::PgConnection, attempt: &Attempt) ->
         attempt.event_id,
         attempt.event_type,
         attempt.attempt,
-        attempt.outcome,
+        attempt.outcome.as_str(),
         attempt.status_code,
         attempt.latency_ms,
         attempt.error_kind,
@@ -423,7 +466,7 @@ pub async fn attempts(
     webhook_id: Uuid,
 ) -> sqlx::Result<Vec<Attempt>> {
     sqlx::query_as!(
-        Attempt,
+        AttemptRow,
         "SELECT id, webhook_id, delivery_id, event_id, event_type, attempt, outcome, status_code,
                 latency_ms, error_kind, excerpt, at
          FROM webhook_attempts WHERE webhook_id = $1
@@ -433,7 +476,10 @@ pub async fn attempts(
         LOG_LENGTH,
     )
     .fetch_all(executor)
-    .await
+    .await?
+    .into_iter()
+    .map(Attempt::try_from)
+    .collect()
 }
 
 struct ListedRow {

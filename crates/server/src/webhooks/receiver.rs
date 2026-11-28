@@ -27,6 +27,7 @@ pub(crate) const PATIENCE: Duration = Duration::from_secs(20);
 pub(crate) struct Received {
     pub(crate) method: Method,
     pub(crate) path: String,
+    pub(crate) query: Option<String>,
     pub(crate) headers: HeaderMap,
     pub(crate) body: Bytes,
 }
@@ -147,6 +148,7 @@ async fn receive(
     shared.received.lock().expect("lock").push(Received {
         method,
         path: uri.path().to_owned(),
+        query: uri.query().map(str::to_owned),
         headers,
         body,
     });

@@ -51,12 +51,12 @@ impl From<auth::Scope> for Scope {
     }
 }
 
-impl Scope {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Read => "read",
-            Self::Write => "write",
-            Self::Admin => "admin",
+impl From<Scope> for auth::Scope {
+    fn from(scope: Scope) -> Self {
+        match scope {
+            Scope::Read => Self::Read,
+            Scope::Write => Self::Write,
+            Scope::Admin => Self::Admin,
         }
     }
 }

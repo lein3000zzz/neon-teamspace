@@ -13,7 +13,15 @@ import {
   Shapes,
   Trash2,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import {
   useDeleteProperty,
   type ChangeView,
@@ -462,43 +470,57 @@ type ResizerProps = {
 const WIDTH_STEP = 20;
 
 /**
- * How wide a column is, at its edge: dragged with the pointer, or, once
- * focused, a slider stepped with the arrow keys. Saved once it settles.
+ * How wide a column is, at its edge: dragged with the mouse, or, once
+ * focused, a slider stepped with the arrow keys, which screen readers adjust
+ * too. A touch screen drags it from a grip that shows there in its place, as
+ * the slider is too narrow for a finger. Saved once it settles.
  */
 function Resizer({ name, width, onResize, onSave }: ResizerProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Follows a press as a drag: a finger's only from the grip. */
+  const drag = (event: PointerEvent<HTMLElement>, touch: boolean) => {
+    const start = width;
+    let latest = start;
+    startDrag(
+      event,
+      {
+        onMove: (point, origin) => {
+          latest = clampWidth(start + point.x - origin.x);
+          onResize(latest);
+        },
+        onDrop: () => onSave(latest),
+        onCancel: () => onResize(undefined),
+      },
+      { threshold: 1, touch },
+    );
+  };
   return (
-    <input
-      type="range"
-      aria-label={copy.properties.resize(name)}
-      min={MIN_WIDTH}
-      max={MAX_WIDTH}
-      step={WIDTH_STEP}
-      value={width}
-      onChange={(event) => {
-        const next = clampWidth(Number(event.target.value));
-        onResize(next);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => onSave(next), 400);
-      }}
-      onPointerDown={(event) => {
-        const start = width;
-        let latest = start;
-        startDrag(
-          event,
-          {
-            onMove: (point, origin) => {
-              latest = clampWidth(start + point.x - origin.x);
-              onResize(latest);
-            },
-            onDrop: () => onSave(latest),
-            onCancel: () => onResize(undefined),
-          },
-          1,
-        );
-      }}
-      className="absolute inset-y-0 -right-1 z-[3] m-0 h-full w-2 cursor-col-resize appearance-none bg-transparent opacity-0 hover:bg-primary/40 hover:opacity-100 focus-visible:bg-primary focus-visible:opacity-100"
-    />
+    <>
+      <input
+        type="range"
+        aria-label={copy.properties.resize(name)}
+        min={MIN_WIDTH}
+        max={MAX_WIDTH}
+        step={WIDTH_STEP}
+        value={width}
+        onChange={(event) => {
+          const next = clampWidth(Number(event.target.value));
+          onResize(next);
+          clearTimeout(timer.current);
+          timer.current = setTimeout(() => onSave(next), 400);
+        }}
+        onPointerDown={(event) => drag(event, false)}
+        className="absolute inset-y-0 -right-1 z-[3] m-0 h-full w-2 cursor-col-resize appearance-none bg-transparent opacity-0 hover:bg-primary/40 hover:opacity-100 focus-visible:bg-primary focus-visible:opacity-100 pointer-coarse:pointer-events-none"
+      />
+      <span
+        aria-hidden
+        data-column-grip=""
+        onPointerDown={(event) => drag(event, true)}
+        className="absolute inset-y-0 -right-4 z-[3] hidden w-8 cursor-col-resize touch-none justify-center pointer-coarse:flex"
+      >
+        <span className="my-2 w-0.5 rounded-full bg-border" />
+      </span>
+    </>
   );
 }
 

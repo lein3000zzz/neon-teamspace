@@ -390,29 +390,39 @@ impl Document {
                 .map_or(0, |snapshot| snapshot.last_seq);
             Ok::<_, LoadError>((saved.snapshot, after, saved.updates, mentions))
         }
-        .await
-        .and_then(|(snapshot, after, updates, mentions)| {
-            let mut writers = Writers::default();
-            let doc = assemble_into(snapshot.as_ref(), &updates, &mut writers)?;
-            let fragment = neon_blocks::fragment(&doc);
-            let storage = Storage {
-                last_seq: updates.last().map_or(after, |last| last.seq.max(after)),
-                snapshot_bytes: snapshot.as_ref().map_or(0, |snapshot| snapshot.state.len()),
-                logged: updates.len(),
-                logged_bytes: updates.iter().map(|logged| logged.update.len()).sum(),
-                edited: updates.last().map(|last| Edited {
-                    at: last.created_at,
-                    by: last.author_id,
-                }),
-                authors: updates
-                    .iter()
-                    .filter_map(|logged| logged.author_id)
-                    .collect(),
-                ..Storage::default()
-            };
-            let mentions = mentions.into_iter().map(|(user, _)| user).collect();
-            Ok((doc, fragment, storage, mentions, writers))
-        });
+        .await;
+        let loaded = match loaded {
+            // The whole document assembled from what was saved: off the async threads.
+            Ok((snapshot, after, updates, mentions)) => {
+                inner
+                    .write(|| {
+                        let mut writers = Writers::default();
+                        let doc = assemble_into(snapshot.as_ref(), &updates, &mut writers)?;
+                        let fragment = neon_blocks::fragment(&doc);
+                        let storage = Storage {
+                            last_seq: updates.last().map_or(after, |last| last.seq.max(after)),
+                            snapshot_bytes: snapshot
+                                .as_ref()
+                                .map_or(0, |snapshot| snapshot.state.len()),
+                            logged: updates.len(),
+                            logged_bytes: updates.iter().map(|logged| logged.update.len()).sum(),
+                            edited: updates.last().map(|last| Edited {
+                                at: last.created_at,
+                                by: last.author_id,
+                            }),
+                            authors: updates
+                                .iter()
+                                .filter_map(|logged| logged.author_id)
+                                .collect(),
+                            ..Storage::default()
+                        };
+                        let mentions = mentions.into_iter().map(|(user, _)| user).collect();
+                        Ok((doc, fragment, storage, mentions, writers))
+                    })
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         match loaded {
             Ok((doc, fragment, storage, mentions, writers)) => {
                 guard.ok();
@@ -738,7 +748,7 @@ impl Document {
     /// says how large its update is.
     fn on_copy<E>(
         &self,
-        write: impl FnOnce(&mut TransactionMut, &XmlFragmentRef, Deadline) -> Result<(), E>,
+        write: impl FnOnce(&mut TransactionMut<'_>, &XmlFragmentRef, Deadline) -> Result<(), E>,
     ) -> Result<usize, E> {
         let doc = self.awareness.doc();
         let (state, before) = {
@@ -1201,7 +1211,8 @@ impl Document {
     /// failure is logged, and the updates stay.
     async fn compact(&mut self) -> bool {
         let guard = self.inner.red.start("compact");
-        let (state, state_vector, text, files, document, mentioned) = {
+        // The whole document read as blocks and encoded: off the async threads.
+        let read = || {
             let txn = self.awareness.doc().transact();
             let (text, files, document, mentioned) = match neon_blocks::read(&txn, &self.fragment) {
                 Ok(document) => (
@@ -1235,6 +1246,7 @@ impl Document {
                 mentioned,
             )
         };
+        let (state, state_vector, text, files, document, mentioned) = self.inner.write(read).await;
         let page_id = self.page_id;
         let last_seq = self.storage.last_seq;
         let edited = self.storage.edited;
@@ -1394,7 +1406,7 @@ impl Document {
 /// takes the time that would, before its size is checked. Past `deadline`, the part being
 /// made stops part made and is refused: give one only on a copy.
 fn make(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     edits: &[Edit],
     mut room: usize,
@@ -1468,12 +1480,18 @@ fn assemble_into(
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("a saved update does not decode: {0}")]
-    Decode(#[from] yrs::encoding::read::Error),
+    Decode(yrs::encoding::read::Error),
     #[error("a saved update does not apply: {0}")]
-    Apply(#[from] yrs::error::UpdateError),
+    Apply(yrs::error::UpdateError),
 }
+
+from_cause!(LoadError {
+    Database(sqlx::Error),
+    Decode(yrs::encoding::read::Error),
+    Apply(yrs::error::UpdateError),
+});
 
 #[cfg(test)]
 mod tests {

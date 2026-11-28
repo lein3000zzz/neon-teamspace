@@ -37,6 +37,7 @@ object_store.workspace = true
 rmcp = { workspace = true, features = ["server", "transport-streamable-http-server"] }
 rpassword.workspace = true
 schemars = { workspace = true, features = ["uuid1"] }
+semver.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
@@ -49,7 +50,7 @@ tokio.workspace = true
 # bundled so it works in minimal images.
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-stream.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
@@ -60,6 +61,9 @@ uuid = { workspace = true, features = ["serde"] }
 webpki-roots = "1.0.12"
 
 [dev-dependencies]
+# The updater's server, which the updater client's contract test runs against. Only the tests
+# depend on it: the updater depends on no crate of the workspace, and the server on it only so.
+neon-updater.workspace = true
 tempfile.workspace = true
 figment = { workspace = true, features = ["test"] }
 futures-util = { workspace = true, features = ["sink"] }
@@ -72,7 +76,7 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 # Paused time, for the tests of timeouts.
 tokio = { workspace = true, features = ["test-util"] }
 # WebSocket clients for the real-time sync's tests, the version axum's server side uses.
-tokio-tungstenite = "0.30.0"
+tokio-tungstenite = "0.29.0"
 tower = { workspace = true, features = ["util"] }
 # Log lines captured at every level, for the tests that check what is never logged.
 tracing-subscriber = { workspace = true, features = ["fmt", "registry", "env-filter"] }

@@ -52,6 +52,11 @@ secrets:
   # show only once, secret settings cannot be saved, and no mail goes out.
   keys:
 
+updates:
+  # The GitHub API the release check asks for the releases of Neon Teamspace, while the
+  # setting updates.check is on: another only for a mirror of it.
+  github_api_url: https://api.github.com
+
 # Logs, metrics, traces, profiles and the internal admin listener. Read once, at start.
 observability:
   logging:
@@ -202,6 +207,17 @@ settings:
   pages:
     # How long a page stays in the trash before the hourly cleanup deletes it for good.
     # trash_retention: 30d
+  updates:
+    # Ask GitHub once a day for the newest release, to show in Admin > Settings. A check sends
+    # the server's version and nothing else; off, the server never asks GitHub.
+    # check: true
+    # Count pre-releases, such as 0.3.0-rc.1, as newer releases too.
+    # prereleases: false
+    # Where the server reaches the updater, and the token it takes, the same as the updater's
+    # NEON_UPDATER_TOKEN: at least 32 characters. Empty, no updater is set up. Keep the token
+    # in NEON_SETTINGS__UPDATES__UPDATER_TOKEN, or save it on the admin page.
+    # updater_url: http://updater:8080
+    # updater_token:
   webhooks:
     # Let outgoing webhooks reach a private network's addresses, such as a service beside
     # the server. Cloud metadata, multicast and reserved addresses stay refused.

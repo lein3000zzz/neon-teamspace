@@ -13,11 +13,13 @@ hero:
       variant: secondary
 ---
 
-:::note[0.1.0, the first release]
+:::note[0.2.0, the latest release]
 Accounts, workspaces and teamspaces, pages edited together in real time with their history,
 databases with their boards, comments, mentions and the inbox, search, agents over MCP and
 the API, OAuth for their clients, webhooks both ways and attachments work, in the API and
-the web app, with the Docker images that serve them. The
+the web app, with the Docker images that serve them. 0.2.0 adds the desktop and mobile
+[apps](/docs/guides/apps/), editing on phones and tablets, and updates from the admin
+settings. The
 [changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
 each release brings. Pages say what exists today and mark the rest of the design as
 **Planned**.

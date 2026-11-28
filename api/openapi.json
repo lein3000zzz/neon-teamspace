@@ -2,12 +2,12 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Neon Teamspace API",
-    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A body that is not JSON answers `400 invalid_json`; JSON with a field missing, unknown or of the wrong type answers `400 invalid_input`, its message naming the field. A request with several wrong fields, such as settings, also lists each in `problems`, and a refused claim lists who holds the row in `holders`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace and transferring its ownership need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
+    "description": "The HTTP API of Neon Teamspace.\n\nEvery error response has the same body: `{\"error\": {\"code\": string, \"message\": string}}`. `code` is stable and meant for programs, such as `not_found` or `invalid_json`; `message` says what went wrong, for people. A body that is not JSON answers `400 invalid_json`; JSON with a field missing, unknown or of the wrong type answers `400 invalid_input`, its message naming the field. A request with several wrong fields, such as settings, also lists each in `problems`, and a refused claim lists who holds the row in `holders`. A rate-limited request answers 429 with `Retry-After`.\n\nA request authenticates with the session cookie that `POST /api/v1/auth/login` sets, or with `Authorization: Bearer nw_…`, an API token. A token's scopes decide what it may do: `read` for safe methods, `write` for the others, `admin` for `/api/v1/admin`. A token bound to a workspace works on that workspace's routes and sockets alone, and is refused on another's, on `/api/v1/account` and on `/api/v1/admin` with `token_bound`; its `admin` scope adds that workspace's admin work. An agent's token is always bound to the agent's workspace and acts as the agent, which may do only what both it and its owner may. An OAuth access token, `nwo_…` from `POST /api/v1/oauth/token`, is sent the same way and works as a token bound to the workspace its person chose, acting as them or as one of their agents. The OAuth endpoints for clients, `/api/v1/oauth/register`, `/token` and `/revoke`, answer errors in OAuth's own shape, `{\"error\": code, \"error_description\": text}`, and allow CORS from any origin. Deleting a workspace, transferring its ownership and updating the server need a browser session. A request that changes something and carries no `Authorization` header must come from the server's own origin: its `Origin`, or else its `Referer`, must match the public URL.",
     "license": {
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
     },
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/v1/account/connected-apps": {
@@ -2267,6 +2267,223 @@
           },
           "403": {
             "description": "forbidden, with a problem for each browser-only setting an API token tried to change; or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/updates": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "The server's version and updates",
+        "description": "The server's version; the newest release of Neon Teamspace the last check saw on GitHub, as `updates.prereleases` counts releases, and whether it is newer; and, where an updater is set up, its latest update, asked for 3 seconds at most. The server checks GitHub once a day while `updates.check` is on.",
+        "operationId": "get_updates",
+        "responses": {
+          "200": {
+            "description": "What is known of updates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Updates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "api_token": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/updates/apply": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update the server to a release",
+        "description": "Has the updater update the stack to a release newer than the server's that the last check saw on GitHub: it pulls the release's images and restarts the services with them, and the new server migrates the database as it starts. Answers once the updater has started, with its status; `GET /admin/updates` follows it, and `GET /meta` says the new version once the server is back. Only from a browser session.",
+        "operationId": "apply_update",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The updater started the update.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Updates"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "update_not_allowed: not a release newer than the server's that the last check saw, or one the updater refused; or invalid_input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden, as for an API token, or insufficient_scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "no_updater, as `updates.updater_token` is empty; or update_in_progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "updater_unreachable: the updater did not answer, or refused the server's token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/updates/check": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Check for a newer release now",
+        "description": "Asks GitHub for the releases now, while `updates.check` is on, then answers as `GET /admin/updates` does. Off, it asks nothing. A check that fails answers 200 too, saying why in `error`.",
+        "operationId": "check_updates",
+        "responses": {
+          "200": {
+            "description": "What is known of updates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Updates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden or insufficient_scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5997,7 +6214,7 @@
           "meta"
         ],
         "summary": "Instance metadata",
-        "description": "The instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.",
+        "description": "The product, the instance's name and the server's version. Needs no authentication, so clients can check they reached a Neon server.",
         "operationId": "get_meta",
         "responses": {
           "200": {
@@ -17514,6 +17731,21 @@
           }
         }
       },
+      "ApplyUpdate": {
+        "type": "object",
+        "description": "The release to update to.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "A release newer than the server's that the last check saw, without the `v`.",
+            "example": "0.2.1"
+          }
+        },
+        "additionalProperties": false
+      },
       "ApproveConsent": {
         "type": "object",
         "description": "The person's answer: the request, and what they chose.",
@@ -17983,7 +18215,7 @@
             "items": {
               "type": "string"
             },
-            "description": "One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any\nport, or a scheme of a native app's own."
+            "description": "One to ten: https, http to this machine (`127.0.0.1`, `[::1]` or `localhost`) on any\nport, or a scheme of a native app's own."
           },
           "response_types": {
             "type": [
@@ -20818,6 +21050,7 @@
       "Meta": {
         "type": "object",
         "required": [
+          "product",
           "name",
           "version"
         ],
@@ -20827,10 +21060,15 @@
             "description": "The instance's name, from the `instance.name` setting.",
             "example": "Neon Teamspace"
           },
+          "product": {
+            "type": "string",
+            "description": "Always `neon-teamspace`, so a client can tell this server from any other that answers\nJSON at the same path, as the apps do before they load a server's pages.",
+            "example": "neon-teamspace"
+          },
           "version": {
             "type": "string",
             "description": "The server's version.",
-            "example": "0.1.0"
+            "example": "0.2.0"
           }
         }
       },
@@ -22202,6 +22440,37 @@
           "invite",
           "closed"
         ]
+      },
+      "Release": {
+        "type": "object",
+        "description": "A release on GitHub.",
+        "required": [
+          "version",
+          "prerelease",
+          "url"
+        ],
+        "properties": {
+          "prerelease": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string",
+            "description": "Its page on GitHub, with its notes.",
+            "example": "https://github.com/lein3000zzz/neon-teamspace/releases/tag/v0.2.1"
+          },
+          "version": {
+            "type": "string",
+            "description": "Its tag without the `v`.",
+            "example": "0.2.1"
+          }
+        }
       },
       "ResetPasswordRequest": {
         "type": "object",
@@ -23737,6 +24006,16 @@
         },
         "additionalProperties": false
       },
+      "UpdateState": {
+        "type": "string",
+        "description": "Where the updater is with updating the stack.",
+        "enum": [
+          "idle",
+          "updating",
+          "done",
+          "failed"
+        ]
+      },
       "UpdateTeamspace": {
         "type": "object",
         "properties": {
@@ -23901,6 +24180,157 @@
           }
         },
         "additionalProperties": false
+      },
+      "Updater": {
+        "type": "object",
+        "description": "The updater beside the stack.",
+        "required": [
+          "set_up"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it could not be asked, when it did not answer.",
+            "example": "the updater did not answer within 3s"
+          },
+          "set_up": {
+            "type": "boolean",
+            "description": "One is set up: `updates.updater_token` is set."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UpdaterStatus",
+                "description": "Its latest update, when it answered."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "UpdaterStatus": {
+        "type": "object",
+        "description": "The updater's latest update.",
+        "required": [
+          "state",
+          "updater_version"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the update failed."
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The end of what it did, 16 KiB at most."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/UpdateState"
+          },
+          "updater_version": {
+            "type": "string",
+            "description": "The updater's own version.",
+            "example": "0.2.0"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The release it updates or updated to.",
+            "example": "0.2.1"
+          }
+        }
+      },
+      "Updates": {
+        "type": "object",
+        "description": "What is known of updates.",
+        "required": [
+          "current",
+          "development",
+          "check",
+          "prereleases",
+          "newer",
+          "updater"
+        ],
+        "properties": {
+          "check": {
+            "type": "boolean",
+            "description": "`updates.check`: off, the server asks GitHub nothing, and no release is known."
+          },
+          "checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last check ran."
+          },
+          "current": {
+            "type": "string",
+            "description": "The server's version, as `GET /meta` says it.",
+            "example": "0.2.0"
+          },
+          "development": {
+            "type": "boolean",
+            "description": "A development build, compiled with debug assertions, which is never behind a\nrelease."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last check failed, when it did. `latest` is then what the check before it\nsaw.",
+            "example": "GitHub answered 403: it limits how often one address asks, so the next check tries again"
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Release",
+                "description": "The newest release the last check that worked saw, as the settings count releases."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "newer": {
+            "type": "boolean",
+            "description": "`latest` is newer than the server's version."
+          },
+          "prereleases": {
+            "type": "boolean",
+            "description": "`updates.prereleases`: pre-releases count as newer releases too."
+          },
+          "updater": {
+            "$ref": "#/components/schemas/Updater"
+          }
+        }
       },
       "User": {
         "type": "object",
@@ -24690,7 +25120,7 @@
     },
     {
       "name": "admin",
-      "description": "Accounts, invites, requests to join, settings and workspaces' limits, for instance admins."
+      "description": "Accounts, invites, requests to join, settings, workspaces' limits, and the server's version and updates, for instance admins."
     }
   ]
 }

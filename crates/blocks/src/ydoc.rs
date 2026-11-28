@@ -76,6 +76,17 @@ const TEXT_COLOR: &str = "textColor";
 const BACKGROUND_COLOR: &str = "backgroundColor";
 const LINK: &str = "link";
 
+/// The most column widths writing a table gives one cell. A cell's colspan, a few bytes of a
+/// document, may say any number, and writing would otherwise allocate as many; a table the
+/// editor makes stays far within it.
+const MAX_SPAN: u32 = 100;
+
+/// The most columns reading a table gives widths for by the spans of its first row's cells,
+/// and the widest grid writing a table places its cells in. Past it, a cell without widths
+/// of its own gets one, so that what reading allocates stays in proportion to what the
+/// document holds, whatever its spans say.
+const MAX_COLUMNS: usize = 1_000;
+
 /// A document whose structure is not the editor's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReadError {
@@ -283,7 +294,7 @@ pub fn mention_items<T: ReadTxn>(
 /// `ids`, parents before their children, in document order. The top-level block group is
 /// kept when there is one, so the editor's binding to it stays.
 pub fn replace(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     document: &Document,
     ids: &mut dyn IdSource,
@@ -327,7 +338,7 @@ pub fn replace(
 /// past more than [`MAX_WALK`] items; and once past `deadline`, which leaves some of the
 /// blocks written.
 pub fn append(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     fragment: &XmlFragmentRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -494,7 +505,6 @@ impl<T: ReadTxn> Attrs<'_, T> {
             None => Ok(None),
             Some(value) if value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&value) => {
                 // In range and whole, so the cast is exact.
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 Ok(Some(value as u32))
             }
             Some(_) => Err(self.invalid(name)),
@@ -812,7 +822,12 @@ fn read_table<T: ReadTxn>(txn: &T, table: &XmlElementRef) -> Result<TableContent
                             _ => None,
                         }));
                     }
-                    _ => column_widths.extend((0..props.colspan).map(|_| None)),
+                    _ => {
+                        // Up to the columns' bound, then one for a cell that spans any.
+                        let room = MAX_COLUMNS.saturating_sub(column_widths.len()).max(1);
+                        let spanned = (props.colspan as usize).min(room);
+                        column_widths.extend(std::iter::repeat_n(None, spanned));
+                    }
                 }
             }
             cells.push(TableCell {
@@ -898,7 +913,7 @@ fn read_cell<T: ReadTxn>(txn: &T, cell: &XmlElementRef) -> Result<Vec<Inline>, R
 /// is written only while `deadline` has not passed; once it has, the rest are not, and the
 /// write is refused.
 pub(crate) fn write_blocks_at(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     index: u32,
     blocks: &[Block],
@@ -918,7 +933,7 @@ pub(crate) fn write_blocks_at(
 /// Writes `blocks` at the start of a group, as [`write_blocks_at`] does, which walks no item
 /// and so has no deadline.
 pub(crate) fn write_blocks_first(
-    txn: &mut TransactionMut,
+    txn: &mut TransactionMut<'_>,
     group: &XmlElementRef,
     blocks: &[Block],
     ids: &mut dyn IdSource,
@@ -956,7 +971,7 @@ fn named<'a>(blocks: &'a [Block], ids: &mut dyn IdSource) -> Vec<Named<'a>> {
 /// Writes a block into a group at `index`, with the blocks under it. Its siblings go in at
 /// the same index, the last first, so each goes in where the walk to `index` ends and none
 /// walks past those written before it; its children so at the start of their new group.
-fn write_named(txn: &mut TransactionMut, group: &XmlElementRef, index: u32, named: &Named<'_>) {
+fn write_named(txn: &mut TransactionMut<'_>, group: &XmlElementRef, index: u32, named: &Named<'_>) {
     let container = group.insert(txn, index, XmlElementPrelim::empty(BLOCK_CONTAINER));
     container.insert_attribute(txn, "id", named.id.as_str());
     let content = container.push_back(txn, XmlElementPrelim::empty(named.block.kind.name()));
@@ -1004,7 +1019,6 @@ fn number(value: f64) -> Any {
     const LIMIT: f64 = 2_147_483_647.0;
     if value.fract() == 0.0 && (-LIMIT..=LIMIT).contains(&value) {
         // Whole and in range, so the cast is exact.
-        #[allow(clippy::cast_possible_truncation)]
         Any::Number(Number::Int(value as i64))
     } else {
         Any::Number(Number::Float(value))
@@ -1013,7 +1027,7 @@ fn number(value: f64) -> Any {
 
 /// Writes a block's props and content into its content element, made empty and named after
 /// its type.
-pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind: &BlockKind) {
+pub(crate) fn write_kind(txn: &mut TransactionMut<'_>, element: &XmlElementRef, kind: &BlockKind) {
     let mut attrs = Writer {
         txn: &mut *txn,
         element,
@@ -1095,7 +1109,7 @@ pub(crate) fn write_kind(txn: &mut TransactionMut, element: &XmlElementRef, kind
 /// Writes inline content as y-prosemirror does: each run of text nodes one `XmlText`, each
 /// hard break and each mention an element between them, a mention's attributes in its
 /// props' order. The element is new and empty: its nodes go in at index 0, the last first.
-fn write_inline(txn: &mut TransactionMut, element: &XmlElementRef, content: &[Inline]) {
+fn write_inline(txn: &mut TransactionMut<'_>, element: &XmlElementRef, content: &[Inline]) {
     let mut nodes: Vec<Node> = Vec::new();
     let mut texts: Vec<(String, Marks)> = Vec::new();
     for piece in to_pieces(content) {
@@ -1157,7 +1171,7 @@ type MarkValue = fn(&Marks) -> Option<Any>;
 /// attribute at a time and in the schema's order: an insert with several attributes at once
 /// would add them in a hash map's order, which differs from run to run, and so would the
 /// update's bytes.
-fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String, Marks)]) {
+fn write_text(txn: &mut TransactionMut<'_>, element: &XmlElementRef, runs: &[(String, Marks)]) {
     let text = element.insert(txn, 0, XmlTextPrelim::new(""));
     text.apply_delta(
         txn,
@@ -1207,7 +1221,12 @@ fn write_text(txn: &mut TransactionMut, element: &XmlElementRef, runs: &[(String
 }
 
 /// Applies one mark over ranges of a text, in order and apart, in one pass over it.
-fn format(txn: &mut TransactionMut, text: &XmlTextRef, name: &str, ranges: Vec<(u32, u32, Any)>) {
+fn format(
+    txn: &mut TransactionMut<'_>,
+    text: &XmlTextRef,
+    name: &str,
+    ranges: Vec<(u32, u32, Any)>,
+) {
     if ranges.is_empty() {
         return;
     }
@@ -1248,7 +1267,7 @@ fn single(key: &str, value: &str) -> Any {
     )])))
 }
 
-fn write_table(txn: &mut TransactionMut, table: &XmlElementRef, content: &TableContent) {
+fn write_table(txn: &mut TransactionMut<'_>, table: &XmlElementRef, content: &TableContent) {
     let header_rows = content.header_rows.unwrap_or(0) as usize;
     let header_cols = content.header_cols.unwrap_or(0) as usize;
     let columns = column_positions(&content.rows);
@@ -1284,11 +1303,12 @@ fn write_table(txn: &mut TransactionMut, table: &XmlElementRef, content: &TableC
 }
 
 /// A cell's `colwidth`, as BlockNote sets it: the widths of the columns it spans, or none
-/// for a one-column cell whose column has no width.
+/// for a one-column cell whose column has no width. A cell that spans more than
+/// [`MAX_SPAN`] gets that many.
 fn cell_widths(widths: &[Option<f64>], column: usize, colspan: u32) -> Option<Any> {
     let width = |index: usize| widths.get(index).copied().flatten();
     if colspan > 1 {
-        let spanned: Vec<Any> = (0..colspan as usize)
+        let spanned: Vec<Any> = (0..colspan.min(MAX_SPAN) as usize)
             .map(|offset| width(column + offset).map_or(Any::Undefined, number))
             .collect();
         Some(Any::Array(spanned.into()))
@@ -1301,7 +1321,8 @@ fn cell_widths(widths: &[Option<f64>], column: usize, colspan: u32) -> Option<An
 }
 
 /// The grid column of each cell, rows by cells, with spans taken into account as
-/// BlockNote's occupancy grid takes them.
+/// BlockNote's occupancy grid takes them. The grid is at most [`MAX_COLUMNS`] wide; a cell
+/// past it keeps its place in its row.
 fn column_positions(rows: &[TableRow]) -> Vec<Vec<usize>> {
     let height = rows.len();
     let width = rows
@@ -1313,7 +1334,8 @@ fn column_positions(rows: &[TableRow]) -> Vec<Vec<usize>> {
                 .sum()
         })
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .min(MAX_COLUMNS);
     let mut occupied = vec![vec![false; width]; height];
     let mut positions = Vec::with_capacity(height);
     for (row_index, row) in rows.iter().enumerate() {
@@ -1738,5 +1760,126 @@ mod tests {
             },
         ];
         assert_eq!(column_positions(&rows), vec![vec![0, 2], vec![0, 1]]);
+    }
+
+    /// A document holding one table of one row, its cells' spans `(colspan, rowspan)`.
+    fn table_of_spans(spans: &[(u32, u32)]) -> Doc {
+        let doc = Doc::with_client_id(1);
+        let fragment = fragment(&doc);
+        {
+            let mut txn = doc.transact_mut();
+            let group = fragment.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_GROUP));
+            let container = group.push_back(&mut txn, XmlElementPrelim::empty(BLOCK_CONTAINER));
+            let table = container.push_back(&mut txn, XmlElementPrelim::empty(TABLE));
+            let row = table.push_back(&mut txn, XmlElementPrelim::empty(TABLE_ROW));
+            for &(colspan, rowspan) in spans.iter().rev() {
+                let cell = row.insert(&mut txn, 0, XmlElementPrelim::empty(TABLE_CELL));
+                cell.insert_attribute(&mut txn, "colspan", number(f64::from(colspan)));
+                cell.insert_attribute(&mut txn, "rowspan", number(f64::from(rowspan)));
+            }
+        }
+        doc
+    }
+
+    /// The table read from a document holding one table of one row with these spans, after
+    /// checking that a lenient read keeps it.
+    fn table_read(spans: &[(u32, u32)]) -> TableContent {
+        let doc = table_of_spans(spans);
+        let fragment = fragment(&doc);
+        assert_eq!(read_lenient(&doc.transact(), &fragment).dropped, 0);
+        table_of(read_doc(&doc).expect("reads"))
+    }
+
+    fn table_of(document: Document) -> TableContent {
+        match document.blocks.into_iter().next().map(|block| block.kind) {
+            Some(BlockKind::Table { content, .. }) => content,
+            other => panic!("a table: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_cell_reads_whatever_it_spans() {
+        let read = table_read(&[(MAX_SPAN, MAX_SPAN)]);
+        assert_eq!(read.column_widths.len(), MAX_SPAN as usize);
+        // Past the bounds too, with widths for no more columns than the bound.
+        let wide = table_read(&[(u32::MAX, 1)]);
+        assert_eq!(wide.rows[0].cells[0].props.colspan, u32::MAX);
+        assert_eq!(wide.column_widths.len(), MAX_COLUMNS);
+        let tall = table_read(&[(1, u32::MAX)]);
+        assert_eq!(tall.rows[0].cells[0].props.rowspan, u32::MAX);
+        assert_eq!(tall.column_widths.len(), 1);
+    }
+
+    #[test]
+    fn the_widths_read_stay_in_proportion_to_the_cells() {
+        // A column for each one-column cell, past the bound too.
+        let narrow = table_read(&vec![(1, 1); MAX_COLUMNS + 1]);
+        assert_eq!(narrow.column_widths.len(), MAX_COLUMNS + 1);
+        // Wide cells fill the bound, and each one after it gives one.
+        let full = MAX_COLUMNS / MAX_SPAN as usize;
+        let wide = table_read(&vec![(MAX_SPAN, 1); full + 5]);
+        assert_eq!(wide.column_widths.len(), MAX_COLUMNS + 5);
+        // A cell that spans no column gives none.
+        assert_eq!(table_read(&[(0, 1), (1, 1)]).column_widths.len(), 1);
+    }
+
+    #[test]
+    fn a_table_wider_than_the_bound_reads_back_as_written() {
+        let columns = MAX_COLUMNS + 1;
+        let row = |text: &str| format!("|{}\n", format!(" {text} |").repeat(columns));
+        let mut document =
+            crate::markdown::from_markdown(&format!("{}{}{}", row("a"), row("-"), row("b")));
+        let read = round_trip(&document);
+        document.fill_ids(&mut SequentialIds::new("block"));
+        assert_eq!(read, document);
+        let table = table_of(read);
+        assert_eq!(table.column_widths.len(), columns);
+        assert_eq!(table.rows[1].cells.len(), columns);
+    }
+
+    #[test]
+    fn spans_past_the_bounds_write_within_them() {
+        let cell = |colspan| TableCell {
+            content: Inline::plain("x"),
+            props: TableCellProps {
+                colspan,
+                rowspan: u32::MAX,
+                ..TableCellProps::default()
+            },
+        };
+        let rows = vec![TableRow {
+            cells: vec![cell(u32::MAX), cell(1)],
+        }];
+        assert_eq!(column_positions(&rows), vec![vec![0, 1]]);
+        let Some(Any::Array(widths)) = cell_widths(&[], 0, u32::MAX) else {
+            panic!("widths");
+        };
+        assert_eq!(widths.len(), MAX_SPAN as usize);
+
+        let table = Block::new(BlockKind::Table {
+            props: TableProps::default(),
+            content: TableContent {
+                column_widths: Vec::new(),
+                header_rows: None,
+                header_cols: None,
+                rows,
+            },
+        });
+        let doc = Doc::with_client_id(1);
+        let fragment = fragment(&doc);
+        replace(
+            &mut doc.transact_mut(),
+            &fragment,
+            &Document::new(vec![table]),
+            &mut SequentialIds::new("block"),
+        );
+        // And read back as they were.
+        let read = table_of(read_doc(&doc).expect("reads back"));
+        let spans: Vec<(u32, u32)> = read.rows[0]
+            .cells
+            .iter()
+            .map(|cell| (cell.props.colspan, cell.props.rowspan))
+            .collect();
+        assert_eq!(spans, [(u32::MAX, u32::MAX), (1, u32::MAX)]);
     }
 }

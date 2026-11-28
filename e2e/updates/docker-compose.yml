@@ -1,0 +1,44 @@
+# Overrides for make updates-e2e, which copies this file beside deployments/docker-compose.yml
+# in a directory of the run's own, as an install from the Compose archive has it, with
+# github.ts beside both and the run's deployments/.env. The server, the web and the updater
+# run the images the run pushed to its registry on this machine's loopback, under the names
+# the Compose file gives them, at the release NEON_VERSION names, which the updater rewrites.
+# The server's release check asks the stand-in for GitHub below, which lists the newer
+# release the run built, and never GitHub.
+#
+# Every variable comes from the run's deployments/.env, as an update reads the stack's
+# variables from its env files alone. Paths are relative to deployments/docker-compose.yml,
+# the first file, as Compose resolves them.
+services:
+  server:
+    image: ${UPDATES_E2E_REGISTRY:?make updates-e2e sets UPDATES_E2E_REGISTRY}/lein3000zzz/neon-teamspace-server:${NEON_VERSION:?make updates-e2e sets NEON_VERSION}
+    environment:
+      NEON_UPDATES__GITHUB_API_URL: http://github:8080
+    # Up before the server, which checks for releases as it starts.
+    depends_on:
+      github:
+        condition: service_healthy
+
+  web:
+    image: ${UPDATES_E2E_REGISTRY:?make updates-e2e sets UPDATES_E2E_REGISTRY}/lein3000zzz/neon-teamspace-web:${NEON_VERSION:?make updates-e2e sets NEON_VERSION}
+
+  updater:
+    image: ${UPDATES_E2E_REGISTRY:?make updates-e2e sets UPDATES_E2E_REGISTRY}/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:?make updates-e2e sets NEON_VERSION}
+
+  # GitHub's releases, on the stack's network: one release, the newer one.
+  github:
+    image: oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643
+    command: ["bun", "/github/github.ts"]
+    environment:
+      UPDATES_E2E_RELEASE: ${UPDATES_E2E_RELEASE:?make updates-e2e sets UPDATES_E2E_RELEASE}
+    volumes:
+      - ./github.ts:/github/github.ts:ro
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 15

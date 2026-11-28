@@ -5,6 +5,7 @@ use neon_domain::workspaces::Denied;
 
 use super::signature::SignatureError;
 use crate::comments::CommentError;
+use crate::crypto::SealError;
 use crate::databases::DatabaseError;
 use crate::pages::PageError;
 use crate::workspaces::WorkspaceError;
@@ -42,10 +43,12 @@ pub enum WebhookError {
     #[error("{0}: set its URL again to turn it on")]
     SetterLapsed(String),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(WebhookError { Database(sqlx::Error) });
 
 impl WebhookError {
     /// A stable code for programs, as the API's error shape carries it.
@@ -109,6 +112,15 @@ impl From<PageError> for WebhookError {
     }
 }
 
+impl From<SealError> for WebhookError {
+    fn from(error: SealError) -> Self {
+        match error {
+            SealError::NoKey => Self::NoSecretKey,
+            error @ SealError::Encrypt => Self::Internal(error.to_string()),
+        }
+    }
+}
+
 /// How a refusal of the service an incoming webhook acts through is answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
@@ -156,10 +168,12 @@ pub enum IncomingError {
         message: String,
     },
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(IncomingError { Database(sqlx::Error) });
 
 impl IncomingError {
     /// A stable code for programs, as the API's error shape carries it.
@@ -318,5 +332,14 @@ mod tests {
             ),
             (401, IncomingError::Signature(SignatureError::Stale).code())
         );
+    }
+
+    #[test]
+    fn only_a_missing_key_is_the_callers_to_fix_when_sealing_fails() {
+        let no_key = WebhookError::from(SealError::NoKey);
+        assert_eq!(no_key.code(), "no_secret_key");
+        let failed = WebhookError::from(SealError::Encrypt);
+        assert!(!failed.is_expected());
+        assert_eq!(failed.to_string(), "encrypting failed");
     }
 }

@@ -1,0 +1,378 @@
+---
+title: Apps
+description: The desktop and mobile apps, which open your own Neon Teamspace server in a window of their own. Installing them, connecting and switching servers, what works offline, how they update, their security model, and building them from source.
+---
+
+The apps for macOS, Windows, Linux, Android and iOS open the Neon Teamspace server you choose.
+Each one is a thin shell around the platform's own web view. The only screen the app brings
+is the server picker: everything after it, signing in included, is the server's own web
+interface, the same one a browser shows. An app is never older or newer than the server it
+shows, and the server needs no setting for it.
+
+## Installing
+
+Each [release](https://github.com/lein3000zzz/neon-teamspace/releases) has the desktop
+installers and the Android APK attached. The iPhone and iPad app is not attached: it is built
+from source on a Mac, as [Building from source](#building-from-source) says.
+
+| Platform | File | Notes |
+|---|---|---|
+| macOS 11 or later | `Neon-Teamspace_<version>_aarch64.dmg` for Apple silicon, `_x64.dmg` for Intel | Open the disk image and drag the app to Applications. |
+| Windows 10 or later | `Neon-Teamspace_<version>_x64-setup.exe` | The installer adds Microsoft's WebView2 runtime when it is missing. |
+| Linux with glibc 2.35 or later, such as Ubuntu 22.04, Debian 12 or Fedora 36 | `.deb`, `.rpm` or `.AppImage` | The `.deb` and `.rpm` depend on WebKitGTK 4.1, which the package manager installs. The AppImage brings its own, from Ubuntu 22.04, where the apps are built. Make an AppImage executable with `chmod +x` before running it. |
+| Android 7 or later | `Neon-Teamspace_<version>_android.apk` | Allow your browser or file manager to install apps, then open the file. |
+| iOS and iPadOS 15 or later | None | Build the app from source with Xcode, signed for your own Apple developer team. |
+
+The release's `.app.tar.gz` archives, the `.sig` files and `latest.json` are what the
+installed apps [update themselves](#updates) from; installing needs none of them.
+
+A release candidate, such as `v0.3.0-rc.1`, is marked as a pre-release, and its files carry
+the candidate's version in their names, as `Neon-Teamspace_0.3.0-rc.1_x64-setup.exe`. The
+apps in them are those of the release the candidate rehearses, and report its version.
+
+The macOS and Windows apps are not signed with a developer certificate, so the system warns
+the first time one opens. On macOS, try to open the app once, then choose **Open Anyway** for
+it under **System Settings > Privacy & Security** and confirm. On macOS 14 and earlier,
+Control-click the app in Finder and choose **Open** instead. On Windows, choose **More info**
+and **Run anyway** in the SmartScreen dialog.
+
+A release built without the project's Android signing key has
+`Neon-Teamspace_<version>_android-unsigned.apk` instead. Android refuses to install an unsigned
+APK. Sign it with your own key using `apksigner` from the Android SDK, or build a debug APK as
+[below](#building-from-source).
+
+### Checking a download
+
+As the apps are not signed for macOS and Windows, check a download before you override the
+system's warning. Each release attaches `SHA256SUMS`, the SHA-256 checksums of everything it
+attaches. In the folder with the download and `SHA256SUMS`:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS            # Linux
+shasum -a 256 --check --ignore-missing SHA256SUMS        # macOS
+```
+
+On Windows, `Get-FileHash Neon-Teamspace_<version>_x64-setup.exe` in PowerShell prints the
+checksum to compare with the file's line.
+
+The installers and the APK also carry build provenance: a signed record, kept by GitHub, of the
+release workflow's run and the commit that built the file. With the
+[GitHub CLI](https://cli.github.com):
+
+```sh
+gh attestation verify Neon-Teamspace_<version>_aarch64.dmg --repo lein3000zzz/neon-teamspace
+```
+
+It fails for a file that the repository's release workflow did not build.
+
+### How a release builds them
+
+The release workflow builds the desktop apps on GitHub's Linux (Ubuntu 22.04), Windows and
+macOS runners, and the Android APK on Linux, and attaches them to the release with
+`SHA256SUMS`. Like the server's images, they build from the tag's checkout alone. Nothing
+comes from the Actions cache, neither crates built before nor Bun, so the provenance vouches
+only for what the tag holds, and every release builds them from scratch.
+
+Each job that builds or signs an app passes the SHA-256 of its files on to the next as a job
+output. The job that signs or attaches a file stops when the file does not match, since
+another job of the run could replace an artifact. The job that attaches the files also attests
+them, once it has checked them and every other job has passed. The jobs that build the apps
+run the crates' build scripts and the packages' code, so they get no OIDC token, which that
+code could use to attest any file as the workflow's.
+
+With the project's update key, the desktop builds also make the files the apps update
+themselves from, each signed with that key as Tauri's CLI bundles it. Only the step that
+bundles and signs them has the key: it runs Tauri's CLI and the bundlers it calls, such as
+linuxdeploy and NSIS. The step before it, where the crates' build scripts and the packages'
+code run, does not, and nothing is signed until the end-to-end tests have passed. A job of its
+own, whose token only reads, checks each signature against the public key the apps carry, and
+that it names the release's version, before it writes `latest.json`, so a release whose files
+no app would take fails there. That job runs Bun, which nothing checks as it is downloaded, so
+the job that attaches and attests the files does not: it takes `latest.json` with its SHA-256,
+as it takes the apps' files.
+
+The workflow builds the APK unsigned. Once the end-to-end tests have passed, a job of its own
+signs it with the project's Android key, running only the Android SDK's `zipalign` and
+`apksigner`. Only that job gets the key. It writes the key outside any checkout and deletes it
+once used, so no build script, Gradle plugin or package can read it.
+
+## Connecting to a server
+
+On first launch the app asks for the server's address. Enter the one you open Neon
+Teamspace at in a browser, such as `neon.example.com`. The app
+
+1. adds `https://` when the address has no scheme, keeps only the origin, and drops a path,
+   a query, the default port and a trailing dot;
+2. asks the server for `GET /api/v1/meta`, waiting up to 10 seconds and reading at most
+   64 KiB, without following redirects;
+3. checks that the answer is JSON from a Neon Teamspace server, with its instance name and
+   a version number;
+4. saves the server, and opens its root page, where the server's own sign-in page takes over.
+
+While the app checks the server and loads its page, the picker shows **Opening …** with
+**Stop**, which Escape presses too. If the page has not begun to arrive 30 seconds after the
+app asked for it, the app stops waiting and shows the picker again with the reason. The check
+has just had an answer within its 10 seconds, so a page that keeps the app waiting three times
+as long is not coming, while a slow network still has room.
+
+The app refuses an address that fails a step and says why:
+
+| Message | What to do |
+|---|---|
+| Only https:// addresses can be used… | The address starts with another scheme, such as `ftp://`. |
+| Leave the user name and password out of the address… | Remove `name:password@`. You sign in on the server's page. |
+| … needs https://. Plain http:// is only for a server on this device or your own network… | See [Plain http](#plain-http) below. |
+| Could not reach … | The server is down, the name does not resolve, or the connection failed. The message ends with the system's reason, or for https what was wrong in plain words, such as an expired certificate, one the device does not trust, or a server that answered on plain http or closed the connection. The log keeps the technical cause. |
+| … did not answer within 10 seconds. | The server or the network is too slow, or a firewall drops the connection. |
+| … sends its visitors to …. Enter that address instead. | The server redirects. Use the address it names, which is the one its administrator set as `server.public_url`. |
+| … has no Neon Teamspace API: /api/v1/meta answered 404. | The address is another site, or a proxy in front of the server does not pass `/api` on. |
+| … answered with something other than JSON… | The address serves web pages but no Neon Teamspace API. |
+| … answered with JSON that is not a Neon Teamspace server's… | Another product answers at that path, or the server is a development build older than the apps. |
+| … answered the app's check, but its page did not start to arrive within 30 seconds… | The server, or a proxy in front of it, answers its API but not its pages, or the network drops the page's request. Try again, and check the server if it lasts. |
+
+Use the address the server's administrator gives out. The server accepts changes only from
+pages on its own origin, `server.public_url`, so the app must load the server at that origin
+too: an IP address in place of the domain loads the pages, but saving fails.
+
+### Plain http
+
+An `http://` address is taken only when the host is this device or on a private network. That
+means a loopback, private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), shared
+(`100.64.0.0/10`, as Tailscale uses) or link-local address, an IPv6 unique local or link-local
+address, or a name under `localhost`, `.local`, `.home.arpa` or `.internal`. The app decides
+from the address as typed and never resolves the name. For a server elsewhere it insists on
+`https://`.
+
+Before saving an `http://` server the app warns that anyone on the network can read what you
+send it, your password included, and connects only once you choose **Connect anyway**. The
+list marks the server **Not encrypted**.
+
+Over plain http the server names its session cookie `neon_session` rather than
+`__Host-neon_session`, because browsers only keep `__Host-` cookies that come over https.
+The app's web view keeps it like a browser does, and signing in, real-time editing and files
+work the same. The difference is that the cookie, like everything else, crosses the network
+in the clear.
+
+## Switching servers
+
+Once a server is saved, the picker lists the saved servers with their names, addresses and
+versions. Choose one to open it. The app checks it again first, and shows the reason on its
+row if the check fails. **Rename** gives a server a name of your own, and an empty name goes
+back to the instance's. **Remove** forgets the address. It does not sign you out: sign out in
+the server's interface first to end the session. **Add a server** connects to another one.
+
+As it starts, the app opens the server you used last. When that server cannot be reached, the
+picker shows the list and the reason.
+
+To get back to the picker from a server:
+
+- **macOS**: **Neon Teamspace > Switch Server…** in the menu bar.
+- **Windows and Linux**: **File > Switch Server…**.
+- **Android**: the system's back gesture or button. Like a browser's back button, it goes back
+  through the web view's history: the pages you visited and the steps the server's interface
+  adds to it, and from the first page to the picker. From the picker, it leaves the app.
+- **iOS and iPadOS**: swipe from the left edge of the screen, which goes back the same way.
+
+On mobile the app draws nothing over the server's pages, so the way back is the platform's own
+back gesture. The desktop menu also has **View > Back**, **Forward** and **Reload**, which a
+window without a toolbar has nowhere else; **Back** from the server's first page shows the
+picker too. Each way loads the picker afresh, after a blank page, as the
+[security model](#security-model) explains. On iOS, iPadOS, macOS and Linux, going back stops
+at the picker: the pages before it stay behind until you open a server again. On Windows,
+**Back** from the picker returns to the server's page you left.
+
+Each server keeps its own sign-in. The web view stores cookies per origin, as a browser does,
+so switching between servers does not sign you out of either.
+
+## Links, files and offline use
+
+A link to another site opens in your default browser, and `mailto:` and `tel:` links in the
+apps that handle them. A page of the same server that the interface opens in a new window, such
+as a file, opens in the app's window instead, on every platform. **Back** returns to where you
+were.
+
+The app has no way to tell a click from a script, so it opens something outside at most once a
+second, not the same address twice within ten seconds, and nothing in the first second after a
+page starts loading. A page cannot open a flood of browser tabs that way, but a link chosen
+right after a page appears may need a second try. On macOS, iOS and Linux the app shows no
+frame from another site: such a frame is opened in the browser like a link, within the same
+limits. On Windows and Android it loads inside the page, as in a browser. The server's own
+Content-Security-Policy allows frames from the server alone, so on a standard install the
+interface has none from elsewhere.
+
+Choosing a file to upload works on every platform, and so does dropping files on a page on
+the desktop. Downloads from the server land in:
+
+- **Desktop**: your Downloads folder. The app shows the file in its folder when the download
+  ends.
+- **Android**: the Downloads folder, through the system's download manager and its
+  notification. Android 9 and older keep the file in the app's own folder, which the
+  notification opens. A file the page makes itself, such as a workspace export, cannot be saved
+  in the Android app; use a browser for those.
+- **iOS and iPadOS**: the app's folder in the Files app, under **On My iPhone** or
+  **On My iPad**.
+
+Nothing beyond the picker works offline. The app keeps the list of servers and the picker's
+theme on the device; everything else comes from the server each time, as it does in a
+browser.
+
+The picker follows the system's light or dark mode, and its **Theme** choice offers the web
+app's palettes: Nothing, Soft and Warm. The server's interface keeps your own appearance
+settings, as it does in a browser.
+
+The picker's **Third-party licenses** link opens the license notices of the packages and
+crates the app ships. For each one under MPL-2.0 they give its address on npm or crates.io and
+its repository, where its source is.
+
+## Updates
+
+An app always shows a server's own interface, so only the app itself needs updating: the
+picker and the window around the server's pages. The desktop and Android apps check for a
+newer release a few seconds after they start, and once a day while they run, without holding
+up the window. When there is one, the app asks: **Neon Teamspace 0.2.1 is available. You have
+0.2.0.**, on the desktop with the first lines of the release's notes. **Later** puts it off
+until the app starts again. A check that fails as the app starts, such as one without a
+network, only goes in the [log](#security-model).
+
+### macOS, Windows and Linux
+
+The desktop apps update themselves. **Check for Updates…** checks at any time: in the app
+menu after **About Neon Teamspace** on macOS, and in **File** after **Switch Server…** on
+Windows and Linux. It always answers, whether the app is up to date, a newer release is out,
+or the check failed, and says why.
+
+**Install and Restart** downloads the new release, checks its signature, installs it and
+restarts the app. While it downloads, the menu item shows how far it is, and so does the Dock
+or the taskbar where the platform has a place for it. The window stays in use. On Windows the
+installer runs with a progress window of its own, and opens the app again when it is done.
+
+The apps read `latest.json` from the latest release:
+`https://github.com/lein3000zzz/neon-teamspace/releases/latest/download/latest.json`. It names
+a file for each platform, with its signature. Each app carries the public key of the
+project's update key, and installs a file only when its signature holds for that key and names
+the version `latest.json` announced, so an older release cannot pass for a newer one. A
+download that fails the check is refused, and the installed version stays as it was. The
+checks send no account and no cookie.
+
+| Install | How it updates |
+|---|---|
+| macOS, from the `.dmg` | The app updates itself, from the release's `.app.tar.gz` archive for its processor. When the app is in a folder you cannot write to, macOS asks for an administrator's password. |
+| Windows, from the setup `.exe` | The app updates itself: it runs the new release's setup. |
+| Linux, from the AppImage | The app updates itself, replacing its AppImage with the new release's. The AppImage must be in a folder you can write to. |
+| Linux, from the `.deb` or `.rpm` | The system's package manager owns the app, so it does not replace itself. **Check for Updates…** says so and offers **Open Release Page**, where you download the new package and install it as you installed the first. |
+
+A development build, which `make app-dev` runs, does not update itself: its offer opens the
+release page. A copy installed from what `make app-build` makes updates from the project's
+releases as the release's installer of the same kind does. One installed from the Windows
+`.msi`, which no release has, opens the release page too.
+
+A release built without the update key has no `latest.json`: no app updates itself to it, and
+while it is the latest release the apps find no update. An app built from a fork still reads
+this project's feed and trusts this project's key, which `plugins.updater` in
+`tauri.conf.json` names, so it updates to this project's releases unless the fork changes
+them.
+
+### Android
+
+Android has no updater for an app installed from an APK, so the app asks GitHub's API for the
+latest release, waiting up to 15 seconds and sending no credentials. When that release is newer
+and has a signed APK, a dialog offers **Download**, which opens the APK's address in your
+browser. Open the downloaded file to install it over the app; your servers stay as they were.
+Android installs it only when it is signed with the same key as the installed app.
+
+The picker, the app's own first screen, has **Check for updates** at its foot, which checks at
+once and says what it found. GitHub's API answers only so many questions an hour from one
+network without an account; when it refuses, the picker says so, and a check later works.
+
+### iOS and iPadOS
+
+The iOS app does not update itself, and has no **Check for updates**. Build it again from a
+newer release, as for the first install.
+
+## Security model
+
+**Origin lock.** The web view loads only the app's own origin, which serves the bundled
+picker, and the origins of the servers you opened since the app started. The window shows the
+one in use; the others stay open to the lock because the web view's history keeps their pages,
+and Android's back gesture walks that history without asking the app. Removing a server, or
+quitting the app, closes the lock to it. Two URLs share an origin when their scheme, host and
+port are the same after normalising, as in a browser:
+
+- `https://neon.example.com:443/w/acme` is the server `https://neon.example.com`;
+- `http://neon.example.com`, `https://neon.example.com:8443`, `https://www.neon.example.com`
+  and `https://neon.example.com.` (with a trailing dot) are other origins;
+- in `https://neon.example.com@evil.example/` the host is `evil.example`; the part before
+  the `@` is a user name, which counts for nothing;
+- an international name matches its ASCII form, so `bücher.example` and
+  `xn--bcher-kva.example` are the same host, while a lookalike letter from another alphabet
+  makes another name.
+
+Any navigation to another `http` or `https` origin is cancelled and opens in the system's
+browser instead, within the limits [above](#links-files-and-offline-use). That covers links,
+`window.open`, redirects, and sign-in or consent pages that leave the server. Other schemes,
+such as `file:`, `data:` or `javascript:`, are refused. Downloads are taken only from the
+server's origin. A page that loads without asking the lock, as a form that a server's page
+posts to another site does on Android, is left at once: it opens in the browser, and the app
+goes back to the server's last page.
+
+A server's page never takes the web view to the app's own origin. When one tries, with a link,
+a redirect or the history, the app cancels it and shows the picker itself: it loads a blank
+page, which replaces the server's, and the picker only once that has loaded. Only the picker
+can call the app's commands, and on Linux the web view names the page a call comes from by
+the address it is loading, so a server's page that was still there while the picker loaded
+could pass as the picker. The commands also run only while the page the window last loaded is
+the app's own. On Windows, whose web view names each call's own page, the picker loads
+without the blank page.
+
+**Capabilities.** Tauri lets a page call the app's native side only through the capabilities
+granted to it. The bundled picker has one, which allows the seven commands it uses: list,
+connect, open, rename and remove servers, stop opening one, and check for updates, which only
+the Android app's picker shows. It grants no plugin, so the picker can neither open URLs,
+write logs, install updates, show dialogs nor restart the app itself; the app's Rust side does
+all of these. The server's pages are on another origin and get no capability at all: every
+call to the native side from them is refused, and they run as they would in a browser.
+
+**The picker's policy.** The picker's Content-Security-Policy allows only the app's own
+scripts, styles and images, no frames, and network access only to the app itself. It loads
+nothing from the network: the app's Rust side checks servers, not the picker.
+
+**The check.** Checking an address connects from this device to the host and port you enter,
+which may be on your local network, as a browser does when you type an address. Only the
+picker can start a check, and its message says whether anything answered there, such as
+"Connection refused", so the picker tells you a little about the network the device is on.
+
+**What the app keeps.** `servers.json` in the app's data directory holds each server's origin,
+the name you gave it, and its instance name and version from the last check. Nothing in it is
+secret. Sessions are the server's cookies, which the web view keeps with its other website
+data. The Android app turns off Android's backups, so its sessions go to no cloud backup and
+no new phone; where a device moves an app's data to a new one all the same, only
+`servers.json` goes.
+
+| Platform | Data directory | Log |
+|---|---|---|
+| macOS | `~/Library/Application Support/io.github.lein3000zzz.neonteamspace` | `~/Library/Logs/io.github.lein3000zzz.neonteamspace` |
+| Windows | `%APPDATA%\io.github.lein3000zzz.neonteamspace` | `%LOCALAPPDATA%\io.github.lein3000zzz.neonteamspace\logs` |
+| Linux | `~/.local/share/io.github.lein3000zzz.neonteamspace` | `~/.local/share/io.github.lein3000zzz.neonteamspace/logs` |
+| Android | the app's private storage | `adb logcat` |
+| iOS | the app's private storage | the device's console |
+
+The log records each check, and each navigation the origin lock decides, with the origin it
+went to and never the path or query, which can carry a page's name or a token. So does a line
+about an address the system could not open.
+
+**Certificates.** The check trusts the certificates the system trusts, as the web view does.
+On Android it trusts Mozilla's root certificates, which Android's own store follows. A server
+with a certificate from a private authority works on the desktop and iOS once the authority is
+in the system's trust store; Android apps do not trust authorities a user adds, so such a
+server needs a publicly trusted certificate there.
+
+## Building from source
+
+The apps' project is `apps/shell/` in the repository: the picker in TypeScript, built with
+Vite, and the Rust side in `apps/shell/src-tauri/`.
+[CONTRIBUTING.md](https://github.com/lein3000zzz/neon-teamspace/blob/main/CONTRIBUTING.md#the-apps)
+lists what each platform needs to build them and the `make` targets that do.
+`make app-android` builds an APK signed with Android's debug key, which `adb install` puts on a
+device or an emulator, and `make app-build` the desktop app's installers for the machine it
+runs on. The iOS app builds on a Mac with full Xcode, and an Apple developer team of your own
+signs it.

@@ -214,6 +214,7 @@ describe("checkRepository", () => {
       {
         "Cargo.toml": '[workspace.package]\nversion = "0.1.0"\n',
         "api/openapi.json": JSON.stringify({ components: { schemas: {} } }),
+        "crates/server/src/mcp.rs": "",
         "crates/server/src/mcp/tools.rs":
           'pub(crate) const TOOLS: [Spec; 1] = [\n    Spec {\n        name: "whoami",\n        writes: false,\n    },\n];',
         "crates/server/src/mcp/resources.rs": 'ResourceTemplate::new("neon://me/tasks", "tasks")',

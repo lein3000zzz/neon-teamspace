@@ -39,7 +39,7 @@ use bytes::Bytes;
 use neon_domain::auth::{Credential, Principal, Scope, User};
 use neon_domain::databases::{PropertyKind, Schema, unique_id};
 use neon_domain::pages::PageKind;
-use neon_domain::webhooks::{EventType, PAYLOAD_VERSION, TEST_EVENT, check_url};
+use neon_domain::webhooks::{AttemptOutcome, EventType, PAYLOAD_VERSION, TEST_EVENT, check_url};
 use neon_domain::workspaces::Action;
 use neon_observability::errors::{mark_expected, record_unexpected};
 use neon_observability::propagation::current_traceparent;
@@ -99,26 +99,6 @@ impl Handler for DeliveryJob {
 
     async fn run(&self, job: &Job) -> Result<(), JobError> {
         self.service.deliver(job).await
-    }
-}
-
-/// How an attempt went, as the log keeps it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Outcome {
-    Delivered,
-    Retrying,
-    Failed,
-    Skipped,
-}
-
-impl Outcome {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Delivered => "delivered",
-            Self::Retrying => "retrying",
-            Self::Failed => "failed",
-            Self::Skipped => "skipped",
-        }
     }
 }
 
@@ -224,9 +204,9 @@ impl WebhookService {
     async fn failed_inside(&self, job: &Job, delivery: &Delivery) {
         let last = job.attempt >= job.max_attempts;
         let outcome = if last {
-            Outcome::Failed
+            AttemptOutcome::Failed
         } else {
-            Outcome::Retrying
+            AttemptOutcome::Retrying
         };
         let failure = Failure::Internal;
         let logged = async {
@@ -267,7 +247,7 @@ impl WebhookService {
             return Ok(Ok(()));
         };
         if webhook.disabled_at.is_some() {
-            self.log(&record(Outcome::Skipped, None, Some("disabled")))
+            self.log(&record(AttemptOutcome::Skipped, None, Some("disabled")))
                 .await?;
             return Ok(Ok(()));
         }
@@ -275,7 +255,7 @@ impl WebhookService {
             Reach::Send(body) => *body,
             Reach::Hidden => {
                 info!(webhook_id = %webhook.id, "webhook delivery skipped: what it tells of is out of reach");
-                self.log(&record(Outcome::Skipped, None, Some("no_access")))
+                self.log(&record(AttemptOutcome::Skipped, None, Some("no_access")))
                     .await?;
                 return Ok(Ok(()));
             }
@@ -285,7 +265,7 @@ impl WebhookService {
                     webhook_id = %webhook.id,
                     "webhook turned off: whoever set its URL may no longer register it"
                 );
-                self.log(&record(Outcome::Skipped, None, Some("lapsed")))
+                self.log(&record(AttemptOutcome::Skipped, None, Some("lapsed")))
                     .await?;
                 return Ok(Ok(()));
             }
@@ -296,7 +276,7 @@ impl WebhookService {
         match &sent.failure {
             None => {
                 repo::delivered(self.pool(), webhook.id).await?;
-                self.log(&record(Outcome::Delivered, Some(&sent), None))
+                self.log(&record(AttemptOutcome::Delivered, Some(&sent), None))
                     .await?;
                 info!(
                     webhook_id = %webhook.id,
@@ -309,9 +289,9 @@ impl WebhookService {
             Some(failure) => {
                 let last = job.attempt >= job.max_attempts;
                 let outcome = if last {
-                    Outcome::Failed
+                    AttemptOutcome::Failed
                 } else {
-                    Outcome::Retrying
+                    AttemptOutcome::Retrying
                 };
                 if last {
                     self.gave_up(webhook.id, failure).await?;
@@ -375,8 +355,8 @@ impl WebhookService {
             .send(webhook, TEST_EVENT, Uuid::now_v7(), &body)
             .await?;
         let (outcome, error_kind) = match &sent.failure {
-            None => (Outcome::Delivered, None),
-            Some(failure) => (Outcome::Failed, Some(failure.kind().to_owned())),
+            None => (AttemptOutcome::Delivered, None),
+            Some(failure) => (AttemptOutcome::Failed, Some(failure.kind().to_owned())),
         };
         let attempt = Attempt {
             id: Uuid::now_v7(),
@@ -385,7 +365,7 @@ impl WebhookService {
             event_id,
             event_type: TEST_EVENT.to_owned(),
             attempt: 1,
-            outcome: outcome.as_str().to_owned(),
+            outcome,
             status_code: sent.status.map(i32::from),
             latency_ms: Some(millis(sent.latency)),
             error_kind,
@@ -685,7 +665,7 @@ fn person(user: &User) -> Json {
 fn record(
     job: &Job,
     delivery: &Delivery,
-    outcome: Outcome,
+    outcome: AttemptOutcome,
     sent: Option<&Sent>,
     error_kind: Option<&str>,
     at: OffsetDateTime,
@@ -697,7 +677,7 @@ fn record(
         event_id: delivery.event.id(),
         event_type: delivery.event.kind().to_owned(),
         attempt: job.attempt,
-        outcome: outcome.as_str().to_owned(),
+        outcome,
         status_code: sent.and_then(|sent| sent.status).map(i32::from),
         latency_ms: sent.map(|sent| millis(sent.latency)),
         error_kind: error_kind.map(str::to_owned),

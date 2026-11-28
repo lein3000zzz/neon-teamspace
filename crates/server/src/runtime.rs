@@ -4,10 +4,10 @@
 //! and the registry runs the stops in reverse order. On SIGINT or SIGTERM, `/readyz` turns
 //! to 503 at once, the MCP sessions end, then the HTTP server stops accepting and drains,
 //! the job worker stops, the gauges stop if metrics are on, the live documents close their
-//! connections and are saved, the hourly OAuth, workspace and auth cleanups stop, the auth
-//! work begun after earlier answers finishes, the database pool closes, the admin listener
-//! stops, and the telemetry flushes last, so what the other parts log while stopping is
-//! still written.
+//! connections and are saved, the release check and the hourly OAuth, workspace and auth
+//! cleanups stop, the auth work begun after earlier answers finishes, the database pool
+//! closes, the admin listener stops, and the telemetry flushes last, so what the other
+//! parts log while stopping is still written.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -43,6 +43,7 @@ use neon_app::search::SearchService;
 use neon_app::settings::{SettingsService, mail_set_up, registry};
 use neon_app::sync::{self, Broadcaster, LocalBroadcaster, SyncService};
 use neon_app::transfer::TransferService;
+use neon_app::updates::{LOOK_INTERVAL, ReleaseChecks, UpdateService};
 use neon_app::webhooks::{DELIVERY_SLOTS, DeliveryJob, Services, WebhookService};
 use neon_app::workspaces::{AgentService, Cleanup as WorkspaceCleanup, WorkspaceService};
 use neon_domain::auth::{Role, User};
@@ -66,6 +67,7 @@ use crate::mcp::{self, Mcp};
 use crate::stall::{WRITE_STALL_LIMIT, WriteStall};
 use crate::storage::S3Connector;
 use crate::telemetry;
+use crate::updates::{GitHubReleases, UpdaterClient};
 use crate::webhooks::HttpTransport;
 
 /// How long stopping waits for open requests before closing their connections.
@@ -395,11 +397,19 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
         limiter,
         mcp_feed,
     );
+    let updates = UpdateService::builder(
+        Arc::clone(&settings),
+        Arc::new(GitHubReleases::new(&config.updates.github_api_url)),
+        Arc::new(UpdaterClient::default()),
+        crate::updates::running(),
+    )
+    .build();
     ensure_first_admin(&auth, &config.admin).await?;
     start_auth_upkeep(shutdown, &auth);
     start_workspace_upkeep(shutdown, &workspaces, &pages, &history, &attachments);
     start_oauth_upkeep(shutdown, &oauth);
     start_notification_upkeep(shutdown, &inbox);
+    start_release_checks(shutdown, &updates);
     save_on_shutdown(shutdown, &live);
     close_feeds_on_shutdown(shutdown, &feeds);
     close_inbox_feeds_on_shutdown(shutdown, &inbox_feeds);
@@ -441,6 +451,7 @@ async fn start(loaded: Loaded, shutdown: &Shutdown) -> anyhow::Result<PgPool> {
             transfer,
             attachments,
             webhooks,
+            updates,
             web: Arc::new(web),
             mcp: mcp.clone(),
         },
@@ -617,6 +628,18 @@ fn start_notification_upkeep(shutdown: &Shutdown, inbox: &InboxService) {
         "notification digests",
         DEFAULT_HOOK_TIMEOUT,
         digests.stop(),
+    );
+}
+
+/// Starts the release check, which looks every minute whether one is due and asks GitHub
+/// once a day while `updates.check` is on.
+fn start_release_checks(shutdown: &Shutdown, updates: &UpdateService) {
+    let checks = ReleaseChecks::spawn(updates.clone(), LOOK_INTERVAL);
+    on_stop(
+        shutdown,
+        "release check",
+        DEFAULT_HOOK_TIMEOUT,
+        checks.stop(),
     );
 }
 

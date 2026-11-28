@@ -7,7 +7,14 @@ import type { WorkspaceSummary } from "@/api/workspaces";
 import { ErrorNotice } from "@/components/feedback/error-notice";
 import { PageMenu } from "@/components/pages/page-menu";
 import { usePageNav } from "@/components/pages/page-nav-state";
-import { PageGlyph, PageTree, treeLink, treeRow, useSpaceDrop } from "@/components/pages/page-tree";
+import {
+  PageGlyph,
+  PageTree,
+  treeLink,
+  treeRow,
+  treeTitle,
+  useSpaceDrop,
+} from "@/components/pages/page-tree";
 import { useNewPage } from "@/components/pages/use-new-page";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -44,7 +51,7 @@ export function FavoritesNav({ workspace, onNavigate }: SectionProps) {
                 className={`${treeLink} pl-2.5`}
               >
                 <PageGlyph icon={page.icon} kind={page.kind} />
-                <span className="min-w-0 flex-1 truncate">{titleOf(page)}</span>
+                <span className={treeTitle}>{titleOf(page)}</span>
               </Link>
               <div data-row-actions="over" className="flex shrink-0 items-center">
                 <PageMenu workspace={workspace} page={page} onNavigate={onNavigate} />

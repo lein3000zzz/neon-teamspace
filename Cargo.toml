@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.100"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -16,6 +16,7 @@ neon-blocks = { path = "crates/blocks" }
 neon-store = { path = "crates/store" }
 neon-app = { path = "crates/app" }
 neon-observability = { path = "crates/observability" }
+neon-updater = { path = "crates/updater" }
 
 aes-gcm = "0.11.1"
 anyhow = "1.0.104"
@@ -52,6 +53,9 @@ metrics-util = { version = "0.20.4", default-features = false, features = ["debu
 # server's own, hyper on rustls with ring, so neither reqwest nor aws-lc comes in. Requests
 # are signed with ring.
 object_store = { version = "0.14.2", default-features = false, features = ["fs", "aws-base", "ring"] }
+# Traces over OpenTelemetry, whose crates move between versions together.
+opentelemetry = { version = "0.33.1", default-features = false }
+opentelemetry_sdk = { version = "0.33.1", default-features = false }
 # The CommonMark and GFM parser of the block converter, without its command line and HTML
 # renderer.
 pulldown-cmark = { version = "0.13.6", default-features = false }
@@ -61,6 +65,8 @@ rmcp = { version = "3.11.0", default-features = false }
 rpassword = "7.5.5"
 # The JSON schemas of the MCP tools' arguments, the version rmcp publishes them with.
 schemars = "1.2.3"
+# Versions of releases, compared by semantic versioning's precedence, for the release check.
+semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.2.0"
 serde_json = "1.0.154"
@@ -89,6 +95,7 @@ tokio-util = "0.7.20"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers"] }
 tracing = "0.1.44"
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = "0.3.23"
 url = "2.5.9"
 utoipa = "6.0.0"
@@ -104,14 +111,22 @@ zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2
 [workspace.lints.rust]
 unsafe_code = "deny"
 unused_must_use = "deny"
+# The 2018 edition's idioms, among them naming the lifetime a path hides: Formatter<'_>.
+rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
+unimplemented = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Every allow or expect of a lint gives its reason.
+allow_attributes_without_reason = "warn"
+# Every unsafe block says why it is sound, in a SAFETY comment.
+undocumented_unsafe_blocks = "warn"
+# Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
+mod_module_files = "warn"
 
 [profile.release]
 lto = "thin"
@@ -126,3 +141,25 @@ debug = "line-tables-only"
 inherits = "release"
 lto = "off"
 codegen-units = 16
+
+# CI's build of the tests, and of the neon binary its end-to-end tests run: the dev profile's
+# overflow checks, and its debug assertions but for the server's, below; the workspace's own
+# crates compiled without optimisation, and the dependencies optimised. CI caches the
+# dependencies, so their optimisation costs time only when they change, and saves it in every
+# test and every request of the end-to-end tests, such as hashing a password. Line tables keep
+# the workspace's backtraces readable; the dependencies carry no debug info, which keeps the
+# test binaries small to pass between jobs. Never incremental, which CI cannot reuse.
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 2
+debug = false
+
+# The neon binary CI's end-to-end tests run reports a release build, as the published image
+# does: a server built with debug assertions is a development build, which is never behind a
+# release, so the release check's tests would find no update. Overflow checks stay on.
+[profile.ci.package.neon-server]
+debug-assertions = false

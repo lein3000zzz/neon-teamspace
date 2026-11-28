@@ -23,7 +23,7 @@ async fn heap_endpoint_answers_by_jemallocs_profiling_switch() {
     config.logging.level = "warn".to_owned();
     config.profiling.mode = ProfilingMode::Pull;
     config.profiling.profiles = vec![Profile::Heap];
-    let telemetry = init(&config, ServiceInfo::new("neon-test", "0.0.0"), &[]).unwrap();
+    let telemetry = init(&config, &ServiceInfo::new("neon-test", "0.0.0"), &[]).unwrap();
 
     let response = admin::router(&telemetry, Readiness::always())
         .oneshot(

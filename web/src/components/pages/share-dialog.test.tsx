@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { Share } from "@/api/pages";
 import { renderApp } from "@/test/render-app";
 import { fakePages, PAGE_IDS } from "@/test/pages";
@@ -28,6 +28,12 @@ async function openShares() {
 }
 
 describe("sharing a page", () => {
+  // The page loads the editor on demand; loaded once here, so no test waits on it. Left to
+  // the first page a test opens, the import would run on into the tests after it.
+  beforeAll(async () => {
+    await import("@/components/editor/page-editor");
+  });
+
   it("lists the page's own shares, then those from above it, guests marked", async () => {
     fakeWorkspaces();
     fakePages({

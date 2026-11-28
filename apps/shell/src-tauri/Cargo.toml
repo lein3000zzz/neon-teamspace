@@ -1,0 +1,105 @@
+[package]
+name = "neon-teamspace-shell"
+version = "0.2.0"
+description = "The Neon Teamspace apps: a shell that loads a chosen server's web UI"
+edition = "2024"
+rust-version = "1.100"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/lein3000zzz/neon-teamspace"
+publish = false
+
+# A workspace of its own: the root workspace builds the server, whose image copies crates/
+# alone, and its builds and checks need none of the webview's system libraries.
+[workspace]
+
+[lib]
+name = "neon_shell"
+# The static and dynamic libraries are what the iOS and Android projects link.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.7", features = [] }
+# Logs to the console (logcat on Android) and to a file in the platform's log directory.
+tauri-plugin-log = "2.10.2"
+# Opens what the origin lock sends outside in the system's browser.
+tauri-plugin-opener = "2.7.3"
+log = "0.4.29"
+# The check of /api/v1/meta, over rustls on ring, as the server's own clients: no OpenSSL, and
+# none of aws-lc's build tooling for each target.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# The app's version and its releases', compared as semantic versions.
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+# The time limit on a server's page, in Tauri's own async runtime, and the answers of the
+# dialogs that ask about an update.
+tokio = { version = "1.54.1", default-features = false, features = ["time", "sync"] }
+url = "2.5.9"
+
+# The desktop apps' updates. The updater reads the newest release's latest.json, downloads this
+# platform's file and checks its signature before it installs it, over rustls on ring as the
+# rest; the app drives it from Rust, and its commands are granted to no page. The dialogs that
+# ask first are rfd's, which Tauri's dialog plugin shows on the desktop too: the plugin would
+# also put a script into every page, the servers' included, that replaces window.alert and
+# window.confirm with calls no page here may make.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["rustls-tls", "system-proxy"] }
+rfd = { version = "0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }
+
+# The roots the check trusts on Android, where the platform verifier needs a Java component;
+# and the dialog that offers a newer release's APK, from Tauri's dialog plugin, which adds no
+# script to the pages on Android.
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "1.0.12"
+tauri-plugin-dialog = "2.8.4"
+
+# Turning on the webview's back gesture, which Tauri has no setting for.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6.5"
+
+[dev-dependencies]
+# Encoding the throwaway updater keys and signatures the tests make, as Tauri writes its own.
+base64 = "0.23.1"
+# Throwaway signing keys and signatures, as Tauri's signer makes them, for the updater's tests.
+minisign = "0.10.0"
+tauri = { version = "2.12.7", features = ["test"] }
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
+
+# The desktop menu, which macOS builds only on the main thread: the test runs there, without
+# the test harness, whose tests each run on a thread of their own.
+[[test]]
+name = "menu"
+harness = false
+
+# The root workspace's lints.
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+# The 2018 edition's idioms, among them naming the lifetime a path hides: Formatter<'_>.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+# Every allow or expect of a lint gives its reason.
+allow_attributes_without_reason = "warn"
+# Every unsafe block says why it is sound, in a SAFETY comment.
+undocumented_unsafe_blocks = "warn"
+# Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
+mod_module_files = "warn"
+
+# Small and quick to start, as the server's: the app is a thin shell.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

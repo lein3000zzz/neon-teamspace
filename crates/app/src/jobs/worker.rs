@@ -93,8 +93,10 @@ pub enum StartError {
     #[error("invalid job worker config: {0}")]
     Config(String),
     #[error("listening for queued jobs: {0}")]
-    Listen(#[from] sqlx::Error),
+    Listen(sqlx::Error),
 }
+
+from_cause!(StartError { Listen(sqlx::Error) });
 
 type MakeSpan = Arc<dyn Fn(&Job) -> Span + Send + Sync>;
 
@@ -216,6 +218,7 @@ fn default_span(job: &Job) -> Span {
 
 /// A running worker. It runs until [`stop`](Self::stop) is called, even if the handle is
 /// dropped.
+#[must_use = "dropping the handle leaves the worker running with no way to stop it"]
 #[derive(Debug)]
 pub struct WorkerHandle {
     id: String,

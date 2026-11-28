@@ -54,6 +54,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, Interval, MissedTickBehavior, interval_at};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -143,6 +144,11 @@ pub(crate) struct Sessions {
     config: SessionConfig,
     workers: Mutex<HashMap<SessionId, Worker>>,
     state: Mutex<State>,
+    /// The watcher, and the sessions it or a request ends or looks again at, which
+    /// [`close_all`](Self::close_all) waits for.
+    tasks: TaskTracker,
+    /// Stops the watcher: a child of the transport's token, which stops it too.
+    watching: CancellationToken,
 }
 
 /// One of the transport's session workers, and when it was made.
@@ -326,8 +332,14 @@ impl Sessions {
             config,
             workers: Mutex::new(HashMap::new()),
             state: Mutex::new(State::default()),
+            tasks: TaskTracker::new(),
+            watching: stop.child_token(),
         });
-        tokio::spawn(watch(Arc::downgrade(&sessions), heard, stop));
+        sessions.tasks.spawn(watch(
+            Arc::downgrade(&sessions),
+            heard,
+            sessions.watching.clone(),
+        ));
         sessions
     }
 
@@ -364,6 +376,12 @@ impl Sessions {
             .count()
     }
 
+    /// How many of the sessions' tasks run.
+    #[cfg(test)]
+    pub(crate) fn tasks_running(&self) -> usize {
+        self.tasks.len()
+    }
+
     /// Counts a session `principal` is opening, if the bounds leave room for it. At the
     /// identity's own bound, its idlest session ends to make room; see the module docs.
     pub(crate) fn reserve(
@@ -383,7 +401,7 @@ impl Sessions {
             state.gauges();
             info!(user_id = %user, "MCP session ended to make room for a new one of its identity");
             let sessions = Arc::clone(self);
-            tokio::spawn(async move { sessions.end(&id).await });
+            self.tasks.spawn(async move { sessions.end(&id).await });
         }
         if state.bound.len() + state.opening() >= limits.overall {
             let wait = state.next_idle_end(now, limits.idle, |_| true);
@@ -438,7 +456,7 @@ impl Sessions {
         };
         let sessions = Arc::clone(self);
         let id = SessionId::from(id);
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             sessions.look_again(id.clone(), principal).await;
             if let Some(binding) = sessions.state().bound.get_mut(&id) {
                 binding.checking = false;
@@ -487,12 +505,16 @@ impl Sessions {
         self.state().gauges();
     }
 
-    /// Ends every session, as the server stops.
+    /// Ends every session, as the server stops: stops the watcher, ends each session, and
+    /// waits for the sessions' tasks to end.
     pub(crate) async fn close_all(&self) {
+        self.watching.cancel();
         let ids: Vec<SessionId> = self.workers().keys().cloned().collect();
         for id in ids {
             self.end(&id).await;
         }
+        self.tasks.close();
+        self.tasks.wait().await;
     }
 
     /// Ends the sessions idle for `idle` and the workers bound to nobody, and forgets those
