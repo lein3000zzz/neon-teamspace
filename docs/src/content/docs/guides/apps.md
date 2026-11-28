@@ -257,7 +257,10 @@ has no `latest.json`, and the apps installed from it do not update themselves.
 | Linux, from the AppImage | The app updates itself, replacing its AppImage with the new release's. The AppImage must be in a folder you can write to. |
 | Linux, from the `.deb` or `.rpm` | The system's package manager owns the app, so it does not replace itself. **Check for Updates…** says so and offers **Open Release Page**, where you download the new package and install it as you installed the first. |
 
-A copy built from source updates neither: its offer opens the release page too.
+A development build, which `make app-dev` runs, does not update itself: its offer opens the
+release page. A copy installed from what `make app-build` makes updates from the project's
+releases as the release's installer of the same kind does. One installed from the Windows
+`.msi`, which no release has, opens the release page too.
 
 ### Android
 
