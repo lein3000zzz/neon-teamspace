@@ -107,6 +107,7 @@ impl HttpTransport {
 
     /// Bounds connecting, and the whole exchange, by others than [`CONNECT_TIMEOUT`] and
     /// [`TOTAL_TIMEOUT`].
+    #[cfg(test)]
     pub fn timeouts(mut self, connect: Duration, total: Duration) -> Self {
         self.connect_timeout = connect;
         self.total_timeout = total;
