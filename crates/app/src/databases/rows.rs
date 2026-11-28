@@ -244,18 +244,6 @@ impl DatabaseService {
             } else {
                 member_names(&mut conn, opened.database.workspace_id).await?
             };
-            let rows: Vec<_> = listed
-                .iter()
-                .map(|listed| {
-                    let row =
-                        domain_row(&opened.schema, &listed.page, listed.number, &listed.cells);
-                    if members_hidden {
-                        row.without_people(&opened.schema)
-                    } else {
-                        row
-                    }
-                })
-                .collect();
             let now = self.now().to_offset(utc);
             let today = Today {
                 me: principal.user.id,
@@ -263,9 +251,21 @@ impl DatabaseService {
                 today: now.date(),
             };
             let schema = opened.schema.clone();
-            // Up to every row of the database, filtered and sorted: off the async workers.
-            let outcome = tokio::task::spawn_blocking(move || {
-                query::run(
+            // Up to every row of the database, read into the domain's rows, filtered and
+            // sorted: off the async workers. The rows as listed come back for the part.
+            let (outcome, listed) = tokio::task::spawn_blocking(move || {
+                let rows: Vec<_> = listed
+                    .iter()
+                    .map(|listed| {
+                        let row = domain_row(&schema, &listed.page, listed.number, &listed.cells);
+                        if members_hidden {
+                            row.without_people(&schema)
+                        } else {
+                            row
+                        }
+                    })
+                    .collect();
+                let outcome = query::run(
                     &schema,
                     Query {
                         filter: filter.as_ref(),
@@ -275,7 +275,8 @@ impl DatabaseService {
                     &rows,
                     &today,
                     &names,
-                )
+                );
+                (outcome, listed)
             })
             .await
             .map_err(|error| DatabaseError::Internal(format!("a query's work ended: {error}")))?;
