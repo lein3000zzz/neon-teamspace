@@ -65,6 +65,8 @@ E2E_INSTANCE  := Neon E2E
 E2E_ADMIN     := admin@e2e.example
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
+# The updater's binary, which needs no database.
+NEON_UPDATER  := $(CARGO) run --quiet -p neon-updater --
 # Where check builds, apart from the builds checked against a database.
 OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
 # The apps' Tauri project: the bundled server picker in APP_DIR, and its Rust side, a Cargo
@@ -400,9 +402,9 @@ plugin-check: ## Check the Claude Code plugin and its marketplace, and that its 
 .PHONY: version-check
 # The release workflow passes the tag it runs for as TAG, which the recipe reads from the
 # environment rather than pasted into the command.
-version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, the plugin, the packages, Compose, the docs, and TAG if set
-	@set -e; neon="$$($(NEON) --version)"; \
-	$(BUN) scripts/version.ts --neon "$$neon" $(if $(TAG),--tag "$$TAG")
+version-check: ## Fail unless every stated version is Cargo.toml's: neon --version, neon-updater version, the plugin, the packages, Compose, the docs, and TAG if set
+	@set -e; neon="$$($(NEON) --version)"; updater="$$($(NEON_UPDATER) version)"; \
+	$(BUN) scripts/version.ts --neon "$$neon" --updater "$$updater" $(if $(TAG),--tag "$$TAG")
 
 .PHONY: compose-archive
 # From the commit checked out, not the working tree, so the archive holds what the tag holds.
