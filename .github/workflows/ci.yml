@@ -761,13 +761,17 @@ jobs:
             --lib -- -D warnings
 
   # The Linux app as a .deb, the quickest of its bundles, which the release builds all of; then
-  # the built app in WebKitGTK against a hostile server, under Xvfb. On a push only, as the
-  # release build of the app takes longest of the app's jobs, and its cache would take a
-  # large share of the Actions cache.
+  # the built app in WebKitGTK against a hostile server, under Xvfb. On a push, and on each pull
+  # request into main, the last gate before a release, so that a change that lets a server's
+  # page call the app's commands cannot reach a release unchecked. Not on the pull requests into
+  # dev, as the release build of the app takes longest of the app's jobs; it keeps no cache, as
+  # its cache would take a large share of the Actions cache.
   app-linux:
     name: App shell (Linux)
     needs: changes
-    if: needs.changes.outputs.app == 'true' && github.event_name == 'push'
+    if: >-
+      needs.changes.outputs.app == 'true' &&
+      (github.event_name == 'push' || github.base_ref == 'main')
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:

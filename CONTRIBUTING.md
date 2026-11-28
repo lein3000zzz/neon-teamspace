@@ -268,10 +268,10 @@ updater in the release profile. **E2E (real images)** runs that workflow in the 
 on each pull request into `main`, and on those that change the `Dockerfile`, the Compose file
 that builds the images or the workflow itself. The **App shell** jobs run on Ubuntu 22.04 with
 WebKitGTK, as the release builds the Linux app: the apps' license checks and
-`make app-check`; `make app-test`; clippy for Android; and on a push, a `.deb` build of the
-Linux app and `make app-webview-check` against that build under Xvfb. **App shell (iOS)** runs
-clippy for iOS on macOS. Gitleaks scans the new commits for secrets, and **All checks** passes
-once every job but E2E passed or was skipped.
+`make app-check`; `make app-test`; clippy for Android; and on a push and on each pull request
+into `main`, a `.deb` build of the Linux app and `make app-webview-check` against that build
+under Xvfb. **App shell (iOS)** runs clippy for iOS on macOS. Gitleaks scans the new commits
+for secrets, and **All checks** passes once every job but E2E passed or was skipped.
 
 Dependabot opens one grouped pull request per ecosystem each month, into `dev`. The few pins
 it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
