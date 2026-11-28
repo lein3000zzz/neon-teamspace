@@ -2,10 +2,11 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import type { MailStatus, Setting } from "@/api/admin";
+import type { Updates } from "@/api/updates";
 import { formatDateTime } from "@/lib/format";
 import { apiError, grace, signedInAs } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
-import { server } from "@/test/server";
+import { server, testUpdates } from "@/test/server";
 
 const registration: Setting = {
   key: "auth.registration",
@@ -91,6 +92,18 @@ const identities: Setting = {
   pinned: false,
   browser_only: false,
   env_var: "NEON_SETTINGS__MCP__IDENTITIES",
+};
+
+const updaterToken: Setting = {
+  key: "updates.updater_token",
+  kind: "secret",
+  description: "The token the updater takes; empty, no updater is set up.",
+  value: "",
+  default: "",
+  source: "default",
+  pinned: false,
+  browser_only: true,
+  env_var: "NEON_SETTINGS__UPDATES__UPDATER_TOKEN",
 };
 
 const ALL = [minLength, registration, requestsSetting, idle, name, smtpPassword];
@@ -295,6 +308,51 @@ describe("settings", () => {
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("auth.registration"), "invite");
     expect(screen.queryByText(/unsaved change/)).toBeNull();
+  });
+});
+
+describe("the updates settings", () => {
+  it("shows the version and updates as the settings just saved make them, without a reload", async () => {
+    const newer: Updates = {
+      ...testUpdates,
+      latest: {
+        version: "0.2.0",
+        prerelease: false,
+        url: "https://github.com/lein3000zzz/neon-teamspace/releases/tag/v0.2.0",
+        published_at: "2026-11-27T18:30:00Z",
+      },
+      newer: true,
+      checked_at: "2026-11-28T09:00:00Z",
+    };
+    const patches = settings([...ALL, updaterToken]);
+    server.use(
+      http.get("/api/v1/admin/updates", () =>
+        HttpResponse.json(
+          patches.length === 0
+            ? newer
+            : {
+                ...newer,
+                updater: {
+                  set_up: true,
+                  status: { state: "idle", updater_version: "0.2.0" },
+                  error: null,
+                },
+              },
+        ),
+      ),
+    );
+    const { user } = await renderSettings();
+    const panel = within(screen.getByRole("region", { name: "Version and updates" }));
+    expect(await panel.findByLabelText("Commands")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("updates.updater_token"),
+      "fake-updater-token-for-the-settings-test",
+    );
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await panel.findByRole("button", { name: "Update to 0.2.0" })).toBeEnabled();
+    expect(panel.queryByLabelText("Commands")).toBeNull();
   });
 });
 
