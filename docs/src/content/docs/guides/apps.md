@@ -63,7 +63,25 @@ release workflow's run and the commit that built the file. With the
 gh attestation verify Neon-Teamspace_<version>_aarch64.dmg --repo lein3000zzz/neon-teamspace
 ```
 
-It fails for a file that the repository's release workflow did not build.
+It fails for a file that the repository's release workflow did not build. The GitHub CLI needs
+you signed in (`gh auth login`) even for this public repository. Without an account, fetch the
+attestation from GitHub's API and check it with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/),
+naming the release's tag:
+
+```sh
+file=Neon-Teamspace_<version>_aarch64.dmg
+digest=$(shasum -a 256 "$file" | cut -d ' ' -f 1)
+curl -fsSL "https://api.github.com/repos/lein3000zzz/neon-teamspace/attestations/sha256:$digest" \
+  | jq -c '[.attestations[].bundle | select(.verificationMaterial.tlogEntries | length > 0)][0]' \
+  > "$file.sigstore.json"
+cosign verify-blob-attestation --bundle "$file.sigstore.json" \
+  --type https://slsa.dev/provenance/v1 \
+  --certificate-identity "https://github.com/lein3000zzz/neon-teamspace/.github/workflows/release.yml@refs/tags/v<version>" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$file"
+```
+
+The filter picks the attestation recorded in Sigstore's public transparency log, which cosign
+checks. It prints `Verified OK` for a file the release workflow built at that tag.
 
 ### How a release builds them
 

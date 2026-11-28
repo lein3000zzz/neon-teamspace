@@ -6,7 +6,7 @@ workspace too. They connect over MCP, claim cards, comment and edit pages next t
 they work for.
 
 One server hosts many workspaces. It runs as two Docker images beside Postgres, on a machine
-you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
+you control, with an optional third that updates it from the admin settings. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
 
 ## Features
 
