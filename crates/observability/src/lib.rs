@@ -166,16 +166,16 @@ pub enum InitError {
     NoRuntime,
     /// The log level directive does not parse.
     #[error("invalid log level: {0}")]
-    LogLevel(#[from] tracing_subscriber::filter::ParseError),
+    LogLevel(tracing_subscriber::filter::ParseError),
     /// The OTLP exporter cannot be built.
     #[error("cannot build the OTLP span exporter: {0}")]
-    Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
+    Exporter(opentelemetry_otlp::ExporterBuildError),
     /// The Prometheus recorder cannot be built.
     #[error("cannot build the Prometheus recorder: {0}")]
-    Metrics(#[from] metrics_exporter_prometheus::BuildError),
+    Metrics(metrics_exporter_prometheus::BuildError),
     /// The Pyroscope agent cannot start.
     #[error("cannot start the Pyroscope agent: {0}")]
-    Profiler(#[from] pyroscope::PyroscopeError),
+    Profiler(pyroscope::PyroscopeError),
     /// A global subscriber or metrics recorder is already installed in this process.
     #[error("telemetry is already initialized in this process")]
     AlreadyInitialized,
@@ -210,11 +210,11 @@ pub fn init(
     let runtime = tokio::runtime::Handle::try_current().map_err(|_| InitError::NoRuntime)?;
 
     // Everything fallible is built before any global is installed.
-    let provider = traces::provider(&config.tracing, service)?;
+    let provider = traces::provider(&config.tracing, service).map_err(InitError::Exporter)?;
     let (writer, log_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .thread_name("neon-log-writer")
         .finish(std::io::stdout());
-    let log_filter = logging::filter(&config.logging)?;
+    let log_filter = logging::filter(&config.logging).map_err(InitError::LogLevel)?;
     let spans = traces::layer(&provider, service, &log_filter);
     let logs = logging::layer(
         config.logging.format,
@@ -226,9 +226,12 @@ pub fn init(
         .metrics
         .enabled
         .then(|| prometheus::recorder(subsystems))
-        .transpose()?;
+        .transpose()
+        .map_err(InitError::Metrics)?;
     let push = match config.profiling.mode {
-        ProfilingMode::Push => Some(Push::start(&config.profiling, service)?),
+        ProfilingMode::Push => {
+            Some(Push::start(&config.profiling, service).map_err(InitError::Profiler)?)
+        }
         ProfilingMode::Off | ProfilingMode::Pull => None,
     };
 
@@ -333,5 +336,19 @@ async fn upkeep(handle: PrometheusHandle, shutdown: Shutdown) {
             () = shutdown.started() => return,
             _ = ticks.tick() => handle.run_upkeep(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InitError;
+
+    #[test]
+    fn a_cause_in_the_message_is_not_a_source_too() {
+        let cause = tracing_subscriber::EnvFilter::builder()
+            .parse("=nonsense=")
+            .expect_err("an empty target does not parse");
+        let message = format!("invalid log level: {cause}");
+        assert_eq!(crate::errors::chain(&InitError::LogLevel(cause)), message);
     }
 }
