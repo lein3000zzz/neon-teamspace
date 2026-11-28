@@ -208,9 +208,9 @@ The Compose file's `updater` profile runs the updater, `neon-updater`, beside th
 that an instance admin can update the instance from **Admin > Settings**. The server checks
 for new releases either way, and shows a newer one there with its notes and the commands that
 update by hand, as [above](#upgrading-a-compose-install). With the updater running, **Update**
-does it instead: the server asks the updater, which pulls the release's server and web
-images, checks their signatures, keeps the release in `deployments/.env`, recreates the two
-services, then updates itself.
+does it instead: the server asks the updater, which pulls the release's server, web and
+updater images, checks their signatures, keeps the release in `deployments/.env`, recreates
+the server and web, then updates itself.
 
 0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, and the
 profile can be turned on from there.
@@ -285,16 +285,16 @@ so that it carries on while the updater is replaced. The container sees the sock
 stack's Compose files and env files at the paths the stack was started with: their
 directories read-only, the env files writable. It:
 
-1. pulls the server's and web's images of the release;
+1. pulls the server's, web's and updater's images of the release;
 2. checks each image's signature, as [below](#the-signature-check), and stops if one does
-   not check out;
+   not check out, the updater's included;
 3. keeps the release in the last env file the stack was started with, `deployments/.env`, as
    `NEON_VERSION='0.2.1'` for 0.2.1, in place: the file's other lines and comments stay as
    they are, and a line is added at its end if none sets the variable;
 4. recreates the server and web from the images it checked, without pulling again, and
    without touching the services they depend on;
-5. updates the updater the same way, last. A failure there leaves the updater as it was, and
-   the update done.
+5. recreates the updater the same way, last, from the image it checked with the others. Only
+   this step may fail softly: the updater then stays as it was, and the update is done.
 
 The new server migrates the database as it starts, as [What happens](#what-happens)
 describes. The updater takes no backup: [take one](/docs/self-hosting/backups/) first, as for
@@ -334,15 +334,18 @@ What to do depends on how far it went:
 
 - **Before anything was recreated**, as when a pull failed or an image did not check out:
   nothing changed, `deployments/.env` included, and the stack runs as before. Fix the cause,
-  such as the network or the registry, and press **Update** again.
+  such as the network or the registry, and press **Update** again. An image that did not
+  check out, the updater's included, is one to keep off the machine: do not pull and start
+  the release by hand after it, which would run that image unchecked.
 - **While the server and web started**: `deployments/.env` names the new release, and the new
   server may be failing to start, such as on a migration, as [Migrations](#migrations) shows.
   `docker compose -f deployments/docker-compose.yml ps` and the server's log say which. To go
   back, [roll back](#rolling-back): set `NEON_VERSION` in `deployments/.env` back to the
   release before, and restore the backup if the new server migrated the database.
-- **The updater's own update**: the server and web run the new release, and the updater the
-  old one, which keeps working. `docker compose -f deployments/docker-compose.yml pull` and
-  `up -d --wait` bring it to the new release.
+- **The updater's own restart**: the server and web run the new release, and the updater the
+  old one, which keeps working. Its new image was pulled and checked with the others, so
+  `docker compose -f deployments/docker-compose.yml up -d --wait` brings it to the new
+  release.
 
 The updater replaces itself as each update ends, and the new one knows of no update before
 it: its status says `idle`. `GET /api/v1/meta` and the foot of the sidebar say which release

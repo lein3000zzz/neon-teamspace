@@ -64,7 +64,8 @@ struct ApplyArgs {
     /// A service to update; once for each.
     #[arg(long = "service", value_name = "SERVICE", required = true)]
     services: Vec<String>,
-    /// The updater's own service, updated after the others as it can.
+    /// The updater's own service: its image is pulled and checked with the services', and it
+    /// is recreated after them as it can.
     #[arg(long = "self", value_name = "SERVICE")]
     own: Option<String>,
     /// Recreate the services without checking the images' signatures.

@@ -1,7 +1,8 @@
 //! An update, run in a container of its own that sees the stack's Compose files and env files
-//! at the paths the stack was started with: it pulls the services' images at the version,
-//! checks their signatures, keeps the version in the last env file, and recreates the
-//! services, nothing else. Then the updater's own service, as it can.
+//! at the paths the stack was started with: it pulls the images of the services and of the
+//! updater's own service at the version, and checks the signature of every one, before it
+//! changes anything. Then it keeps the version in the last env file and recreates the
+//! services, nothing else; last, the updater's own service, as it can.
 
 use std::fs::OpenOptions;
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
@@ -33,21 +34,22 @@ pub struct Apply<R> {
     pub env_files: Vec<String>,
     /// The services to update.
     pub services: Vec<String>,
-    /// The updater's own service, updated after them as it can.
+    /// The updater's own service: its image is pulled and checked with theirs, and it is
+    /// recreated after them, as it can.
     pub own: Option<String>,
     /// Whether each image's signature is checked before anything is recreated from it.
     pub verify: bool,
 }
 
 impl<R: Runner> Apply<R> {
-    /// Runs the update, telling `out` what it does. Nothing is recreated unless every image
-    /// pulled and, with [`Apply::verify`], checked out; the updater's own service failing to
-    /// update leaves the others updated, and the update done.
+    /// Runs the update, telling `out` what it does. Nothing changes unless every image, the
+    /// updater's own among them, pulled and, with [`Apply::verify`], checked out; the
+    /// updater's own service failing to start leaves the others updated, and the update done.
     ///
     /// # Errors
     ///
-    /// When an image does not pull or does not check out, the env file cannot be written, or
-    /// the services do not start.
+    /// When an image, the updater's own among them, does not pull or does not check out, the
+    /// env file cannot be written, or the services do not start.
     pub async fn run(&self, out: &dyn Output) -> anyhow::Result<()> {
         if self.project.is_empty()
             || self.project_dir.is_empty()
@@ -62,12 +64,19 @@ impl<R: Runner> Apply<R> {
         // Over what the env files say, until the last of them says it too.
         let env = [(VERSION_VAR.to_owned(), self.version.to_string())];
         let services = self.services.join(", ");
+        // The updater's own image too, so that an image that does not check out never gets as
+        // far as the env file, where a later docker compose up would start it.
+        let pulled: Vec<String> = self.services.iter().chain(&self.own).cloned().collect();
 
-        out.line(&format!("Pulling {services} at {}", self.version));
+        out.line(&format!(
+            "Pulling {} at {}",
+            pulled.join(", "),
+            self.version
+        ));
         self.runner
             .run(
                 Program::Docker,
-                &concat(&compose, &["pull", "--quiet"], &self.services),
+                &concat(&compose, &["pull", "--quiet"], &pulled),
                 &env,
                 out,
             )
@@ -75,16 +84,9 @@ impl<R: Runner> Apply<R> {
             .context("pulling the images")?;
 
         if self.verify {
-            verify_images(
-                &self.runner,
-                &compose,
-                &env,
-                &self.services,
-                &self.version,
-                out,
-            )
-            .await
-            .context("checking the images' signatures; nothing was changed")?;
+            verify_images(&self.runner, &compose, &env, &pulled, &self.version, out)
+                .await
+                .context("checking the images' signatures; nothing was changed")?;
         } else {
             out.line("Not checking the images' signatures: NEON_UPDATER_VERIFY is false");
         }
@@ -122,8 +124,8 @@ impl<R: Runner> Apply<R> {
         Ok(())
     }
 
-    /// Updates the updater's own service, last: this update outlives it. A failure leaves the
-    /// updater as it is.
+    /// Recreates the updater's own service from the image pulled and checked with the others,
+    /// last: this update outlives it. A failure leaves the updater as it is.
     async fn update_own(
         &self,
         own: &str,
@@ -132,29 +134,6 @@ impl<R: Runner> Apply<R> {
         out: &dyn Output,
     ) {
         let own = [own.to_owned()];
-        if let Err(error) = self
-            .runner
-            .run(
-                Program::Docker,
-                &concat(compose, &["pull", "--quiet"], &own),
-                env,
-                out,
-            )
-            .await
-        {
-            out.line(&format!(
-                "The updater stays as it is: its image at {} did not pull: {error:#}",
-                self.version
-            ));
-            return;
-        }
-        if self.verify
-            && let Err(error) =
-                verify_images(&self.runner, compose, env, &own, &self.version, out).await
-        {
-            out.line(&format!("The updater stays as it is: {error:#}"));
-            return;
-        }
         if let Err(error) = self
             .runner
             .run(
@@ -372,13 +351,13 @@ mod tests {
             })
             .collect();
         let config = format!(r#"{{"services": {{{}}}}}"#, config.join(", "));
-        let (own, others): (Vec<&str>, Vec<&str>) = services.iter().partition(|&&s| s == "updater");
-        for named in [others.join(" "), own.join(" ")] {
-            fake.answer(
-                &format!("{COMPOSE} {env_file} config --format json {named}"),
-                &config,
-            );
-        }
+        fake.answer(
+            &format!(
+                "{COMPOSE} {env_file} config --format json {}",
+                services.join(" ")
+            ),
+            &config,
+        );
         for s in services {
             fake.answer(
                 &format!(
@@ -500,62 +479,133 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&env_file).unwrap(), before);
     }
 
+    /// An update of the stack and the updater's own service, from `fake`.
+    fn apply_with_own(fake: Fake, env_file: &str) -> Apply<Fake> {
+        let mut update = apply(fake, env_file);
+        update.own = Some("updater".to_owned());
+        update
+    }
+
     #[tokio::test]
-    async fn the_updater_is_updated_last_as_it_can() {
+    async fn the_updater_is_pulled_and_checked_with_the_others_and_started_last() {
         let dir = tempfile::tempdir().unwrap();
         let env_file = env_file(&dir);
         let compose = format!("{COMPOSE} {env_file}");
-
-        let mut fake = signed(&env_file, &["server", "web", "updater"]);
-        fake.fail(&format!("{compose} pull --quiet updater"), "exit status 1");
-        let mut update = apply(fake, &env_file);
-        update.own = Some("updater".to_owned());
+        let update = apply_with_own(signed(&env_file, &["server", "web", "updater"]), &env_file);
         let tail = Tail::new(4096);
-        update.run(&tail).await.unwrap();
-        assert!(
-            !update
-                .runner
-                .lines()
-                .iter()
-                .any(|line| line.ends_with("up --detach --no-deps --pull never updater")),
-            "not started again"
-        );
-        assert!(
-            tail.text().contains(
-                "The updater stays as it is: its image at 0.2.1 did not pull: exit status 1"
-            ),
-            "{}",
-            tail.text()
-        );
 
+        update.run(&tail).await.unwrap();
+
+        let lines = update.runner.lines();
+        assert_eq!(
+            lines[0],
+            format!("{compose} pull --quiet server web updater")
+        );
+        let checked = lines
+            .iter()
+            .position(|line| {
+                line.starts_with("cosign verify ghcr.io/lein3000zzz/neon-teamspace-updater@")
+            })
+            .expect("the updater's image checked");
+        let started = lines
+            .iter()
+            .position(|line| line.contains(" up "))
+            .expect("the services started");
+        assert!(
+            checked < started,
+            "checked before anything starts: {lines:?}"
+        );
+        assert_eq!(
+            lines[started..],
+            [
+                format!("{compose} up --detach --no-deps --pull never server web"),
+                format!("{compose} up --detach --no-deps --pull never updater"),
+            ]
+        );
+        let text = tail.text();
+        assert!(
+            text.starts_with("Pulling server, web, updater at 0.2.1\n"),
+            "{text}"
+        );
+        assert!(text.ends_with("The updater is at 0.2.1 too\n"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_updater_image_that_does_not_check_out_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_file = env_file(&dir);
+        let before = std::fs::read(&env_file).unwrap();
         let mut fake = signed(&env_file, &["server", "web", "updater"]);
         fake.fail(
             "cosign verify ghcr.io/lein3000zzz/neon-teamspace-updater",
             "exit status 1",
         );
-        let mut update = apply(fake, &env_file);
-        update.own = Some("updater".to_owned());
-        let tail = Tail::new(4096);
-        update.run(&tail).await.unwrap();
+        let update = apply_with_own(fake, &env_file);
+
+        let error = update.run(&Tail::new(4096)).await.unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            "checking the images' signatures; nothing was changed: \
+             ghcr.io/lein3000zzz/neon-teamspace-updater:0.2.1 is not signed by the release workflow of v0.2.1: \
+             exit status 1"
+        );
         assert!(
             !update
                 .runner
                 .lines()
                 .iter()
-                .any(|line| line.ends_with("updater") && line.contains(" up ")),
-            "an updater that does not check out is not started"
+                .any(|line| line.contains(" up ")),
+            "nothing recreated"
         );
-        assert!(tail.text().contains("The updater stays as it is: "));
+        assert_eq!(
+            std::fs::read(&env_file).unwrap(),
+            before,
+            "the env file names no image that did not check out"
+        );
+    }
 
-        let mut update = apply(signed(&env_file, &["server", "web", "updater"]), &env_file);
-        update.own = Some("updater".to_owned());
+    #[tokio::test]
+    async fn an_updater_image_that_does_not_pull_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_file = env_file(&dir);
+        let before = std::fs::read(&env_file).unwrap();
+        let mut fake = signed(&env_file, &["server", "web", "updater"]);
+        fake.fail(
+            &format!("{COMPOSE} {env_file} pull --quiet server web updater"),
+            "exit status 1",
+        );
+        let update = apply_with_own(fake, &env_file);
+
+        let error = update.run(&Tail::new(4096)).await.unwrap_err();
+        assert_eq!(format!("{error:#}"), "pulling the images: exit status 1");
+        assert_eq!(update.runner.lines().len(), 1, "nothing after the pull");
+        assert_eq!(std::fs::read(&env_file).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn the_updater_failing_to_start_leaves_the_update_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_file = env_file(&dir);
+        let mut fake = signed(&env_file, &["server", "web", "updater"]);
+        fake.fail(
+            &format!("{COMPOSE} {env_file} up --detach --no-deps --pull never updater"),
+            "exit status 1",
+        );
+        let update = apply_with_own(fake, &env_file);
         let tail = Tail::new(4096);
+
         update.run(&tail).await.unwrap();
         assert_eq!(
-            update.runner.lines().last().unwrap(),
-            &format!("{compose} up --detach --no-deps --pull never updater")
+            std::fs::read_to_string(&env_file).unwrap(),
+            "POSTGRES_PASSWORD='x'\n# NEON_VERSION=latest\nNEON_VERSION='0.2.1'\n",
+            "the server and web updated"
         );
-        assert!(tail.text().ends_with("The updater is at 0.2.1 too\n"));
+        assert!(
+            tail.text()
+                .ends_with("The updater stays as it is: exit status 1\n"),
+            "{}",
+            tail.text()
+        );
     }
 
     #[tokio::test]
