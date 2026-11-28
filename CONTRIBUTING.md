@@ -23,7 +23,7 @@ does. Vulnerabilities are reported privately instead; see [Security issues](#sec
 | `docs` | The documentation site, Astro Starlight. |
 | `deployments` | The server image's `Dockerfile`, the Compose files, and the observability stack's Grafana and Prometheus files. |
 | `e2e` | End-to-end tests of the whole stack, with Playwright. |
-| `scripts` | Tooling shared by the web app, the docs and the tests: the version check, the license check and the Claude Code plugin's check. |
+| `scripts` | Tooling shared by the web app, the docs, the tests and the release: the version check, the license check, the Claude Code plugin's check, and the desktop apps' update feed, `latest.json`. |
 | `.claude-plugin`, `integrations/claude-code` | The Claude Code plugin marketplace, and its plugin: the MCP server's configuration and the skills. |
 | `tools/blocknote-fixtures` | A Bun project that runs BlockNote on the server, to write and check `crates/blocks`' fixtures. |
 | `.github` | The CI, end-to-end and release workflows, Dependabot's configuration and the security policy. |
