@@ -1,13 +1,13 @@
 ---
 title: Upgrading
-description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive or a clone, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, and checking the images.
+description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive or a clone, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, one-click updates from the admin area with the updater, and checking the images.
 ---
 
 ## Releases
 
 A release is a Git tag, `v` and a version such as `v0.1.0`, and the images built from it. It
-has one version for the server image, the web image, the Compose file and the
-[Claude Code plugin](/docs/guides/claude-code-plugin/). The server says its version in
+has one version for the server image, the web image, the updater image, the Compose file and
+the [Claude Code plugin](/docs/guides/claude-code-plugin/). The server says its version in
 `GET /api/v1/meta` and in `neon --version`.
 
 Versions follow [semantic versioning](https://semver.org). Until 1.0.0, a new minor version,
@@ -16,9 +16,10 @@ asks something of whoever runs or calls the server, and its notes say what; a pa
 such as 0.1.1, fixes what its minor version shipped. A pre-release, such as `0.2.0-rc.1`,
 comes before the release of its number.
 
-Each release publishes both images, `ghcr.io/lein3000zzz/neon-teamspace-server` and
-`ghcr.io/lein3000zzz/neon-teamspace-web`, for `linux/amd64` and `linux/arm64`, under three
-tags:
+Each release publishes its images, `ghcr.io/lein3000zzz/neon-teamspace-server`,
+`ghcr.io/lein3000zzz/neon-teamspace-web` and `ghcr.io/lein3000zzz/neon-teamspace-updater`,
+which the [updater](#one-click-updates) runs, for `linux/amd64` and `linux/arm64`, under
+three tags:
 
 | Tag | Moves |
 |---|---|
@@ -201,6 +202,156 @@ Everything changed since the backup is lost. An upgrade without migrations can g
 image alone, but the notes do not promise which releases have none: take the backup either
 way.
 
+## One-click updates
+
+The Compose file's `updater` profile runs the updater, `neon-updater`, beside the stack, so
+that an instance admin can update the instance from **Admin > Settings**. The server checks
+for new releases either way, and shows a newer one there with its notes and the commands that
+update by hand, as [above](#upgrading-a-compose-install). With the updater running, **Update**
+does it instead: the server asks the updater, which pulls the release's server and web
+images, checks their signatures, keeps the release in `deployments/.env`, recreates the two
+services, then updates itself.
+
+0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, and the
+profile can be turned on from there.
+
+### Turning it on
+
+The server and the updater share a token of 32 characters or more, which the updater asks
+for with every request but its health check. Make one:
+
+```sh
+openssl rand -hex 32
+```
+
+Put it in `deployments/.env`, with the profile:
+
+```sh
+COMPOSE_PROFILES=updater
+NEON_UPDATER_TOKEN=<the output of openssl rand -hex 32>
+```
+
+Compose gives the token to the updater, and to the server as its `updates.updater_token`
+setting, so the one value sets both. `COMPOSE_PROFILES` turns the profile on for every
+`docker compose` command of the stack, as `--profile updater` on each would, so that a later
+`up` or `down` takes the updater with the rest. Then pull its image and start it:
+
+```sh
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait
+```
+
+The updater listens on port 8080 of the stack's network, where the server reaches it at
+`http://updater:8080`, the default of the server's `updates.updater_url` setting, and is
+published on no port of the machine. It reads these variables, of which the Compose file
+passes the token and `NEON_UPDATER_VERIFY` from `deployments/.env`; a Compose file of your
+own beside it can set the others:
+
+| Variable | Default | What it sets |
+|---|---|---|
+| `NEON_UPDATER_TOKEN` | none | The token. The updater refuses to start without one of 32 characters or more. |
+| `NEON_UPDATER_ADDR` | `0.0.0.0:8080` | The address and port it listens on. |
+| `NEON_UPDATER_SERVICES` | `server,web` | The Compose services an update updates, separated by commas. |
+| `NEON_UPDATER_PROJECT` | its own container's | The Compose project of the stack it updates. |
+| `NEON_UPDATER_IMAGE` | its own container's | The image each update runs in. |
+| `NEON_UPDATER_VERIFY` | `true` | Whether an update checks the images' signatures, as [below](#the-signature-check). |
+
+### What it may do
+
+The updater holds the Docker socket, `/var/run/docker.sock`, and whoever controls the Docker
+daemon controls the machine as root. Whoever holds the token, or takes over the updater, can
+do what root can. The updater is built to do one thing with it:
+
+- It takes a release's version and nothing else: no image, command or path. A version is
+  `major.minor.patch`, with a pre-release after a hyphen, such as `0.2.1` or `0.3.0-rc.1`.
+  Anything else is refused with `400`.
+- Every request but `/healthz` needs the token, which it compares in constant time, and a
+  wrong or missing one gets `401`. It runs one update at a time, and refuses another while
+  one runs with `409`.
+- It updates the services `NEON_UPDATER_SERVICES` names, then itself, to the release's images
+  as the Compose file names them, and nothing else: Postgres, the other profiles' services,
+  the volumes and the Compose file stay as they are.
+- It starts as root only to look at the socket's group, then serves as an unprivileged user
+  in that group, without capabilities, where the group may use the socket, as Docker Engine's
+  `root:docker` socket lets it.
+
+Keep the token as you keep `POSTGRES_PASSWORD`: `deployments/.env` should be readable by the
+machine's administrators alone. Leave the profile off to keep the socket out of the stack.
+
+### What an update does
+
+Each update runs in a container of its own, `neon-update`, started from the updater's image,
+so that it carries on while the updater is replaced. The container sees the socket, and the
+stack's Compose files and env files at the paths the stack was started with: their
+directories read-only, the env files writable. It:
+
+1. pulls the server's and web's images of the release;
+2. checks each image's signature, as [below](#the-signature-check), and stops if one does
+   not check out;
+3. keeps the release in the last env file the stack was started with, `deployments/.env`, as
+   `NEON_VERSION='0.2.1'` for 0.2.1, in place: the file's other lines and comments stay as
+   they are, and a line is added at its end if none sets the variable;
+4. recreates the server and web from the images it checked, without pulling again, and
+   without touching the services they depend on;
+5. updates the updater the same way, last. A failure there leaves the updater as it was, and
+   the update done.
+
+The new server migrates the database as it starts, as [What happens](#what-happens)
+describes. The updater takes no backup: [take one](/docs/self-hosting/backups/) first, as for
+any upgrade.
+
+The updater does not replace the Compose file, which stays the one of the release it was
+unpacked from, now running a newer release's images. A release whose Compose file changes
+says so in its notes; update to it by hand, [with its Compose archive](#with-the-compose-archive).
+
+### The signature check
+
+Before it recreates anything, the update takes each image's digest as Docker pulled it, and
+checks with cosign that the release workflow signed that digest for the release's tag: the
+signing certificate's identity must be
+`https://github.com/lein3000zzz/neon-teamspace/.github/workflows/release.yml@refs/tags/v`
+followed by the version, and its issuer `https://token.actions.githubusercontent.com`. It is
+the check [Checking the images](#checking-the-images) does by hand, held to the one tag. An
+image without such a signature, or one cosign cannot check, as when the registry or Sigstore
+cannot be reached, stops the update before anything changes.
+
+Images built and pushed outside this repository's release workflow carry no such signature.
+For them, set `NEON_UPDATER_VERIFY=false` in `deployments/.env` and start the updater again
+with `docker compose -f deployments/docker-compose.yml up -d`. Updates then recreate the
+services from whatever the registry holds under the version's tag, unchecked, and the
+update's container runs without a network. Leave the check on for the published images.
+
+### When an update fails
+
+**Admin > Settings** shows the error and the end of the update's output, and the updater's
+log holds each line of it:
+
+```sh
+docker compose -f deployments/docker-compose.yml logs updater
+```
+
+What to do depends on how far it went:
+
+- **Before anything was recreated**, as when a pull failed or an image did not check out:
+  nothing changed, `deployments/.env` included, and the stack runs as before. Fix the cause,
+  such as the network or the registry, and press **Update** again.
+- **While the server and web started**: `deployments/.env` names the new release, and the new
+  server may be failing to start, such as on a migration, as [Migrations](#migrations) shows.
+  `docker compose -f deployments/docker-compose.yml ps` and the server's log say which. To go
+  back, [roll back](#rolling-back): set `NEON_VERSION` in `deployments/.env` back to the
+  release before, and restore the backup if the new server migrated the database.
+- **The updater's own update**: the server and web run the new release, and the updater the
+  old one, which keeps working. `docker compose -f deployments/docker-compose.yml pull` and
+  `up -d --wait` bring it to the new release.
+
+The updater replaces itself as each update ends, and the new one knows of no update before
+it: its status says `idle`. `GET /api/v1/meta` and the foot of the sidebar say which release
+runs.
+
+An update cut off halfway, as by the machine restarting, can leave its container behind, and
+the next update then fails at once, as the name `neon-update` is taken.
+`docker rm -f neon-update` removes it.
+
 ## Checking the images
 
 Each image carries a software bill of materials, which lists the packages in it, the crates
@@ -213,7 +364,7 @@ docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0
 ```
 
 Each release's images are signed with [cosign](https://docs.sigstore.dev/cosign/)'s keyless
-signing: the release workflow signs both images, and each platform's image in them, with its
+signing: the release workflow signs each image, and each platform's image in it, with its
 own GitHub identity, which the signature's certificate and Sigstore's public transparency log
 record with the repository and the commit. To check one:
 

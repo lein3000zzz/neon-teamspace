@@ -273,11 +273,18 @@ Postgres, and profiles for Mailpit, SeaweedFS and the observability stack.
 **Releases from tags.** One version, the cargo workspace's, names the images, the Compose
 file and the Claude Code plugin. A `v*` tag checks that the tag and every file that states
 the version agree, runs the end-to-end tests against the images built in the release
-profile, then publishes both images to GitHub's container registry with an SBOM and build
+profile, then publishes the images to GitHub's container registry with an SBOM and build
 provenance, tagged with the version, the minor version and `latest`, and from 1.0 on the
 major version, and makes a GitHub release with the Compose archive attached. Images are
 signed with cosign's keyless signing, which records the workflow, the repository and the
 commit in Sigstore's public log. [More](/docs/self-hosting/upgrading/).
+
+**Updates through a sidecar, by choice.** The server holds no Docker socket. Updating from
+the admin area goes through a separate, small updater, which an instance turns on with a
+Compose profile and a token the two share: it takes a release's version and nothing else,
+checks each image's signature against the release workflow's identity for that tag before it
+recreates anything, and runs each update in a container of its own, so that it can replace
+itself too. [More](/docs/self-hosting/upgrading/#one-click-updates).
 
 **One Makefile.** Every task, local or in CI, is a target of the root `Makefile`, and `make`
 alone lists them, so a check that passes on a laptop is the check CI runs. `make check` runs
