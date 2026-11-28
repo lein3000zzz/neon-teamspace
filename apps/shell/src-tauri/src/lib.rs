@@ -94,7 +94,9 @@ pub fn run() {
     let builder = builder.menu(menu::build).on_menu_event(menu::handle);
     let app = shell(builder)
         .setup(|app| {
-            setup(app, &DataDir::App, Limits::default())?;
+            // Tauri panics on an error here, which only stderr would show: the log has it first.
+            setup(app, &DataDir::App, Limits::default())
+                .inspect_err(|error| log::error!("the app could not start: {error}"))?;
             Ok(())
         })
         .build(tauri::generate_context!());
