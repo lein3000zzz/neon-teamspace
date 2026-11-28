@@ -286,7 +286,13 @@ machine's administrators alone. Leave the profile off to keep the socket out of 
 Each update runs in a container of its own, `neon-update`, started from the updater's image,
 so that it carries on while the updater is replaced. The container sees the socket, and the
 stack's Compose files and env files at the paths the stack was started with: their
-directories read-only, the env files writable. It:
+directories read-only, the env files writable. It takes the stack's variables from those env
+files alone, never from the shell or service manager that started the stack. A variable set
+only there, such as `NEON_DOMAIN`, `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` or
+`NEON_UPDATER_TOKEN`, is unset for the update, and the recreated services fall back to the
+Compose file's default for it. Keep every variable the stack needs in `deployments/.env`.
+
+The update:
 
 1. pulls the server's, web's and updater's images of the release;
 2. checks each image's signature, as [below](#the-signature-check), and stops if one does
