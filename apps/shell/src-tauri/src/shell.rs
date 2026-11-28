@@ -325,9 +325,7 @@ pub fn open_server<R: Runtime>(
 ) -> tauri::Result<bool> {
     let shell = app.state::<Shell>();
     let _changing = shell.window_changes();
-    let opened =
-        Origin::of(address.url()).is_some_and(|origin| shell.lock.open_server(origin, attempt));
-    if !opened {
+    if !shell.lock.open_server(Origin::from(address), attempt) {
         return Ok(false);
     }
     log::info!("opening {address}");
@@ -389,9 +387,7 @@ pub fn cancel_opening<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<bool> {
 
 /// Closes the lock to a server removed from the list.
 pub fn forget_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) {
-    if let Some(origin) = Origin::of(address.url()) {
-        app.state::<Shell>().lock.forget(&origin);
-    }
+    app.state::<Shell>().lock.forget(&Origin::from(address));
 }
 
 /// Shows the picker again: a blank page first, which replaces the server's, and the picker
