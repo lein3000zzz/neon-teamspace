@@ -4558,7 +4558,7 @@ export interface components {
             product: string;
             /**
              * @description The server's version.
-             * @example 0.1.0
+             * @example 0.2.0
              */
             version: string;
         };
@@ -5835,7 +5835,7 @@ export interface components {
             state: components["schemas"]["UpdateState"];
             /**
              * @description The updater's own version.
-             * @example 0.1.0
+             * @example 0.2.0
              */
             updater_version: string;
             /**
@@ -5855,7 +5855,7 @@ export interface components {
             checked_at?: string | null;
             /**
              * @description The server's version, as `GET /meta` says it.
-             * @example 0.1.0
+             * @example 0.2.0
              */
             current: string;
             /**

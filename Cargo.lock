@@ -1919,7 +1919,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "neon-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "neon-blocks"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -1975,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "neon-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "imagesize",
  "semver",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "neon-observability"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "flate2",
@@ -2021,7 +2021,7 @@ dependencies = [
 
 [[package]]
 name = "neon-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "neon-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "neon-domain",
  "neon-observability",
@@ -2091,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "neon-updater"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",

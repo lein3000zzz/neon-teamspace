@@ -7,7 +7,7 @@
       "name": "PolyForm-Noncommercial-1.0.0",
       "identifier": "PolyForm-Noncommercial-1.0.0"
     },
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/v1/account/connected-apps": {
@@ -21068,7 +21068,7 @@
           "version": {
             "type": "string",
             "description": "The server's version.",
-            "example": "0.1.0"
+            "example": "0.2.0"
           }
         }
       },
@@ -24255,7 +24255,7 @@
           "updater_version": {
             "type": "string",
             "description": "The updater's own version.",
-            "example": "0.1.0"
+            "example": "0.2.0"
           },
           "version": {
             "type": [
@@ -24294,7 +24294,7 @@
           "current": {
             "type": "string",
             "description": "The server's version, as `GET /meta` says it.",
-            "example": "0.1.0"
+            "example": "0.2.0"
           },
           "development": {
             "type": "boolean",

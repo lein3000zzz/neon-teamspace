@@ -1,19 +1,19 @@
 ---
 title: Upgrading
-description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive, a clone or the admin settings, the server's release checks and what they send GitHub, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, one-click updates with the updater, and checking the images.
+description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive, a clone or the admin settings, the move from 0.1.0 to 0.2.0, the server's release checks and what they send GitHub, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, one-click updates with the updater, and checking the images.
 ---
 
 ## Releases
 
-A release is a Git tag, `v` and a version such as `v0.1.0`, and the images built from it. It
+A release is a Git tag, `v` and a version such as `v0.2.0`, and the images built from it. It
 has one version for the server image, the web image, the updater image, the Compose file and
 the [Claude Code plugin](/docs/guides/claude-code-plugin/). The server says its version in
 `GET /api/v1/meta` and in `neon --version`.
 
 Versions follow [semantic versioning](https://semver.org). Until 1.0.0, a new minor version,
-such as 0.2.0 after 0.1.x, may change the API, the settings or the behaviour in a way that
+such as 0.3.0 after 0.2.x, may change the API, the settings or the behaviour in a way that
 asks something of whoever runs or calls the server, and its notes say what; a patch version,
-such as 0.1.1, fixes what its minor version shipped. A pre-release, such as `0.2.0-rc.1`,
+such as 0.2.1, fixes what its minor version shipped. A pre-release, such as `0.3.0-rc.1`,
 comes before the release of its number.
 
 Each release publishes its images, `ghcr.io/lein3000zzz/neon-teamspace-server`,
@@ -23,19 +23,19 @@ three tags:
 
 | Tag | Moves |
 |---|---|
-| `0.1.0`, the version | Never: it names one release. |
-| `0.1`, the minor version | To each patch release of 0.1 as it is published. |
+| `0.2.0`, the version | Never: it names one release. |
+| `0.2`, the minor version | To each patch release of 0.2 as it is published. |
 | `latest` | To each release as it is published. |
 
 From 1.0.0 on, the major version, such as `1`, is a tag too, and moves to each release of 1.
-A pre-release, such as `v0.2.0-rc.1`, gets its own version as its tag alone, and never moves
+A pre-release, such as `v0.3.0-rc.1`, gets its own version as its tag alone, and never moves
 `latest` or the others. Its GitHub release is marked as a pre-release. A release candidate,
 `-rc.` and a number, rehearses the release of its version on the same commit, so its Compose
 archive is that release's: it runs the candidate's images only with `NEON_VERSION` set to the
-candidate's version, such as `0.2.0-rc.1`.
+candidate's version, such as `0.3.0-rc.1`.
 
 The Compose file runs the images of its own release, which its `image` lines name, unless
-`NEON_VERSION` in `deployments/.env` names another. Set to `0.1`, it follows patch releases
+`NEON_VERSION` in `deployments/.env` names another. Set to `0.2`, it follows patch releases
 as they are pulled; set to `latest`, it follows every release, and each `pull` may then take
 the instance to a release whose migrations cannot be undone. On an instance whose data
 matters, leave it unset, or name a full version: the instance then changes only when you
@@ -46,10 +46,9 @@ upgrade it, and the backup you take first matches what runs.
 Read them before an upgrade, for every release between the one running and the new one.
 They are in two places:
 
-- `CHANGELOG.md` at the repository's root, by area, with a section for each release. A
-  change that needs something of you, a setting renamed, a route that answers differently, a
-  step to run after the upgrade, is called out there under **Breaking changes**, with what to
-  do.
+- `CHANGELOG.md` at the repository's root, with a section for each release. A change that
+  needs something of you, a setting renamed, a route that answers differently, a step to run
+  after the upgrade, is called out there under **Breaking changes**, with what to do.
 - The release's own page among the repository's
   [releases](https://github.com/lein3000zzz/neon-teamspace/releases). Its notes name the
   images, their platforms and their tags, say how to check their signatures, and link the
@@ -73,13 +72,13 @@ In the directory the [install](/docs/self-hosting/install/#starting-it) unpacked
 in, unpack the new release's over it, then pull and start its images:
 
 ```sh
-curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait
 ```
 
-With the GitHub CLI, signed in, `gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz' --clobber`
-fetches the archive instead, for `tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1`
+With the GitHub CLI, signed in, `gh release download v0.2.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz' --clobber`
+fetches the archive instead, for `tar -xzf neon-teamspace-compose-0.2.0.tar.gz --strip-components=1`
 to unpack.
 
 Unpacking replaces the Compose file and the two example files, and keeps `deployments/.env`
@@ -91,8 +90,8 @@ diff deployments/.env.example deployments/.env
 diff deployments/server.env.example deployments/server.env
 ```
 
-With `NEON_VERSION` set in `deployments/.env`, set it to the new release too, or leave it
-blank to run the archive's own.
+With `NEON_VERSION` in `deployments/.env` set to a version or a minor version, set it to the
+new release's, or leave it blank to run the archive's own; `latest` needs no change.
 
 ### Built from a clone
 
@@ -100,8 +99,62 @@ Check out the release's tag, then build and start both images from it:
 
 ```sh
 git fetch --tags
-git checkout v0.1.0
+git checkout v0.2.0
 docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build --wait
+```
+
+### From 0.1.0 to 0.2.0
+
+0.1.0 has neither the release check nor the updater, so the move to 0.2.0 is by hand, once,
+from the 0.2.0 [Compose archive](#with-the-compose-archive). Setting `NEON_VERSION` alone
+would run the 0.2.0 images with the 0.1.0 Compose file, which lacks what 0.2.0 adds to it:
+the `updater` service and its profile, and a network of their own that the server joins.
+0.2.0 has no breaking changes, so nothing else needs doing.
+
+0.2.0 asks GitHub for new releases as soon as it starts, as [Release checks](#release-checks)
+describes. To keep the server from ever asking, put `NEON_SETTINGS__UPDATES__CHECK=false` in
+`deployments/server.env` before starting 0.2.0.
+
+Take a [backup](/docs/self-hosting/backups/) first, then, in the directory the install
+unpacked the 0.1.0 archive in, unpack the new one and compare the examples:
+
+```sh
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
+diff deployments/.env.example deployments/.env
+```
+
+The new `deployments/.env.example` has three variables more, `COMPOSE_PROFILES`,
+`NEON_UPDATER_TOKEN` and `NEON_UPDATER_VERIFY`. Missing or blank, they leave the updater off,
+so `deployments/.env` needs none of them for the upgrade. `deployments/server.env.example`
+changes only in its comments. If `NEON_VERSION` in `deployments/.env` names `0.1.0` or `0.1`,
+set it to `0.2.0` or `0.2`, or leave it blank to run the archive's own release; `latest`
+needs no change. Left at `0.1.0` or `0.1`, it keeps the stack on the 0.1.0 images, and on the
+crash 0.2.0 fixes.
+
+Then pull and start the images, and check that the server says 0.2.0, as
+[What happens](#what-happens) shows:
+
+```sh
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait
+curl -s http://127.0.0.1:3000/api/v1/meta
+```
+
+Once 0.2.0 runs, **Admin > Settings** shows the newer releases its checks find under
+**Version and updates**, with the commands that update by hand. To update from there in one
+click instead, turn the `updater` profile on, as [Turning it on](#turning-it-on) shows: a
+token in `deployments/.env`, `COMPOSE_PROFILES=updater`, then `pull` and `up -d --wait`
+again. The updater holds the Docker socket, so read [What it may do](#what-it-may-do) first.
+
+Going back to 0.1.0 takes the 0.1.0 Compose archive, as [Rolling back](#rolling-back)
+describes. Setting `NEON_VERSION` alone fails once `NEON_UPDATER_TOKEN` is set: the 0.2.0
+Compose file passes the token to the server, and a 0.1.0 server, which has no such setting,
+does not start. The 0.1.0 Compose file has no updater service either, so it would leave a
+running updater in place. Before unpacking the 0.1.0 archive, remove the updater, and take
+`updater` out of `COMPOSE_PROFILES`:
+
+```sh
+docker compose -f deployments/docker-compose.yml rm -sf updater
 ```
 
 ## Updating from the admin settings
@@ -173,7 +226,7 @@ pre-release only while `updates.prereleases` is on.
 A check is one request, without credentials, to GitHub's API:
 `GET https://api.github.com/repos/lein3000zzz/neon-teamspace/releases?per_page=30`, the 30
 latest releases, with the `User-Agent` `NeonTeamspace/` and the server's version, such as
-`NeonTeamspace/0.1.0`, and the `Accept` and `X-GitHub-Api-Version` headers GitHub asks for.
+`NeonTeamspace/0.2.0`, and the `Accept` and `X-GitHub-Api-Version` headers GitHub asks for.
 It sends nothing else: no account, no instance name, no address of the instance, no token.
 GitHub sees the request come from the server's address, with that version. The server reads
 at most 4 MiB of the answer, and gives up after 20 seconds. GitHub allows an address 60 such
@@ -209,7 +262,7 @@ curl -s http://127.0.0.1:3000/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.2.0"}
 ```
 
 The foot of the app's sidebar shows the same version.
@@ -278,8 +331,10 @@ Caused by:
 So rolling back is a restore of the backup taken before the upgrade. First point the stack
 at the older release: unpack its Compose archive over the directory again, or check out its
 tag in a clone, and set `NEON_VERSION` back if it names the newer one. Setting `NEON_VERSION`
-to the older release runs its images too, with the newer Compose file. Then restore the
-backup [over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs), whose
+alone is not enough: it keeps the newer Compose file, which may give the older server a
+setting it does not know and keep it from starting, as the 0.2.0 file does to a 0.1.0 server
+once `NEON_UPDATER_TOKEN` is set. Then restore the backup
+[over the instance](/docs/self-hosting/backups/#over-an-instance-that-runs), whose
 last command starts the older release's images; built from a clone, start them with
 `docker-compose.build.yml` and `--build` instead, as [above](#built-from-a-clone).
 Everything changed since the backup is lost. An upgrade without migrations can go back by its
@@ -303,8 +358,9 @@ stack; with it off, it reports the update done while recreating nothing, and the
 at once that the server still runs the release it ran. Update a stack built from a clone by
 checking out the new tag, as in [Built from a clone](#built-from-a-clone).
 
-0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, and the
-profile can be turned on from there.
+0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, as
+[From 0.1.0 to 0.2.0](#from-010-to-020) describes, and the profile can be turned on from
+there.
 
 ### Turning it on
 
@@ -473,8 +529,8 @@ the `neon` binary links among them in the server image, and the provenance of it
 which records the commit and the workflow that built it:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 --format '{{ json .SBOM }}'
-docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.2.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/lein3000zzz/neon-teamspace-server:0.2.0 --format '{{ json .Provenance }}'
 ```
 
 Each release's images are signed with [cosign](https://docs.sigstore.dev/cosign/)'s keyless
@@ -483,7 +539,7 @@ own GitHub identity, which the signature's certificate and Sigstore's public tra
 record with the repository and the commit. To check one:
 
 ```sh
-cosign verify ghcr.io/lein3000zzz/neon-teamspace-server:0.1.0 \
+cosign verify ghcr.io/lein3000zzz/neon-teamspace-server:0.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/lein3000zzz/neon-teamspace/\.github/workflows/release\.yml@refs/tags/v'
 ```

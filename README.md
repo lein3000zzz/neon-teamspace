@@ -36,10 +36,10 @@ you control. [CHANGELOG.md](CHANGELOG.md) lists what each release brings.
   area that never sees inside a workspace.
 - **Self-hosting with Docker.** Signed images for `linux/amd64` and `linux/arm64`, a Compose
   file with Postgres, TLS from Caddy given a domain, settings that change while the server
-  runs, and logs, metrics, traces and profiles.
-
-Apps for macOS, Windows, Linux and Android, thin shells that open your server's web app, come in
-the next release, with an iOS app to build from source.
+  runs, one-click updates from the admin settings, and logs, metrics, traces and profiles.
+- **Desktop and mobile apps.** Apps for macOS, Windows, Linux and Android, thin shells that
+  open your server's web app, are attached to each release and offer each newer one. An iOS
+  app builds from source. The [Apps guide](docs/src/content/docs/guides/apps.md) covers them.
 
 ## Quick start
 
@@ -48,7 +48,7 @@ archive into a directory of its own, and copy the example settings:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 cp deployments/server.env.example deployments/server.env
 ```

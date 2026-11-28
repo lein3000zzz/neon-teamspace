@@ -1,6 +1,6 @@
 [package]
 name = "neon-teamspace-shell"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Neon Teamspace apps: a shell that loads a chosen server's web UI"
 edition = "2024"
 rust-version = "1.100"
