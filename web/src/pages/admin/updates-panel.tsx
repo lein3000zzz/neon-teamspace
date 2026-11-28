@@ -111,6 +111,11 @@ function Known({ updates }: { updates: Updates }) {
             )}
           </>
         )}
+        {updates.updater.set_up && (
+          <KeyValueRow label={copy.updater}>
+            <UpdaterState updater={updates.updater} />
+          </KeyValueRow>
+        )}
       </KeyValueList>
 
       {!updates.check && <p className="text-sm text-muted-foreground">{copy.off}</p>}
@@ -128,6 +133,25 @@ function Known({ updates }: { updates: Updates }) {
       )}
     </div>
   );
+}
+
+/**
+ * Whether the updater answers the server, and how its latest update went, so that its set-up
+ * shows before any release is out; or why the server cannot ask it.
+ */
+function UpdaterState({ updater }: { updater: Updates["updater"] }) {
+  const status = updater.status ?? undefined;
+  switch (status?.state) {
+    case "idle":
+    case "done":
+      return copy.updaterReady(status.updater_version);
+    case "updating":
+      return copy.updaterUpdating(status.version ?? undefined);
+    case "failed":
+      return copy.updaterFailed(status.version ?? undefined);
+    case undefined:
+      return sentence(updater.error ?? copy.updaterNoAnswer);
+  }
 }
 
 /** A release's version, linked to its notes, and when it came out. */
@@ -182,9 +206,6 @@ function Newer({ updates, latest, status, apply }: NewerProps) {
         {updates.updater.set_up ? (
           <>
             <p>{copy.updaterNote}</p>
-            {updates.updater.error && (
-              <p className="text-foreground">{sentence(updates.updater.error)}</p>
-            )}
             {failed && <FailedUpdate status={failed} />}
             <div>
               <Button disabled={apply.isPending} onClick={() => setAsking(true)}>

@@ -628,6 +628,13 @@ export const strings = {
       lastChecked: "Last checked",
       notChecked: "Not yet",
       checkFailed: "Last check failed",
+      updater: "Updater",
+      updaterReady: (version: string) => `Ready, neon-updater ${version}`,
+      updaterUpdating: (version: string | undefined) =>
+        version ? `Updating the stack to ${version}` : "Updating the stack",
+      updaterFailed: (version: string | undefined) =>
+        version ? `The last update, to ${version}, failed` : "The last update failed",
+      updaterNoAnswer: "It did not answer.",
       off: "The release check is off, so the server never asks GitHub. Turn on updates.check under Updates below to hear of new releases.",
       upToDate: "This is the newest release.",
       developmentNote:

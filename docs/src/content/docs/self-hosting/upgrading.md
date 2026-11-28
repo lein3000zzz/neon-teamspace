@@ -334,6 +334,9 @@ docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait
 ```
 
+**Admin > Settings** then shows the updater under **Version and updates**, whether or not a
+newer release is out: ready, with its version, or why the server cannot reach it.
+
 The updater listens on `updater:8080`, reachable from the server alone: the two share a
 network of their own, which nothing else in the stack is on and which leads nowhere outside.
 The server reaches it at `http://updater:8080`, the default of the server's

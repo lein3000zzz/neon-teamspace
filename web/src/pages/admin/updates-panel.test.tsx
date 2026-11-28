@@ -54,6 +54,21 @@ async function renderPanel(updates: Updates) {
   return { ...app, panel: within(region) };
 }
 
+/** The value of the panel's Updater row, which shows only while an updater is set up. */
+function updaterRow(panel: Awaited<ReturnType<typeof renderPanel>>["panel"]) {
+  return panel.queryByText("Updater", { selector: "dt" })?.nextElementSibling ?? null;
+}
+
+/** A server on the newest release, 0.1.0, with an updater set up as `updater` says. */
+function upToDate(updater: Updates["updater"]): Updates {
+  return {
+    ...NEWER,
+    latest: { ...RELEASE, version: "0.1.0", url: NOTES.replace("0.2.0", "0.1.0") },
+    newer: false,
+    updater,
+  };
+}
+
 /** Follows the fake clock past the next look at an update's progress. */
 async function nextPoll() {
   await vi.advanceTimersByTimeAsync(2_000);
@@ -91,6 +106,58 @@ describe("the version and updates", () => {
     expect(panel.getByText("None found yet")).toBeInTheDocument();
     expect(panel.getByText("Not yet")).toBeInTheDocument();
     expect(panel.getByRole("button", { name: "Check now" })).toBeEnabled();
+    expect(updaterRow(panel), "no updater is set up").toBeNull();
+  });
+
+  it("shows the updater ready while no newer release is out", async () => {
+    const { panel } = await renderPanel(
+      upToDate({ set_up: true, status: updaterStatus({ updater_version: "0.1.0" }), error: null }),
+    );
+
+    expect(panel.getByText("This is the newest release.")).toBeInTheDocument();
+    expect(updaterRow(panel)).toHaveTextContent("Ready, neon-updater 0.1.0");
+  });
+
+  it("shows the updater whether or not the release check is on", async () => {
+    const status = updaterStatus({ state: "done", version: "0.1.0", updater_version: "0.1.0" });
+    const { panel } = await renderPanel({
+      ...testUpdates,
+      check: false,
+      updater: { set_up: true, status, error: null },
+    });
+
+    expect(panel.getByText(/The release check is off/)).toBeInTheDocument();
+    expect(updaterRow(panel)).toHaveTextContent("Ready, neon-updater 0.1.0");
+  });
+
+  it("says why the server cannot reach the updater while no newer release is out", async () => {
+    const { panel } = await renderPanel(
+      upToDate({ set_up: true, status: null, error: "the updater did not answer within 3s" }),
+    );
+
+    expect(updaterRow(panel)).toHaveTextContent("The updater did not answer within 3s.");
+  });
+
+  it("says when the updater refuses the server's token while no newer release is out", async () => {
+    const { panel } = await renderPanel(
+      upToDate({
+        set_up: true,
+        status: null,
+        error:
+          "the updater refused the server's token: updates.updater_token must be the updater's NEON_UPDATER_TOKEN",
+      }),
+    );
+
+    expect(updaterRow(panel)).toHaveTextContent(
+      "The updater refused the server's token: updates.updater_token must be the updater's NEON_UPDATER_TOKEN.",
+    );
+  });
+
+  it("says the updater's latest update failed while no newer release is out", async () => {
+    const status = updaterStatus({ state: "failed", version: "0.1.0", error: "manifest unknown" });
+    const { panel } = await renderPanel(upToDate({ set_up: true, status, error: null }));
+
+    expect(updaterRow(panel)).toHaveTextContent("The last update, to 0.1.0, failed");
   });
 
   it("says the release check is off, and offers no check", async () => {
@@ -343,6 +410,7 @@ describe("the version and updates", () => {
     );
 
     expect(panel.getByText("Updating to 0.2.0")).toBeInTheDocument();
+    expect(updaterRow(panel)).toHaveTextContent("Updating the stack to 0.2.0");
     expect(panel.queryByRole("button", { name: "Update to 0.2.0" })).toBeNull();
     await nextPoll();
     expect(await panel.findByLabelText("What the updater did")).toHaveTextContent(
@@ -451,6 +519,7 @@ describe("the version and updates", () => {
     });
 
     expect(panel.getByText("The updater did not answer within 3s.")).toBeInTheDocument();
+    expect(updaterRow(panel)).toHaveTextContent("The updater did not answer within 3s.");
     expect(panel.getByRole("button", { name: "Update to 0.2.0" })).toBeEnabled();
   });
 

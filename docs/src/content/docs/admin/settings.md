@@ -15,8 +15,10 @@ The panel at the top shows the release the server runs and the newest release on
 linked to its notes, with when the server last checked and why a check failed. **Check now**
 asks GitHub again. While a newer release is out, it offers **Update to** that release where
 an updater is set up, and otherwise the commands that update by hand; the **Admin** entry of
-the sidebar is marked meanwhile. The **Updates** group below holds its settings: whether the
-server checks, whether pre-releases count, and where the updater is.
+the sidebar is marked meanwhile. Where an updater is set up, an **Updater** row says whether
+it is ready, with its version, how its latest update went, or why the server cannot reach
+it. The **Updates** group below holds its settings: whether the server checks, whether
+pre-releases count, and where the updater is.
 [Updating from the admin settings](/docs/self-hosting/upgrading/#updating-from-the-admin-settings)
 covers an update from start to end, and [Release checks](/docs/self-hosting/upgrading/#release-checks)
 what a check sends GitHub and how to turn it off.
