@@ -33,6 +33,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tokio_util::task::AbortOnDropHandle;
 use tracing::debug;
 use url::{Host, Url};
 
@@ -220,54 +221,51 @@ where
             debug!(%error, "a webhook's HTTP handshake failed");
             SendError::Protocol
         })?;
-    let driving = tokio::spawn(connection);
-    let answer = async {
-        let target = match request.url.query() {
-            Some(query) => format!("{}?{query}", request.url.path()),
-            None => request.url.path().to_owned(),
-        };
-        let mut built = Request::builder()
-            .method(Method::POST)
-            .uri(target)
-            .header(HOST, host_header(&request.url).ok_or(SendError::Protocol)?)
-            .header(USER_AGENT_HEADER, USER_AGENT)
-            .header(CONNECTION, "close")
-            .header(CONTENT_LENGTH, request.body.len());
-        for (name, value) in &request.headers {
-            let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| SendError::Protocol)?;
-            let value = HeaderValue::from_str(value).map_err(|_| SendError::Protocol)?;
-            built = built.header(name, value);
-        }
-        let built = built
-            .body(Full::new(request.body))
-            .map_err(|_| SendError::Protocol)?;
-        let response = sender.send_request(built).await.map_err(|error| {
-            debug!(%error, "a webhook's request failed");
-            SendError::Connect
-        })?;
-        let status = response.status().as_u16();
-        let mut body = response.into_body();
-        let mut read = BytesMut::new();
-        while read.len() < MAX_ANSWER {
-            match body.frame().await {
-                Some(Ok(frame)) => {
-                    if let Ok(data) = frame.into_data() {
-                        let room = MAX_ANSWER - read.len();
-                        read.extend_from_slice(&data[..data.len().min(room)]);
-                    }
-                }
-                // An answer cut short still has its status.
-                Some(Err(_)) | None => break,
-            }
-        }
-        Ok(Answer {
-            status,
-            excerpt: excerpt(&read),
-        })
+    // The connection's task is aborted however the exchange ends, a timeout that drops this
+    // future included, so that a receiver that stops reading cannot keep it alive.
+    let _driving = AbortOnDropHandle::new(tokio::spawn(connection));
+    let target = match request.url.query() {
+        Some(query) => format!("{}?{query}", request.url.path()),
+        None => request.url.path().to_owned(),
+    };
+    let mut built = Request::builder()
+        .method(Method::POST)
+        .uri(target)
+        .header(HOST, host_header(&request.url).ok_or(SendError::Protocol)?)
+        .header(USER_AGENT_HEADER, USER_AGENT)
+        .header(CONNECTION, "close")
+        .header(CONTENT_LENGTH, request.body.len());
+    for (name, value) in &request.headers {
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| SendError::Protocol)?;
+        let value = HeaderValue::from_str(value).map_err(|_| SendError::Protocol)?;
+        built = built.header(name, value);
     }
-    .await;
-    driving.abort();
-    answer
+    let built = built
+        .body(Full::new(request.body))
+        .map_err(|_| SendError::Protocol)?;
+    let response = sender.send_request(built).await.map_err(|error| {
+        debug!(%error, "a webhook's request failed");
+        SendError::Connect
+    })?;
+    let status = response.status().as_u16();
+    let mut body = response.into_body();
+    let mut read = BytesMut::new();
+    while read.len() < MAX_ANSWER {
+        match body.frame().await {
+            Some(Ok(frame)) => {
+                if let Ok(data) = frame.into_data() {
+                    let room = MAX_ANSWER - read.len();
+                    read.extend_from_slice(&data[..data.len().min(room)]);
+                }
+            }
+            // An answer cut short still has its status.
+            Some(Err(_)) | None => break,
+        }
+    }
+    Ok(Answer {
+        status,
+        excerpt: excerpt(&read),
+    })
 }
 
 #[cfg(test)]
