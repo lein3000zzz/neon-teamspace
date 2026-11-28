@@ -7,7 +7,7 @@ use std::time::Duration;
 use neon_app::auth::{AuthError, InviteSpec, LoginInput, RegisterInput};
 use neon_app::mail::Message;
 use neon_app::ratelimit::Bucket;
-use neon_domain::auth::{Role, WeakPassword};
+use neon_domain::auth::{Role, Scope, WeakPassword};
 use serde_json::json;
 use sqlx::PgPool;
 use support::{Harness, IP, Options, PASSWORD, renaming, secret};
@@ -521,7 +521,7 @@ async fn tokens_cannot_change_passwords(pool: PgPool) {
     let (session, _) = h.sign_in("ada@example.com").await;
     let (token, _) = h
         .auth
-        .create_api_token(&session, "ci", None, &["write"], None)
+        .create_api_token(&session, "ci", None, &[Scope::Write], None)
         .await
         .expect("a token");
     let principal = h

@@ -603,7 +603,7 @@ async fn api_tokens_are_shown_once_and_kept_as_hashes(pool: PgPool) {
             &ada,
             "  CI deploys ",
             None,
-            &["write", "read", "write"],
+            &[Scope::Write, Scope::Read, Scope::Write],
             None,
         )
         .await
@@ -636,7 +636,7 @@ async fn api_tokens_are_shown_once_and_kept_as_hashes(pool: PgPool) {
     // Tokens cannot make or revoke tokens.
     assert!(matches!(
         h.auth
-            .create_api_token(&principal, "more", None, &["read"], None)
+            .create_api_token(&principal, "more", None, &[Scope::Read], None)
             .await,
         Err(AuthError::Forbidden(_))
     ));
@@ -663,24 +663,22 @@ async fn a_token_never_exceeds_its_owner_s_role(pool: PgPool) {
 
     let refused = h
         .auth
-        .create_api_token(&ada, "admin", None, &["admin"], None)
+        .create_api_token(&ada, "admin", None, &[Scope::Admin], None)
         .await;
     assert!(
         matches!(refused, Err(AuthError::Forbidden(_))),
         "{refused:?}"
     );
-    for bad in [&[][..], &["delete"][..]] {
-        let error = h
-            .auth
-            .create_api_token(&ada, "bad", None, bad, None)
-            .await
-            .expect_err("invalid");
-        assert!(matches!(error, AuthError::InvalidInput(_)), "{error:?}");
-    }
+    let error = h
+        .auth
+        .create_api_token(&ada, "bad", None, &[], None)
+        .await
+        .expect_err("invalid");
+    assert!(matches!(error, AuthError::InvalidInput(_)), "{error:?}");
 
     let (secret_token, _) = h
         .auth
-        .create_api_token(&admin, "ops", None, &["admin"], None)
+        .create_api_token(&admin, "ops", None, &[Scope::Admin], None)
         .await
         .expect("an admin's token");
     assert!(
@@ -724,7 +722,7 @@ async fn tokens_expire_and_need_their_prefix(pool: PgPool) {
     let past = support::start();
     assert!(matches!(
         h.auth
-            .create_api_token(&ada, "old", Some(past), &["read"], None)
+            .create_api_token(&ada, "old", Some(past), &[Scope::Read], None)
             .await,
         Err(AuthError::InvalidInput(_))
     ));
@@ -734,7 +732,7 @@ async fn tokens_expire_and_need_their_prefix(pool: PgPool) {
             &ada,
             "brief",
             Some(past + Duration::from_secs(3600)),
-            &["read"],
+            &[Scope::Read],
             None,
         )
         .await
@@ -762,7 +760,7 @@ async fn ending_sessions_and_tokens_is_told_and_refreshing_sees_it(pool: PgPool)
     let (third, _) = h.sign_in("ada@example.com").await;
     let (token_secret, token) = h
         .auth
-        .create_api_token(&first, "ci", None, &["read", "write"], None)
+        .create_api_token(&first, "ci", None, &[Scope::Read, Scope::Write], None)
         .await
         .expect("created");
     let by_token = h

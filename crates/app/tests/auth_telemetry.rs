@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use neon_app::auth::{AuthError, InviteSpec, LoginInput, RegisterInput};
-use neon_domain::auth::Role;
+use neon_domain::auth::{Role, Scope};
 use opentelemetry::trace::{Status, TracerProvider as _};
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use serde_json::json;
@@ -303,7 +303,7 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
     secrets.push(session.expose().to_owned());
     let (api_token, _) = h
         .auth
-        .create_api_token(&grace, "ci", None, &["read"], None)
+        .create_api_token(&grace, "ci", None, &[Scope::Read], None)
         .await
         .expect("a token");
     secrets.push(api_token.expose().to_owned());
@@ -319,7 +319,9 @@ async fn no_password_token_or_code_reaches_logs_spans_or_errors(pool: PgPool) {
     // An agent's token, made, used and revoked.
     let design = h.workspace(&grace, "Design").await.workspace.id;
     let scout = h.agent(&grace, design, "Scout").await;
-    let (agent_token, worker) = h.agent_token(&grace, &scout, &["read", "write"]).await;
+    let (agent_token, worker) = h
+        .agent_token(&grace, &scout, &[Scope::Read, Scope::Write])
+        .await;
     secrets.push(agent_token.expose().to_owned());
     h.workspaces
         .list_teamspaces(&worker, design)

@@ -488,10 +488,10 @@ async fn a_password_reset_revokes_the_accounts_tokens_and_disconnects_its_apps(p
     let scout = h.agent(&ada, design, "Scout").await;
     let (token, _) = h
         .auth
-        .create_api_token(&ada, "laptop", None, &["read", "write"], None)
+        .create_api_token(&ada, "laptop", None, &[Scope::Read, Scope::Write], None)
         .await
         .expect("made");
-    let (agent_token, _) = h.agent_token(&ada, &scout, &["read"]).await;
+    let (agent_token, _) = h.agent_token(&ada, &scout, &[Scope::Read]).await;
     let (client, request) = client(&oauth).await;
     let mut apps = Vec::new();
     for identity in [Identity::Person, Identity::Agent(scout.id)] {

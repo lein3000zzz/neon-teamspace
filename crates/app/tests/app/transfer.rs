@@ -25,7 +25,7 @@ use neon_app::workspaces::NewTeamspace;
 use neon_blocks::edit::Edit;
 use neon_blocks::{Block, SequentialIds};
 use neon_domain::attachments::FileKind;
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::databases::PropertyKind;
 use neon_domain::pages::{MAX_DEPTH, PageAccess, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, WorkspaceRole};
@@ -975,7 +975,9 @@ async fn an_export_keeps_its_turn_and_place_until_its_file_is_let_go_of(pool: Pg
     assert!(matches!(others, Err(TransferError::Busy)), "{others:?}");
     // Her agents take turns of hers.
     let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
-    let (_, scout) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let (_, scout) =
+        t.h.agent_token(&t.ada, &scout, &[Scope::Read, Scope::Write])
+            .await;
     let agents = t
         .transfer
         .admit_import(&scout, t.workspace, Location::Teamspace(t.general))

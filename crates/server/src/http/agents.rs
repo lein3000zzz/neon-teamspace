@@ -11,6 +11,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::workspaces::{AgentTeamspace as AppAgentTeamspace, AgentUpdate, NewAgent};
 use neon_domain::agents::{self as domain, AgentStatus as DomainStatus};
+use neon_domain::auth::Scope as DomainScope;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use utoipa::ToSchema;
@@ -478,7 +479,7 @@ pub(super) async fn create_agent_token(
     Path((id, agent_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<CreateAgentToken>,
 ) -> Result<(StatusCode, Json<CreatedApiToken>), ApiError> {
-    let scopes: Vec<&str> = body.scopes.iter().map(|scope| scope.as_str()).collect();
+    let scopes: Vec<DomainScope> = body.scopes.into_iter().map(DomainScope::from).collect();
     let (secret, token) = state
         .agents
         .create_agent_token(

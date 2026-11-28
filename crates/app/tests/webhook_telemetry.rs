@@ -29,6 +29,7 @@ use neon_domain::auth::Principal;
 use neon_domain::databases::PropertyKind;
 use neon_domain::jobs::Backoff;
 use neon_domain::pages::Placement;
+use neon_domain::webhooks::EventType;
 use neon_domain::workspaces::WorkspaceRole;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
@@ -286,7 +287,7 @@ async fn webhooks_count_refusals_as_ok_and_write_no_secret_url_or_payload(pool: 
                 NewWebhook {
                     user_id: dee.user.id,
                     url: url.to_owned(),
-                    events: vec!["row.assigned".to_owned()],
+                    events: vec![EventType::Assigned],
                     include_own: false,
                 },
             )

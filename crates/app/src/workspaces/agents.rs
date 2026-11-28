@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use neon_domain::agents::{Agent, AgentStatus, check_agent_name};
 use neon_domain::auth::token::token_scopes;
-use neon_domain::auth::{ApiToken, Principal, TokenHolder, UserKind};
+use neon_domain::auth::{ApiToken, Principal, Scope, TokenHolder, UserKind};
 use neon_domain::hue::check_hue;
 use neon_domain::settings::Secret;
 use neon_domain::workspaces::{Action, Resource, Teamspace, TeamspaceRole};
@@ -467,14 +467,14 @@ impl AgentService {
     /// Makes a token that acts as the agent, bound to its workspace, with read and write
     /// but never admin, for its owner, from a browser session, while the agent works. Its
     /// secret is returned once; only its hash is kept.
-    pub async fn create_agent_token<S: AsRef<str> + Sync>(
+    pub async fn create_agent_token(
         &self,
         principal: &Principal,
         workspace_id: Uuid,
         id: Uuid,
         name: &str,
         expires_at: Option<OffsetDateTime>,
-        scopes: &[S],
+        scopes: &[Scope],
     ) -> Result<(Secret, ApiToken), WorkspaceError> {
         self.observe("create_agent_token", async {
             let scopes = token_scopes(scopes, TokenHolder::Agent).map_err(|error| {

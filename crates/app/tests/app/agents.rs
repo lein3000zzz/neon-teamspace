@@ -370,7 +370,9 @@ async fn an_agent_is_a_member_of_its_workspace_alone(pool: PgPool) {
     ));
 
     // Its token sees its workspace alone, and joins no other.
-    let (_, worker) = t.h.agent_token(&t.cy, &scout, &["read", "write"]).await;
+    let (_, worker) =
+        t.h.agent_token(&t.cy, &scout, &[Scope::Read, Scope::Write])
+            .await;
     let other = t.h.workspace(&t.ada, "Elsewhere").await.workspace.id;
     let listed =
         t.h.workspaces
@@ -408,7 +410,7 @@ async fn an_agent_is_a_member_of_its_workspace_alone(pool: PgPool) {
 async fn an_agent_does_only_what_both_it_and_its_owner_may(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.ada, t.id, "Scout").await;
-    let (_, worker) = t.h.agent_token(&t.ada, &scout, &["write"]).await;
+    let (_, worker) = t.h.agent_token(&t.ada, &scout, &[Scope::Write]).await;
     let Credential::Token { workspace_id, .. } = &worker.credential else {
         panic!("a token");
     };
@@ -564,7 +566,9 @@ async fn an_agent_does_only_what_both_it_and_its_owner_may(pool: PgPool) {
 async fn agents_work_in_the_workspace_and_manage_nothing(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.ada, t.id, "Scout").await;
-    let (_, worker) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let (_, worker) =
+        t.h.agent_token(&t.ada, &scout, &[Scope::Read, Scope::Write])
+            .await;
     let ws = &t.h.workspaces;
     let agents = &t.h.agents;
     // Whatever its owner, Ada, may do, and whatever a member may.
@@ -628,7 +632,7 @@ async fn agent_tokens_are_made_by_the_owner_read_and_write_only(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
     let agents = &t.h.agents;
-    let make = |by: &Principal, scopes: &'static [&'static str]| {
+    let make = |by: &Principal, scopes: &'static [Scope]| {
         let by = by.clone();
         async move {
             agents
@@ -638,17 +642,17 @@ async fn agent_tokens_are_made_by_the_owner_read_and_write_only(pool: PgPool) {
     };
 
     assert_eq!(
-        assert_forbidden(make(&t.cy, &["read", "admin"]).await),
+        assert_forbidden(make(&t.cy, &[Scope::Read, Scope::Admin]).await),
         "an agent's token reads and writes, and never has the admin scope"
     );
     assert_eq!(
-        assert_forbidden(make(&t.bob, &["read"]).await),
+        assert_forbidden(make(&t.bob, &[Scope::Read]).await),
         "only its owner makes an agent's tokens"
     );
-    assert_hidden(make(&t.gus, &["read"]).await);
+    assert_hidden(make(&t.gus, &[Scope::Read]).await);
     let session_token =
         t.h.auth
-            .create_api_token(&t.cy, "ci", None, &["write"], None)
+            .create_api_token(&t.cy, "ci", None, &[Scope::Write], None)
             .await;
     let (secret, _) = session_token.expect("made");
     let by_token =
@@ -656,9 +660,11 @@ async fn agent_tokens_are_made_by_the_owner_read_and_write_only(pool: PgPool) {
             .authenticate_token(secret.expose())
             .await
             .expect("works");
-    assert!(assert_forbidden(make(&by_token, &["read"]).await).contains("browser session"));
+    assert!(assert_forbidden(make(&by_token, &[Scope::Read]).await).contains("browser session"));
 
-    let (secret, token) = make(&t.cy, &["write", "read"]).await.expect("made");
+    let (secret, token) = make(&t.cy, &[Scope::Write, Scope::Read])
+        .await
+        .expect("made");
     assert!(secret.expose().starts_with("nw_"));
     assert_eq!(token.scopes, [Scope::Read, Scope::Write]);
     assert_eq!(token.workspace_id, Some(t.id));
@@ -716,7 +722,7 @@ async fn an_agent_is_suspended_while_its_owner_is_out_or_disabled(pool: PgPool) 
     t.h.bring_in(&t.ada, t.id, &dee, WorkspaceRole::Member)
         .await;
     let scout = t.h.agent(&dee, t.id, "Scout").await;
-    let (secret, worker) = t.h.agent_token(&dee, &scout, &["write"]).await;
+    let (secret, worker) = t.h.agent_token(&dee, &scout, &[Scope::Write]).await;
     let works = || async { t.h.auth.authenticate_token(secret.expose()).await.is_ok() };
     let refresh = || async { t.h.auth.refresh(&worker).await.is_ok() };
 
@@ -745,7 +751,7 @@ async fn an_agent_is_suspended_while_its_owner_is_out_or_disabled(pool: PgPool) 
     );
     assert!(matches!(
         t.h.agents
-            .create_agent_token(&dee, t.id, scout.id, "again", None, &["read"])
+            .create_agent_token(&dee, t.id, scout.id, "again", None, &[Scope::Read])
             .await,
         Err(WorkspaceError::NotFound(_))
     ));
@@ -798,7 +804,7 @@ async fn an_agent_is_suspended_while_its_owner_is_out_or_disabled(pool: PgPool) 
     t.h.bring_in(&t.ada, t.id, &dee, WorkspaceRole::Member)
         .await;
     assert!(!works().await, "Dee's token does not come back with her");
-    let (_, bobs) = t.h.agent_token(&t.bob, &handed, &["read"]).await;
+    let (_, bobs) = t.h.agent_token(&t.bob, &handed, &[Scope::Read]).await;
     assert_eq!(bobs.user.owner_id, Some(t.bob.user.id));
 }
 
@@ -806,7 +812,7 @@ async fn an_agent_is_suspended_while_its_owner_is_out_or_disabled(pool: PgPool) 
 async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
-    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &["write"]).await;
+    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &[Scope::Write]).await;
     let works = || async { t.h.auth.authenticate_token(secret.expose()).await.is_ok() };
 
     // A guest owns no agent: Cy's is suspended, its token refused, its connections looked
@@ -832,7 +838,7 @@ async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
     );
     assert_hidden(
         t.h.agents
-            .create_agent_token(&t.cy, t.id, scout.id, "more", None, &["read"])
+            .create_agent_token(&t.cy, t.id, scout.id, "more", None, &[Scope::Read])
             .await,
     );
 
@@ -857,7 +863,7 @@ async fn an_agent_is_suspended_while_its_owner_is_a_guest(pool: PgPool) {
 async fn an_agent_of_a_guest_reads_no_people(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
-    let (_, worker) = t.h.agent_token(&t.cy, &scout, &["read"]).await;
+    let (_, worker) = t.h.agent_token(&t.cy, &scout, &[Scope::Read]).await;
     let database =
         t.h.databases
             .create_database(
@@ -937,7 +943,7 @@ async fn the_hourly_cleanup_keeps_agents_and_integrations(pool: PgPool) {
     t.h.set("auth.verify_email", json!(true)).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
     let hook = t.integration("GitHub").await;
-    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &["write"]).await;
+    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &[Scope::Write]).await;
     let made = t
         .page(&worker, t.general, "From Scout")
         .await
@@ -1007,7 +1013,7 @@ async fn the_instance_lists_and_counts_people_alone(pool: PgPool) {
 async fn turning_agents_off_refuses_their_tokens(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
-    let (secret, _) = t.h.agent_token(&t.cy, &scout, &["read"]).await;
+    let (secret, _) = t.h.agent_token(&t.cy, &scout, &[Scope::Read]).await;
     let works = || async { t.h.auth.authenticate_token(secret.expose()).await.is_ok() };
 
     t.h.changes.take();
@@ -1031,7 +1037,7 @@ async fn turning_agents_off_refuses_their_tokens(pool: PgPool) {
     assert!(
         assert_forbidden(
             t.h.agents
-                .create_agent_token(&t.cy, t.id, scout.id, "more", None, &["read"])
+                .create_agent_token(&t.cy, t.id, scout.id, "more", None, &[Scope::Read])
                 .await
         )
         .contains("turned off")
@@ -1179,7 +1185,7 @@ async fn only_the_owner_renames_and_the_managers_hand_over(pool: PgPool) {
 async fn deleting_an_agent_keeps_what_it_made_named(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.cy, t.id, "Scout").await;
-    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &["write"]).await;
+    let (secret, worker) = t.h.agent_token(&t.cy, &scout, &[Scope::Write]).await;
     let database =
         t.h.databases
             .create_database(
@@ -1254,7 +1260,7 @@ async fn deleting_an_agent_keeps_what_it_made_named(pool: PgPool) {
     ));
     assert_forbidden(
         t.h.agents
-            .create_agent_token(&t.ada, t.id, integration, "hook", None, &["read"])
+            .create_agent_token(&t.ada, t.id, integration, "hook", None, &[Scope::Read])
             .await,
     );
 
@@ -1310,7 +1316,7 @@ async fn a_bound_token_works_in_its_workspace_alone(pool: PgPool) {
     let t = team(pool).await;
     let other = t.h.workspace(&t.cy, "Elsewhere").await.workspace.id;
     let auth = &t.h.auth;
-    let bound = |by: &Principal, scopes: &'static [&'static str], workspace| {
+    let bound = |by: &Principal, scopes: &'static [Scope], workspace| {
         let by = by.clone();
         async move {
             let (secret, token) = auth
@@ -1321,7 +1327,9 @@ async fn a_bound_token_works_in_its_workspace_alone(pool: PgPool) {
         }
     };
 
-    let cy = bound(&t.cy, &["read", "write"], t.id).await.expect("works");
+    let cy = bound(&t.cy, &[Scope::Read, Scope::Write], t.id)
+        .await
+        .expect("works");
     assert_eq!(cy.workspace(), Some(t.id));
     let listed = t.h.workspaces.list_workspaces(&cy).await.expect("listed");
     assert_eq!(listed.iter().map(|(w, _)| w.id).collect::<Vec<_>>(), [t.id]);
@@ -1331,14 +1339,14 @@ async fn a_bound_token_works_in_its_workspace_alone(pool: PgPool) {
 
     // The admin scope only for owners and admins, for this workspace's admin work.
     assert!(matches!(
-        bound(&t.cy, &["admin"], t.id).await,
+        bound(&t.cy, &[Scope::Admin], t.id).await,
         Err(AuthError::Forbidden(_))
     ));
     assert!(matches!(
-        bound(&t.cy, &["read"], Uuid::now_v7()).await,
+        bound(&t.cy, &[Scope::Read], Uuid::now_v7()).await,
         Err(AuthError::NotFound(_))
     ));
-    let ada_writes = bound(&t.ada, &["write"], t.id).await.expect("works");
+    let ada_writes = bound(&t.ada, &[Scope::Write], t.id).await.expect("works");
     assert_eq!(
         assert_forbidden(
             t.h.workspaces
@@ -1347,7 +1355,7 @@ async fn a_bound_token_works_in_its_workspace_alone(pool: PgPool) {
         ),
         "only the workspace's owners and admins may do this"
     );
-    let ada_admin = bound(&t.ada, &["write", "admin"], t.id)
+    let ada_admin = bound(&t.ada, &[Scope::Write, Scope::Admin], t.id)
         .await
         .expect("works");
     t.update(&ada_admin, WorkspaceUpdate::default()).await;

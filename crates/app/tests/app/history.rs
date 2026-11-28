@@ -17,7 +17,7 @@ use neon_blocks::diff::Change;
 use neon_blocks::edit::Edit;
 use neon_blocks::markdown::from_markdown;
 use neon_blocks::{Block, Document};
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::history::Dated;
 use neon_domain::pages::{PageAccess, Placement};
 use neon_domain::workspaces::WorkspaceRole;
@@ -216,7 +216,7 @@ async fn each_snapshot_that_changed_the_page_keeps_a_version_with_who_changed_it
     let sync = t.sync();
     let page = t.page(&sync, "Plan", "First\n").await;
     let agent = t.h.agent(&t.ada, t.workspace, "Scout").await;
-    let (_, scout) = t.h.agent_token(&t.ada, &agent, &["write"]).await;
+    let (_, scout) = t.h.agent_token(&t.ada, &agent, &[Scope::Write]).await;
 
     t.h.time.advance(Duration::from_secs(60));
     sync.edit(&t.dee, page, append("By Dee"), None)
@@ -362,7 +362,7 @@ async fn history_shows_to_those_who_edit_the_page_and_guests_get_no_authors(pool
     // An agent sees it once it and its owner both edit the page, whatever its token's
     // scopes, as reading is all it does.
     let agent = t.h.agent(&t.ada, t.workspace, "Reader").await;
-    let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
+    let (_, reader) = t.h.agent_token(&t.ada, &agent, &[Scope::Read]).await;
     history
         .versions(&reader, page, None, None)
         .await
@@ -465,7 +465,9 @@ async fn those_who_only_view_a_page_see_none_of_what_it_held_before(pool: PgPool
         .await
         .expect("shared");
     let agent = t.h.agent(&t.ada, t.workspace, "Viewer").await;
-    let (_, viewer) = t.h.agent_token(&t.ada, &agent, &["read", "write"]).await;
+    let (_, viewer) =
+        t.h.agent_token(&t.ada, &agent, &[Scope::Read, Scope::Write])
+            .await;
     t.h.pages
         .share_page(&t.ada, notes, agent.id, PageAccess::View)
         .await
@@ -939,7 +941,7 @@ async fn restoring_needs_editing_the_page(pool: PgPool) {
         .await
         .expect("shared");
     let agent = t.h.agent(&t.ada, t.workspace, "Reader").await;
-    let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
+    let (_, reader) = t.h.agent_token(&t.ada, &agent, &[Scope::Read]).await;
     for who in [&t.gus, &reader] {
         let refused = history
             .restore(who, page, first, base.clone())

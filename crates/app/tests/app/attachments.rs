@@ -22,7 +22,7 @@ use neon_app::sync::{Limits as SyncLimits, SyncService, access_feed, revision};
 use neon_blocks::edit::Edit;
 use neon_blocks::{Block, BlockKind, Document, ImageProps};
 use neon_domain::attachments::{File, FileKind, MediaType, path};
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::Placement;
 use neon_domain::workspaces::WorkspaceRole;
 use serde_json::json;
@@ -944,7 +944,9 @@ async fn uploads_run_a_few_at_once_and_one_that_stops_sending_is_given_up_on(poo
         "a person runs two at once"
     );
     let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
-    let (_, scout) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let (_, scout) =
+        t.h.agent_token(&t.ada, &scout, &[Scope::Read, Scope::Write])
+            .await;
     assert!(busy(admit(scout).await), "her agents' count as hers");
     let _third = admit(t.dee.clone()).await.expect("someone else's");
     assert!(

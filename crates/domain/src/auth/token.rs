@@ -72,8 +72,6 @@ pub enum TokenHolder {
 pub enum InvalidScopes {
     #[error("a token needs at least one scope")]
     None,
-    #[error("there is no scope {0:?}: want read, write or admin")]
-    Unknown(String),
     #[error("only an admin's token may have the admin scope")]
     AdminOnly,
     #[error("a token bound to a workspace has the admin scope only for its owners and admins")]
@@ -84,7 +82,7 @@ pub enum InvalidScopes {
 
 impl InvalidScopes {
     /// Why the holder may not have what they asked for, when it is the admin scope they
-    /// may not have, rather than scopes that do not exist.
+    /// may not have, rather than no scope at all.
     pub fn refusal(&self) -> Option<&'static str> {
         match self {
             Self::AdminOnly => Some("only an admin's token may have the admin scope"),
@@ -95,7 +93,7 @@ impl InvalidScopes {
             Self::AgentAdmin => {
                 Some("an agent's token reads and writes, and never has the admin scope")
             }
-            Self::None | Self::Unknown(_) => None,
+            Self::None => None,
         }
     }
 }
@@ -103,21 +101,11 @@ impl InvalidScopes {
 /// The scopes a new token of `holder` gets: each once, in [`Scope::ALL`] order. At least
 /// one, and admin only for an instance admin's token across the instance, or a
 /// workspace owner's or admin's token bound to it.
-pub fn token_scopes<S: AsRef<str>>(
-    requested: &[S],
-    holder: TokenHolder,
-) -> Result<Vec<Scope>, InvalidScopes> {
+pub fn token_scopes(requested: &[Scope], holder: TokenHolder) -> Result<Vec<Scope>, InvalidScopes> {
     if requested.is_empty() {
         return Err(InvalidScopes::None);
     }
-    let mut scopes = requested
-        .iter()
-        .map(|text| {
-            let text = text.as_ref();
-            Scope::parse(text).ok_or_else(|| InvalidScopes::Unknown(text.to_owned()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if scopes.contains(&Scope::Admin) {
+    if requested.contains(&Scope::Admin) {
         match holder {
             TokenHolder::Account { role: Role::Admin }
             | TokenHolder::Workspace { manages: true } => {}
@@ -128,6 +116,7 @@ pub fn token_scopes<S: AsRef<str>>(
             TokenHolder::Agent => return Err(InvalidScopes::AgentAdmin),
         }
     }
+    let mut scopes = requested.to_vec();
     scopes.sort();
     scopes.dedup();
     Ok(scopes)
@@ -210,30 +199,20 @@ mod tests {
     #[test]
     fn scopes_are_sorted_and_deduplicated() {
         assert_eq!(
-            token_scopes(&["write", "read", "write"], USER),
+            token_scopes(&[Scope::Write, Scope::Read, Scope::Write], USER),
             Ok(vec![Scope::Read, Scope::Write])
         );
         assert_eq!(
-            token_scopes(&["admin", "read"], ADMIN),
+            token_scopes(&[Scope::Admin, Scope::Read], ADMIN),
             Ok(vec![Scope::Read, Scope::Admin])
         );
     }
 
     #[test]
-    fn scopes_must_exist_and_fit_the_role() {
-        let none: [&str; 0] = [];
-
-        assert_eq!(token_scopes(&none, ADMIN), Err(InvalidScopes::None));
+    fn scopes_must_be_some_and_fit_the_role() {
+        assert_eq!(token_scopes(&[], ADMIN), Err(InvalidScopes::None));
         assert_eq!(
-            token_scopes(&["read", "delete"], ADMIN),
-            Err(InvalidScopes::Unknown("delete".into()))
-        );
-        assert_eq!(
-            token_scopes(&["Read"], ADMIN),
-            Err(InvalidScopes::Unknown("Read".into()))
-        );
-        assert_eq!(
-            token_scopes(&["admin"], USER),
+            token_scopes(&[Scope::Admin], USER),
             Err(InvalidScopes::AdminOnly)
         );
         assert_eq!(InvalidScopes::None.refusal(), None);
@@ -250,21 +229,21 @@ mod tests {
         ];
         for (holder, admin) in cases {
             assert_eq!(
-                token_scopes(&["read", "admin"], holder).is_ok(),
+                token_scopes(&[Scope::Read, Scope::Admin], holder).is_ok(),
                 admin,
                 "{holder:?}"
             );
             assert_eq!(
-                token_scopes(&["read", "write"], holder),
+                token_scopes(&[Scope::Read, Scope::Write], holder),
                 Ok(vec![Scope::Read, Scope::Write]),
                 "{holder:?}"
             );
-            if let Err(refused) = token_scopes(&["admin"], holder) {
+            if let Err(refused) = token_scopes(&[Scope::Admin], holder) {
                 assert_eq!(refused.refusal(), Some(refused.to_string()).as_deref());
             }
         }
         assert_eq!(
-            token_scopes(&["admin"], TokenHolder::Agent),
+            token_scopes(&[Scope::Admin], TokenHolder::Agent),
             Err(InvalidScopes::AgentAdmin)
         );
     }

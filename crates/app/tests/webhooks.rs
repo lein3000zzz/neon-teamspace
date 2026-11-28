@@ -33,6 +33,7 @@ use neon_domain::databases::view::GroupingSpec;
 use neon_domain::databases::{Layout, PropertyKind, ViewSpec};
 use neon_domain::jobs::Backoff;
 use neon_domain::pages::Placement;
+use neon_domain::webhooks::EventType;
 use neon_domain::workspaces::TeamspaceAccess;
 use neon_domain::workspaces::WorkspaceRole;
 use neon_observability::propagation::current_traceparent;
@@ -180,7 +181,7 @@ async fn team(pool: PgPool) -> Team {
             NewWebhook {
                 user_id: dee.user.id,
                 url: "https://hooks.example.com/dee".to_owned(),
-                events: vec!["row.assigned".to_owned(), "row.status_changed".to_owned()],
+                events: vec![EventType::Assigned, EventType::StatusChanged],
                 include_own: false,
             },
         )
