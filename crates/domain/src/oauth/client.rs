@@ -8,13 +8,13 @@ use super::redirect::check_redirect_uri;
 use super::{ErrorCode, Problem};
 
 /// The longest client name kept, in characters. Longer names are cut.
-pub const MAX_CLIENT_NAME: usize = 100;
+pub(crate) const MAX_CLIENT_NAME: usize = 100;
 
 /// The most redirect URIs a client registers.
-pub const MAX_REDIRECT_URIS: usize = 10;
+pub(crate) const MAX_REDIRECT_URIS: usize = 10;
 
 /// What a client that gives no name is called.
-pub const UNNAMED_CLIENT: &str = "Unnamed app";
+pub(crate) const UNNAMED_CLIENT: &str = "Unnamed app";
 
 /// The grant types every client gets.
 pub const GRANT_TYPES: [&str; 2] = ["authorization_code", "refresh_token"];
@@ -92,7 +92,7 @@ pub fn check_registration(metadata: &ClientMetadata) -> Result<Registered, Probl
 /// A client's name as kept: trimmed, without control characters or the invisible ones
 /// that reorder or hide text, at most [`MAX_CLIENT_NAME`] characters, and
 /// [`UNNAMED_CLIENT`] when nothing is left.
-pub fn client_name(given: Option<&str>) -> String {
+pub(crate) fn client_name(given: Option<&str>) -> String {
     let cleaned: String = given
         .unwrap_or_default()
         .chars()
