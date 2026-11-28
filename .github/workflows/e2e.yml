@@ -50,8 +50,8 @@ jobs:
       - if: github.ref_type != 'tag'
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
       # A run by hand or from CI reads the web and updater images' layers that CI's E2E saved on
-      # the last push to its branch, or to a pull request's base branch, and saves none; the
-      # server compiles without a cache. A tag's run neither reads nor saves, and builds every
+      # the last push to dev, when it runs on dev or on a pull request into dev, and saves none;
+      # the server compiles without a cache. A tag's run neither reads nor saves, and builds every
       # image from the checkout alone, the server and the updater as the published images are
       # built, in the release profile. Under make -j2 the images build while make e2e-install
       # installs the tests' browser and its system libraries.

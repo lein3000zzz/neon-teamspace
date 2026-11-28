@@ -6,11 +6,12 @@
 # passes when every other job but E2E passed or was skipped, and `E2E`.
 #
 # A pull request saves no Actions cache, and reads what the last push to its base branch saved.
-# A push to dev saves every job's cache. A push to main saves only the Rust build's and E2E's,
-# so that a pull request into main, the last before a release, reaches E2E as soon as one into
-# dev, and the Versions job's, which a release's run reads; the other jobs' caches would only
-# double their share of the cache for the few pull requests into main. The release workflow
-# reads none but Versions', and its E2E builds the real images without a cache.
+# A push to dev saves every job's cache, and a push to main only the Versions job's, which a
+# release's run reads. A pull request into main thus compiles the Rust build and E2E's images
+# without a cache, in about the time it waits anyway for E2E (real images), which compiles the
+# server in its image without one, as a release does; copies of those caches for main would
+# take about 2 GB more of the cache's 10 GB. The release workflow reads none but Versions', and
+# its E2E builds the real images without a cache.
 name: CI
 
 on:
@@ -280,10 +281,10 @@ jobs:
       # cache below leaves out. It caches no test binary, nor any crate that links, so the tests
       # still compile and link each time. neon-store, the one crate whose macros read files
       # rustc does not track, the query cache, embeds each migration with include_str!, which it
-      # does track, and the query cache follows from the queries and the migrations. As with the
-      # dependency cache, only a push writes to it.
+      # does track, and the query cache follows from the queries and the migrations. Like the
+      # other caches, only a push to dev writes to it.
       SCCACHE_GHA_ENABLED: true
-      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && 'READ_WRITE' || 'READ_ONLY' }}
+      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -292,12 +293,11 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
-      # The dependencies, built in the ci profile. Saved on a push to main as well as to dev, as
-      # E2E waits for this job. The tools come from install-action below on each run, so the
-      # cache leaves out the installed binaries.
+      # The dependencies, built in the ci profile. The tools come from install-action below on
+      # each run, so the cache leaves out the installed binaries.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: &save-on-push ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
           cache-bin: false
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
@@ -476,13 +476,13 @@ jobs:
       # The web and updater images' layers, every stage's (mode=max), so that the tools, the
       # system packages, the packages and the updater's dependencies, which cargo-chef cooks,
       # build again only when a Dockerfile, a manifest or a lockfile changes. A run reads what
-      # the last push to its branch, or to a pull request's base branch, saved, and only a push
-      # saves; a failed save does not fail the run. The server image takes the build's binary,
-      # and builds in seconds without a cache. Under make -j2 the images build while make
-      # e2e-install installs the tests' browser and its system libraries.
+      # the last push to dev saved, and only a push to dev saves; a failed save does not fail
+      # the run. The server image takes the build's binary, and builds in seconds without a
+      # cache. Under make -j2 the images build while make e2e-install installs the tests'
+      # browser and its system libraries.
       - name: Build the images, start the stack, run the tests
         env:
-          SAVE_CACHE: *save-on-push
+          SAVE_CACHE: *save-on-dev
         run: |
           flags=""
           for image in web updater; do
@@ -637,7 +637,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: versions
-          save-if: *save-on-push
+          save-if: ${{ github.event_name == 'push' }}
       - *setup-bun
       - name: Every stated version is Cargo.toml's
         run: make version-check
