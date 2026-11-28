@@ -50,7 +50,7 @@ export const PROGRESS_FOR_MS = 10 * 60 * 1000;
  *
  * - `updating`: the old server answers, and with it the updater's status, when it could ask;
  * - `restarting`: nothing answers, as the server or the web origin restarts;
- * - `failed`: the updater says this update failed, and the stack runs what it ran before;
+ * - `failed`: the updater says this update failed; its error and log say how far it got;
  * - `done`: the server runs the new release, and the updater is no longer at work.
  */
 export type Progress =

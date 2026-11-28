@@ -80,7 +80,7 @@ pub enum UpdateState {
     Updating,
     /// The last update finished.
     Done,
-    /// The last update failed, and the stack runs what it ran before.
+    /// The last update failed; its error and log say how far it got.
     Failed,
 }
 

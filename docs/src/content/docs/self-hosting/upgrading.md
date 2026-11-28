@@ -130,10 +130,13 @@ to update the stack, and the updater pulls the release's images and restarts the
 the web container with them, as [What happens](#what-happens) describes; the new server
 migrates the database as it starts. The page follows the update with the end of the
 updater's log, waits through the restart, and reloads once `GET /api/v1/meta` answers with
-the new version, so it runs the new release's app. An update that fails leaves the stack on
-the release it ran, and the panel shows the updater's error and its log. After ten minutes
-without the server back on the new release, the page stops waiting and says so; the server's
-log and the updater's then say what happened.
+the new version, so it runs the new release's app. An update that fails before the server
+and web are recreated, as when a pull or the signature check fails, leaves the stack as it
+was, and the panel shows the updater's error and its log. One that fails later, as when the
+new server does not start, leaves `deployments/.env` naming the new release while no server
+answers, and the page waits for it. After ten minutes without the server back on the new
+release, the page stops waiting and says so; the server's log and the updater's then say what
+happened, and [When an update fails](#when-an-update-fails) says what to do.
 
 The server asks for no other update than this: a release newer than its own that its last
 check saw on GitHub, never an older release and never another tag, so the release check must
