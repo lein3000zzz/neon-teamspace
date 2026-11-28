@@ -1,13 +1,13 @@
 //! Workspaces and what is in them: members and their roles, invitations and invite links,
 //! teamspaces and their members, the limits instance admins set, and the hourly cleanup.
 //!
-//! Every use case asks [`authorize`] before it acts, so the rules live in one place, the
-//! domain. A use case that changes who is in a workspace locks the workspace's row first,
-//! in the transaction that makes the change: changes then run one at a time, and the last
-//! owner and the member limit hold however many arrive at once. Changes to a teamspace's
-//! members lock the teamspace the same way. Once a change that may alter someone's access
-//! to pages commits, such as a new role or a teamspace left, the [`AccessChanges`] port
-//! hears of it.
+//! Every use case asks [`authorize`](neon_domain::workspaces::authorize) before it acts, so
+//! the rules live in one place, the domain. A use case that changes who is in a workspace
+//! locks the workspace's row first, in the transaction that makes the change: changes then
+//! run one at a time, and the last owner and the member limit hold however many arrive at
+//! once. Changes to a teamspace's members lock the teamspace the same way. Once a change that
+//! may alter someone's access to pages commits, such as a new role or a teamspace left, the
+//! [`AccessChanges`] port hears of it.
 //!
 //! Every public use case runs in a span named `workspaces <operation>` and is measured as
 //! RED metrics of [`SUBSYSTEM`]. An expected error, such as a refusal of the rules, is

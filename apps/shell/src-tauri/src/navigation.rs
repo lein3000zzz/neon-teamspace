@@ -23,7 +23,7 @@
 //! and load where they are asked for.
 //!
 //! Which page may go to the app's own origin, and how often something opens outside, is the
-//! lock's state, in [`crate::lock`].
+//! lock's state, in [`crate::lock`](mod@crate::lock).
 
 use std::fmt;
 

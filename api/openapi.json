@@ -17983,7 +17983,7 @@
             "items": {
               "type": "string"
             },
-            "description": "One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any\nport, or a scheme of a native app's own."
+            "description": "One to ten: https, http to this machine (`127.0.0.1`, `[::1]` or `localhost`) on any\nport, or a scheme of a native app's own."
           },
           "response_types": {
             "type": [

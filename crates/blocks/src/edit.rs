@@ -34,7 +34,7 @@
 //!   one the page and the version both have stays where the version has it, its content
 //!   rewritten only when it differs, so whatever is typed meanwhile in a block the version
 //!   has as the page does stays; the page's others go, and the version's others are written
-//!   with their ids. See [`restore`].
+//!   with their ids.
 //!
 //! A page keeps at least one block: an edit that removes every block leaves an empty
 //! paragraph, as the editor does. Each edit checks what it needs before it changes

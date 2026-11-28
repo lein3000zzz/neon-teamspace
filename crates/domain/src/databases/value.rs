@@ -120,7 +120,7 @@ fn has_controls(text: &str) -> bool {
 const URL_SCHEMES: &[&str] = &["http", "https", "mailto", "tel"];
 
 /// A URL as kept: trimmed, at most [`MAX_URL`] bytes, no white space or control
-/// characters, with one of [`URL_SCHEMES`].
+/// characters, with one of `URL_SCHEMES`.
 pub fn check_url(raw: &str) -> Result<String, InvalidValue> {
     let url = raw.trim();
     let scheme = url

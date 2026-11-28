@@ -6,7 +6,7 @@
 //!   2025-11-25 have it: a client's `initialize` opens a session named by `Mcp-Session-Id`,
 //!   each request is a `POST` answered with JSON or server-sent events, a `GET` opens the
 //!   stream of notifications, and a `DELETE` ends the session. A request whose `Origin` is
-//!   not the server's own is refused with 403, against DNS rebinding: see [`own_origin`].
+//!   not the server's own is refused with 403, against DNS rebinding: see `own_origin`.
 //! - **Authentication.** Every request, not only the first, carries `Authorization: Bearer`
 //!   and is authenticated as the API routes authenticate it, an API token or an OAuth access
 //!   token alike; a session cookie is not taken. One without a working token gets 401 and a
@@ -22,11 +22,11 @@
 //!   on a session from another identity, or for another workspace, finds no session. They
 //!   are bounded overall, per identity and per person with their agents, end once idle, and
 //!   end at once when what they act as stops working: a token revoked, an agent suspended,
-//!   access to the workspace lost. See [`sessions`].
+//!   access to the workspace lost. See `sessions`.
 //! - **Rate limits** count each identity's requests, and each person's with their agents'.
 //! - **Tools and resources** use the app's services, as the API's routes do, so they see
 //!   what the caller may see and no more, and their changes reach the editors, feeds and
-//!   webhooks that the browser's do. See [`tools`] and [`resources`].
+//!   webhooks that the browser's do. See `tools` and `resources`.
 //!
 //! Each tool call runs in a span `mcp <tool>` and is measured as RED metrics of [`SUBSYSTEM`]
 //! with the tool's name as its operation; resource requests likewise. Nothing logs a page's

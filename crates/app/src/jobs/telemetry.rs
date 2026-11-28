@@ -53,7 +53,7 @@ pub fn run_span(job: &Job) -> Span {
     span
 }
 
-/// Records how every run ended; see the [module docs](self).
+/// Records how every run ended, on its span and in the RED metrics of [`SUBSYSTEM`].
 #[derive(Debug, Clone)]
 pub struct RedHook {
     red: Red,

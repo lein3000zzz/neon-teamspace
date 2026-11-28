@@ -2,11 +2,11 @@
 //! make, sharing them, favorites, importing trees of them and outlining them for exports,
 //! and the trash's hourly purge.
 //!
-//! Every use case asks [`authorize`] before it acts, so who may do what is decided in one
-//! place, the domain. A change to a workspace's tree locks the tree first, in the
-//! transaction that makes it, so such changes run one at a time: positions come from
-//! siblings nothing else is moving, and no two moves make a cycle. Every change of the
-//! tree or of a share happens in one transaction, and once it commits, the
+//! Every use case asks [`authorize`](neon_domain::workspaces::authorize) before it acts, so
+//! who may do what is decided in one place, the domain. A change to a workspace's tree locks
+//! the tree first, in the transaction that makes it, so such changes run one at a time:
+//! positions come from siblings nothing else is moving, and no two moves make a cycle. Every
+//! change of the tree or of a share happens in one transaction, and once it commits, the
 //! [`AccessChanges`] port hears whose access it may have changed.
 //!
 //! Databases and their rows are pages too, of their own kinds. A database's subpages are its
