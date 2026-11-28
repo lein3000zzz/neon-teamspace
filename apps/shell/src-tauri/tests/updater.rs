@@ -238,9 +238,29 @@ fn updater_config() -> Value {
     config["plugins"]["updater"].clone()
 }
 
+/// The keys of the object `value`, sorted, whatever order the map keeps them in.
+fn fields(value: &Value) -> Vec<&str> {
+    let mut fields: Vec<&str> = value
+        .as_object()
+        .expect("an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    fields.sort_unstable();
+    fields
+}
+
 #[test]
 fn the_apps_read_the_releases_feed_and_trust_the_releases_key() {
     let config = updater_config();
+    // These keys and no others: one more, such as allowDowngrades or a dangerous* flag, in
+    // either spelling the plugin reads, would loosen what the apps accept, so it must come as
+    // a deliberate change to this test.
+    assert_eq!(
+        fields(&config),
+        ["endpoints", "pubkey", "requireSignedVersion", "windows"]
+    );
+    assert_eq!(fields(&config["windows"]), ["installMode"]);
     assert_eq!(config["endpoints"], json!([FEED]));
     assert_eq!(config["pubkey"], RELEASE_KEY);
     // The signature binds the version too, so that no older release passes for a newer one.
