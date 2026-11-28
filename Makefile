@@ -17,11 +17,18 @@ E2E_WEB_IMAGE     ?= neon-teamspace-web:local
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# A directory holding a neon binary built for Linux, and the THIRD_PARTY_NOTICES.txt make
+# server-notices writes: set, make e2e wraps them in the server image's prebuilt target
+# instead of compiling the server, and E2E_CARGO_PROFILE does not apply. CI sets it to the
+# binary its Rust tests were built with.
+E2E_SERVER_PREBUILT ?=
 # The port of 127.0.0.1 the e2e stack's web origin is on: one free when make e2e starts it,
 # unless set.
 E2E_WEB_PORT      ?=
 # The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
 S3_TEST_CONTAINER ?= neon-s3-test
+# Where make server-notices writes the license notices of the crates the neon binary links.
+SERVER_NOTICES    ?= target/THIRD_PARTY_NOTICES.txt
 # The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
 SEAWEEDFS_IMAGE   := chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
 
@@ -187,6 +194,16 @@ test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (D
 		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
 		$(CARGO) test --workspace --test blobs
 
+.PHONY: server-notices
+# The command and the check of the notices stage of deployments/Dockerfile, which writes the
+# server image's: keep the two in step. For the image make e2e makes of a prebuilt binary.
+server-notices: ## Write the license notices of the crates the neon binary links, as the server image holds them, into SERVER_NOTICES (needs cargo-about)
+	@mkdir -p $(dir $(SERVER_NOTICES))
+	$(CARGO) about generate --locked --fail -m crates/server/Cargo.toml -c about.toml -o $(SERVER_NOTICES) about.hbs
+	@grep -q "Jason Evans" $(SERVER_NOTICES) \
+		|| { echo "jemalloc's notice is missing: update the tikv-jemalloc-sys checksums in about.toml" >&2; exit 1; }
+	@echo "wrote $(SERVER_NOTICES)"
+
 ## Generated files
 
 .PHONY: sqlx-prepare
@@ -266,8 +283,13 @@ e2e-check: ## Type-check the end-to-end tests and check their formatting
 	cd e2e && $(BUN) run check
 
 .PHONY: e2e-images
-e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise
-	$(E2E_BAKE) --load $(E2E_BUILD_FLAGS) server web
+# With E2E_SERVER_PREBUILT, the server is its image's prebuilt target, which reads the binary
+# and its notices from that directory as the build context neon-prebuilt. Bake reads a
+# directory outside the one it runs in only when allowed to.
+e2e-images: ## Build both images for make e2e, the server in Cargo's quicker e2e profile unless E2E_CARGO_PROFILE says otherwise, or from E2E_SERVER_PREBUILT
+	$(E2E_BAKE) --load $(if $(E2E_SERVER_PREBUILT),--set server.target=prebuilt \
+		--set server.contexts.neon-prebuilt=$(abspath $(E2E_SERVER_PREBUILT)) \
+		--allow=fs.read=$(abspath $(E2E_SERVER_PREBUILT))) $(E2E_BUILD_FLAGS) server web
 
 .PHONY: e2e
 # Under make -j the images build while e2e-install runs. The server's public URL names the web

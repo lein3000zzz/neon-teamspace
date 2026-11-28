@@ -230,6 +230,9 @@ profile, the release profile without link-time optimisation, which compiles in a
 the time; `make e2e E2E_CARGO_PROFILE=release` tests the build the published images have.
 `E2E_PROJECT`, `E2E_SERVER_IMAGE`, `E2E_WEB_IMAGE` and `E2E_WEB_PORT` name the Compose
 project, the image tags and the port, so runs from two checkouts can go side by side.
+`E2E_SERVER_PREBUILT` names a directory holding a `neon` binary built for Linux and the
+notices `make server-notices` writes, which `make e2e` then puts into the server image's
+`prebuilt` target instead of compiling the server, as CI does.
 
 CI runs the same `make` targets. On each pull request into `dev` or `main`, and each push to
 them, a job per area runs the checks for the files that changed, the Rust ones against a
