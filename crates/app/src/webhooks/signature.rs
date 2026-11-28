@@ -34,9 +34,7 @@ const MAX_SIGNATURES: usize = 8;
 type HmacSha256 = Hmac<Sha256>;
 
 fn mac(secret: &[u8], timestamp: i64, body: &[u8]) -> HmacSha256 {
-    // HMAC takes a key of any length.
-    let mut mac = HmacSha256::new_from_slice(secret)
-        .unwrap_or_else(|_| unreachable!("HMAC keys of any length are valid"));
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC takes a key of any length");
     mac.update(timestamp.to_string().as_bytes());
     mac.update(b".");
     mac.update(body);
