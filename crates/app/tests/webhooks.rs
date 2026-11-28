@@ -33,7 +33,7 @@ use neon_domain::databases::view::GroupingSpec;
 use neon_domain::databases::{Layout, PropertyKind, ViewSpec};
 use neon_domain::jobs::Backoff;
 use neon_domain::pages::Placement;
-use neon_domain::webhooks::EventType;
+use neon_domain::webhooks::{AttemptOutcome, EventType};
 use neon_domain::workspaces::TeamspaceAccess;
 use neon_domain::workspaces::WorkspaceRole;
 use neon_observability::propagation::current_traceparent;
@@ -524,7 +524,10 @@ async fn deliveries_that_fail_in_the_server_are_logged_and_counted(pool: PgPool)
             .webhook_attempts(&t.dee, t.workspace, t.hook)
             .await
             .expect("the log");
-        if log.first().is_some_and(|last| last.outcome == "failed") {
+        if log
+            .first()
+            .is_some_and(|last| last.outcome == AttemptOutcome::Failed)
+        {
             break log;
         }
         assert!(Instant::now() < deadline, "the log stayed {log:?}");
@@ -537,7 +540,11 @@ async fn deliveries_that_fail_in_the_server_are_logged_and_counted(pool: PgPool)
         log.iter()
             .all(|attempt| attempt.error_kind.as_deref() == Some("internal"))
     );
-    assert!(log[1..].iter().all(|attempt| attempt.outcome == "retrying"));
+    assert!(
+        log[1..]
+            .iter()
+            .all(|attempt| attempt.outcome == AttemptOutcome::Retrying)
+    );
     assert_eq!(log[0].attempt, MAX_ATTEMPTS);
     assert!(t.kept.sent().is_empty());
     let read = t

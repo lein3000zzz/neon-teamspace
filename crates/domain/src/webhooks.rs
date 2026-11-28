@@ -34,6 +34,20 @@ text_enum! {
     }
 }
 
+text_enum! {
+    /// How an attempt at a delivery went, as a webhook's log keeps it.
+    AttemptOutcome {
+        /// The receiver answered 2xx.
+        Delivered => "delivered",
+        /// It failed, and is tried again later.
+        Retrying => "retrying",
+        /// It failed, and was given up on.
+        Failed => "failed",
+        /// It was not sent: the identity no longer sees the row, or the webhook is off.
+        Skipped => "skipped",
+    }
+}
+
 /// The type of the event that "send test event" delivers, which no webhook subscribes to.
 pub const TEST_EVENT: &str = "webhook.test";
 

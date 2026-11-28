@@ -193,15 +193,22 @@ pub enum AttemptOutcome {
     Skipped,
 }
 
+impl From<neon_domain::webhooks::AttemptOutcome> for AttemptOutcome {
+    fn from(outcome: neon_domain::webhooks::AttemptOutcome) -> Self {
+        use neon_domain::webhooks::AttemptOutcome as Domain;
+        match outcome {
+            Domain::Delivered => Self::Delivered,
+            Domain::Retrying => Self::Retrying,
+            Domain::Failed => Self::Failed,
+            Domain::Skipped => Self::Skipped,
+        }
+    }
+}
+
 impl From<AppAttempt> for DeliveryAttempt {
     fn from(attempt: AppAttempt) -> Self {
         Self {
-            outcome: match attempt.outcome.as_str() {
-                "delivered" => AttemptOutcome::Delivered,
-                "retrying" => AttemptOutcome::Retrying,
-                "skipped" => AttemptOutcome::Skipped,
-                _ => AttemptOutcome::Failed,
-            },
+            outcome: attempt.outcome.into(),
             id: attempt.id,
             delivery_id: attempt.delivery_id,
             event_id: attempt.event_id,

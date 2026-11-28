@@ -29,7 +29,7 @@ use neon_domain::auth::Principal;
 use neon_domain::databases::PropertyKind;
 use neon_domain::jobs::Backoff;
 use neon_domain::pages::Placement;
-use neon_domain::webhooks::EventType;
+use neon_domain::webhooks::{AttemptOutcome, EventType};
 use neon_domain::workspaces::WorkspaceRole;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
@@ -336,8 +336,8 @@ async fn webhooks_count_refusals_as_ok_and_write_no_secret_url_or_payload(pool: 
     let taken = first_attempt(&webhooks, &dee, workspace, hooks[0]).await;
     let failed = first_attempt(&webhooks, &dee, workspace, hooks[1]).await;
     worker.stop().await;
-    assert_eq!(taken.outcome, "delivered");
-    assert_eq!(failed.outcome, "retrying");
+    assert_eq!(taken.outcome, AttemptOutcome::Delivered);
+    assert_eq!(failed.outcome, AttemptOutcome::Retrying);
     assert_eq!(failed.status_code, Some(500));
 
     // An incoming webhook takes a signed request.
