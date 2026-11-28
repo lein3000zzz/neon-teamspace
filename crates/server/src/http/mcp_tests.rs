@@ -2584,6 +2584,11 @@ async fn shutting_down_waits_for_the_tasks_the_sessions_started(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        state.mcp.tasks_running(),
+        2,
+        "the watcher and the look again"
+    );
 
     state.mcp.shutdown().await;
 
