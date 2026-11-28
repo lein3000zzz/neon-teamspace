@@ -9,18 +9,10 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::api_tokens::parse_scopes;
 use crate::decode_error;
 use crate::users::{PersonColumns, Row as UserRow};
 use crate::workspaces::parse_role;
-
-fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
-    texts
-        .iter()
-        .map(|text| {
-            Scope::parse(text).ok_or_else(|| decode_error(format!("unknown scope {text:?}")))
-        })
-        .collect()
-}
 
 fn scope_texts(scopes: &[Scope]) -> Vec<String> {
     scopes

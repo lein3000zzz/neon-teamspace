@@ -40,7 +40,8 @@ impl TryFrom<Row> for ApiToken {
     }
 }
 
-fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
+/// The scopes of a `scopes` column, an API token's or an OAuth grant's, code's or token's.
+pub(crate) fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
     texts
         .iter()
         .map(|text| {
