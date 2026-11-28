@@ -13,9 +13,6 @@ text_enum! {
 }
 
 impl RegistrationMode {
-    /// The setting's options, in the order the docs list them.
-    pub const OPTIONS: &[&str] = &["open", "invite", "closed"];
-
     pub const DEFAULT: Self = Self::Invite;
 }
 
@@ -24,10 +21,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn options_are_the_modes_as_text() {
-        let texts: Vec<&str> = RegistrationMode::ALL.iter().map(|m| m.as_str()).collect();
-
-        assert_eq!(texts, RegistrationMode::OPTIONS);
+    fn modes_round_trip_through_text() {
         for mode in RegistrationMode::ALL {
             assert_eq!(RegistrationMode::parse(mode.as_str()), Some(*mode));
         }

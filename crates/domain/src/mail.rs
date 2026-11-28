@@ -17,9 +17,6 @@ text_enum! {
 }
 
 impl Security {
-    /// The setting's options, in the order the docs list them.
-    pub const OPTIONS: &'static [&'static str] = &["starttls", "tls", "none"];
-
     pub const DEFAULT: Self = Self::StartTls;
 
     /// Whether the connection is encrypted before anything but the greeting is sent.
@@ -79,7 +76,7 @@ mod tests {
 
     #[test]
     fn security_options_round_trip() {
-        for option in Security::OPTIONS {
+        for option in Security::TEXTS {
             let security = Security::parse(option).expect("an option");
             assert_eq!(security.as_str(), *option);
         }
