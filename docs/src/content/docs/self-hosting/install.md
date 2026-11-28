@@ -174,12 +174,20 @@ The first admin is made as the server starts, while no admin can sign in. Withou
 `ADMIN` variables, `neon admin create` makes one in the running stack instead, as
 [the first run](#the-first-run) shows.
 
-The stack sets two of the server's keys itself, over anything `server.env` says:
-`database.url`, from `POSTGRES_PASSWORD`, and `observability.admin.addr`, which it sets to
-`0.0.0.0:9090`. The admin listener then answers on the stack's own network, for Prometheus
-to scrape, and is never published. The server logs a warning at start that it is not bound
-to loopback; in the stack, that is meant. Caddy never passes the admin listener's paths on,
-so `/metrics`, `/readyz` and `/debug/pprof` on the instance's address are routes of the app
+The stack sets four of the server's keys itself, over anything `server.env` says:
+
+- `database.url`, from `POSTGRES_PASSWORD`;
+- `server.trusted_proxies`, the private address ranges, as only the stack's containers reach
+  the server;
+- `observability.admin.addr`, which it sets to `0.0.0.0:9090`;
+- `updates.updater_token`, from `NEON_UPDATER_TOKEN` in `deployments/.env`, even when that is
+  blank: the updater's token goes there, as
+  [Turning it on](/docs/self-hosting/upgrading/#turning-it-on) shows, and not in `server.env`.
+
+On that address, the admin listener answers on the stack's own network, for Prometheus to
+scrape, and is never published. The server logs a warning at start that it is not bound to
+loopback; in the stack, that is meant. Caddy never passes the admin listener's paths on, so
+`/metrics`, `/readyz` and `/debug/pprof` on the instance's address are routes of the app
 like any other.
 
 ### A domain and TLS
