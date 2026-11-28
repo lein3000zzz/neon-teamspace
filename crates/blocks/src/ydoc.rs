@@ -76,14 +76,15 @@ const TEXT_COLOR: &str = "textColor";
 const BACKGROUND_COLOR: &str = "backgroundColor";
 const LINK: &str = "link";
 
-/// The most columns, or rows, one cell of a table spans. Reading a table gives a width to
-/// each column the cells of its first row span, so a larger span, a few bytes of a document,
-/// would make the reader allocate as much as it says; a table the editor makes stays far
-/// within it.
+/// The most column widths writing a table gives one cell. A cell's colspan, a few bytes of a
+/// document, may say any number, and writing would otherwise allocate as many; a table the
+/// editor makes stays far within it.
 const MAX_SPAN: u32 = 100;
 
-/// The most columns the cells of one row of a table span together, a cell that spans none
-/// counted as one, and so the most columns a table has.
+/// The most columns reading a table gives widths for by the spans of its first row's cells,
+/// and the widest grid writing a table places its cells in. Past it, a cell without widths
+/// of its own gets one, so that what reading allocates stays in proportion to what the
+/// document holds, whatever its spans say.
 const MAX_COLUMNS: usize = 1_000;
 
 /// A document whose structure is not the editor's.
@@ -510,15 +511,6 @@ impl<T: ReadTxn> Attrs<'_, T> {
         }
     }
 
-    /// A table cell's span: 1 when unset, and at most [`MAX_SPAN`].
-    fn span(&self, name: &'static str) -> Result<u32, ReadError> {
-        match self.whole(name)? {
-            None => Ok(1),
-            Some(span) if span <= MAX_SPAN => Ok(span),
-            Some(_) => Err(self.invalid(name)),
-        }
-    }
-
     fn alignment(&self) -> Result<TextAlignment, ReadError> {
         match self.get("textAlignment") {
             None => Ok(TextAlignment::Left),
@@ -801,7 +793,6 @@ fn read_table<T: ReadTxn>(txn: &T, table: &XmlElementRef) -> Result<TableContent
         };
         let mut cells = Vec::new();
         let mut headers = Vec::new();
-        let mut columns = 0;
         for cell in row.children(txn) {
             let (cell, node) = match cell {
                 XmlOut::Element(cell) if cell.tag().as_ref() == TABLE_CELL => (cell, TABLE_CELL),
@@ -817,16 +808,12 @@ fn read_table<T: ReadTxn>(txn: &T, table: &XmlElementRef) -> Result<TableContent
                 node,
             };
             let props = TableCellProps {
-                colspan: attrs.span("colspan")?,
-                rowspan: attrs.span("rowspan")?,
+                colspan: attrs.whole("colspan")?.unwrap_or(1),
+                rowspan: attrs.whole("rowspan")?.unwrap_or(1),
                 background_color: attrs.color("backgroundColor")?,
                 text_color: attrs.color("textColor")?,
                 text_alignment: attrs.alignment()?,
             };
-            columns += props.colspan.max(1) as usize;
-            if columns > MAX_COLUMNS {
-                return Err(attrs.invalid("colspan"));
-            }
             if row_index == 0 {
                 match cell.get_attribute(txn, "colwidth") {
                     Some(Out::Any(Any::Array(widths))) => {
@@ -835,7 +822,12 @@ fn read_table<T: ReadTxn>(txn: &T, table: &XmlElementRef) -> Result<TableContent
                             _ => None,
                         }));
                     }
-                    _ => column_widths.extend((0..props.colspan).map(|_| None)),
+                    _ => {
+                        // Up to the columns' bound, then one for a cell that spans any.
+                        let room = MAX_COLUMNS.saturating_sub(column_widths.len()).max(1);
+                        let spanned = (props.colspan as usize).min(room);
+                        column_widths.extend(std::iter::repeat_n(None, spanned));
+                    }
                 }
             }
             cells.push(TableCell {
@@ -1312,7 +1304,7 @@ fn write_table(txn: &mut TransactionMut<'_>, table: &XmlElementRef, content: &Ta
 
 /// A cell's `colwidth`, as BlockNote sets it: the widths of the columns it spans, or none
 /// for a one-column cell whose column has no width. A cell that spans more than
-/// [`MAX_SPAN`], which a table that reads has none of, gets that many.
+/// [`MAX_SPAN`] gets that many.
 fn cell_widths(widths: &[Option<f64>], column: usize, colspan: u32) -> Option<Any> {
     let width = |index: usize| widths.get(index).copied().flatten();
     if colspan > 1 {
@@ -1329,8 +1321,8 @@ fn cell_widths(widths: &[Option<f64>], column: usize, colspan: u32) -> Option<An
 }
 
 /// The grid column of each cell, rows by cells, with spans taken into account as
-/// BlockNote's occupancy grid takes them. The grid is at most [`MAX_COLUMNS`] wide, as wide
-/// as a table that reads can be.
+/// BlockNote's occupancy grid takes them. The grid is at most [`MAX_COLUMNS`] wide; a cell
+/// past it keeps its place in its row.
 fn column_positions(rows: &[TableRow]) -> Vec<Vec<usize>> {
     let height = rows.len();
     let width = rows
@@ -1789,59 +1781,60 @@ mod tests {
         doc
     }
 
-    /// What reading a table of one row with these spans fails with, after checking that a
-    /// lenient read leaves the table out.
-    fn table_error(spans: &[(u32, u32)]) -> ReadError {
+    /// The table read from a document holding one table of one row with these spans, after
+    /// checking that a lenient read keeps it.
+    fn table_read(spans: &[(u32, u32)]) -> TableContent {
         let doc = table_of_spans(spans);
         let fragment = fragment(&doc);
-        assert_eq!(
-            read_lenient(&doc.transact(), &fragment),
-            Lenient {
-                document: Document::default(),
-                dropped: 1,
-            }
-        );
-        read_doc(&doc).expect_err("a table past the bounds")
+        assert_eq!(read_lenient(&doc.transact(), &fragment).dropped, 0);
+        table_of(read_doc(&doc).expect("reads"))
     }
 
-    /// How many columns reading a table of one row with these spans gives widths to.
-    fn widths_read(spans: &[(u32, u32)]) -> usize {
-        let read = read_doc(&table_of_spans(spans)).expect("reads");
-        match &read.blocks[0].kind {
-            BlockKind::Table { content, .. } => content.column_widths.len(),
-            _ => panic!("a table"),
-        }
-    }
-
-    fn invalid_cell(attribute: &'static str) -> ReadError {
-        ReadError::InvalidAttribute {
-            node: TABLE_CELL,
-            attribute,
+    fn table_of(document: Document) -> TableContent {
+        match document.blocks.into_iter().next().map(|block| block.kind) {
+            Some(BlockKind::Table { content, .. }) => content,
+            other => panic!("a table: {other:?}"),
         }
     }
 
     #[test]
-    fn a_cell_spanning_past_the_bound_does_not_read() {
-        assert_eq!(table_error(&[(u32::MAX, 1)]), invalid_cell("colspan"));
-        assert_eq!(table_error(&[(MAX_SPAN + 1, 1)]), invalid_cell("colspan"));
-        assert_eq!(table_error(&[(1, u32::MAX)]), invalid_cell("rowspan"));
-        assert_eq!(table_error(&[(1, MAX_SPAN + 1)]), invalid_cell("rowspan"));
-        // At the bound, it reads.
-        assert_eq!(widths_read(&[(MAX_SPAN, MAX_SPAN)]), MAX_SPAN as usize);
+    fn a_cell_reads_whatever_it_spans() {
+        let read = table_read(&[(MAX_SPAN, MAX_SPAN)]);
+        assert_eq!(read.column_widths.len(), MAX_SPAN as usize);
+        // Past the bounds too, with widths for no more columns than the bound.
+        let wide = table_read(&[(u32::MAX, 1)]);
+        assert_eq!(wide.rows[0].cells[0].props.colspan, u32::MAX);
+        assert_eq!(wide.column_widths.len(), MAX_COLUMNS);
+        let tall = table_read(&[(1, u32::MAX)]);
+        assert_eq!(tall.rows[0].cells[0].props.rowspan, u32::MAX);
+        assert_eq!(tall.column_widths.len(), 1);
     }
 
     #[test]
-    fn a_row_spanning_past_the_columns_bound_does_not_read() {
+    fn the_widths_read_stay_in_proportion_to_the_cells() {
+        // A column for each one-column cell, past the bound too.
+        let narrow = table_read(&vec![(1, 1); MAX_COLUMNS + 1]);
+        assert_eq!(narrow.column_widths.len(), MAX_COLUMNS + 1);
+        // Wide cells fill the bound, and each one after it gives one.
         let full = MAX_COLUMNS / MAX_SPAN as usize;
-        let mut spans = vec![(MAX_SPAN, 1); full];
-        assert_eq!(widths_read(&spans), MAX_COLUMNS);
-        // A cell that spans no column takes one.
-        spans.push((0, 1));
-        assert_eq!(table_error(&spans), invalid_cell("colspan"));
-        assert_eq!(
-            table_error(&vec![(1, 1); MAX_COLUMNS + 1]),
-            invalid_cell("colspan")
-        );
+        let wide = table_read(&vec![(MAX_SPAN, 1); full + 5]);
+        assert_eq!(wide.column_widths.len(), MAX_COLUMNS + 5);
+        // A cell that spans no column gives none.
+        assert_eq!(table_read(&[(0, 1), (1, 1)]).column_widths.len(), 1);
+    }
+
+    #[test]
+    fn a_table_wider_than_the_bound_reads_back_as_written() {
+        let columns = MAX_COLUMNS + 1;
+        let row = |text: &str| format!("|{}\n", format!(" {text} |").repeat(columns));
+        let mut document =
+            crate::markdown::from_markdown(&format!("{}{}{}", row("a"), row("-"), row("b")));
+        let read = round_trip(&document);
+        document.fill_ids(&mut SequentialIds::new("block"));
+        assert_eq!(read, document);
+        let table = table_of(read);
+        assert_eq!(table.column_widths.len(), columns);
+        assert_eq!(table.rows[1].cells.len(), columns);
     }
 
     #[test]
@@ -1880,6 +1873,13 @@ mod tests {
             &Document::new(vec![table]),
             &mut SequentialIds::new("block"),
         );
-        assert_eq!(read_doc(&doc), Err(invalid_cell("colspan")));
+        // And read back as they were.
+        let read = table_of(read_doc(&doc).expect("reads back"));
+        let spans: Vec<(u32, u32)> = read.rows[0]
+            .cells
+            .iter()
+            .map(|cell| (cell.props.colspan, cell.props.rowspan))
+            .collect();
+        assert_eq!(spans, [(u32::MAX, u32::MAX), (1, u32::MAX)]);
     }
 }
