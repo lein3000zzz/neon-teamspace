@@ -147,6 +147,8 @@ pub(crate) struct Sessions {
     /// The watcher, and the sessions it or a request ends or looks again at, which
     /// [`close_all`](Self::close_all) waits for.
     tasks: TaskTracker,
+    /// Stops the watcher: a child of the transport's token, which stops it too.
+    watching: CancellationToken,
 }
 
 /// One of the transport's session workers, and when it was made.
@@ -331,10 +333,13 @@ impl Sessions {
             workers: Mutex::new(HashMap::new()),
             state: Mutex::new(State::default()),
             tasks: TaskTracker::new(),
+            watching: stop.child_token(),
         });
-        sessions
-            .tasks
-            .spawn(watch(Arc::downgrade(&sessions), heard, stop));
+        sessions.tasks.spawn(watch(
+            Arc::downgrade(&sessions),
+            heard,
+            sessions.watching.clone(),
+        ));
         sessions
     }
 
@@ -500,9 +505,10 @@ impl Sessions {
         self.state().gauges();
     }
 
-    /// Ends every session, as the server stops, once `stop` has stopped the watcher, and
+    /// Ends every session, as the server stops: stops the watcher, ends each session, and
     /// waits for the sessions' tasks to end.
     pub(crate) async fn close_all(&self) {
+        self.watching.cancel();
         let ids: Vec<SessionId> = self.workers().keys().cloned().collect();
         for id in ids {
             self.end(&id).await;
