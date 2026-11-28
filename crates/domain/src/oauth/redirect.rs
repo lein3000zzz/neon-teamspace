@@ -19,7 +19,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use url::{Host, Url};
 
 /// The longest redirect URI, in bytes.
-pub const MAX_REDIRECT_URI: usize = 2048;
+pub(crate) const MAX_REDIRECT_URI: usize = 2048;
 
 /// Schemes no redirect may use: the browser's own, the network's, and those that start a
 /// program of the system's.
@@ -69,7 +69,7 @@ const REFUSED_PREFIXES: &[&str] = &[
 ];
 
 /// What is wrong with a redirect URI a client registers or names, if anything.
-pub fn check_redirect_uri(raw: &str) -> Result<(), String> {
+pub(crate) fn check_redirect_uri(raw: &str) -> Result<(), String> {
     if raw.len() > MAX_REDIRECT_URI {
         return Err(format!(
             "a redirect URI has at most {MAX_REDIRECT_URI} characters"
@@ -126,7 +126,7 @@ fn is_loopback(host: &Host<&str>) -> bool {
 
 /// Whether `asked` is one of the client's `registered` redirect URIs: the same text, or,
 /// over http to this machine, the same but for its port.
-pub fn redirect_matches<S: AsRef<str>>(registered: &[S], asked: &str) -> bool {
+pub(crate) fn redirect_matches<S: AsRef<str>>(registered: &[S], asked: &str) -> bool {
     if registered.iter().any(|uri| uri.as_ref() == asked) {
         return true;
     }

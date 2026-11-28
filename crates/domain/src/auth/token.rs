@@ -4,8 +4,6 @@
 //! A person's token works across the instance, or only in one workspace it is bound to. An
 //! agent's token is always bound to the agent's workspace, and acts as the agent.
 
-use std::fmt;
-
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -20,39 +18,18 @@ pub const SHOWN_PREFIX_LENGTH: usize = 10;
 /// The longest token name, in characters.
 pub const MAX_TOKEN_NAME: usize = 64;
 
-/// What a token may do. A browser session may do everything its user may.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Scope {
-    /// Read what the owner can see. Every scope brings it.
-    Read,
-    /// Change what the owner can change.
-    Write,
-    /// The instance admin pages' work, for an instance admin's token across the instance;
-    /// or a workspace's admin work, for an owner's or admin's token bound to it. It stops
-    /// working when its owner stops being one. An agent's token never has it.
-    Admin,
-}
-
-impl Scope {
-    /// Every scope, in the order lists show them.
-    pub const ALL: [Self; 3] = [Self::Read, Self::Write, Self::Admin];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Read => "read",
-            Self::Write => "write",
-            Self::Admin => "admin",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|scope| scope.as_str() == text)
-    }
-}
-
-impl fmt::Display for Scope {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+text_enum! {
+    /// What a token may do. A browser session may do everything its user may. Lists show
+    /// the scopes in this order.
+    Scope {
+        /// Read what the owner can see. Every scope brings it.
+        Read => "read",
+        /// Change what the owner can change.
+        Write => "write",
+        /// The instance admin pages' work, for an instance admin's token across the instance;
+        /// or a workspace's admin work, for an owner's or admin's token bound to it. It stops
+        /// working when its owner stops being one. An agent's token never has it.
+        Admin => "admin",
     }
 }
 

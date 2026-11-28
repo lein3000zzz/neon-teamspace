@@ -274,7 +274,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::enumeration(
             auth::REGISTRATION,
-            RegistrationMode::OPTIONS,
+            RegistrationMode::TEXTS,
             RegistrationMode::DEFAULT.as_str(),
             "Who may create an account: anyone (open), people with an invite an admin made \
              (invite), or nobody but admins, who add accounts themselves (closed).",
@@ -394,7 +394,7 @@ pub fn registry() -> Registry {
         .define(
             Definition::enumeration(
                 mail::TLS,
-                Security::OPTIONS,
+                Security::TEXTS,
                 Security::DEFAULT.as_str(),
                 "How the connection is secured. starttls upgrades it with STARTTLS and \
                  refuses a server that does not offer it; tls speaks TLS from the start; none \
@@ -452,7 +452,7 @@ pub fn registry() -> Registry {
         ))
         .define(Definition::enumeration(
             workspaces::CREATION,
-            WorkspaceCreation::OPTIONS,
+            WorkspaceCreation::TEXTS,
             WorkspaceCreation::DEFAULT.as_str(),
             "Who may create a workspace: every account (anyone), or instance admins only \
              (admins). Workspaces made before a change stay.",
@@ -491,7 +491,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::set(
             mcp::IDENTITIES,
-            IdentityMode::OPTIONS,
+            IdentityMode::TEXTS,
             IdentityMode::DEFAULT,
             "Whom MCP clients may act as: the person who connects them (user), one of that \
              person's agents (agent), or both. Without user, /mcp refuses people's tokens, \

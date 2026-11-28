@@ -416,12 +416,9 @@ impl WorkspaceService {
                 .await?;
             context.check(Action::LeaveTeamspace)?;
             let owners = repo::count_owners(&mut *tx, id).await?;
-            check_teamspace_owner_remains(
-                owners,
-                context.role == Some(TeamspaceRole::Owner),
-                false,
-                context.manages_workspace(),
-            )?;
+            if let Some(from) = context.role {
+                check_teamspace_owner_remains(owners, from, None, context.manages_workspace())?;
+            }
             repo::remove_member(&mut *tx, id, principal.user.id).await?;
             tx.commit().await?;
             info!(
@@ -541,8 +538,8 @@ impl WorkspaceService {
                 let owners = repo::count_owners(&mut *tx, id).await?;
                 check_teamspace_owner_remains(
                     owners,
-                    current == TeamspaceRole::Owner,
-                    role == TeamspaceRole::Owner,
+                    current,
+                    Some(role),
                     context.manages_workspace(),
                 )?;
                 repo::set_member_role(&mut *tx, id, user_id, role).await?;
@@ -585,12 +582,7 @@ impl WorkspaceService {
                 .await?
                 .ok_or(WorkspaceError::NotFound(NO_MEMBER))?;
             let owners = repo::count_owners(&mut *tx, id).await?;
-            check_teamspace_owner_remains(
-                owners,
-                current == TeamspaceRole::Owner,
-                false,
-                context.manages_workspace(),
-            )?;
+            check_teamspace_owner_remains(owners, current, None, context.manages_workspace())?;
             repo::remove_member(&mut *tx, id, user_id).await?;
             tx.commit().await?;
             info!(

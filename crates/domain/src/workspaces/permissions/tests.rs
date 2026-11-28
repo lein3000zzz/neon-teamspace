@@ -1530,24 +1530,47 @@ fn refusals_say_why() {
 
 #[test]
 fn a_workspace_always_keeps_an_owner() {
-    assert_eq!(check_owner_remains(1, true, false), Err(LastOwner));
-    assert_eq!(check_owner_remains(2, true, false), Ok(()));
-    assert_eq!(check_owner_remains(1, true, true), Ok(()));
-    assert_eq!(check_owner_remains(1, false, false), Ok(()));
-    assert_eq!(check_owner_remains(0, false, true), Ok(()));
+    use WorkspaceRole::{Admin, Guest, Member, Owner};
+
+    assert_eq!(check_owner_remains(1, Owner, Some(Admin)), Err(LastOwner));
+    assert_eq!(check_owner_remains(1, Owner, Some(Guest)), Err(LastOwner));
+    assert_eq!(check_owner_remains(1, Owner, None), Err(LastOwner));
+    assert_eq!(check_owner_remains(2, Owner, Some(Member)), Ok(()));
+    assert_eq!(check_owner_remains(2, Owner, None), Ok(()));
+    assert_eq!(check_owner_remains(1, Owner, Some(Owner)), Ok(()));
+    assert_eq!(check_owner_remains(1, Admin, Some(Member)), Ok(()));
+    assert_eq!(check_owner_remains(1, Member, None), Ok(()));
+    assert_eq!(check_owner_remains(0, Admin, Some(Owner)), Ok(()));
 }
 
 #[test]
 fn a_teamspace_keeps_an_owner_unless_the_workspace_managers_take_over() {
+    use TeamspaceRole::{Member, Owner};
+
     assert_eq!(
-        check_teamspace_owner_remains(1, true, false, false),
+        check_teamspace_owner_remains(1, Owner, Some(Member), false),
         Err(LastTeamspaceOwner)
     );
-    assert_eq!(check_teamspace_owner_remains(1, true, false, true), Ok(()));
-    assert_eq!(check_teamspace_owner_remains(2, true, false, false), Ok(()));
-    assert_eq!(check_teamspace_owner_remains(1, true, true, false), Ok(()));
     assert_eq!(
-        check_teamspace_owner_remains(1, false, false, false),
+        check_teamspace_owner_remains(1, Owner, None, false),
+        Err(LastTeamspaceOwner)
+    );
+    assert_eq!(check_teamspace_owner_remains(1, Owner, None, true), Ok(()));
+    assert_eq!(
+        check_teamspace_owner_remains(1, Owner, Some(Member), true),
+        Ok(())
+    );
+    assert_eq!(check_teamspace_owner_remains(2, Owner, None, false), Ok(()));
+    assert_eq!(
+        check_teamspace_owner_remains(1, Owner, Some(Owner), false),
+        Ok(())
+    );
+    assert_eq!(
+        check_teamspace_owner_remains(1, Member, None, false),
+        Ok(())
+    );
+    assert_eq!(
+        check_teamspace_owner_remains(0, Member, Some(Owner), false),
         Ok(())
     );
 }

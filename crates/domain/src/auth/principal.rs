@@ -80,7 +80,8 @@ impl Principal {
     pub fn scopes(&self) -> Vec<Scope> {
         let bound = self.workspace().is_some();
         Scope::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|scope| self.can(*scope))
             .filter(|scope| *scope != Scope::Admin || self.user.is_admin() || bound)
             .collect()

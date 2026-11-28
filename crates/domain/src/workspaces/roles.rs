@@ -65,8 +65,6 @@ text_enum! {
 }
 
 impl WorkspaceCreation {
-    /// The setting's options, in the order the docs list them.
-    pub const OPTIONS: &'static [&'static str] = &["anyone", "admins"];
     pub const DEFAULT: Self = Self::Anyone;
 }
 
@@ -94,10 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn the_creation_options_are_its_values() {
-        let options: Vec<&str> = WorkspaceCreation::ALL.iter().map(|c| c.as_str()).collect();
-
-        assert_eq!(options, WorkspaceCreation::OPTIONS);
+    fn anyone_creates_workspaces_by_default() {
         assert_eq!(WorkspaceCreation::DEFAULT, WorkspaceCreation::Anyone);
     }
 

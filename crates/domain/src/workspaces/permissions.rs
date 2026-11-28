@@ -1026,14 +1026,15 @@ fn allow_if(allowed: bool, otherwise: Denied) -> Result<(), Denied> {
 #[error("a workspace keeps at least one owner: make another owner first")]
 pub struct LastOwner;
 
-/// Whether a workspace with `owners` owners keeps one when a member who is an owner now
-/// (`was_owner`) is one after the change or not (`stays_owner`).
+/// Whether a workspace with `owners` owners keeps one when a member's role changes `from`
+/// one `to` another, or to `None` as they leave or are removed.
 pub fn check_owner_remains(
     owners: i64,
-    was_owner: bool,
-    stays_owner: bool,
+    from: WorkspaceRole,
+    to: Option<WorkspaceRole>,
 ) -> Result<(), LastOwner> {
-    if was_owner && !stays_owner && owners <= 1 {
+    let owner = WorkspaceRole::Owner;
+    if from == owner && to != Some(owner) && owners <= 1 {
         Err(LastOwner)
     } else {
         Ok(())
@@ -1050,11 +1051,12 @@ pub struct LastTeamspaceOwner;
 /// (`actor_manages`) may leave without an owner, as they manage it themselves.
 pub fn check_teamspace_owner_remains(
     owners: i64,
-    was_owner: bool,
-    stays_owner: bool,
+    from: TeamspaceRole,
+    to: Option<TeamspaceRole>,
     actor_manages: bool,
 ) -> Result<(), LastTeamspaceOwner> {
-    if was_owner && !stays_owner && owners <= 1 && !actor_manages {
+    let owner = TeamspaceRole::Owner;
+    if from == owner && to != Some(owner) && owners <= 1 && !actor_manages {
         Err(LastTeamspaceOwner)
     } else {
         Ok(())
