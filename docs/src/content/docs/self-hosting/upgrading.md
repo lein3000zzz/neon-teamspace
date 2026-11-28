@@ -1,6 +1,6 @@
 ---
 title: Upgrading
-description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive or a clone, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, and checking the images.
+description: How releases are numbered and tagged, their notes, moving a Compose install to a new release from its Compose archive, a clone or the admin settings, the server's release checks and what they send GitHub, how the server migrates the database as it starts and what a failed migration leaves, rolling back with a backup, and checking the images.
 ---
 
 ## Releases
@@ -102,6 +102,77 @@ git fetch --tags
 git checkout v0.1.0
 docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build --wait
 ```
+
+## Updating from the admin settings
+
+**Admin > Settings** opens with **Version and updates**: the release the server runs, the
+newest release its last [release check](#release-checks) saw, linked to its notes, when it
+checked, and why the last check failed if it did. **Check now** asks GitHub again. While a
+newer release is out, the **Admin** entry of the sidebar carries a mark for instance admins.
+A development build, as `cargo run` and `make run` make, is never offered an update: it is
+updated from its code.
+
+Without an updater, the panel gives the commands that update by hand, for the release it
+found: set `NEON_VERSION` to it in `deployments/.env`, then, in the directory that holds
+`deployments/`, pull its images and restart the stack with them:
+
+```sh
+docker compose -f deployments/docker-compose.yml pull
+docker compose -f deployments/docker-compose.yml up -d --wait
+```
+
+These keep the Compose file you have. A release that changes it says so in its notes; then
+get the new one from the release's [Compose archive](#with-the-compose-archive) instead.
+
+With the updater set up, as [One-click updates](#one-click-updates) describes, the panel
+offers **Update to** the release instead. After a confirmation, the server asks the updater
+to update the stack, and the updater pulls the release's images and restarts the server and
+the web container with them, as [What happens](#what-happens) describes; the new server
+migrates the database as it starts. The page follows the update with the end of the
+updater's log, waits through the restart, and reloads once `GET /api/v1/meta` answers with
+the new version, so it runs the new release's app. An update that fails leaves the stack on
+the release it ran, and the panel shows the updater's error and its log. After ten minutes
+without the server back on the new release, the page stops waiting and says so; the server's
+log and the updater's then say what happened.
+
+The server asks for no other update than this: a release newer than its own that its last
+check saw on GitHub, never an older release and never another tag, so the release check must
+be on. Only an instance admin at a browser may update; an API token with the `admin` scope
+reads the status and checks, but cannot update. The server logs each update it asked for,
+`the updater was asked to update the stack to a release`, with the admin's id and the
+version. Read the notes and take a [backup](/docs/self-hosting/backups/) first, as for any
+upgrade: the panel cannot undo a migration either.
+
+The same is in the API, for instance admins: `GET /api/v1/admin/updates` for the status,
+`POST /api/v1/admin/updates/check` to check now, and `POST /api/v1/admin/updates/apply`, with
+the release's version in its `version` field, to update, from a browser session. The
+[API reference](/docs/reference/api/) has their answers and error codes.
+
+## Release checks
+
+While `updates.check` is on, as it is unless set, the server asks GitHub for the releases of
+Neon Teamspace as it starts and then once a day, an hour after a check that failed, and
+whenever an admin presses **Check now**. It keeps what it found in memory, so a restart asks
+again. Of the releases, the newest by semantic versioning counts: never a draft, and a
+pre-release only while `updates.prereleases` is on.
+
+A check is one request, without credentials, to GitHub's API:
+`GET https://api.github.com/repos/lein3000zzz/neon-teamspace/releases?per_page=30`, the 30
+latest releases, with the `User-Agent` `NeonTeamspace/` and the server's version, such as
+`NeonTeamspace/0.1.0`, and the `Accept` and `X-GitHub-Api-Version` headers GitHub asks for.
+It sends nothing else: no account, no instance name, no address of the instance, no token.
+GitHub sees the request come from the server's address, with that version. The server reads
+at most 4 MiB of the answer, and gives up after 20 seconds. GitHub allows an address 60 such
+requests an hour; a check refused for it fails with GitHub's status, and the next tries
+again an hour later.
+
+To turn the checks off, set `updates.check` off in **Admin > Settings**, or pin it with
+`NEON_SETTINGS__UPDATES__CHECK=false` in `deployments/server.env`. Off, the server never asks
+GitHub, forgets what it found, and offers no update from the admin settings; the panel says
+the check is off, and updating works [by hand](#upgrading-a-compose-install) as before.
+Where the server cannot reach GitHub, the config file's `updates.github_api_url` names a
+mirror of its API instead, as [Configuration](/docs/self-hosting/configuration/#the-config-file)
+describes.
 
 ## What happens
 
