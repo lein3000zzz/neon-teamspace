@@ -1,7 +1,5 @@
 //! Accounts: who they are and what they may do on the instance.
 
-use std::fmt;
-
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -11,32 +9,11 @@ use crate::hue::hue_or_hashed;
 /// The longest display name, in characters.
 pub const MAX_DISPLAY_NAME: usize = 100;
 
-/// What an account may do on the instance. Admins manage accounts, invites and settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Role {
-    Admin,
-    User,
-}
-
-impl Role {
-    /// Every role, as stored and sent.
-    pub const ALL: [Self; 2] = [Self::Admin, Self::User];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::User => "user",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|role| role.as_str() == text)
-    }
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+text_enum! {
+    /// What an account may do on the instance. Admins manage accounts, invites and settings.
+    Role {
+        Admin => "admin",
+        User => "user",
     }
 }
 
@@ -182,7 +159,7 @@ mod tests {
     #[test]
     fn roles_round_trip_through_text() {
         for role in Role::ALL {
-            assert_eq!(Role::parse(role.as_str()), Some(role));
+            assert_eq!(Role::parse(role.as_str()), Some(*role));
         }
         assert_eq!(Role::parse("Admin"), None);
         assert_eq!(Role::parse("owner"), None);

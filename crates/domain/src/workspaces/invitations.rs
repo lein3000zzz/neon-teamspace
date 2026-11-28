@@ -34,29 +34,13 @@ pub const DEFAULT_LINK_USES: i32 = 10;
 pub const DEFAULT_LINK_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 pub const MAX_LINK_LIFETIME: Duration = Duration::from_secs(365 * 24 * 3600);
 
-/// Where an invitation stands, as stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InvitationState {
-    Pending,
-    Accepted,
-    Declined,
-    Revoked,
-}
-
-impl InvitationState {
-    pub const ALL: [Self; 4] = [Self::Pending, Self::Accepted, Self::Declined, Self::Revoked];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Accepted => "accepted",
-            Self::Declined => "declined",
-            Self::Revoked => "revoked",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|state| state.as_str() == text)
+text_enum! {
+    /// Where an invitation stands, as stored.
+    InvitationState {
+        Pending => "pending",
+        Accepted => "accepted",
+        Declined => "declined",
+        Revoked => "revoked",
     }
 }
 
@@ -174,7 +158,7 @@ mod tests {
     #[test]
     fn states_round_trip_through_text() {
         for state in InvitationState::ALL {
-            assert_eq!(InvitationState::parse(state.as_str()), Some(state));
+            assert_eq!(InvitationState::parse(state.as_str()), Some(*state));
         }
         assert_eq!(InvitationState::parse("expired"), None);
     }

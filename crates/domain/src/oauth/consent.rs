@@ -56,7 +56,8 @@ impl Modes {
 /// workspace is `role`, in [`Scope::ALL`] order.
 pub fn offered_scopes(as_agent: bool, role: WorkspaceRole) -> Vec<Scope> {
     Scope::ALL
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|scope| *scope != Scope::Admin || !as_agent && role.manages())
         .collect()
 }
@@ -97,7 +98,8 @@ pub fn chosen_scopes<S: AsRef<str>>(
 /// The scopes a token has now: those it was given that the grant still has.
 pub fn narrowed(given: &[Scope], grant: &[Scope]) -> Vec<Scope> {
     Scope::ALL
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|scope| given.contains(scope) && grant.contains(scope))
         .collect()
 }
@@ -301,9 +303,9 @@ mod tests {
     fn a_token_keeps_only_what_the_grant_still_has() {
         let all = Scope::ALL;
 
-        assert_eq!(narrowed(&all, &[Scope::Read]), [Scope::Read]);
+        assert_eq!(narrowed(all, &[Scope::Read]), [Scope::Read]);
         assert_eq!(
-            narrowed(&[Scope::Write, Scope::Read], &all),
+            narrowed(&[Scope::Write, Scope::Read], all),
             [Scope::Read, Scope::Write]
         );
         assert_eq!(narrowed(&[Scope::Admin], &[Scope::Read]), []);
@@ -314,12 +316,12 @@ mod tests {
         let had = [Scope::Read, Scope::Write];
         let grant = Scope::ALL;
 
-        assert_eq!(refreshed_scopes(None, &had, &grant), Ok(had.to_vec()));
+        assert_eq!(refreshed_scopes(None, &had, grant), Ok(had.to_vec()));
         assert_eq!(
-            refreshed_scopes(Some("read"), &had, &grant),
+            refreshed_scopes(Some("read"), &had, grant),
             Ok(vec![Scope::Read])
         );
-        let wider = refreshed_scopes(Some("read admin"), &had, &grant).expect_err("wider");
+        let wider = refreshed_scopes(Some("read admin"), &had, grant).expect_err("wider");
         assert_eq!(wider.code, ErrorCode::InvalidScope);
         assert!(wider.description.contains("admin"), "{wider}");
         assert_eq!(
@@ -329,7 +331,7 @@ mod tests {
         );
         let gone = refreshed_scopes(Some("write"), &had, &[Scope::Read]).expect_err("gone");
         assert_eq!(gone.code, ErrorCode::InvalidScope);
-        let unknown = refreshed_scopes(Some("read sudo"), &had, &grant).expect_err("unknown");
+        let unknown = refreshed_scopes(Some("read sudo"), &had, grant).expect_err("unknown");
         assert_eq!(unknown.code, ErrorCode::InvalidScope);
     }
 
