@@ -212,6 +212,12 @@ does it instead: the server asks the updater, which pulls the release's server, 
 updater images, checks their signatures, keeps the release in `deployments/.env`, recreates
 the server and web, then updates itself.
 
+It updates a stack that runs the published images, as installed from a Compose archive. A
+stack built from a clone with `docker-compose.build.yml` runs images of its own, which the
+updater can neither pull nor check. With the signature check on, it refuses to update such a
+stack; with it off, it reports the update done while recreating nothing. Update a stack built
+from a clone by checking out the new tag, as in [Built from a clone](#built-from-a-clone).
+
 0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, and the
 profile can be turned on from there.
 
@@ -324,11 +330,12 @@ the check [Checking the images](#checking-the-images) does by hand, held to the 
 image without such a signature, or one cosign cannot check, as when the registry or Sigstore
 cannot be reached, stops the update before anything changes.
 
-Images built and pushed outside this repository's release workflow carry no such signature.
-For them, set `NEON_UPDATER_VERIFY=false` in `deployments/.env` and start the updater again
-with `docker compose -f deployments/docker-compose.yml up -d`. Updates then recreate the
-services from whatever the registry holds under the version's tag, unchecked, and the
-update's container runs without a network. Leave the check on for the published images.
+Images built outside this repository's release workflow and pushed to a registry carry no
+such signature. For them, set `NEON_UPDATER_VERIFY=false` in `deployments/.env` and start the
+updater again with `docker compose -f deployments/docker-compose.yml up -d`. Updates then
+recreate the services from whatever the registry holds under the version's tag, unchecked,
+and the update's container runs without a network. Leave the check on for the published
+images.
 
 ### When an update fails
 
