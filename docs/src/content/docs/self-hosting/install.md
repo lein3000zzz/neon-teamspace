@@ -19,6 +19,13 @@ Two images make up an instance, both built for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/lein3000zzz/neon-teamspace-server` | The `neon` binary on a minimal base image without a shell, distroless `cc`, running as an unprivileged user. It listens on port 8080 for the HTTP API and serves its [admin listener](/docs/architecture/observability/#the-admin-listener) on 9090. The license notices of the crates it is built from are in `/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt`. |
 | `ghcr.io/lein3000zzz/neon-teamspace-web` | Caddy, serving the app at `/` and these docs at `/docs`, and passing `/api`, `/ws`, `/mcp`, `/hooks` and `/.well-known/` on to the server, all on one origin. Given a domain, it gets and renews its TLS certificate itself. The app's and the docs' license notices are served at `/THIRD_PARTY_NOTICES.txt` and `/docs/THIRD_PARTY_NOTICES.txt`, and Caddy's, with those of the Go modules it is built from, are in `/usr/share/doc/caddy/THIRD_PARTY_NOTICES.txt`. |
 
+The server's image has no shell, so `docker compose exec` cannot print its notices. Copy them
+out instead:
+
+```sh
+docker compose -f deployments/docker-compose.yml cp server:/usr/share/doc/neon/THIRD_PARTY_NOTICES.txt .
+```
+
 A third image runs only with the `updater` [profile](#profiles):
 
 | Image | What it holds |
