@@ -260,8 +260,7 @@ impl DatabaseService {
                 &Event::SchemaChanged {
                     workspace_id: opened.database.workspace_id,
                 },
-            )
-            .await;
+            );
             Ok(property)
         })
         .await
@@ -360,8 +359,7 @@ impl DatabaseService {
                 &Event::SchemaChanged {
                     workspace_id: opened.database.workspace_id,
                 },
-            )
-            .await;
+            );
             Ok(property)
         })
         .await
@@ -398,8 +396,7 @@ impl DatabaseService {
                 &Event::SchemaChanged {
                     workspace_id: opened.database.workspace_id,
                 },
-            )
-            .await;
+            );
             Ok(property)
         })
         .await
@@ -439,15 +436,14 @@ impl DatabaseService {
                 &Event::SchemaChanged {
                     workspace_id: opened.database.workspace_id,
                 },
-            )
-            .await;
+            );
             Ok(())
         })
         .await
     }
 
     /// Tells those following the database of a change, once it committed.
-    pub(crate) async fn publish(&self, database_id: Uuid, event: &Event<'_>) {
+    pub(crate) fn publish(&self, database_id: Uuid, event: &Event<'_>) {
         events::publish(
             self.pages().broadcaster().as_ref(),
             database_id,

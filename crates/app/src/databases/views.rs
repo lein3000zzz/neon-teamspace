@@ -77,7 +77,7 @@ impl DatabaseService {
                 layout = %view.layout,
                 "database view created"
             );
-            self.view_changed(database_id, view.id, false).await;
+            self.view_changed(database_id, view.id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -133,7 +133,7 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view changed"
             );
-            self.view_changed(database_id, view_id, false).await;
+            self.view_changed(database_id, view_id, false);
             Ok(one(&opened, stored))
         })
         .await
@@ -166,7 +166,7 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view moved"
             );
-            self.view_changed(database_id, view_id, false).await;
+            self.view_changed(database_id, view_id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -219,7 +219,7 @@ impl DatabaseService {
                 from = %view_id,
                 "database view duplicated"
             );
-            self.view_changed(database_id, view.id, false).await;
+            self.view_changed(database_id, view.id, false);
             Ok(one(&opened, view))
         })
         .await
@@ -253,15 +253,14 @@ impl DatabaseService {
                 view_id = %view_id,
                 "database view deleted"
             );
-            self.view_changed(database_id, view_id, true).await;
+            self.view_changed(database_id, view_id, true);
             Ok(())
         })
         .await
     }
 
-    async fn view_changed(&self, database_id: Uuid, view_id: Uuid, deleted: bool) {
-        self.publish(database_id, &Event::ViewChanged { view_id, deleted })
-            .await;
+    fn view_changed(&self, database_id: Uuid, view_id: Uuid, deleted: bool) {
+        self.publish(database_id, &Event::ViewChanged { view_id, deleted });
     }
 }
 

@@ -445,8 +445,7 @@ impl DatabaseService {
                 number,
                 cells,
             };
-            self.publish(database_id, &Event::RowCreated(&snapshot))
-                .await;
+            self.publish(database_id, &Event::RowCreated(&snapshot));
             let access = opened.context.access().unwrap_or(PageAccess::Edit);
             Ok(row_view(
                 &opened.schema,
@@ -569,8 +568,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, data.database_id, &context))
         })
         .await
@@ -668,8 +666,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, database_id, &context))
         })
         .await
