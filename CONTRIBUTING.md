@@ -274,8 +274,8 @@ it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
 - Write commits as [Conventional Commits](https://www.conventionalcommits.org): a type, an
   optional scope, and a summary in the imperative, such as
   `fix(web): keep table columns at their saved widths`. The types in use are `feat`, `fix`,
-  `docs`, `test`, `ci`, `build` and `chore`, and a scope names a part, such as `web`,
-  `server`, `e2e` or `deps`.
+  `refactor`, `docs`, `test`, `ci`, `build` and `chore`, and a scope names a part, such as
+  `web`, `server`, `e2e` or `deps`.
 - Keep each commit to one change, with the generated files it needs. A pull request lands on
   `dev` as one commit with its title as the subject, so write the title the same way.
 
