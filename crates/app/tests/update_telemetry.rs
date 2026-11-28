@@ -1,6 +1,7 @@
 //! The updates use cases' RED metrics, spans and log lines: an update asked of the updater is
-//! logged with the admin who asked and the release, a refusal counts as part of normal
-//! operation, and the updater's token never reaches a log line, a span or an error message.
+//! logged with the admin who asked and the release, whether or not its answer arrived, a
+//! refusal counts as part of normal operation, and the updater's token never reaches a log
+//! line, a span or an error message.
 
 mod support;
 
@@ -169,18 +170,18 @@ impl Releases for TwoReleases {
     }
 }
 
-/// The updater, answering the status and each update as the test says, and keeping the
-/// errors it gave, which carry what it was told.
+/// The updater, answering the status and each update as the test says; while the update's
+/// answer is unset, it never answers one.
 struct ScriptedUpdater {
     status: Mutex<Result<UpdaterStatus, UpdaterError>>,
-    update: Mutex<Result<UpdaterStatus, UpdaterError>>,
+    update: Mutex<Option<Result<UpdaterStatus, UpdaterError>>>,
 }
 
 impl ScriptedUpdater {
     fn answering(update: Result<UpdaterStatus, UpdaterError>) -> Arc<Self> {
         Arc::new(Self {
             status: Mutex::new(Ok(status(UpdaterState::Idle))),
-            update: Mutex::new(update),
+            update: Mutex::new(Some(update)),
         })
     }
 }
@@ -196,7 +197,11 @@ impl Updater for ScriptedUpdater {
         _at: &UpdaterEndpoint,
         _version: &Version,
     ) -> Result<UpdaterStatus, UpdaterError> {
-        self.update.lock().expect("unpoisoned").clone()
+        let answer = self.update.lock().expect("unpoisoned").clone();
+        match answer {
+            Some(answer) => answer,
+            None => std::future::pending().await,
+        }
     }
 }
 
@@ -312,6 +317,56 @@ async fn an_update_is_logged_with_the_admin_and_the_release_and_refusals_count_a
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn an_update_whose_answer_is_lost_is_logged_with_the_admin_as_maybe_under_way(pool: PgPool) {
+    let recorded = Recorded::install();
+    let h = harness(pool).await;
+    let admin = h.admin().await;
+    let garbled = "the updater at http://updater:8080/ answered something other than its status";
+    let updater = ScriptedUpdater::answering(Err(UpdaterError::Unreachable(garbled.to_owned())));
+    let updates = updates(&h, Arc::clone(&updater)).await;
+
+    let answer = updates.apply(&admin, "0.2.0").await;
+    assert_eq!(
+        answer,
+        Err(UpdatesError::UpdaterUnreachable(garbled.to_owned()))
+    );
+
+    // The updater never answers, and the paused clock skips the wait for it.
+    *updater.update.lock().expect("unpoisoned") = None;
+    tokio::time::pause();
+    let answer = updates.apply(&admin, "0.2.0").await;
+    tokio::time::resume();
+    let silent = "the updater did not answer within 10s";
+    assert_eq!(
+        answer,
+        Err(UpdatesError::UpdaterUnreachable(silent.to_owned()))
+    );
+
+    // Refusals mean nothing started, so they log nothing of the kind.
+    *updater.update.lock().expect("unpoisoned") = Some(Err(UpdaterError::Busy));
+    let busy = updates.apply(&admin, "0.2.0").await;
+    assert_eq!(busy, Err(UpdatesError::UpdateInProgress));
+
+    let logs = recorded.logs.text();
+    let lines: Vec<&str> = logs
+        .lines()
+        .filter(|line| line.contains("the update may be under way"))
+        .collect();
+    assert_eq!(lines.len(), 2, "one line for each lost answer in {logs}");
+    for (line, why) in lines.into_iter().zip([garbled, silent]) {
+        assert!(line.contains(" WARN "), "{line}");
+        assert!(
+            line.contains(&format!("actor_id={}", admin.user.id)),
+            "{line}"
+        );
+        assert!(line.contains("version=0.2.0"), "{line}");
+        assert!(line.contains("running=0.1.0"), "{line}");
+        assert!(line.contains(why), "{line}");
+    }
+    assert!(!logs.contains(TOKEN), "the token was written in {logs}");
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn the_updater_s_token_never_reaches_logs_spans_or_errors(pool: PgPool) {
     let recorded = Recorded::install();
     let h = harness(pool).await;
@@ -329,7 +384,7 @@ async fn the_updater_s_token_never_reaches_logs_spans_or_errors(pool: PgPool) {
         .await
         .expect_err("the updater refused the token");
     errors.push(format!("{refused} {refused:?}"));
-    *updater.update.lock().expect("unpoisoned") = Err(UpdaterError::Busy);
+    *updater.update.lock().expect("unpoisoned") = Some(Err(UpdaterError::Busy));
     let busy = updates.apply(&admin, "0.2.0").await.expect_err("busy");
     errors.push(format!("{busy} {busy:?}"));
     updates.check_now(&admin).await.expect("checks");

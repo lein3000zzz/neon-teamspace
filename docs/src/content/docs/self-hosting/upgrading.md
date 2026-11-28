@@ -140,8 +140,11 @@ check saw on GitHub, never an older release and never another tag, so the releas
 be on. Only an instance admin at a browser may update; an API token with the `admin` scope
 reads the status and checks, but cannot update. The server logs each update it asked for,
 `the updater was asked to update the stack to a release`, with the admin's id and the
-version. Read the notes and take a [backup](/docs/self-hosting/backups/) first, as for any
-upgrade: the panel cannot undo a migration either.
+version. When the updater's answer does not say whether it started, as when none comes
+within 10 seconds, the server logs a warning instead, ending `the update may be under way`,
+with the admin's id, the version and why. Read the notes and take a
+[backup](/docs/self-hosting/backups/) first, as for any upgrade: the panel cannot undo a
+migration either.
 
 The same is in the API, for instance admins: `GET /api/v1/admin/updates` for the status,
 `POST /api/v1/admin/updates/check` to check now, and `POST /api/v1/admin/updates/apply`, with

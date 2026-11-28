@@ -242,17 +242,25 @@ impl UpdateService {
                 Some(Ok(endpoint)) => endpoint,
             };
             let version = self.allowed(&settings, version)?;
-            let answer =
+            let asked =
                 tokio::time::timeout(APPLY_WAIT, self.inner.updater.update(&endpoint, &version))
-                    .await
-                    .map_err(|_| UpdatesError::UpdaterUnreachable(no_answer(APPLY_WAIT)))?
-                    .map_err(|error| match error {
-                        UpdaterError::Busy => UpdatesError::UpdateInProgress,
-                        UpdaterError::Rejected(why) => UpdatesError::NotAllowed(format!(
-                            "the updater refused {version}: {why}"
-                        )),
-                        other => UpdatesError::UpdaterUnreachable(other.to_string()),
-                    })?;
+                    .await;
+            let answer = match asked {
+                Ok(Ok(answer)) => answer,
+                Ok(Err(UpdaterError::Busy)) => return Err(UpdatesError::UpdateInProgress),
+                Ok(Err(UpdaterError::Rejected(why))) => {
+                    return Err(UpdatesError::NotAllowed(format!(
+                        "the updater refused {version}: {why}"
+                    )));
+                }
+                Ok(Err(error @ UpdaterError::Refused)) => {
+                    return Err(UpdatesError::UpdaterUnreachable(error.to_string()));
+                }
+                Ok(Err(UpdaterError::Unreachable(why))) => {
+                    return Err(self.lost(actor, &version, why));
+                }
+                Err(_) => return Err(self.lost(actor, &version, no_answer(APPLY_WAIT))),
+            };
             info!(
                 actor_id = %actor.user.id,
                 version = %version,
@@ -268,6 +276,21 @@ impl UpdateService {
             Ok(status)
         })
         .await
+    }
+
+    /// The update to `version` that `actor` asked for, whose answer said nothing of whether
+    /// the updater started, for `why`. It may have started before its answer was lost, and
+    /// an update is not undone, so the admin who asked is logged as when it answered.
+    fn lost(&self, actor: &Principal, version: &Version, why: String) -> UpdatesError {
+        warn!(
+            actor_id = %actor.user.id,
+            version = %version,
+            running = %self.inner.running,
+            error = %why,
+            "the updater was asked to update the stack to a release and gave no answer that \
+             says whether it started: the update may be under way"
+        );
+        UpdatesError::UpdaterUnreachable(why)
     }
 
     /// Checks when a check is due: [`CHECK_INTERVAL`] after the last that worked,
