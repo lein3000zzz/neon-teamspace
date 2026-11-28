@@ -1,6 +1,6 @@
 ---
 title: Apps
-description: The desktop and mobile apps, which open your own Neon Teamspace server in a window of their own. Installing them, connecting and switching servers, what works offline, their security model, and building them from source.
+description: The desktop and mobile apps, which open your own Neon Teamspace server in a window of their own. Installing them, connecting and switching servers, what works offline, how they update, their security model, and building them from source.
 ---
 
 The apps for macOS, Windows, Linux, Android and iOS open the Neon Teamspace server you choose.
@@ -22,6 +22,9 @@ from source on a Mac, as [Building from source](#building-from-source) says.
 | Linux with glibc 2.35 or later, such as Ubuntu 22.04, Debian 12 or Fedora 36 | `.deb`, `.rpm` or `.AppImage` | The `.deb` and `.rpm` depend on WebKitGTK 4.1, which the package manager installs. The AppImage brings its own, from Ubuntu 22.04, where the apps are built. Make an AppImage executable with `chmod +x` before running it. |
 | Android 7 or later | `Neon-Teamspace_<version>_android.apk` | Allow your browser or file manager to install apps, then open the file. |
 | iOS and iPadOS 15 or later | None | Build the app from source with Xcode, signed for your own Apple developer team. |
+
+The release's `.app.tar.gz` archives, the `.sig` files and `latest.json` are what the
+installed apps [update themselves](#updates) from; installing needs none of them.
 
 A release candidate, such as `v0.2.0-rc.1`, is marked as a pre-release, and its files carry
 the candidate's version in their names, as `Neon-Teamspace_0.2.0-rc.1_x64-setup.exe`. The
@@ -76,6 +79,12 @@ another job of the run could replace an artifact. The job that attaches the file
 them, once it has checked them and every other job has passed. The jobs that build the apps
 run the crates' build scripts and the packages' code, so they get no OIDC token, which that
 code could use to attest any file as the workflow's.
+
+With the project's update key, the desktop builds also make the files the apps update
+themselves from, each signed with that key as Tauri's CLI bundles it. The job that attaches
+them checks each signature against the public key the apps carry, and that it names the
+release's version, before it writes `latest.json`, so a release whose files no app would take
+fails there.
 
 The workflow builds the APK unsigned. Once the end-to-end tests have passed, a job of its own
 signs it with the project's Android key, running only the Android SDK's `zipalign` and
@@ -210,6 +219,62 @@ The picker's **Third-party licenses** link opens the license notices of the pack
 crates the app ships. For each one under MPL-2.0 they give its address on npm or crates.io and
 its repository, where its source is.
 
+## Updates
+
+An app always shows a server's own interface, so only the app itself needs updating: the
+picker and the window around the server's pages. Each app checks for a newer release a few
+seconds after it starts, and once a day while it runs, without holding up the window. When there is one, it asks:
+**Neon Teamspace 0.2.0 is available. You have 0.1.0.**, with the first lines of the release's
+notes. **Later** puts it off until the app starts again. A check that fails as the
+app starts, such as one without a network, only goes in the [log](#security-model).
+
+### macOS, Windows and Linux
+
+The desktop apps update themselves. **Check for Updates…** checks at any time: in the app
+menu after **About Neon Teamspace** on macOS, and in **File** after **Switch Server…** on
+Windows and Linux. It always answers, whether the app is up to date, a newer release is out,
+or the check failed, and says why.
+
+**Install and Restart** downloads the new release, checks its signature, installs it and
+restarts the app. While it downloads, the menu item shows how far it is, and so does the Dock
+or the taskbar where the platform has a place for it. The window stays in use. On Windows the
+installer runs with a progress window of its own, and opens the app again when it is done.
+
+The apps read `latest.json` from the latest release:
+`https://github.com/lein3000zzz/neon-teamspace/releases/latest/download/latest.json`. It names
+a file for each platform, with its signature. Each app carries the public key of the
+project's update key, and installs a file only when its signature holds for that key and names
+the version `latest.json` announced, so an older release cannot pass for a newer one. A
+download that fails the check is refused, and the installed version stays as it was. The
+checks send no account and no cookie. A release built without the update key, as in a fork,
+has no `latest.json`, and the apps installed from it do not update themselves.
+
+| Install | How it updates |
+|---|---|
+| macOS, from the `.dmg` | The app updates itself, from the release's `.app.tar.gz` archive for its processor. When the app is in a folder you cannot write to, macOS asks for an administrator's password. |
+| Windows, from the setup `.exe` | The app updates itself: it runs the new release's setup. |
+| Linux, from the AppImage | The app updates itself, replacing its AppImage with the new release's. The AppImage must be in a folder you can write to. |
+| Linux, from the `.deb` or `.rpm` | The system's package manager owns the app, so it does not replace itself. **Check for Updates…** says so and offers **Open Release Page**, where you download the new package and install it as you installed the first. |
+
+A copy built from source updates neither: its offer opens the release page too.
+
+### Android
+
+Android has no updater for an app installed from an APK, so the app asks GitHub's API for the
+latest release, waiting up to 15 seconds and sending no credentials. When that release is newer
+and has a signed APK, a dialog offers **Download**, which opens the APK's address in your
+browser. Open the downloaded file to install it over the app; your servers stay as they were.
+Android installs it only when it is signed with the same key as the installed app.
+
+The picker, the app's own first screen, has **Check for updates** at its foot, which checks at
+once and says what it found. GitHub's API answers only so many questions an hour from one
+network without an account; when it refuses, the picker says so, and a check later works.
+
+### iOS and iPadOS
+
+The iOS app does not update itself, and has no **Check for updates**. Build it again from a
+newer release, as for the first install.
+
 ## Security model
 
 **Origin lock.** The web view loads only the app's own origin, which serves the bundled
@@ -246,11 +311,12 @@ the app's own. On Windows, whose web view names each call's own page, the picker
 without the blank page.
 
 **Capabilities.** Tauri lets a page call the app's native side only through the capabilities
-granted to it. The bundled picker has one, which allows the six commands it uses: list,
-connect, open, rename and remove servers, and stop opening one. It grants no plugin, so the
-picker can neither open URLs nor write logs itself; the app's Rust side does both. The
-server's pages are on another origin and get no capability at all: every call to the native
-side from them is refused, and they run as they would in a browser.
+granted to it. The bundled picker has one, which allows the seven commands it uses: list,
+connect, open, rename and remove servers, stop opening one, and check for updates, which only
+the Android app's picker shows. It grants no plugin, so the picker can neither open URLs,
+write logs, install updates, show dialogs nor restart the app itself; the app's Rust side does
+all of these. The server's pages are on another origin and get no capability at all: every
+call to the native side from them is refused, and they run as they would in a browser.
 
 **The picker's policy.** The picker's Content-Security-Policy allows only the app's own
 scripts, styles and images, no frames, and network access only to the app itself. It loads
