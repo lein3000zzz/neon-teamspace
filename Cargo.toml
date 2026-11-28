@@ -52,6 +52,9 @@ metrics-util = { version = "0.20.4", default-features = false, features = ["debu
 # server's own, hyper on rustls with ring, so neither reqwest nor aws-lc comes in. Requests
 # are signed with ring.
 object_store = { version = "0.14.2", default-features = false, features = ["fs", "aws-base", "ring"] }
+# Traces over OpenTelemetry, whose crates move between versions together.
+opentelemetry = { version = "0.33.1", default-features = false }
+opentelemetry_sdk = { version = "0.33.1", default-features = false }
 # The CommonMark and GFM parser of the block converter, without its command line and HTML
 # renderer.
 pulldown-cmark = { version = "0.13.6", default-features = false }
@@ -89,6 +92,7 @@ tokio-util = "0.7.20"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers"] }
 tracing = "0.1.44"
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = "0.3.23"
 url = "2.5.9"
 utoipa = "6.0.0"
