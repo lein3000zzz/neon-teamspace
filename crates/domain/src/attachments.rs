@@ -447,11 +447,7 @@ pub fn clean_name(raw: &str, media: MediaType) -> String {
     let last = raw.rsplit(['/', '\\']).next().unwrap_or_default();
     let cleaned: String = last.chars().filter(|c| !c.is_control()).collect();
     let trimmed = cleaned.trim();
-    let mut end = trimmed.len().min(MAX_NAME);
-    while !trimmed.is_char_boundary(end) {
-        end -= 1;
-    }
-    let name = trimmed[..end].trim_end();
+    let name = trimmed[..trimmed.floor_char_boundary(MAX_NAME)].trim_end();
     if name.is_empty() || name.chars().all(|c| c == '.') {
         return match media.extension() {
             Some(extension) => format!("{UNNAMED}.{extension}"),
@@ -847,8 +843,10 @@ mod tests {
         assert_eq!(clean_name("", M::Png), "file.png");
         assert_eq!(clean_name("...", M::Unknown), "file");
         assert_eq!(clean_name("dir/", M::Pdf), "file.pdf");
-        let long = clean_name(&"é".repeat(200), M::Text);
-        assert!(long.len() <= MAX_NAME && long.len() >= MAX_NAME - 1);
+        assert_eq!(
+            clean_name(&"é".repeat(200), M::Text),
+            "é".repeat(MAX_NAME / 2)
+        );
     }
 
     #[test]
