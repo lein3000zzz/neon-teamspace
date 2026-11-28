@@ -1,7 +1,7 @@
-# cargo-about: the license notices that go with the server binary, which links its crates
-# statically. MIT, ISC and BSD ask for their notice in every copy, and Apache-2.0 for a copy
-# of the license. deployments/Dockerfile writes the notices into the server image, with
-# about.hbs as the template.
+# cargo-about: the license notices that go with the server's and the updater's binaries, which
+# link their crates statically. MIT, ISC and BSD ask for their notice in every copy, and
+# Apache-2.0 for a copy of the license. deployments/Dockerfile writes the notices into the
+# server image and the updater image, with about.hbs as the template.
 #
 # The accepted licenses are deny.toml's allow list, which cargo-deny enforces; a test in
 # scripts/licenses keeps the two the same. Their order is the preference when a crate offers
@@ -26,7 +26,8 @@ accepted = [
     "Python-2.0",
 ]
 
-# The image's platforms: crates that only other platforms use are left out.
+# The images' platforms: crates that only other platforms use are left out. The updater's binary
+# is built for musl, whose crates are its glibc build's.
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 # Code that runs while the binary builds or its tests run, and is not part of it.
 ignore-build-dependencies = true

@@ -1,4 +1,4 @@
-# Both images built from this checkout rather than pulled, under local names, so a build never
+# The images built from this checkout rather than pulled, under local names, so a build never
 # carries a release's name: `make up`, `make e2e` and a stack run from a clone add this file.
 #
 #   docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml up -d --build
@@ -18,4 +18,14 @@ services:
     build:
       context: ..
       dockerfile: web/Dockerfile
+    pull_policy: build
+
+  # With --profile updater. Its updates pull the published images, which a stack built from
+  # the checkout does not run, so it is here to be built and tried, not to update this stack.
+  updater:
+    image: neon-teamspace-updater:local
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      target: updater
     pull_policy: build
