@@ -374,3 +374,31 @@ label {
     background-color: CanvasText;
   }
 }
+
+/* Check for updates, on Android. */
+.updates {
+  margin-top: 0.5rem;
+}
+
+.updates .button {
+  margin-left: -1rem;
+}
+
+.updates .button[aria-disabled="true"] {
+  cursor: progress;
+}
+
+.update-status {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.update-status:empty,
+.updates .error:empty {
+  display: none;
+}
+
+.updates .error {
+  margin: 0;
+}

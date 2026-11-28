@@ -59,17 +59,25 @@ impl Answer {
 /// A running canned server.
 pub struct Server {
     pub origin: String,
+    /// The head of each request, its request line and headers.
     requests: mpsc::UnboundedReceiver<String>,
 }
 
 impl Server {
     /// The request lines of the requests the server has had and no test has read yet.
     pub fn requests_so_far(&mut self) -> Vec<String> {
-        std::iter::from_fn(|| self.requests.try_recv().ok()).collect()
+        std::iter::from_fn(|| self.requests.try_recv().ok())
+            .map(|head| request_line(&head))
+            .collect()
     }
 
     /// The request line of the next request, such as `GET /api/v1/meta HTTP/1.1`.
     pub async fn next_request(&mut self) -> String {
+        request_line(&self.next_head().await)
+    }
+
+    /// The head of the next request: its request line and headers, one to a line.
+    pub async fn next_head(&mut self) -> String {
         tokio::time::timeout(Duration::from_secs(5), self.requests.recv())
             .await
             .expect("a request within five seconds")
@@ -77,17 +85,40 @@ impl Server {
     }
 }
 
+fn request_line(head: &str) -> String {
+    head.lines().next().unwrap_or_default().to_owned()
+}
+
 /// Starts a server on a free port of 127.0.0.1 that gives every request `answer`.
 pub async fn serve(answer: Answer) -> Server {
+    serve_with(move |_| answer.clone()).await
+}
+
+/// Starts a server on a free port of 127.0.0.1 that answers a request for each path of
+/// `answers` with its answer, and any other with `404`.
+pub async fn serve_paths(answers: Vec<(String, Answer)>) -> Server {
+    serve_with(move |path| {
+        answers.iter().find(|(each, _)| each == path).map_or_else(
+            || Answer::http("404 Not Found", &[], b""),
+            |(_, answer)| answer.clone(),
+        )
+    })
+    .await
+}
+
+/// Starts a server on a free port of 127.0.0.1 that answers each request as `answer` says for
+/// its path.
+async fn serve_with(answer: impl Fn(&str) -> Answer + Send + Sync + 'static) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
     let origin = format!("http://{}", listener.local_addr().expect("an address"));
     let (sender, requests) = mpsc::unbounded_channel();
+    let answer = std::sync::Arc::new(answer);
     tokio::spawn(async move {
         loop {
             let Ok((mut stream, _)) = listener.accept().await else {
                 return;
             };
-            let answer = answer.clone();
+            let answer = std::sync::Arc::clone(&answer);
             let sender = sender.clone();
             tokio::spawn(async move {
                 let mut request = Vec::new();
@@ -104,8 +135,18 @@ pub async fn serve(answer: Answer) -> Server {
                     }
                 }
                 let text = String::from_utf8_lossy(&request);
-                let _ = sender.send(text.lines().next().unwrap_or_default().to_owned());
-                match answer {
+                let head = text
+                    .split("\r\n\r\n")
+                    .next()
+                    .unwrap_or_default()
+                    .replace("\r\n", "\n");
+                let path = request_line(&head)
+                    .split(' ')
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_owned();
+                let _ = sender.send(head);
+                match answer(&path) {
                     Answer::Bytes(bytes) => {
                         let _ = stream.write_all(&bytes).await;
                         let _ = stream.shutdown().await;

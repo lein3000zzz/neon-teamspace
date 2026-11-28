@@ -9,6 +9,7 @@
     "allow-open-server",
     "allow-rename-server",
     "allow-remove-server",
-    "allow-cancel-opening"
+    "allow-cancel-opening",
+    "allow-check-for-updates"
   ]
 }

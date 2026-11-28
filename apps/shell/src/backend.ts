@@ -32,7 +32,13 @@ export interface Startup extends ServerList {
   /** The server to open at once, as the app starts. */
   open: string | null;
   interrupted: Interrupted | null;
+  /** Whether the picker offers a check for updates: on Android, where the app has no menu. */
+  updateCheck: boolean;
 }
+
+/** What a check for updates found; a dialog of the app's own offers a newer release. */
+export type UpdateCheck =
+  { state: "current"; version: string } | { state: "available"; version: string; current: string };
 
 /** Why a command failed: a stable code, and a sentence to show. */
 export interface Failure {
@@ -52,6 +58,8 @@ export const backend = {
   removeServer: (origin: string) => invoke<ServerList>("remove_server", { origin }),
   /** Stops opening a server: true when the window goes back to the picker to stop its page. */
   cancelOpening: () => invoke<boolean>("cancel_opening"),
+  /** Checks for a newer release of the app. */
+  checkForUpdates: () => invoke<UpdateCheck>("check_for_updates"),
 };
 
 /** What a rejected command said, as a {@link Failure} whatever it was. */

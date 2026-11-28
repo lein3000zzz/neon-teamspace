@@ -6,6 +6,7 @@ import {
   type Interrupted,
   type SavedServer,
   type ServerList,
+  type Startup,
 } from "./backend";
 
 /** The id of the button that stops opening a server. */
@@ -118,6 +119,8 @@ export class Picker {
     private readonly main: HTMLElement,
     /** Where Stop shows while a server is opening: outside the view, which is inert then. */
     private readonly actions: HTMLElement,
+    /** Told what the app said as the picker loads, before the picker does anything with it. */
+    private readonly onStartup: (startup: Startup) => void = () => {},
   ) {
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this.state.opening !== null) {
@@ -130,6 +133,7 @@ export class Picker {
     this.render();
     try {
       const startup = await backend.startup();
+      this.onStartup(startup);
       this.state.list = { servers: startup.servers, last: startup.last };
       this.state.busy = null;
       if (startup.interrupted !== null) {

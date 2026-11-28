@@ -19,6 +19,8 @@ use crate::lock::{Attempt, Lock, Navigation, Started};
 use crate::meta::CheckOptions;
 use crate::navigation::{self, Origin, Place, Verdict};
 use crate::servers::{ServerList, Store};
+#[cfg(not(target_os = "ios"))]
+use crate::updates::Updates;
 
 /// The label of the app's window, which the picker's capability names.
 pub const MAIN_WINDOW: &str = "main";
@@ -158,6 +160,8 @@ pub fn setup<R: Runtime>(
         interrupted: Mutex::new(None),
         window_changes: Mutex::new(()),
     });
+    #[cfg(not(target_os = "ios"))]
+    app.manage(Updates::default());
     main_window(app.handle(), &config)?;
     Ok(())
 }
@@ -412,7 +416,7 @@ pub fn window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>>
 
 /// Opens a URL from outside the origin lock in the system's browser, or the app for its scheme.
 /// Off the thread that judged it, which on mobile is the one the opener needs to call into.
-fn open_outside<R: Runtime>(app: &AppHandle<R>, url: &Url) {
+pub(crate) fn open_outside<R: Runtime>(app: &AppHandle<R>, url: &Url) {
     let app = app.clone();
     let url = url.clone();
     tauri::async_runtime::spawn(async move {
