@@ -184,6 +184,13 @@ impl Mcp {
         self.inner.sessions.in_use()
     }
 
+    /// How many of the sessions' tasks run: the watcher, and those ending sessions or
+    /// looking again at them.
+    #[cfg(test)]
+    pub(crate) fn tasks_running(&self) -> usize {
+        self.inner.sessions.tasks_running()
+    }
+
     /// How many subscriptions the sessions hold together.
     pub fn subscription_count(&self) -> usize {
         self.inner.sessions.subscriptions()

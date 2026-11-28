@@ -2551,6 +2551,47 @@ async fn the_transport_refuses_in_the_api_s_shape_and_speaks_its_revisions(pool:
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn shutting_down_waits_for_the_tasks_the_sessions_started(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let token = format!(
+        "Bearer {}",
+        bound_token(&t.ada, &t.workspace, &["read"]).await
+    );
+    let (_, opened, _) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &token)],
+        Some(initialize()),
+    )
+    .await;
+    let session = opened["mcp-session-id"]
+        .to_str()
+        .expect("a session id")
+        .to_owned();
+    // A refused request on the session has it looked at again, on a task of its own,
+    // which shutting down waits for along with the watcher.
+    let ping = json!({"jsonrpc": "2.0", "id": 2, "method": "ping"});
+    let (status, _, _) = raw(
+        &app,
+        Method::POST,
+        &[
+            ("authorization", "Bearer nw_nothing"),
+            ("mcp-session-id", &session),
+        ],
+        Some(ping),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    state.mcp.shutdown().await;
+
+    assert_eq!(state.mcp.tasks_running(), 0);
+    assert_eq!(state.mcp.session_count(), 0);
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_identity_at_its_bound_makes_room_by_ending_its_idlest_session(pool: PgPool) {
     let state = state(pool).await;
     let app = router(state.clone(), false);
