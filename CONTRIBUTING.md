@@ -201,12 +201,12 @@ make web-install docs-install e2e-install blocks-install app-install
 make check
 ```
 
-Its cargo commands for the server build in `target/offline/`: cargo does not rebuild a crate
-when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last checked
-against the database instead of the cache. The apps' Rust side builds in
-`apps/shell/src-tauri/target/`, where Tauri's CLI looks for it. cargo-deny reads the advisory
-database it last fetched and fails once that copy is more than 90 days old; `make licenses`
-fetches a new one.
+Its cargo commands for the server build in `target/offline/`, so that switching between them
+and the builds checked against the database does not rebuild `neon-store` and every crate
+above it each time: `neon-store`'s build script makes each build read the right source, the
+cache or the database. The apps' Rust side builds in `apps/shell/src-tauri/target/`, where
+Tauri's CLI looks for it. cargo-deny reads the advisory database it last fetched and fails
+once that copy is more than 90 days old; `make licenses` fetches a new one.
 
 `make web-build` and `make docs-build` build the web app and the docs, as CI does too. The
 docs' build fails on a broken link or anchor, so run it after changing a page.
