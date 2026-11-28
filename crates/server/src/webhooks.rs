@@ -32,7 +32,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_util::task::AbortOnDropHandle;
 use tracing::debug;
 use url::{Host, Url};
@@ -87,20 +86,10 @@ impl Default for HttpTransport {
 impl HttpTransport {
     /// A transport that resolves with `resolver` and connects with `dialer`.
     pub fn new(resolver: Arc<dyn Resolve>, dialer: Arc<dyn Dial>) -> Self {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-        let mut config = ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("ring supports the default protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Self {
             resolver,
             dialer,
-            tls: TlsConnector::from(Arc::new(config)),
+            tls: TlsConnector::from(Arc::new(crate::tls::http_client_config())),
             connect_timeout: CONNECT_TIMEOUT,
             total_timeout: TOTAL_TIMEOUT,
         }

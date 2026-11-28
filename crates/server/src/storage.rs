@@ -29,7 +29,6 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_util::either::Either;
 
 /// How long connecting to the store may take, TLS included.
@@ -47,18 +46,8 @@ pub struct S3Connector;
 
 impl HttpConnector for S3Connector {
     fn connect(&self, _options: &ClientOptions) -> object_store::Result<HttpClient> {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-        let mut config = ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("ring supports the default protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
         let dialer = Dialer {
-            tls: TlsConnector::from(Arc::new(config)),
+            tls: TlsConnector::from(Arc::new(crate::tls::http_client_config())),
         };
         let client = Client::builder(TokioExecutor::new())
             .pool_idle_timeout(IDLE_TIMEOUT)
