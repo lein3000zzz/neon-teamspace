@@ -52,7 +52,7 @@ fn telemetry() -> &'static Telemetry {
         config.logging.level = "off".to_owned();
         neon_observability::init(
             &config,
-            ServiceInfo::new("neon-test", "0.0.0"),
+            &ServiceInfo::new("neon-test", "0.0.0"),
             &[(neon_app::jobs::SUBSYSTEM, Buckets::Long)],
         )
         .expect("telemetry installs once")

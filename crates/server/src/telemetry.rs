@@ -31,7 +31,7 @@ pub(crate) fn init(config: &neon_observability::Config) -> Result<Telemetry, Ini
     let service = ServiceInfo::new("neon", env!("CARGO_PKG_VERSION"));
     let mut config = config.clone();
     config.logging.level = quiet_mcp_sdk(&config.logging.level);
-    neon_observability::init(&config, service, &SUBSYSTEMS)
+    neon_observability::init(&config, &service, &SUBSYSTEMS)
 }
 
 /// The MCP SDK logs each request and answer whole at `debug`, tool arguments and page

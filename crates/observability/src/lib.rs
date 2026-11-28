@@ -21,7 +21,7 @@
 //!     let service = ServiceInfo::new("neon", env!("CARGO_PKG_VERSION"));
 //!     let telemetry = neon_observability::init(
 //!         &config,
-//!         service,
+//!         &service,
 //!         &[(http::SUBSYSTEM, Buckets::Medium), ("jobs", Buckets::Long)],
 //!     )?;
 //!     admin::spawn(&config.admin, &telemetry, Readiness::always()).await?;
@@ -197,7 +197,7 @@ pub enum InitError {
 /// there is no Tokio runtime, a backend cannot be built, or telemetry is already installed.
 pub fn init(
     config: &Config,
-    service: ServiceInfo,
+    service: &ServiceInfo,
     subsystems: &[(&str, Buckets)],
 ) -> Result<Telemetry, InitError> {
     let warnings = config.validate()?;
@@ -210,12 +210,12 @@ pub fn init(
     let runtime = tokio::runtime::Handle::try_current().map_err(|_| InitError::NoRuntime)?;
 
     // Everything fallible is built before any global is installed.
-    let provider = traces::provider(&config.tracing, &service)?;
+    let provider = traces::provider(&config.tracing, service)?;
     let (writer, log_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .thread_name("neon-log-writer")
         .finish(std::io::stdout());
     let log_filter = logging::filter(&config.logging)?;
-    let spans = traces::layer(&provider, &service, &log_filter);
+    let spans = traces::layer(&provider, service, &log_filter);
     let logs = logging::layer(
         config.logging.format,
         log_filter,
@@ -228,7 +228,7 @@ pub fn init(
         .then(|| prometheus::recorder(subsystems))
         .transpose()?;
     let push = match config.profiling.mode {
-        ProfilingMode::Push => Some(Push::start(&config.profiling, &service)?),
+        ProfilingMode::Push => Some(Push::start(&config.profiling, service)?),
         ProfilingMode::Off | ProfilingMode::Pull => None,
     };
 
