@@ -18,6 +18,7 @@
 //! the browser that read it, never for anyone else, and ask again each time, so the rules
 //! see every read.
 
+use std::fmt::Write as _;
 use std::pin::{Pin, pin};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll, Waker};
@@ -231,8 +232,14 @@ impl From<domain::File> for File {
     }
 }
 
+/// Bytes as lowercase hex digits, two to a byte.
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        // Writing to a String cannot fail.
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 #[derive(Deserialize, IntoParams)]

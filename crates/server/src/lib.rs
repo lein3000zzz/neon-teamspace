@@ -4,12 +4,12 @@
 pub mod cli;
 pub mod config;
 mod gauges;
-pub mod health;
+mod health;
 pub mod http;
-pub mod mail;
-pub mod mcp;
-pub mod runtime;
+mod mail;
+mod mcp;
+mod runtime;
 mod stall;
 pub mod storage;
 mod telemetry;
-pub mod webhooks;
+mod webhooks;

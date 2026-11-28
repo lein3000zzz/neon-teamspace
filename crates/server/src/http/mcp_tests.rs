@@ -2503,6 +2503,30 @@ async fn the_transport_refuses_in_the_api_s_shape_and_speaks_its_revisions(pool:
         assert!(kind.starts_with("application/json"), "{kind}");
     }
 
+    // A body that breaks off is one that cannot be read, not one too large.
+    let broken = Body::from_stream(futures_util::stream::iter([
+        Ok(axum::body::Bytes::from_static(b"{\"jsonrpc\": ")),
+        Err(std::io::Error::other("the connection broke")),
+    ]));
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/mcp")
+        .header("host", "neon.example.com")
+        .header(auth.0, auth.1)
+        .header(both.0, both.1)
+        .header(json_type.0, json_type.1)
+        .body(broken)
+        .expect("a request");
+    let response = app.clone().oneshot(request).await.expect("a response");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    assert_eq!(code_of(&String::from_utf8_lossy(&body)), "invalid_body");
+
     // What the server does not offer is said in a sentence; a resource's refusal carries the
     // API's code.
     let (_, _, body) = raw(
@@ -2524,6 +2548,47 @@ async fn the_transport_refuses_in_the_api_s_shape_and_speaks_its_revisions(pool:
     .await;
     assert!(body.contains("\"data\":{\"code\":\"not_found\"}"), "{body}");
     state.mcp.shutdown().await;
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn shutting_down_waits_for_the_tasks_the_sessions_started(pool: PgPool) {
+    let state = state(pool).await;
+    let app = router(state.clone(), false);
+    let t = team(&state, &app).await;
+    let token = format!(
+        "Bearer {}",
+        bound_token(&t.ada, &t.workspace, &["read"]).await
+    );
+    let (_, opened, _) = raw(
+        &app,
+        Method::POST,
+        &[("authorization", &token)],
+        Some(initialize()),
+    )
+    .await;
+    let session = opened["mcp-session-id"]
+        .to_str()
+        .expect("a session id")
+        .to_owned();
+    // A refused request on the session has it looked at again, on a task of its own,
+    // which shutting down waits for along with the watcher.
+    let ping = json!({"jsonrpc": "2.0", "id": 2, "method": "ping"});
+    let (status, _, _) = raw(
+        &app,
+        Method::POST,
+        &[
+            ("authorization", "Bearer nw_nothing"),
+            ("mcp-session-id", &session),
+        ],
+        Some(ping),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    state.mcp.shutdown().await;
+
+    assert_eq!(state.mcp.tasks_running(), 0);
+    assert_eq!(state.mcp.session_count(), 0);
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]

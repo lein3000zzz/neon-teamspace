@@ -13,7 +13,7 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use neon_app::databases::{DatabaseService, RowDetails};
-use neon_app::sync::{Edited, SyncService, revision};
+use neon_app::sync::{Edited, SyncService, revision_of_markdown};
 use neon_blocks::Document;
 use neon_blocks::edit::{Applied, Edit};
 use neon_blocks::markdown::{MAX_DEPTH, TooDeep, to_markdown_with_ids, try_from_markdown};
@@ -65,10 +65,11 @@ pub struct RowProperty {
 
 impl PageMarkdown {
     pub fn new(page: Page, document: &neon_blocks::Document, row: Option<RowDetails>) -> Self {
+        let markdown = to_markdown_with_ids(document);
         Self {
             page,
-            markdown: to_markdown_with_ids(document),
-            revision: revision(document),
+            revision: revision_of_markdown(&markdown),
+            markdown,
             properties: row.map(|details| {
                 details
                     .properties
