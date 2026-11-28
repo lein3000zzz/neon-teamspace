@@ -1,10 +1,11 @@
 /**
  * Runs the built desktop app in its real webview against a hostile server, on Linux under a
  * display (xvfb-run in CI), where WebKitGTK names the page an IPC message comes from by the
- * URL the window is loading. The server's page calls the picker's commands without pause, and
- * meanwhile sends the window to the app's own origin by a redirect. The check passes once the
- * app has shown the picker in its own way, through a blank page, with every call refused and
- * the server list as it was; it fails when a call went through, or the picker never came back.
+ * URL the window is loading. The server's page calls the picker's commands without pause, among
+ * them the check for updates, and the updater's own, and meanwhile sends the window to the app's
+ * own origin by a redirect. The check passes once the app has shown the picker in its own way,
+ * through a blank page, with every call refused and the server list as it was; it fails when a
+ * call went through, or the picker never came back.
  *
  *   bun scripts/webview-check.ts <the app's binary>
  */
@@ -33,22 +34,41 @@ const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")) as 
 const reports: string[] = [];
 let log = "";
 
-/** The page: calls rename_server without pause, and after a second goes to /slow. */
+/** The commands the page calls, each of which it must be refused. */
+const COMMANDS = ["rename_server", "check_for_updates", "plugin:updater|check"];
+
+/**
+ * The page: calls each command without pause, and after a second goes to /slow. The app refuses
+ * a call with Tauri's "not allowed", or with the code not_the_picker; any other answer means
+ * the command ran, such as a check for updates that could not reach GitHub.
+ */
 const page = `<!doctype html><title>Hostile</title>
 <script>
 const report = (what) => fetch("/report?" + new URLSearchParams({ what }));
 let n = 0;
-let refused = false;
-async function call() {
-  n += 1;
+const refused = new Set();
+async function call(command, args) {
   try {
-    await window.__TAURI_INTERNALS__.invoke("rename_server", { origin: "${VICTIM}", label: "taken-" + n });
-    report("taken " + n);
+    await window.__TAURI_INTERNALS__.invoke(command, args);
+    report("taken " + command + " " + n);
   } catch (error) {
-    if (!refused) { refused = true; report("refused " + String(error).slice(0, 80)); }
+    const text = typeof error === "string" ? error : JSON.stringify(error);
+    if (!text.includes("not allowed") && !text.includes('"not_the_picker"')) {
+      report("taken " + command + ", which failed with " + text.slice(0, 80));
+    } else if (!refused.has(command)) {
+      refused.add(command);
+      report("refused " + command + ": " + text.slice(0, 80));
+    }
   }
 }
-setInterval(() => { for (let i = 0; i < 20; i += 1) call(); }, 5);
+setInterval(() => {
+  for (let i = 0; i < 20; i += 1) {
+    n += 1;
+    call("rename_server", { origin: "${VICTIM}", label: "taken-" + n });
+  }
+  call("check_for_updates", {});
+  call("plugin:updater|check", {});
+}, 5);
 setTimeout(() => { location.href = "/slow"; }, 1000);
 </script>`;
 
@@ -153,8 +173,13 @@ if (taken.length > 0) {
   failure = `${taken.length} of the page's calls went through, the last ${taken.at(-1)}`;
 } else if (victim?.label !== "Work") {
   failure = `the server list changed: ${JSON.stringify(victim)}`;
-} else if (failure === null && !reports.some((report) => report.startsWith("refused"))) {
-  failure = "the page reported no refused call, so the check proved nothing";
+} else if (failure === null) {
+  const unproven = COMMANDS.filter(
+    (command) => !reports.some((report) => report.startsWith(`refused ${command}:`)),
+  );
+  if (unproven.length > 0) {
+    failure = `the page reported no refused call of ${unproven.join(", ")}, so the check proved nothing`;
+  }
 }
 
 if (failure !== null) {
@@ -162,4 +187,6 @@ if (failure !== null) {
   console.error(`--- the page's reports\n${reports.join("\n")}`);
   process.exit(1);
 }
-console.log("webview check passed: the server's page reached none of the picker's commands");
+console.log(
+  `webview check passed: the server's page reached none of the picker's commands (${COMMANDS.join(", ")})`,
+);

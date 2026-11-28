@@ -9,6 +9,7 @@ use crate::lock::Attempt;
 use crate::meta::{self, CheckError, ServerInfo};
 use crate::servers::{ListError, SavedServer, ServerList};
 use crate::shell::{self, Interrupted, Shell};
+use crate::updates::{self, UpdateCheck, UpdateError};
 
 /// A failure the picker shows: a stable code and a sentence for the person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +38,15 @@ impl From<CheckError> for Failure {
 
 impl From<ListError> for Failure {
     fn from(error: ListError) -> Self {
+        Self {
+            code: error.code(),
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<UpdateError> for Failure {
+    fn from(error: UpdateError) -> Self {
         Self {
             code: error.code(),
             message: error.to_string(),
@@ -106,6 +116,8 @@ pub struct Startup {
     pub open: Option<String>,
     /// Why the window came back to the picker from a server it was opening, if it did.
     pub interrupted: Option<Interrupted>,
+    /// Whether the picker offers a check for updates: on Android, which has no menu.
+    pub update_check: bool,
 }
 
 /// Refuses a command unless the page last committed in the window is the app's own: a
@@ -173,6 +185,7 @@ pub fn startup(shell: State<'_, Shell>) -> Result<Startup, Failure> {
         list: ListView::from(&*shell.list()),
         open,
         interrupted: shell.take_interrupted(),
+        update_check: updates::PICKER_CHECKS,
     })
 }
 
@@ -288,6 +301,20 @@ pub fn remove_server<R: Runtime>(
         shell::forget_server(&app, &address);
     }
     Ok(ListView::from(&*list))
+}
+
+/// Checks for a newer release of the app, as the picker's **Check for updates**, which the
+/// Android app shows, asks: what the check found, while a dialog of the app's own offers a newer
+/// release. It fails with `busy` while another check is under way, and with `unsupported` on
+/// iOS, where the app does not update itself.
+#[tauri::command]
+pub async fn check_for_updates<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
+) -> Result<UpdateCheck, Failure> {
+    from_the_picker(&shell, "check_for_updates")?;
+    log::info!("checking for updates, as the picker asked");
+    Ok(updates::from_picker(&app).await?)
 }
 
 #[cfg(test)]

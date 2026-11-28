@@ -11,7 +11,7 @@ use std::sync::Once;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
-use reqwest::{Client, StatusCode, redirect};
+use reqwest::{Client, ClientBuilder, StatusCode, redirect};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -219,11 +219,20 @@ pub fn read_meta(origin: &str, body: &[u8]) -> Result<ServerInfo, CheckError> {
 }
 
 fn client(options: CheckOptions) -> reqwest::Result<Client> {
+    client_builder(options.timeout)
+        .redirect(redirect::Policy::none())
+        .build()
+}
+
+/// An HTTP client's settings, as each of the app's requests has them: rustls on ring, the
+/// certificates the platform trusts, the time limit `timeout` on the whole request and at most
+/// [`CONNECT_TIMEOUT`] of it to connect, and the app's name and version as its user agent. No
+/// cookies and no credentials.
+pub(crate) fn client_builder(timeout: Duration) -> ClientBuilder {
     install_crypto_provider();
     let builder = Client::builder()
-        .redirect(redirect::Policy::none())
-        .timeout(options.timeout)
-        .connect_timeout(CONNECT_TIMEOUT.min(options.timeout))
+        .timeout(timeout)
+        .connect_timeout(CONNECT_TIMEOUT.min(timeout))
         .user_agent(concat!("NeonTeamspaceApp/", env!("CARGO_PKG_VERSION")));
     // The platform's own certificate verifier, which trusts what the system trusts, as the
     // webview does; Android's needs a Java component of its own, so there the Mozilla roots,
@@ -234,7 +243,7 @@ fn client(options: CheckOptions) -> reqwest::Result<Client> {
             .iter()
             .filter_map(|der| reqwest::Certificate::from_der(der).ok()),
     );
-    builder.build()
+    builder
 }
 
 /// ring, as the server uses: aws-lc, rustls' default, needs more tooling to cross-compile.
