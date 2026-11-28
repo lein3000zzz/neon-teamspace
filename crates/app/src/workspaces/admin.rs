@@ -13,8 +13,8 @@ use super::{AccessChange, NO_WORKSPACE, WorkspaceError, WorkspaceService};
 use crate::standing::Standing;
 
 /// The most workspaces one page lists, and how many it lists unless told.
-pub const MAX_PAGE: i64 = 200;
-pub const DEFAULT_PAGE: i64 = 50;
+pub(crate) const MAX_PAGE: i64 = 200;
+pub(crate) const DEFAULT_PAGE: i64 = 50;
 
 /// What a workspace holds, against its limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
