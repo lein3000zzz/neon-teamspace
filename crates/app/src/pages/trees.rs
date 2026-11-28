@@ -128,7 +128,7 @@ impl PageService {
             let nodes = repo::space_tree(
                 &mut *conn,
                 workspace_id,
-                teamspace_id,
+                Space::Teamspace(teamspace_id),
                 user,
                 cursor,
                 limit + 1,
@@ -160,8 +160,15 @@ impl PageService {
                 own: standing.owner_id().is_none(),
             };
             check_space(&standing, space, theirs, Action::ListPages, NO_WORKSPACE)?;
-            let nodes =
-                repo::space_tree(&mut *conn, workspace_id, user, user, cursor, limit + 1).await?;
+            let nodes = repo::space_tree(
+                &mut *conn,
+                workspace_id,
+                Space::Private { owner: user },
+                user,
+                cursor,
+                limit + 1,
+            )
+            .await?;
             let owners = OwnerSeats::read(&mut conn, &standing, &nodes, |_| Some(theirs)).await?;
             Ok(tree(nodes, limit, |_| Some(space), &standing, &owners))
         })

@@ -755,15 +755,15 @@ fn space_of(id: Uuid, teamspace_id: Option<Uuid>, owner_id: Option<Uuid>) -> sql
     }
 }
 
-/// Every page out of the trash in a space of a workspace, `space` being the teamspace's or
-/// the owner's id, in the order of the tree: each page, then the pages under it, siblings
-/// by position. At most `limit`, those after `after`, a path a node of an earlier call
-/// returned.
+/// Every page out of the trash in a space of a workspace, in the order of the tree: each
+/// page, then the pages under it, siblings by position, each with the most it is shared with
+/// `viewer`, the person the tree is listed for. At most `limit`, those after `after`, a path a
+/// node of an earlier call returned.
 pub async fn space_tree(
     executor: impl PgExecutor<'_>,
     workspace_id: Uuid,
-    space: Uuid,
-    user_id: Uuid,
+    space: Space,
+    viewer: Uuid,
     after: Option<&str>,
     limit: i64,
 ) -> sqlx::Result<Vec<TreeNode>> {
@@ -795,8 +795,8 @@ pub async fn space_tree(
            ORDER BY t.path COLLATE "C"
            LIMIT $5"#,
         workspace_id,
-        space,
-        user_id,
+        space.id(),
+        viewer,
         after,
         limit,
         WALK_LIMIT,
