@@ -15,8 +15,8 @@ use yrs::branch::BranchID;
 use yrs::{TransactionMut, XmlElementPrelim, XmlElementRef, XmlFragment as _, XmlOut};
 
 use super::{
-    Applied, EditError, branch, children_of, containers, group_or_new, id_of, make_placed, tidy,
-    top_group,
+    Applied, EditError, Placed, branch, children_of, containers, group_or_new, id_of, make_placed,
+    tidy, top_group,
 };
 use crate::align::{Key, pairs};
 use crate::ids::IdSource;
@@ -119,10 +119,10 @@ fn restore_group(
         .collect();
     let at = |container: &XmlElementRef| index.get(&branch(container)).copied().unwrap_or(0);
     // Each run of the version's blocks the page lacks goes before the block that stays after
-    // it, or after the last that stays, or at the start when none does: (place, 1, run).
-    // Each block of the page that goes is (place, 0, its index).
+    // it, or after the last that stays, or at the start when none does; each block of the
+    // page that goes is removed at its place.
     let mut runs: Vec<&[Block]> = Vec::new();
-    let mut placed: Vec<(u32, u8, usize)> = Vec::new();
+    let mut placed: Vec<Placed> = Vec::new();
     let mut from = 0;
     let mut last: Option<usize> = None;
     for end in kept.iter().map(Some).chain([None]) {
@@ -133,7 +133,7 @@ fn restore_group(
                 (None, Some(i)) => at(&present[i].container) + 1,
                 (None, None) => 0,
             };
-            placed.push((place, 1, runs.len()));
+            placed.push(Placed::insert(place, runs.len()));
             runs.push(&blocks[from..to]);
         }
         if let Some(&(i, j)) = end {
@@ -147,14 +147,14 @@ fn restore_group(
     }
     for (i, block) in present.iter().enumerate() {
         if !stays[i] {
-            placed.push((at(&block.container), 0, i));
+            placed.push(Placed::remove(at(&block.container)));
             applied.removed += 1;
             applied.removed_ids.extend(block.id.clone());
         }
     }
     // From the last place back, so the places before stay; at one place, what goes before
     // what comes.
-    placed.sort_by_key(|&(place, kind, n)| (Reverse(place), kind, Reverse(n)));
+    placed.sort_by_key(|p| (Reverse(p.place), p.step, Reverse(p.run)));
     make_placed(txn, group, &placed, deadline, |txn, place, n| {
         applied
             .added
