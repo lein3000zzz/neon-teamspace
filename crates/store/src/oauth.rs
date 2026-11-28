@@ -9,18 +9,10 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::api_tokens::parse_scopes;
+use crate::decode;
 use crate::users::{PersonColumns, Row as UserRow};
 use crate::workspaces::parse_role;
-
-fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
-    texts
-        .iter()
-        .map(|text| {
-            Scope::parse(text).ok_or_else(|| decode_error(format!("unknown scope {text:?}")))
-        })
-        .collect()
-}
 
 fn scope_texts(scopes: &[Scope]) -> Vec<String> {
     scopes
@@ -30,7 +22,7 @@ fn scope_texts(scopes: &[Scope]) -> Vec<String> {
 }
 
 fn parse_audience(text: &str) -> sqlx::Result<Audience> {
-    Audience::parse(text).ok_or_else(|| decode_error(format!("unknown audience {text:?}")))
+    decode("audience", text, Audience::parse)
 }
 
 /// Keeps a client that registered from `source`, as
@@ -609,8 +601,7 @@ impl TryFrom<TokenRow> for Token {
         Ok(Self {
             id: row.id,
             grant_id: row.grant_id,
-            kind: TokenKind::parse(&row.kind)
-                .ok_or_else(|| decode_error(format!("unknown token kind {:?}", row.kind)))?,
+            kind: decode("token kind", &row.kind, TokenKind::parse)?,
             scopes: parse_scopes(&row.scopes)?,
             created_at: row.created_at,
             expires_at: row.expires_at,

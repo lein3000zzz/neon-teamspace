@@ -7,7 +7,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::Row as UserRow;
 
 struct Row {
@@ -40,12 +40,11 @@ impl TryFrom<Row> for ApiToken {
     }
 }
 
-fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
+/// The scopes of a `scopes` column, an API token's or an OAuth grant's, code's or token's.
+pub(crate) fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
     texts
         .iter()
-        .map(|text| {
-            Scope::parse(text).ok_or_else(|| decode_error(format!("unknown scope {text:?}")))
-        })
+        .map(|text| decode("scope", text, Scope::parse))
         .collect()
 }
 

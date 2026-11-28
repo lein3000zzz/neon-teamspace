@@ -15,9 +15,9 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
 use crate::pages::parse_access;
 use crate::users::parse_kind;
+use crate::{decode, decode_error};
 
 /// A database page's own data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,8 +253,7 @@ pub async fn views(
     .into_iter()
     .map(|row| {
         Ok(StoredView {
-            layout: Layout::parse(&row.layout)
-                .ok_or_else(|| decode_error(format!("unknown view layout {:?}", row.layout)))?,
+            layout: decode("view layout", &row.layout, Layout::parse)?,
             id: row.id,
             database_id: row.database_id,
             position: row.position,

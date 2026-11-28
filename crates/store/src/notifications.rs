@@ -7,7 +7,7 @@ use sqlx::postgres::types::PgInterval;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::PersonColumns;
 
 /// A notification as made, with what it is about.
@@ -175,8 +175,7 @@ impl TryFrom<Row> for Notification {
             id: row.id,
             user_id: row.user_id,
             workspace_id: row.workspace_id,
-            kind: NotificationKind::parse(&row.kind)
-                .ok_or_else(|| decode_error(format!("unknown notification {:?}", row.kind)))?,
+            kind: decode("notification", &row.kind, NotificationKind::parse)?,
             actor_id: row.actor_id,
             page_id: row.page_id,
             thread_id: row.thread_id,
@@ -566,8 +565,7 @@ pub async fn preference(
     .fetch_optional(executor)
     .await?
     .map(|row| {
-        let mail = MailPreference::parse(&row.mail)
-            .ok_or_else(|| decode_error(format!("unknown mail preference {:?}", row.mail)))?;
+        let mail = decode("mail preference", &row.mail, MailPreference::parse)?;
         Ok((mail, row.digest_sent_at))
     })
     .transpose()

@@ -7,9 +7,9 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
 use crate::users::PersonColumns;
 use crate::workspaces::{Row as WorkspaceRow, parse_role};
+use crate::{decode, decode_error};
 
 /// The index an insert breaks when the account has a pending invitation to the workspace.
 pub const ALREADY_INVITED: &str = "workspace_invitations_pending";
@@ -38,8 +38,7 @@ impl TryFrom<InvitationRow> for Invitation {
             invited_by: row.invited_by,
             created_at: row.created_at,
             expires_at: row.expires_at,
-            state: InvitationState::parse(&row.state)
-                .ok_or_else(|| decode_error(format!("unknown state {:?}", row.state)))?,
+            state: decode("state", &row.state, InvitationState::parse)?,
             decided_at: row.decided_at,
         })
     }
