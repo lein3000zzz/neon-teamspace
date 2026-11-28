@@ -27,6 +27,9 @@ E2E_SERVER_PREBUILT ?=
 E2E_WEB_PORT      ?=
 # The container make test-s3 runs SeaweedFS in: a run from another checkout can name its own.
 S3_TEST_CONTAINER ?= neon-s3-test
+# The command make test-s3 runs the S3 blob store's tests with once SeaweedFS takes writes. CI
+# runs them from the archive of test binaries its other Rust tests ran from.
+S3_TESTS          ?= $(CARGO) test --workspace --test blobs
 # Where make server-notices writes the license notices of the crates the neon binary links.
 SERVER_NOTICES    ?= target/THIRD_PARTY_NOTICES.txt
 # The image the seaweedfs profile of deployments/docker-compose.yml runs: keep the two in step.
@@ -192,7 +195,7 @@ test-s3: ## Test the S3 blob store against SeaweedFS in a throwaway container (D
 	curl -fsS $$signed -X DELETE "http://$$address/neon-test/ready-probe" >/dev/null; \
 	NEON_TEST_S3_ENDPOINT="http://$$address" NEON_TEST_S3_BUCKET=neon-test \
 		NEON_TEST_S3_ACCESS_KEY_ID=neon-test NEON_TEST_S3_SECRET_ACCESS_KEY=neon-test-secret \
-		$(CARGO) test --workspace --test blobs
+		$(S3_TESTS)
 
 .PHONY: server-notices
 # The command and the check of the notices stage of deployments/Dockerfile, which writes the

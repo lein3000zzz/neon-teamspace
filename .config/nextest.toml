@@ -1,0 +1,15 @@
+# cargo-nextest's settings, for the profile CI's Rust tests run with: `--profile ci`. The
+# default profile is nextest's own, for a run on a developer's machine.
+
+[profile.ci]
+# A test that fails once fails the run: a flaky test is a bug to fix, not to retry until it
+# passes.
+retries = 0
+# Every test runs, so that one run reports every failure.
+fail-fast = false
+# A test still running after a minute is reported as slow, and one still running after three
+# is stopped and fails, so a test that hangs fails the run rather than holding it until the
+# job's timeout. The slowest test waits out a 30-second interval; the rest take seconds.
+slow-timeout = { period = "60s", terminate-after = 3 }
+# A failing test's output as it fails, and again with the summary at the end.
+failure-output = "immediate-final"
