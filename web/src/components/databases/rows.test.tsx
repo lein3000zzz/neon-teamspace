@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DATABASE_PATH,
   databasePages,
@@ -34,6 +34,12 @@ function wideScreen() {
     removeEventListener: () => {},
   }));
 }
+
+// The page loads the editor on demand; loaded once here, so no test waits on it. Left to the
+// first page a test opens, the import would run on into the tests after it.
+beforeAll(async () => {
+  await import("@/components/editor/page-editor");
+});
 
 describe("a row's page", () => {
   it("shows its id and properties above its content, editable as in the views", async () => {

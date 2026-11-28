@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http } from "msw";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { ada, apiError } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
 import { fakePages, page, PAGE_IDS, samplePages, UPLOADED_IDS } from "@/test/pages";
@@ -13,6 +13,12 @@ const goals = `/w/design/p/${PAGE_IDS.goals}`;
 async function main() {
   return within(await screen.findByRole("main"));
 }
+
+// The page loads the editor on demand; loaded once here, so no test waits on it. Left to the
+// first page a test opens, the import would run on into the tests after it.
+beforeAll(async () => {
+  await import("@/components/editor/page-editor");
+});
 
 describe("a page's header", () => {
   it("names who made the page and who changed it, an agent with whom it acts for", async () => {
