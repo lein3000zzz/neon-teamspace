@@ -19,6 +19,7 @@ use uuid::Uuid;
 use super::{
     AccessChange, Membership, WorkspaceError, WorkspaceService, locked_membership, membership,
 };
+use crate::Read;
 
 const NO_TEAMSPACE: &str = "no such teamspace";
 const NO_MEMBER: &str = "no such member";
@@ -205,7 +206,7 @@ impl WorkspaceService {
         self.observe("get_teamspace", async {
             let mut conn = self.pool().acquire().await?;
             let context = self
-                .context(&mut conn, principal, workspace_id, id, false)
+                .context(&mut conn, principal, workspace_id, id, Read::Plain)
                 .await?;
             context.check(Action::ViewTeamspace)?;
             self.entry(&mut conn, principal, context.teamspace).await
@@ -289,7 +290,7 @@ impl WorkspaceService {
         self.observe("update_teamspace", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::UpdateTeamspace)?;
             let mut teamspace = context.teamspace.clone();
@@ -345,7 +346,7 @@ impl WorkspaceService {
         self.observe("delete_teamspace", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::DeleteTeamspace)?;
             repo::delete(&mut *tx, workspace_id, id).await?;
@@ -374,7 +375,7 @@ impl WorkspaceService {
         self.observe("join_teamspace", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::JoinTeamspace)?;
             check_teamspace_role(principal.user.kind, TeamspaceRole::Member)
@@ -412,7 +413,7 @@ impl WorkspaceService {
         self.observe("leave_teamspace", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::LeaveTeamspace)?;
             let owners = repo::count_owners(&mut *tx, id).await?;
@@ -446,7 +447,7 @@ impl WorkspaceService {
         self.observe("teamspace_members", async {
             let mut conn = self.pool().acquire().await?;
             let context = self
-                .context(&mut conn, principal, workspace_id, id, false)
+                .context(&mut conn, principal, workspace_id, id, Read::Plain)
                 .await?;
             context.check(Action::ListTeamspaceMembers)?;
             Ok(repo::list_members(&mut *conn, id).await?)
@@ -470,7 +471,7 @@ impl WorkspaceService {
         self.observe("add_teamspace_member", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::ViewTeamspace)?;
             let newcomer = workspaces::member(&mut *tx, workspace_id, user_id)
@@ -529,7 +530,7 @@ impl WorkspaceService {
         self.observe("change_teamspace_role", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::ChangeTeamspaceRole)?;
             let current = repo::member(&mut *tx, id, user_id)
@@ -578,7 +579,7 @@ impl WorkspaceService {
         self.observe("remove_teamspace_member", async {
             let mut tx = self.pool().begin().await?;
             let context = self
-                .context(&mut tx, principal, workspace_id, id, true)
+                .context(&mut tx, principal, workspace_id, id, Read::Locked)
                 .await?;
             context.check(Action::RemoveTeamspaceMember)?;
             let current = repo::member_role(&mut *tx, id, user_id)
@@ -616,8 +617,8 @@ impl WorkspaceService {
         });
     }
 
-    /// Reads a teamspace of a workspace and the principal's roles. With `lock`, the
-    /// workspace's row is locked, then the teamspace's, in the order every change takes
+    /// Reads a teamspace of a workspace and the principal's roles. With [`Read::Locked`],
+    /// the workspace's row is locked, then the teamspace's, in the order every change takes
     /// them: who is in the workspace, and so who may be in its teamspaces, cannot change
     /// meanwhile, nor can the teamspace's owners.
     async fn context(
@@ -626,19 +627,17 @@ impl WorkspaceService {
         principal: &Principal,
         workspace_id: Uuid,
         id: Uuid,
-        lock: bool,
+        read: Read,
     ) -> Result<Context, WorkspaceError> {
-        let membership = if lock {
-            locked_membership(&mut *conn, principal, workspace_id).await?
-        } else {
-            membership(&mut *conn, principal, workspace_id).await?
+        let membership = match read {
+            Read::Locked => locked_membership(&mut *conn, principal, workspace_id).await?,
+            Read::Plain => membership(&mut *conn, principal, workspace_id).await?,
         };
         // Someone outside the workspace learns nothing of its teamspaces.
         membership.check(Action::ViewWorkspace)?;
-        let teamspace = if lock {
-            repo::lock(&mut *conn, workspace_id, id).await?
-        } else {
-            repo::get(&mut *conn, workspace_id, id).await?
+        let teamspace = match read {
+            Read::Locked => repo::lock(&mut *conn, workspace_id, id).await?,
+            Read::Plain => repo::get(&mut *conn, workspace_id, id).await?,
         }
         .ok_or(WorkspaceError::NotFound(NO_TEAMSPACE))?;
         let role = repo::member_role(&mut *conn, id, principal.user.id).await?;

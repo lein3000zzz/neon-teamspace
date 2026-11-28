@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use super::schema::member_names;
 use super::{DatabaseError, DatabaseService, cell_keys, domain_row, fitted_views, names_people};
+use crate::Read;
 
 /// A database's rows as a table: the title and the properties its first view shows, in
 /// that view's order, and a line of text for each row in the view's sort order. Every row
@@ -43,7 +44,9 @@ impl DatabaseService {
     ) -> Result<ExportTable, DatabaseError> {
         self.observe("export_table", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            let opened = self
+                .open(&mut conn, principal, database_id, Read::Plain)
+                .await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let schema = opened.schema;
             let views = fitted_views(&schema, repo::views(&mut *conn, database_id).await?);
@@ -154,7 +157,9 @@ impl DatabaseService {
     ) -> Result<HashMap<Uuid, ExportRow>, DatabaseError> {
         self.observe("export_rows", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            let opened = self
+                .open(&mut conn, principal, database_id, Read::Plain)
+                .await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let schema = &opened.schema;
             let members_hidden = opened.context.members_hidden();

@@ -48,6 +48,7 @@ use super::{
     AccessChange, Membership, NO_WORKSPACE, WorkspaceError, WorkspaceService, locked_membership,
     membership,
 };
+use crate::Read;
 use crate::auth::{TokenSpec, mint};
 use crate::webhooks;
 
@@ -149,7 +150,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::ViewAgent,
-                    false,
+                    Read::Plain,
                 )
                 .await?;
             Ok(self.agent_of(stored))
@@ -175,7 +176,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::ViewAgent,
-                    false,
+                    Read::Plain,
                 )
                 .await?;
             let theirs: HashSet<Uuid> =
@@ -298,7 +299,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::UpdateAgent,
-                    true,
+                    Read::Locked,
                 )
                 .await?;
             live(&stored)?;
@@ -342,7 +343,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::TransferAgent,
-                    true,
+                    Read::Locked,
                 )
                 .await?;
             live(&stored)?;
@@ -412,7 +413,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::DeleteAgent,
-                    true,
+                    Read::Locked,
                 )
                 .await?;
             if stored.deleted_at.is_some() {
@@ -455,7 +456,7 @@ impl AgentService {
                 workspace_id,
                 id,
                 Action::ListAgentTokens,
-                false,
+                Read::Plain,
             )
             .await?;
             Ok(api_tokens::list_for_user(&mut *conn, id).await?)
@@ -490,7 +491,7 @@ impl AgentService {
                     workspace_id,
                     id,
                     Action::CreateAgentToken,
-                    true,
+                    Read::Locked,
                 )
                 .await?;
             match self.agent_of(stored).status {
@@ -549,7 +550,7 @@ impl AgentService {
                 workspace_id,
                 id,
                 Action::RevokeAgentToken,
-                false,
+                Read::Plain,
             )
             .await?;
             if !api_tokens::delete(&mut *conn, id, token_id).await? {
@@ -637,8 +638,8 @@ impl AgentService {
     }
 
     /// Reads an agent or integration of a workspace, once the principal may know of the
-    /// workspace, and asks the rules about `action` on it. With `lock`, the workspace's row
-    /// is locked, then the agent's, in the order every change takes them.
+    /// workspace, and asks the rules about `action` on it. With [`Read::Locked`], the
+    /// workspace's row is locked, then the agent's, in the order every change takes them.
     async fn open(
         &self,
         conn: &mut PgConnection,
@@ -646,15 +647,14 @@ impl AgentService {
         workspace_id: Uuid,
         id: Uuid,
         action: Action,
-        lock: bool,
+        read: Read,
     ) -> Result<(Membership, Stored), WorkspaceError> {
-        let membership = if lock {
-            locked_membership(&mut *conn, principal, workspace_id).await?
-        } else {
-            membership(&mut *conn, principal, workspace_id).await?
+        let membership = match read {
+            Read::Locked => locked_membership(&mut *conn, principal, workspace_id).await?,
+            Read::Plain => membership(&mut *conn, principal, workspace_id).await?,
         };
         membership.check(Action::ViewWorkspace)?;
-        if lock && !repo::lock(&mut *conn, workspace_id, id).await? {
+        if read == Read::Locked && !repo::lock(&mut *conn, workspace_id, id).await? {
             return Err(WorkspaceError::NotFound(NO_AGENT));
         }
         let stored = repo::get(&mut *conn, workspace_id, id)

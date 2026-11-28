@@ -26,6 +26,7 @@ use super::{
     DatabaseError, DatabaseService, DatabaseView, NO_PROPERTY, Opened, key_for, new_type,
     settings_type, shown_views,
 };
+use crate::Read;
 use crate::pages::{Location, PageError, PageView, Target, in_workspace};
 
 /// What a new database starts with, besides its default properties and views.
@@ -208,7 +209,7 @@ impl DatabaseService {
     ) -> Result<DatabaseView, DatabaseError> {
         self.observe("get_database", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, id, false).await?;
+            let opened = self.open(&mut conn, principal, id, Read::Plain).await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let views = shown_views(
                 &opened.schema,
@@ -234,7 +235,9 @@ impl DatabaseService {
     ) -> Result<Property, DatabaseError> {
         self.observe("add_property", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let ty = new_type(&new.spec, new.options)?;
             let (name, ty) = opened.schema.check_new(&new.name, ty)?;
@@ -282,7 +285,9 @@ impl DatabaseService {
     ) -> Result<Property, DatabaseError> {
         self.observe("update_property", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let current = opened
                 .schema
@@ -375,7 +380,9 @@ impl DatabaseService {
     ) -> Result<Property, DatabaseError> {
         self.observe("move_property", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let property = opened
                 .schema
@@ -412,7 +419,9 @@ impl DatabaseService {
     ) -> Result<(), DatabaseError> {
         self.observe("delete_property", async {
             let mut tx = self.pages().pool().begin().await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             opened.schema.check_delete(property_id)?;
             repo::delete_property(&mut *tx, property_id).await?;

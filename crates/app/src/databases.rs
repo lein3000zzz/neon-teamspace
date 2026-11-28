@@ -55,6 +55,7 @@ use time::OffsetDateTime;
 use tracing::{Instrument as _, info_span};
 use uuid::Uuid;
 
+use crate::Read;
 use crate::pages::{Context, PageError, PageService, PageView, key_among, renumbered};
 
 pub use error::DatabaseError;
@@ -204,14 +205,14 @@ impl DatabaseService {
 
     /// Reads a database for the principal: its page's context, which the caller asks the
     /// rules about, its data and schema. One that does not exist, and a page that is not a
-    /// database, are not found. `lock` holds the database until the transaction ends, so
-    /// changes to its schema and views run one at a time.
+    /// database, are not found. [`Read::Locked`] holds the database until the transaction
+    /// ends, so changes to its schema and views run one at a time.
     pub(crate) async fn open(
         &self,
         conn: &mut PgConnection,
         principal: &Principal,
         id: Uuid,
-        lock: bool,
+        read: Read,
     ) -> Result<Opened, DatabaseError> {
         let context = self
             .inner
@@ -222,10 +223,9 @@ impl DatabaseService {
         if context.page().kind != PageKind::Database {
             return Err(DatabaseError::NotFound(NO_DATABASE));
         }
-        let database = if lock {
-            repo::lock(&mut *conn, id).await?
-        } else {
-            repo::get(&mut *conn, id).await?
+        let database = match read {
+            Read::Locked => repo::lock(&mut *conn, id).await?,
+            Read::Plain => repo::get(&mut *conn, id).await?,
         }
         .ok_or_else(|| DatabaseError::Internal(format!("database page {id} has no database")))?;
         let stored = repo::properties(&mut *conn, id).await?;

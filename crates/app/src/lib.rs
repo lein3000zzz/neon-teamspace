@@ -41,6 +41,14 @@ pub mod transfer;
 pub mod webhooks;
 pub mod workspaces;
 
+/// How a use case reads the row it is about to change: as it stands, or locked until the
+/// transaction ends, so that the changes to it run one at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Read {
+    Plain,
+    Locked,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::jobs::JobError;
