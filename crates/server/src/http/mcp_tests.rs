@@ -2503,6 +2503,30 @@ async fn the_transport_refuses_in_the_api_s_shape_and_speaks_its_revisions(pool:
         assert!(kind.starts_with("application/json"), "{kind}");
     }
 
+    // A body that breaks off is one that cannot be read, not one too large.
+    let broken = Body::from_stream(futures_util::stream::iter([
+        Ok(axum::body::Bytes::from_static(b"{\"jsonrpc\": ")),
+        Err(std::io::Error::other("the connection broke")),
+    ]));
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/mcp")
+        .header("host", "neon.example.com")
+        .header(auth.0, auth.1)
+        .header(both.0, both.1)
+        .header(json_type.0, json_type.1)
+        .body(broken)
+        .expect("a request");
+    let response = app.clone().oneshot(request).await.expect("a response");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    assert_eq!(code_of(&String::from_utf8_lossy(&body)), "invalid_body");
+
     // What the server does not offer is said in a sentence; a resource's refusal carries the
     // API's code.
     let (_, _, body) = raw(

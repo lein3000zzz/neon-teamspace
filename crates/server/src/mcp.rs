@@ -48,8 +48,8 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt as _;
-use http_body_util::BodyExt as _;
 use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt as _, LengthLimitError};
 use neon_app::auth::AuthService;
 use neon_app::comments::CommentService;
 use neon_app::databases::DatabaseService;
@@ -261,7 +261,17 @@ pub(crate) async fn serve(State(state): State<AppState>, request: Request) -> Re
             // Outside a session, only `initialize` is taken: it opens one.
             let bytes = match axum::body::to_bytes(body, MAX_BODY).await {
                 Ok(bytes) => bytes,
-                Err(_) => return too_large(),
+                Err(error) => {
+                    if error.into_inner().is::<LengthLimitError>() {
+                        return too_large();
+                    }
+                    return ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_body",
+                        "the body could not be read to its end",
+                    )
+                    .into_response();
+                }
             };
             if !initializes(&bytes) {
                 return session_required();
