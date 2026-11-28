@@ -609,6 +609,88 @@ async fn many_notifications_are_marked_at_once_all_or_none(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn a_token_bound_to_a_workspace_marks_none_beyond_it(pool: PgPool) {
+    let t = team(pool).await;
+    t.post(&t.bea, &format!("{} look", mention(&t.cy))).await;
+    let mine = t.h.workspace(&t.cy, "Mine").await.workspace.id;
+    let elsewhere = t.h.workspace(&t.bea, "Elsewhere").await.workspace.id;
+    t.h.workspaces
+        .invite(
+            &t.bea,
+            elsewhere,
+            t.cy.user.address(),
+            WorkspaceRole::Member,
+        )
+        .await
+        .expect("invited");
+    let bound = async |workspace| {
+        let (secret, _) =
+            t.h.auth
+                .create_api_token(
+                    &t.cy,
+                    "bound",
+                    None,
+                    &[Scope::Read, Scope::Write],
+                    Some(workspace),
+                )
+                .await
+                .expect("made");
+        t.h.auth
+            .authenticate_token(secret.expose())
+            .await
+            .expect("works")
+    };
+    let here = bound(t.workspace).await;
+    let there = bound(mine).await;
+    // Cy's inbox across the instance: the mention, and the invitation to Elsewhere.
+    let unread = async || {
+        t.inbox
+            .inbox(&t.cy, InboxQuery::default())
+            .await
+            .expect("read")
+            .notifications
+            .into_iter()
+            .filter(|shown| shown.notification.read_at.is_none())
+            .map(|shown| (shown.notification.kind, shown.notification.id))
+            .collect::<Vec<_>>()
+    };
+    let shown = unread().await;
+    let id_of = |kind| {
+        shown
+            .iter()
+            .find(|(shown, _)| *shown == kind)
+            .map(|(_, id)| *id)
+            .expect("shown")
+    };
+    let mentioned = id_of(NotificationKind::Mention);
+    let invitation = id_of(NotificationKind::Invitation);
+
+    // Another workspace's, or an invitation, refuses the lot.
+    for (who, ids) in [
+        (&there, &[mentioned][..]),
+        (&here, &[mentioned, invitation][..]),
+    ] {
+        let refused = t.inbox.mark_many(who, ids, true).await;
+        assert!(
+            matches!(refused, Err(InboxError::NotFound(_))),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(unread().await.len(), 2);
+
+    // Within its reach it marks them, and the person's own session marks every one.
+    let marked = t.inbox.mark_many(&here, &[mentioned], true).await;
+    assert_eq!(marked.ok(), Some(1));
+    assert_eq!(unread().await, [(NotificationKind::Invitation, invitation)]);
+    let marked = t
+        .inbox
+        .mark_many(&t.cy, &[mentioned, invitation], true)
+        .await;
+    assert_eq!(marked.ok(), Some(2));
+    assert!(unread().await.is_empty());
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_inbox_opened_live_hears_each_change_to_it(pool: PgPool) {
     let t = team(pool).await;
     let (outbox, mut heard) = Outbox::new(8, 4096);
