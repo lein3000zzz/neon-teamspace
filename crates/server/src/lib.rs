@@ -13,4 +13,5 @@ mod stall;
 pub mod storage;
 mod telemetry;
 mod tls;
+pub mod updates;
 mod webhooks;

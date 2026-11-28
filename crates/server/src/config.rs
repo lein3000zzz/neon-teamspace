@@ -18,7 +18,8 @@
 //! The server gives its `logging.level` a default of its own, [`DEFAULT_LOG_LEVEL`].
 //!
 //! The `admin` section names the first admin, made as the server starts while no admin can
-//! sign in, and `secrets.keys` the keys that seal secrets kept in the database.
+//! sign in, and `secrets.keys` the keys that seal secrets kept in the database. The
+//! `updates` section says where the release check asks for releases.
 
 mod bootstrap;
 mod database_url;
@@ -47,6 +48,8 @@ pub use database_url::DatabaseUrl;
 
 use env::EnvVars;
 use yaml::YamlFile;
+
+use crate::updates::DEFAULT_API_URL;
 
 /// Names the config file. A file named here must exist.
 pub const CONFIG_ENV: &str = "NEON_CONFIG";
@@ -78,6 +81,9 @@ pub struct Config {
     /// The keys that seal secrets kept in the database.
     #[serde(default)]
     pub secrets: SecretsConfig,
+    /// Where the release check asks for releases.
+    #[serde(default)]
+    pub updates: UpdatesConfig,
     /// Parsed by [`load`] into [`Loaded::settings`].
     #[serde(default)]
     settings: SettingsTree,
@@ -138,6 +144,25 @@ impl Default for DatabaseConfig {
             url: DatabaseUrl::default(),
             max_connections: 10,
             auto_migrate: true,
+        }
+    }
+}
+
+/// Where the release check asks for releases. The runtime settings `updates.*` say whether
+/// it asks at all.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdatesConfig {
+    /// The GitHub API the release check asks for Neon Teamspace's releases: another for a
+    /// mirror of it, or a stand-in in tests. Its path, if any, comes before the API's own.
+    #[serde(deserialize_with = "url")]
+    pub github_api_url: Url,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            github_api_url: Url::parse(DEFAULT_API_URL).expect("the GitHub API's URL parses"),
         }
     }
 }
@@ -302,6 +327,9 @@ impl Config {
         if let Err(error) = self.secrets.keyring() {
             report("secrets.keys", error.to_string());
         }
+        if let Err(message) = check_api_url(&self.updates.github_api_url) {
+            report("updates.github_api_url", message);
+        }
         // Its warnings are logged as telemetry starts, which checks the section again.
         if let Err(invalid) = self.observability.validate() {
             for problem in invalid.errors {
@@ -323,6 +351,26 @@ fn optional_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Url
     Url::parse(&text)
         .map(Some)
         .map_err(|error| D::Error::custom(format!("not a URL: {error}")))
+}
+
+/// Parses a URL as [`optional_url`] does, for a key that always has one.
+fn url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Url, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    Url::parse(&text).map_err(|error| D::Error::custom(format!("not a URL: {error}")))
+}
+
+/// An API's URL: http or https with a host, and no user, password, query or fragment.
+fn check_api_url(url: &Url) -> Result<(), String> {
+    if !matches!(url.scheme(), "http" | "https") || !url.has_host() {
+        return Err("must be an http or https URL, like https://api.github.com".to_owned());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("must not hold a user name or password".to_owned());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("must not hold a query or a fragment".to_owned());
+    }
+    Ok(())
 }
 
 /// The public URL is an origin: browsers compare it with the `Origin` header, and the

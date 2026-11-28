@@ -2048,6 +2048,7 @@ dependencies = [
  "rmcp",
  "rpassword",
  "schemars",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

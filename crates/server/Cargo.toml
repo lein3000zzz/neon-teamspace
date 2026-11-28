@@ -37,6 +37,7 @@ object_store.workspace = true
 rmcp = { workspace = true, features = ["server", "transport-streamable-http-server"] }
 rpassword.workspace = true
 schemars = { workspace = true, features = ["uuid1"] }
+semver.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true

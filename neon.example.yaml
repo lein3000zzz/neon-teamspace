@@ -52,6 +52,11 @@ secrets:
   # show only once, secret settings cannot be saved, and no mail goes out.
   keys:
 
+updates:
+  # The GitHub API the release check asks for the releases of Neon Teamspace, while the
+  # setting updates.check is on: another only for a mirror of it.
+  github_api_url: https://api.github.com
+
 # Logs, metrics, traces, profiles and the internal admin listener. Read once, at start.
 observability:
   logging:
