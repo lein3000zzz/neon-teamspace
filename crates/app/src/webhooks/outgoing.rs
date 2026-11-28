@@ -61,8 +61,8 @@ pub struct NewWebhook {
     /// The identity whose events it delivers.
     pub user_id: Uuid,
     pub url: String,
-    /// Event types, such as `row.assigned`: at least one.
-    pub events: Vec<String>,
+    /// At least one.
+    pub events: Vec<EventType>,
     pub include_own: bool,
 }
 
@@ -70,7 +70,7 @@ pub struct NewWebhook {
 #[derive(Debug, Clone, Default)]
 pub struct WebhookUpdate {
     pub url: Option<String>,
-    pub events: Option<Vec<String>>,
+    pub events: Option<Vec<EventType>>,
     pub include_own: Option<bool>,
     /// Turns it on, clearing its failures, or off.
     pub enabled: Option<bool>,
@@ -668,6 +668,6 @@ impl WebhookService {
         self.inner
             .envelope
             .seal(secret.as_bytes(), &aad(id))
-            .map_err(|_| WebhookError::NoSecretKey)
+            .map_err(WebhookError::from)
     }
 }

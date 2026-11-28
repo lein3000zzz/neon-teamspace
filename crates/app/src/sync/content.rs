@@ -80,8 +80,10 @@ pub enum ContentError {
     #[error("the page's document is not available now: {0}")]
     Unavailable(CloseReason),
     #[error("the page's document does not load: {0}")]
-    Load(#[from] LoadError),
+    Load(LoadError),
 }
+
+from_cause!(ContentError { Load(LoadError) });
 
 impl ContentError {
     /// A stable code for programs, as the API's error shape carries it.

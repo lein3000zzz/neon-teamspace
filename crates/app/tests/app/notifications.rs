@@ -18,9 +18,10 @@ use neon_app::sync::{Broadcaster as _, Limits, Next, Outbox, Room, SyncService, 
 use neon_app::webhooks::transport::{Answer, Outgoing, SendError, WebhookTransport};
 use neon_app::webhooks::{NewWebhook, Services, WebhookService};
 use neon_blocks::markdown::from_markdown;
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::notifications::{MailPreference, NotificationKind};
 use neon_domain::pages::{PageAccess, Placement};
+use neon_domain::webhooks::EventType;
 use neon_domain::workspaces::WorkspaceRole;
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row as _};
@@ -553,6 +554,61 @@ async fn notifications_are_read_archived_and_listed_a_part_at_a_time(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn many_notifications_are_marked_at_once_all_or_none(pool: PgPool) {
+    let t = team(pool).await;
+    for n in 0..3 {
+        t.post(&t.bea, &format!("{} {n}", mention(&t.cy))).await;
+    }
+    let read_at = async || {
+        t.inbox
+            .inbox(&t.cy, InboxQuery::default())
+            .await
+            .expect("read")
+            .notifications
+            .into_iter()
+            .map(|shown| (shown.notification.id, shown.notification.read_at))
+            .collect::<Vec<_>>()
+    };
+    let ids: Vec<Uuid> = read_at().await.into_iter().map(|(id, _)| id).collect();
+    t.inbox
+        .mark(&t.cy, ids[0], Some(true), None)
+        .await
+        .expect("read");
+    let first_read = read_at().await[0].1.expect("read");
+
+    t.h.time.advance(Duration::from_secs(60));
+    // Each id counts, one named twice too; one read already keeps when it was read.
+    let marked = t
+        .inbox
+        .mark_many(&t.cy, &[ids[0], ids[1], ids[1]], true)
+        .await;
+    assert_eq!(marked.ok(), Some(3));
+    let now = first_read + Duration::from_secs(60);
+    assert_eq!(
+        read_at().await,
+        vec![
+            (ids[0], Some(first_read)),
+            (ids[1], Some(now)),
+            (ids[2], None)
+        ]
+    );
+
+    // One that is someone else's, or that does not exist, marks none of them.
+    for (who, among) in [(&t.bea, ids[2]), (&t.cy, Uuid::now_v7())] {
+        let refused = t.inbox.mark_many(who, &[ids[2], among], true).await;
+        assert!(
+            matches!(refused, Err(InboxError::NotFound(_))),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(read_at().await[2], (ids[2], None));
+
+    let marked = t.inbox.mark_many(&t.cy, &[ids[0], ids[1]], false).await;
+    assert_eq!(marked.ok(), Some(2));
+    assert!(read_at().await.iter().all(|(_, read)| read.is_none()));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_inbox_opened_live_hears_each_change_to_it(pool: PgPool) {
     let t = team(pool).await;
     let (outbox, mut heard) = Outbox::new(8, 4096);
@@ -762,7 +818,9 @@ async fn invitations_come_to_the_inbox_while_they_wait(pool: PgPool) {
 async fn a_token_bound_to_a_workspace_reads_its_notifications_alone(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.bea, t.workspace, "Scout").await;
-    let (_, agent) = t.h.agent_token(&t.bea, &scout, &["read", "write"]).await;
+    let (_, agent) =
+        t.h.agent_token(&t.bea, &scout, &[Scope::Read, Scope::Write])
+            .await;
     let posted = t
         .post(&t.ada, &format!("@[Scout](user:{}) take this", scout.id))
         .await;
@@ -974,7 +1032,9 @@ async fn mail_waits_for_its_delay_and_the_instance_and_person_to_want_it(pool: P
     t.post(&t.bea, &format!("@[Scout](user:{}) four", scout.id))
         .await;
     assert!(t.jobs(neon_app::notifications::MAIL_KIND).await.is_empty());
-    let (_, agent) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let (_, agent) =
+        t.h.agent_token(&t.ada, &scout, &[Scope::Read, Scope::Write])
+            .await;
     let refused = t.inbox.set_mail(&agent, MailPreference::Each).await;
     assert!(
         matches!(refused, Err(InboxError::Forbidden(_))),
@@ -1095,7 +1155,7 @@ async fn mentions_and_replies_reach_webhooks_that_ask_for_them(pool: PgPool) {
             NewWebhook {
                 user_id: t.bea.user.id,
                 url: "https://hooks.example.com/bea".into(),
-                events: vec!["page.mentioned".into(), "comment.replied".into()],
+                events: vec![EventType::Mentioned, EventType::Replied],
                 include_own: false,
             },
         )
@@ -1336,7 +1396,7 @@ async fn a_mention_written_again_while_the_first_waits_unread_still_reaches_webh
             NewWebhook {
                 user_id: t.bea.user.id,
                 url: "https://hooks.example.com/bea".into(),
-                events: vec!["page.mentioned".into()],
+                events: vec![EventType::Mentioned],
                 include_own: false,
             },
         )

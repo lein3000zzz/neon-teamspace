@@ -18,10 +18,12 @@ pub enum InboxError {
     #[error("this link does not work: open your account's notifications to change your mail")]
     InvalidToken,
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(InboxError { Database(sqlx::Error) });
 
 impl InboxError {
     /// A stable code for programs, as the API's error shape carries it.

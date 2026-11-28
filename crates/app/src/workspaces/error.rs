@@ -43,10 +43,12 @@ pub enum WorkspaceError {
     #[error("too many attempts: try again in {}", duration::format(*retry_after))]
     RateLimited { retry_after: Duration },
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(WorkspaceError { Database(sqlx::Error) });
 
 impl WorkspaceError {
     /// A stable code for programs, as the API's error shape carries it.

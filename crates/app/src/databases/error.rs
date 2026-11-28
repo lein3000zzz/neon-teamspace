@@ -52,10 +52,12 @@ pub enum DatabaseError {
     #[error(transparent)]
     Page(#[from] PageError),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(DatabaseError { Database(sqlx::Error) });
 
 impl DatabaseError {
     /// A stable code for programs, as the API's error shape carries it.

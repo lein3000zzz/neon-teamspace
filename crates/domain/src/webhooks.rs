@@ -106,29 +106,14 @@ pub fn check_name(raw: &str) -> Result<String, InvalidName> {
 }
 
 /// The events an outgoing webhook asks for, each once, in [`EventType::ALL`] order: at
-/// least one, each a type this server knows.
-pub fn check_events<S: AsRef<str>>(raw: &[S]) -> Result<Vec<EventType>, String> {
-    let mut events = Vec::new();
-    for text in raw {
-        let event = EventType::parse(text.as_ref()).ok_or_else(|| {
-            format!(
-                "unknown event {:?}: want some of {}",
-                text.as_ref(),
-                EventType::ALL
-                    .iter()
-                    .map(|event| event.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })?;
-        if !events.contains(&event) {
-            events.push(event);
-        }
-    }
-    if events.is_empty() {
+/// least one.
+pub fn check_events(asked: &[EventType]) -> Result<Vec<EventType>, String> {
+    if asked.is_empty() {
         return Err("a webhook asks for at least one event".to_owned());
     }
+    let mut events = asked.to_vec();
     events.sort();
+    events.dedup();
     Ok(events)
 }
 
@@ -184,17 +169,16 @@ mod tests {
     }
 
     #[test]
-    fn events_are_known_and_each_kept_once() {
+    fn events_are_each_kept_once() {
         assert_eq!(
-            check_events(&["row.status_changed", "row.assigned", "row.assigned"]),
+            check_events(&[
+                EventType::StatusChanged,
+                EventType::Assigned,
+                EventType::Assigned
+            ]),
             Ok(vec![EventType::Assigned, EventType::StatusChanged])
         );
-        assert!(check_events::<&str>(&[]).is_err());
-        assert!(
-            check_events(&["row.mentioned"])
-                .expect_err("unknown")
-                .contains("row.assigned, row.status_changed")
-        );
+        assert!(check_events(&[]).is_err());
         for event in EventType::ALL {
             assert_eq!(EventType::parse(event.as_str()), Some(*event));
         }

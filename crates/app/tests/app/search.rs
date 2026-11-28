@@ -20,7 +20,7 @@ use neon_app::workspaces::NewTeamspace;
 use neon_blocks::edit::Edit;
 use neon_blocks::markdown::from_markdown;
 use neon_blocks::{Block, SequentialIds};
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::databases::PropertyKind;
 use neon_domain::pages::{PageAccess, PageKind, Placement};
 use neon_domain::workspaces::{TeamspaceAccess, TeamspaceRole, WorkspaceRole};
@@ -104,8 +104,8 @@ async fn team(pool: PgPool) -> Team {
             .await
             .expect("added");
     }
-    let (_, scout) = h.agent_token(&cy, &scout, &["read"]).await;
-    let (_, ace) = h.agent_token(&ada, &ace, &["read"]).await;
+    let (_, scout) = h.agent_token(&cy, &scout, &[Scope::Read]).await;
+    let (_, ace) = h.agent_token(&ada, &ace, &[Scope::Read]).await;
     let search = SearchService::builder(h.pool.clone())
         .clock(h.time.clock())
         .limiter(Arc::clone(&h.limiter) as Arc<dyn RateLimiter>)

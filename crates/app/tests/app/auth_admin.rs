@@ -5,7 +5,7 @@ use crate::support;
 use std::time::Duration;
 
 use neon_app::auth::{AuthError, CleanupReport, InviteSpec, NewAccount, RegisterInput, UserUpdate};
-use neon_domain::auth::Role;
+use neon_domain::auth::{Role, Scope};
 use serde_json::json;
 use sqlx::PgPool;
 use support::{Harness, IP, PASSWORD, renaming, secret};
@@ -102,7 +102,13 @@ async fn admin_tokens_invite_and_verify_but_change_no_one_s_access(pool: PgPool)
     let bob = h.account("bob@example.com", Role::User).await;
     let (token, _) = h
         .auth
-        .create_api_token(&admin, "ops", None, &["read", "write", "admin"], None)
+        .create_api_token(
+            &admin,
+            "ops",
+            None,
+            &[Scope::Read, Scope::Write, Scope::Admin],
+            None,
+        )
         .await
         .expect("a token");
     let by_token = h
@@ -267,7 +273,7 @@ async fn renaming_in_a_loop_with_a_token_does_not_undo_a_disable(pool: PgPool) {
     let (session, _) = h.sign_in("bob@example.com").await;
     let (token, _) = h
         .auth
-        .create_api_token(&session, "loop", None, &["read", "write"], None)
+        .create_api_token(&session, "loop", None, &[Scope::Read, Scope::Write], None)
         .await
         .expect("a token");
     let token = token.expose().to_owned();

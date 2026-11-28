@@ -25,7 +25,7 @@ use neon_app::workspaces::{
     AgentService, NewAgent, NewWorkspace, WorkspaceDetails, WorkspaceService,
 };
 use neon_domain::agents::Agent;
-use neon_domain::auth::{Email, Principal, Role, User, UserKind};
+use neon_domain::auth::{Email, Principal, Role, Scope, User, UserKind};
 use neon_domain::settings::{Pinned, Secret};
 use neon_domain::workspaces::WorkspaceRole;
 use serde_json::{Value as Json, json};
@@ -375,7 +375,7 @@ impl Harness {
         &self,
         owner: &Principal,
         agent: &Agent,
-        scopes: &[&str],
+        scopes: &[Scope],
     ) -> (Secret, Principal) {
         let (secret, _) = self
             .agents

@@ -20,7 +20,7 @@ use neon_app::sync::{
 use neon_blocks::edit::{Edit, EditError};
 use neon_blocks::markdown::from_markdown;
 use neon_blocks::{Block, SequentialIds};
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::{PageAccess, Placement};
 use neon_domain::workspaces::WorkspaceRole;
 use sqlx::PgPool;
@@ -479,7 +479,7 @@ async fn an_agent_s_presence_says_what_it_is_and_whom_it_acts_for(pool: PgPool) 
             .0
             .id;
     let scout = t.h.agent(&t.ada, workspace, "Scout").await;
-    let (_, worker) = t.h.agent_token(&t.ada, &scout, &["write"]).await;
+    let (_, worker) = t.h.agent_token(&t.ada, &scout, &[Scope::Write]).await;
     let sync = t.sync(quick());
     let mut agent = Client::open(&sync, &worker, t.page, "scout").await;
     let mut dee = Client::open(&sync, &t.dee, t.page, "dee").await;
@@ -1112,7 +1112,7 @@ async fn reading_needs_seeing_the_page_and_editing_needs_editing_it(pool: PgPool
 
     // A token without the write scope reads only.
     let agent = t.h.agent(&t.ada, workspace, "Reader").await;
-    let (_, reader) = t.h.agent_token(&t.ada, &agent, &["read"]).await;
+    let (_, reader) = t.h.agent_token(&t.ada, &agent, &[Scope::Read]).await;
     assert_eq!(refused(sync.read(&reader, t.page).await), "ok");
     assert_eq!(
         refused(sync.edit(&reader, t.page, append("x"), None).await),

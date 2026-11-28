@@ -406,8 +406,12 @@ fn trash_position(at: OffsetDateTime, id: Uuid) -> String {
 fn trash_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), PageError> {
     let invalid = || PageError::InvalidInput(INVALID_CURSOR.to_owned());
     let (micros, id) = cursor.split_once('.').ok_or_else(invalid)?;
-    let micros: i128 = micros.parse().map_err(|_| invalid())?;
-    let at = OffsetDateTime::from_unix_timestamp_nanos(micros * 1000).map_err(|_| invalid())?;
+    let nanos = micros
+        .parse::<i128>()
+        .ok()
+        .and_then(|micros| micros.checked_mul(1000))
+        .ok_or_else(invalid)?;
+    let at = OffsetDateTime::from_unix_timestamp_nanos(nanos).map_err(|_| invalid())?;
     Ok((at, Uuid::try_parse(id).map_err(|_| invalid())?))
 }
 
@@ -446,6 +450,10 @@ mod tests {
             "123",
             "x.0193a5b2-0000-7000-8000-0000000000a1",
             "1.nope",
+            // Past what an i128 of nanoseconds holds, and past what a time does.
+            "170141183460469231731687303715884105727.0193a5b2-0000-7000-8000-0000000000a1",
+            "-170141183460469231731687303715884105728.0193a5b2-0000-7000-8000-0000000000a1",
+            "9223372036854775807.0193a5b2-0000-7000-8000-0000000000a1",
         ] {
             assert!(trash_cursor(bad).is_err(), "{bad:?}");
         }

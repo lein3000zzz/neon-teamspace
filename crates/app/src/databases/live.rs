@@ -39,6 +39,7 @@ use uuid::Uuid;
 
 use super::events::access_message;
 use super::{DatabaseError, DatabaseService};
+use crate::Read;
 use crate::auth::{AuthError, AuthService};
 use crate::pages::AccessChange;
 use crate::sync::{
@@ -400,7 +401,9 @@ impl DatabaseService {
     ) -> Result<Followed, DatabaseError> {
         self.observe("follow", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            let opened = self
+                .open(&mut conn, principal, database_id, Read::Plain)
+                .await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let edits =
                 principal.can(Scope::Write) && opened.context.check(Action::EditPage).is_ok();

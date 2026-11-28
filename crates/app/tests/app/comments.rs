@@ -14,7 +14,7 @@ use neon_app::pages::{Location, NewPage};
 use neon_app::ratelimit::{Bucket, RateLimiter};
 use neon_app::sync::{Connection, Limits, Next, SyncService, access_feed};
 use neon_blocks::{Block, Inline, SequentialIds};
-use neon_domain::auth::Principal;
+use neon_domain::auth::{Principal, Scope};
 use neon_domain::pages::{PageAccess, Placement};
 use neon_domain::workspaces::WorkspaceRole;
 use sqlx::PgPool;
@@ -334,7 +334,9 @@ async fn who_may_comment_follows_access_and_shares(pool: PgPool) {
 async fn an_agent_comments_only_as_far_as_its_owner_may(pool: PgPool) {
     let t = team(pool).await;
     let scout = t.h.agent(&t.ada, t.workspace, "Scout").await;
-    let (_, agent) = t.h.agent_token(&t.ada, &scout, &["read", "write"]).await;
+    let (_, agent) =
+        t.h.agent_token(&t.ada, &scout, &[Scope::Read, Scope::Write])
+            .await;
     // The agent is in General, as every member is, and so is Ada: it comments.
     t.comments
         .start_thread(&agent, t.page, "Reviewed.", Placing::Page)

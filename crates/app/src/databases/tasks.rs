@@ -224,8 +224,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, data.database_id, &context))
         })
         .await
