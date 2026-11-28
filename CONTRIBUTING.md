@@ -237,6 +237,19 @@ the time; `make e2e E2E_CARGO_PROFILE=release` tests the build the published ima
 `E2E_PROJECT`, `E2E_SERVER_IMAGE`, `E2E_WEB_IMAGE` and `E2E_WEB_PORT` name the Compose
 project, the image tags and the port, so runs from two checkouts can go side by side.
 
+`make updates-e2e` tries a one-click update for real on this machine's Docker, which CI does
+not. It builds the server, web and updater images at the workspace's version, and again at the
+next patch version from a copy of the checkout whose stated versions it moves on, and pushes
+both to a registry of its own on loopback. It starts a stack of the older images with the
+updater profile, as an install from the Compose archive runs, whose release check a stand-in
+for GitHub answers with the newer release. In Chromium, the first admin makes a page, updates
+the instance from **Admin > Settings**, is refused a second update while it runs, and finds the
+page still there on the newer release. Then the script checks that the server, web and updater
+run the newer images, that `deployments/.env` names the newer release, and that the updater
+refuses a wrong token. The images carry no signature, so the updater runs with
+`NEON_UPDATER_VERIFY=false`. `UPDATES_E2E_PROJECT` names the Compose project, and the run
+removes the stack, its registry, its images and its files however it ends.
+
 CI runs the same `make` targets. On each pull request into `dev` or `main`, and each push to
 them, a job per area runs the checks for the files that changed, the Rust ones against a
 Postgres service container, and a change to the `Makefile` or a workflow runs them all.

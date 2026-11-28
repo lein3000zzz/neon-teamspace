@@ -20,6 +20,8 @@ UPDATER_IMAGE     ?= neon-teamspace-updater:local
 E2E_CARGO_PROFILE ?= e2e
 # Options for docker buildx bake as it builds those images, such as CI's layer cache.
 E2E_BUILD_FLAGS   ?=
+# The Compose project of make updates-e2e's stack, which also names its registry's container.
+UPDATES_E2E_PROJECT ?= neon-updates-e2e
 # The port of 127.0.0.1 the e2e stack's web origin is on: one free when make e2e starts it,
 # unless set.
 E2E_WEB_PORT      ?=
@@ -317,6 +319,13 @@ e2e: e2e-install e2e-images ## Build the images, test a throwaway stack of them 
 	echo "testing http://127.0.0.1:$$port; the report goes to e2e/playwright-report/"; \
 	(cd e2e && E2E_BASE_URL="http://127.0.0.1:$$port" E2E_RECEIVER_URL="http://$$receiver" \
 		E2E_MAIL_URL="http://$$mail" $(BUN) run test)
+
+.PHONY: updates-e2e
+# Not run by CI: it builds the images twice. e2e/updates/run.ts says what it does, and removes
+# all it made however the run ends.
+updates-e2e: e2e-install ## Update a throwaway stack from this checkout's release to the next patch, from the admin settings, through a registry on loopback
+	UPDATES_E2E_PROJECT="$(UPDATES_E2E_PROJECT)" E2E_CARGO_PROFILE="$(E2E_CARGO_PROFILE)" \
+		$(BUN) e2e/updates/run.ts
 
 ## Block fixtures (tools/blocknote-fixtures/)
 
