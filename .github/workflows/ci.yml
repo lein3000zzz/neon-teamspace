@@ -4,6 +4,11 @@
 # end-to-end tests, runs its neon binary. A newer push cancels the run before it on the same
 # branch or pull request. Branch protection needs two required checks: `All checks`, which
 # passes when every other job but E2E passed or was skipped, and `E2E`.
+#
+# Only a push to dev saves the Actions cache, which the pull requests into dev read; the
+# Versions job's cache, which a release's run reads, is saved on a push to main too. A pull
+# request saves no cache. The release workflow reads none but that one, and its E2E builds the
+# real images without a cache.
 name: CI
 
 on:
@@ -216,10 +221,10 @@ jobs:
           rustup toolchain install --no-self-update
           rustc --version
       # Clippy and the query cache check build from the same dependencies. Pull requests read
-      # the cache that the last push to their base branch saved, and save none of their own.
+      # the cache that the last push to dev saved, and save none of their own.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: &save-on-dev ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
       # The version and features CONTRIBUTING.md gives. The cache keeps the binary, so this
       # compiles only when the cache is cold.
       - name: sqlx-cli
@@ -263,9 +268,9 @@ jobs:
       # still compile and link each time. neon-store, the one crate whose macros read files
       # rustc does not track, the query cache, embeds each migration with include_str!, which it
       # does track, and the query cache follows from the queries and the migrations. Like the
-      # other caches, only a push writes to it.
+      # other caches, only a push to dev writes to it.
       SCCACHE_GHA_ENABLED: true
-      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && 'READ_WRITE' || 'READ_ONLY' }}
+      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -278,7 +283,7 @@ jobs:
       # each run, so the cache leaves out the installed binaries.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
           cache-bin: false
       # cargo-about writes the crates' license notices into the server image.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
@@ -393,9 +398,14 @@ jobs:
         with:
           persist-credentials: false
       # The tests run with Bun on the runner; Docker, Compose and Buildx come with the image.
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # The Bun that docs/package.json pins in packageManager, for the whole repository: from
+      # the Actions cache on a push, and from Bun's release on a pull request, which saves no
+      # cache.
+      - &setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: docs/package.json
+          no-cache: ${{ github.event_name == 'pull_request' }}
       # A BuildKit container for make's bake, which, unlike Docker's own builder, reads and
       # writes the Actions cache, from a pinned image as in release.yml. Bake loads the images
       # it builds into Docker for Compose to run.
@@ -411,13 +421,13 @@ jobs:
           path: prebuilt
       # The web image's layers, every stage's (mode=max), so that the tools, the system packages
       # and the packages build again only when a Dockerfile or a lockfile changes. A run reads
-      # what the last push to its branch, or to a pull request's base branch, saved, and only a
-      # push saves; a failed save does not fail the run. The server image takes the build's
-      # binary, and builds in seconds without a cache. Under make -j2 the images build while
-      # make e2e-install installs the tests' browser and its system libraries.
+      # what the last push to dev saved, and only a push to dev saves; a failed save does not
+      # fail the run. The server image takes the build's binary, and builds in seconds without
+      # a cache. Under make -j2 the images build while make e2e-install installs the tests'
+      # browser and its system libraries.
       - name: Build the images, start the stack, run the tests
         env:
-          SAVE_CACHE: ${{ github.event_name == 'push' }}
+          SAVE_CACHE: *save-on-dev
         run: |
           flags="--set web.cache-from=type=gha,scope=e2e-web"
           if [ "$SAVE_CACHE" = true ]; then
@@ -442,10 +452,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The Bun that docs/package.json pins in packageManager, for the whole repository.
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make web-install
       - name: Types, lint, formatting, API types, tests
         run: make web-check
@@ -467,9 +474,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       # The packages, and the headless Chromium that draws the diagrams. The runner image
       # already has the system libraries Chromium needs; the build fails if one is missing.
       - run: make docs-install
@@ -495,9 +500,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       # The packages only, not make e2e-install: neither check below needs the browser, nor
       # the system libraries it installs on CI.
       - name: Packages
@@ -530,10 +533,8 @@ jobs:
           rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+          save-if: *save-on-dev
+      - *setup-bun
       - run: make blocks-install
       - name: Both directions, the fixtures current
         run: make blocks-check
@@ -560,13 +561,12 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
+      # Saved on a push to main as well as to dev, for the release.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: versions
           save-if: ${{ github.event_name == 'push' }}
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - name: Every stated version is Cargo.toml's
         run: make version-check
 
@@ -600,15 +600,13 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/shell/src-tauri -> target
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
       # cargo-about writes the crates' notices into each build of the picker.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-deny@0.22.0,cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - name: Licenses of the crates and the installed packages
         run: |
@@ -638,9 +636,7 @@ jobs:
         with:
           tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - name: Browsers
         run: make app-browsers
@@ -676,14 +672,12 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/shell/src-tauri -> target
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - run: make app-picker
       - name: Android lints
@@ -725,9 +719,7 @@ jobs:
         with:
           tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - name: Linux build
         working-directory: apps/shell
@@ -760,15 +752,13 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/shell/src-tauri -> target
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
       # cargo-about writes the crates' notices into the picker's build.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - run: make app-picker
       - name: iOS lints
