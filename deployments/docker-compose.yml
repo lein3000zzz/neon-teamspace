@@ -87,6 +87,8 @@ services:
     # server's user, kept across new images.
     volumes:
       - server-data:/var/lib/neon
+    # The stack's network, and the one it shares with the updater alone.
+    networks: [default, updater]
     # The admin listener's /readyz: ready once migrations ran and while Postgres answers.
     healthcheck:
       test: ["CMD", "/usr/local/bin/neon", "health"]
@@ -191,11 +193,12 @@ services:
 
   # Updates the server and web to a release when the server asks, with the token both read
   # from NEON_UPDATER_TOKEN in deployments/.env. Not published: the server reaches it at
-  # http://updater:8080 on the stack's network. It holds the Docker socket, which is root on
-  # this machine: anything that controls the updater controls the host. Leave the profile off
-  # to update by hand. Each update runs in a container of its own, started from this image,
-  # that sees the stack's Compose files and env file at the paths it was started with, and
-  # checks each image's signature before anything is recreated from it.
+  # http://updater:8080 on a network of their own, which nothing else in the stack is on and
+  # which leads nowhere outside. It holds the Docker socket, which is root on this machine:
+  # anything that controls the updater controls the host. Leave the profile off to update by
+  # hand. Each update runs in a container of its own, started from this image, that sees the
+  # stack's Compose files and env file at the paths it was started with, and checks each
+  # image's signature before anything is recreated from it.
   updater:
     profiles: [updater]
     image: ghcr.io/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:-0.1.0}
@@ -206,6 +209,7 @@ services:
       NEON_UPDATER_VERIFY: ${NEON_UPDATER_VERIFY:-true}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    networks: [updater]
     # It starts as root only to look at the socket's group, then serves as an unprivileged user
     # in it, where the group may use the socket; it needs no other capability for that.
     cap_drop: [ALL]
@@ -220,6 +224,13 @@ services:
       start_period: 10s
       start_interval: 1s
     restart: unless-stopped
+
+networks:
+  # The server and the updater alone, so that nothing else in the stack reaches the updater.
+  # Internal: it has no way out of the machine, and the server keeps the stack's network for
+  # that.
+  updater:
+    internal: true
 
 volumes:
   postgres:

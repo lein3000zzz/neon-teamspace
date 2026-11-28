@@ -241,11 +241,12 @@ docker compose -f deployments/docker-compose.yml pull
 docker compose -f deployments/docker-compose.yml up -d --wait
 ```
 
-The updater listens on port 8080 of the stack's network, where the server reaches it at
-`http://updater:8080`, the default of the server's `updates.updater_url` setting, and is
-published on no port of the machine. It reads these variables, of which the Compose file
-passes the token and `NEON_UPDATER_VERIFY` from `deployments/.env`; a Compose file of your
-own beside it can set the others:
+The updater listens on `updater:8080`, reachable from the server alone: the two share a
+network of their own, which nothing else in the stack is on and which leads nowhere outside.
+The server reaches it at `http://updater:8080`, the default of the server's
+`updates.updater_url` setting, and it is published on no port of the machine. It reads these
+variables, of which the Compose file passes the token and `NEON_UPDATER_VERIFY` from
+`deployments/.env`; a Compose file of your own beside it can set the others:
 
 | Variable | Default | What it sets |
 |---|---|---|

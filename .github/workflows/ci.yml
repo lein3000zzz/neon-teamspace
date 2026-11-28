@@ -87,6 +87,7 @@ jobs:
               - about.toml # a scripts/ test compares it with deny.toml
               - apps/shell/about.toml # and this one
               - .github/dependabot.yml # a scripts/ test checks it covers each project
+              - deployments/docker-compose.yml # a scripts/ test checks who reaches the updater
               - .editorconfig # Prettier reads it
               - docs/package.json # the Bun version
             docs:

@@ -280,7 +280,7 @@ Compose profiles add services next to the stack:
 | `mail` | [Mailpit](https://mailpit.axllent.org), which accepts mail on `mailpit:1025` and shows it at `http://127.0.0.1:8025/`. Point the server at it in `deployments/server.env`; see [Mail](/docs/self-hosting/mail/#development). |
 | `observability` | Grafana with Prometheus, Tempo, Loki and Pyroscope; see [Observability stack](/docs/self-hosting/observability/). |
 | `seaweedfs` | [SeaweedFS](https://github.com/seaweedfs/seaweedfs), an S3-compatible store for attachments, on `seaweedfs:8333` inside the network; see [File storage](/docs/self-hosting/storage/#seaweedfs-in-the-compose-stack). |
-| `updater` | The updater, on `updater:8080` inside the network, which updates the server and web to a release when an instance admin presses **Update** in **Admin > Settings**. It holds the Docker socket, and needs `NEON_UPDATER_TOKEN` in `deployments/.env`; see [One-click updates](/docs/self-hosting/upgrading/#one-click-updates). |
+| `updater` | The updater, on `updater:8080`, reachable from the server alone, which updates the server and web to a release when an instance admin presses **Update** in **Admin > Settings**. It holds the Docker socket, and needs `NEON_UPDATER_TOKEN` in `deployments/.env`; see [One-click updates](/docs/self-hosting/upgrading/#one-click-updates). |
 
 A profile goes on the command that starts the stack, with the same files, for example
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
