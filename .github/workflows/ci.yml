@@ -150,9 +150,9 @@ jobs:
               - .editorconfig
               - docs/package.json
 
-  # Formatting, cargo-deny, clippy and the query cache check, on a runner beside the tests',
-  # which take longest, so that neither waits for the other. Each job keeps a cache of its own,
-  # as clippy only checks what the tests compile.
+  # Formatting, cargo-deny, clippy, the docs and the query cache check, on a runner beside the
+  # tests', which take longest, so that neither waits for the other. Each job keeps a cache of its
+  # own, as clippy only checks what the tests compile.
   rust-lint:
     name: Rust lint
     needs: changes
@@ -219,6 +219,8 @@ jobs:
         run: make migrate
       - name: Clippy
         run: make lint
+      - name: Docs
+        run: make doc-check
       - name: Query cache is current
         run: make sqlx-check
 

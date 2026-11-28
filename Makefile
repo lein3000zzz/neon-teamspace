@@ -147,6 +147,10 @@ fmt-check: ## Fail if any Rust file needs formatting
 lint: ## Run clippy on every target, warnings as errors
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
+.PHONY: doc-check
+doc-check: ## Build the Rust docs, private items included, warnings as errors
+	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps --document-private-items
+
 .PHONY: test
 test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
 	$(CARGO) test --workspace
@@ -322,10 +326,11 @@ app-dev: ## Run the desktop app, the picker reloading as it changes
 	cd $(APP_DIR) && $(BUN) run tauri dev
 
 .PHONY: app-check
-app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint and test the app's Rust side
+app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint, doc-check and test the app's Rust side
 	cd $(APP_DIR) && $(BUN) run check
 	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all --check
 	$(APP_CARGO) clippy --manifest-path $(APP_MANIFEST) --all-targets -- -D warnings
+	RUSTDOCFLAGS="-D warnings" $(APP_CARGO) doc --manifest-path $(APP_MANIFEST) --no-deps --document-private-items
 	$(APP_CARGO) test --manifest-path $(APP_MANIFEST)
 
 .PHONY: app-test
@@ -402,7 +407,7 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
+check: fmt-check lint doc-check build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
 	@echo "all checks passed"
 
 .PHONY: clean

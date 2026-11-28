@@ -128,7 +128,7 @@ needs [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/) for its
 make app-install           # the picker's packages and Tauri's CLI, pinned in apps/shell/bun.lock
 make app-dev               # the desktop app, the picker reloading as it changes
 make app-check             # the picker's types, lints and formatting; the Rust side's
-                           # formatting, clippy and tests (part of make check)
+                           # formatting, clippy, docs and tests (part of make check)
 make app-browsers          # once: the headless Chromium and WebKit for the next line
 make app-test              # the picker on its own, in Chromium and WebKit at desktop and phone sizes
 make app-build             # this machine's desktop app and installers
@@ -189,12 +189,12 @@ A pull request must pass `make check`, the tests and the end-to-end tests. One t
 the apps must pass `make app-test` and CI's **App shell** job too.
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and the
-advisory database are downloaded, no network: formatting, clippy with warnings as errors, a
-build from the `.sqlx/` cache, the generated files, the web app's, the docs' and the
-end-to-end tests' own checks, the block fixtures in both directions, the Claude Code plugin,
-the apps' picker checks and their Rust side's formatting, clippy and tests, the version
-check, and the license and advisory checks. It reads the packages of every JS project, so
-install them first:
+advisory database are downloaded, no network: formatting, clippy with warnings as errors, the
+Rust docs with warnings as errors, a build from the `.sqlx/` cache, the generated files, the
+web app's, the docs' and the end-to-end tests' own checks, the block fixtures in both
+directions, the Claude Code plugin, the apps' picker checks and their Rust side's formatting,
+clippy, docs and tests, the version check, and the license and advisory checks. It reads
+the packages of every JS project, so install them first:
 
 ```sh
 make web-install docs-install e2e-install blocks-install app-install
@@ -256,6 +256,10 @@ it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
   fires on and with a reason: `#[expect(lint, reason = "...")]`, which fails once the lint no
   longer fires, or `#[allow(lint, reason = "...")]` where it fires on some builds only. Each
   `unsafe` block has a `// SAFETY:` comment that says why it is sound.
+- Doc comments name other items with intra-doc links, which `make doc-check` checks: it
+  builds the docs of every crate, private items included, and fails on a warning, such as a
+  link that resolves to nothing or one from a public item's docs to a private item. Public
+  docs name a private item in a code span instead.
 
 ## Branches and commits
 
