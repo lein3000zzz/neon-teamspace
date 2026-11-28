@@ -115,8 +115,8 @@ jobs:
               - .editorconfig
               - docs/package.json
             # What the end-to-end tests run against beside the server's code: the images, the
-            # Compose files and the crates' license notices in the server image, which the Rust
-            # build writes, and the tests.
+            # Compose files and the crates' license notices in the server image, which the
+            # Server notices job writes, and the tests.
             stack:
               - *shared
               - deployments/**
