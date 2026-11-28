@@ -251,6 +251,11 @@ it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
   `foo/mod.rs`: clippy's `mod_module_files` fails `make check` on one. The code that an
   integration test's files share stays in `tests/support/mod.rs`, so that cargo does not
   build it as a test of its own.
+- The lints are the root `Cargo.toml`'s `[workspace.lints]`, which the apps' crate repeats
+  in its own `[lints]`. A lint is silenced only where a fix would be wrong, on the item it
+  fires on and with a reason: `#[expect(lint, reason = "...")]`, which fails once the lint no
+  longer fires, or `#[allow(lint, reason = "...")]` where it fires on some builds only. Each
+  `unsafe` block has a `// SAFETY:` comment that says why it is sound.
 
 ## Branches and commits
 

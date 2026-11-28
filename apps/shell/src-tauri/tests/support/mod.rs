@@ -1,7 +1,6 @@
 //! A server on loopback that answers every request with one canned answer, as the tests need.
 
-// Each test binary compiles this module on its own and uses only part of it.
-#![allow(dead_code)]
+#![allow(dead_code, reason = "each test binary uses a part of it")]
 
 use std::time::Duration;
 

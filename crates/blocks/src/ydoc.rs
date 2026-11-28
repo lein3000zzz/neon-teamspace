@@ -494,7 +494,6 @@ impl<T: ReadTxn> Attrs<'_, T> {
             None => Ok(None),
             Some(value) if value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&value) => {
                 // In range and whole, so the cast is exact.
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 Ok(Some(value as u32))
             }
             Some(_) => Err(self.invalid(name)),
@@ -1004,7 +1003,6 @@ fn number(value: f64) -> Any {
     const LIMIT: f64 = 2_147_483_647.0;
     if value.fract() == 0.0 && (-LIMIT..=LIMIT).contains(&value) {
         // Whole and in range, so the cast is exact.
-        #[allow(clippy::cast_possible_truncation)]
         Any::Number(Number::Int(value as i64))
     } else {
         Any::Number(Number::Float(value))

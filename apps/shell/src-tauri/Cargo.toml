@@ -65,6 +65,8 @@ unimplemented = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Every allow or expect of a lint gives its reason.
+allow_attributes_without_reason = "warn"
 # Every unsafe block says why it is sound, in a SAFETY comment.
 undocumented_unsafe_blocks = "warn"
 # Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.

@@ -3,8 +3,10 @@
 //! These tests sit in their own binary: `figment::Jail` changes the process's working
 //! directory and environment, which tests running beside them would see.
 
-// `figment::Jail` takes closures returning `figment::Result`, whose error is large.
-#![allow(clippy::result_large_err)]
+#![expect(
+    clippy::result_large_err,
+    reason = "figment::Jail's closures return figment::Result, whose error is large"
+)]
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

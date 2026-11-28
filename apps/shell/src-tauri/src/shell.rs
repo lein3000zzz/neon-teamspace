@@ -463,7 +463,13 @@ fn on_new_window<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 /// Downloads from the server's origin are saved where the webview proposes, the downloads
 /// directory; others are refused. A finished one is shown in its folder on desktop; on mobile
 /// the system tells of it, so where it went is of no use there.
-#[cfg_attr(mobile, allow(unused_variables))]
+#[cfg_attr(
+    mobile,
+    expect(
+        unused_variables,
+        reason = "only desktop shows a finished download in its folder"
+    )
+)]
 fn on_download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) -> bool {
     let shell = app.state::<Shell>();
     match event {
@@ -520,7 +526,7 @@ fn allow_back_gesture<R: Runtime>(window: &WebviewWindow<R>) {
         let view = webview.inner().cast::<objc2::runtime::AnyObject>();
         // SAFETY: on iOS the handle is the window's WKWebView, alive while the closure runs
         // on the main thread, and the setter takes a BOOL.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "objc2::msg_send! is unsafe")]
         unsafe {
             let _: () = objc2::msg_send![&*view, setAllowsBackForwardNavigationGestures: true];
         }
