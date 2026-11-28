@@ -20,9 +20,11 @@ type AlertProps = Omit<ComponentProps<"div">, "role"> &
   VariantProps<typeof alertVariants> & {
     /**
      * How a screen reader hears it appear: "assertive" (role alert) for what
-     * just went wrong, "polite" (role status) for news that can wait its turn.
+     * just went wrong, "polite" (role status) for news that can wait its turn,
+     * "off" (no role) for a box whose text changes as it is read, such as a
+     * log, which a live element inside it announces in short instead.
      */
-    live: "assertive" | "polite";
+    live: "assertive" | "polite" | "off";
   };
 
 /**
@@ -34,7 +36,7 @@ function Alert({ className, tone, live, children, ...props }: AlertProps) {
   return (
     <div
       data-slot="alert"
-      role={live === "assertive" ? "alert" : "status"}
+      role={live === "assertive" ? "alert" : live === "polite" ? "status" : undefined}
       className={cn(alertVariants({ tone }), className)}
       {...props}
     >

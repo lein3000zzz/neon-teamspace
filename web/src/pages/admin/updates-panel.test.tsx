@@ -176,8 +176,10 @@ describe("the version and updates", () => {
       NOTES,
     );
     expect(panel.getByText(/set NEON_VERSION to 0.3.0-rc.1/)).toBeInTheDocument();
-    expect(panel.getByLabelText("deployments/.env")).toHaveTextContent("NEON_VERSION=0.3.0-rc.1");
-    expect(panel.getByLabelText("Commands").textContent).toBe(
+    expect(panel.getByRole("figure", { name: "deployments/.env" })).toHaveTextContent(
+      "NEON_VERSION=0.3.0-rc.1",
+    );
+    expect(panel.getByRole("figure", { name: "Commands" }).textContent).toBe(
       "docker compose -f deployments/docker-compose.yml pull\n" +
         "docker compose -f deployments/docker-compose.yml up -d --wait",
     );
@@ -450,6 +452,32 @@ describe("the version and updates", () => {
 
     expect(panel.getByText("The updater did not answer within 3s.")).toBeInTheDocument();
     expect(panel.getByRole("button", { name: "Update to 0.2.0" })).toBeEnabled();
+  });
+
+  it("keeps the updater's log out of the live regions, which say in short where the update stands", async () => {
+    useFakeClock();
+    const { panel } = await renderPanel(
+      withUpdater(updaterStatus({ state: "updating", version: "0.2.0", log: "Pulling server\n" })),
+    );
+    const live = '[role="status"], [role="alert"], output';
+    await nextPoll();
+    const log = await panel.findByRole("figure", { name: "What the updater did" });
+    expect(log).toHaveTextContent("Pulling server");
+    expect(log.closest(live)).toBeNull();
+    expect(panel.getByRole("status")).toHaveTextContent("The updater is at work.");
+
+    server.use(
+      http.get("/api/v1/meta", () => HttpResponse.error()),
+      http.get("/api/v1/admin/updates", () => HttpResponse.error()),
+    );
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+    const alert = await panel.findByRole("alert");
+    expect(alert).toHaveTextContent("The server did not come back on 0.2.0 within 10 minutes.");
+    expect(alert).not.toHaveTextContent("Pulling server");
+    const kept = panel.getByRole("figure", { name: "What the updater did" });
+    expect(kept).toHaveTextContent("Pulling server");
+    expect(kept.closest(live)).toBeNull();
   });
 
   it("gives up waiting after ten minutes, with what the updater did last", async () => {

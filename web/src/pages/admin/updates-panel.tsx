@@ -276,13 +276,15 @@ function CommandBlock({ label, text }: { label: string; text: string }) {
   return (
     <div className="grid gap-1">
       <div className="flex items-start gap-2">
-        <pre
-          ref={block}
-          aria-label={label}
-          className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground"
-        >
-          {text}
-        </pre>
+        {/* Named on a figure, as a pre may carry no name. */}
+        <figure aria-label={label} className="min-w-0 flex-1">
+          <pre
+            ref={block}
+            className="overflow-x-auto rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground"
+          >
+            {text}
+          </pre>
+        </figure>
         <Button type="button" variant="outline" size="sm" onClick={() => void onCopy()}>
           {state === "copied" ? <Check aria-hidden /> : <Copy aria-hidden />}
           {state === "copied" ? strings.copy.copied : strings.copy.copy}{" "}
@@ -343,20 +345,24 @@ function UpdateProgress({ version, onFailed }: UpdateProgressProps) {
     return undefined;
   }, [phase, queryClient, onFailed]);
 
+  // The log is never inside a live region, which would have it read out whole each time it
+  // changes: the short sentences beside it say where the update stands.
   if (timedOut && phase !== "done") {
     return (
-      <Alert tone="error" live="assertive">
-        <AlertTitle>{copy.updating(version)}</AlertTitle>
-        <AlertDescription>
-          <p className="text-foreground">{copy.timedOut(version)}</p>
-          {lastLog && <UpdaterLog log={lastLog} />}
-        </AlertDescription>
-      </Alert>
+      <div className="grid gap-2">
+        <Alert tone="error" live="assertive">
+          <AlertTitle>{copy.updating(version)}</AlertTitle>
+          <AlertDescription>
+            <p className="text-foreground">{copy.timedOut(version)}</p>
+          </AlertDescription>
+        </Alert>
+        {lastLog && <UpdaterLog log={lastLog} />}
+      </div>
     );
   }
 
   return (
-    <Alert live="polite">
+    <Alert live="off">
       <AlertTitle>{copy.updating(version)}</AlertTitle>
       <AlertDescription>
         <p>{copy.updatingLede}</p>
@@ -373,7 +379,10 @@ function UpdateProgress({ version, onFailed }: UpdateProgressProps) {
   );
 }
 
-/** The end of the updater's log, kept scrolled to its last line as it grows. */
+/**
+ * The end of the updater's log, kept scrolled to its last line as it grows. It is named, and
+ * silent: no log role, as each poll rewrites the whole text, which a log would read again.
+ */
 function UpdaterLog({ log }: { log: string }) {
   const block = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -384,12 +393,13 @@ function UpdaterLog({ log }: { log: string }) {
   }, [log]);
 
   return (
-    <pre
-      ref={block}
-      aria-label={copy.log}
-      className="max-h-64 overflow-auto rounded-md border border-border bg-background p-2 font-mono text-xs whitespace-pre-wrap text-foreground"
-    >
-      {log}
-    </pre>
+    <figure aria-label={copy.log}>
+      <pre
+        ref={block}
+        className="max-h-64 overflow-auto rounded-md border border-border bg-background p-2 font-mono text-xs whitespace-pre-wrap text-foreground"
+      >
+        {log}
+      </pre>
+    </figure>
   );
 }
