@@ -1468,12 +1468,18 @@ fn assemble_into(
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("a saved update does not decode: {0}")]
-    Decode(#[from] yrs::encoding::read::Error),
+    Decode(yrs::encoding::read::Error),
     #[error("a saved update does not apply: {0}")]
-    Apply(#[from] yrs::error::UpdateError),
+    Apply(yrs::error::UpdateError),
 }
+
+from_cause!(LoadError {
+    Database(sqlx::Error),
+    Decode(yrs::encoding::read::Error),
+    Apply(yrs::error::UpdateError),
+});
 
 #[cfg(test)]
 mod tests {

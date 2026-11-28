@@ -42,10 +42,12 @@ pub enum WebhookError {
     #[error("{0}: set its URL again to turn it on")]
     SetterLapsed(String),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(WebhookError { Database(sqlx::Error) });
 
 impl WebhookError {
     /// A stable code for programs, as the API's error shape carries it.
@@ -156,10 +158,12 @@ pub enum IncomingError {
         message: String,
     },
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(IncomingError { Database(sqlx::Error) });
 
 impl IncomingError {
     /// A stable code for programs, as the API's error shape carries it.

@@ -18,10 +18,12 @@ pub enum HistoryError {
     #[error("{0}")]
     InvalidInput(String),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(HistoryError { Database(sqlx::Error) });
 
 impl HistoryError {
     /// A stable code for programs, as the API's error shape carries it.

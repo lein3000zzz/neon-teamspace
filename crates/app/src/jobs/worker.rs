@@ -93,8 +93,10 @@ pub enum StartError {
     #[error("invalid job worker config: {0}")]
     Config(String),
     #[error("listening for queued jobs: {0}")]
-    Listen(#[from] sqlx::Error),
+    Listen(sqlx::Error),
 }
+
+from_cause!(StartError { Listen(sqlx::Error) });
 
 type MakeSpan = Arc<dyn Fn(&Job) -> Span + Send + Sync>;
 

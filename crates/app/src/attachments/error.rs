@@ -39,8 +39,10 @@ pub enum AttachmentError {
     #[error(transparent)]
     Store(#[from] BlobError),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(AttachmentError { Database(sqlx::Error) });
 
 impl AttachmentError {
     /// When to try again after [`Busy`](Self::Busy).

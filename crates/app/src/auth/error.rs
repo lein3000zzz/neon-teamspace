@@ -83,10 +83,12 @@ pub enum AuthError {
     #[error("the server is checking too many passwords at once: try again in a moment")]
     Busy,
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(AuthError { Database(sqlx::Error) });
 
 impl AuthError {
     /// When to try again after [`Busy`](Self::Busy).

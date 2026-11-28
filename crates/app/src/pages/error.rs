@@ -30,10 +30,12 @@ pub enum PageError {
     #[error("this workspace has reached its storage limit of {limit} bytes")]
     StorageLimit { limit: u64 },
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
     #[error("{0}")]
     Internal(String),
 }
+
+from_cause!(PageError { Database(sqlx::Error) });
 
 impl PageError {
     /// A stable code for programs, as the API's error shape carries it.

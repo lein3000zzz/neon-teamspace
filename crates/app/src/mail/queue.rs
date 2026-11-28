@@ -79,10 +79,12 @@ pub struct Queued {
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
     #[error("mail cannot be queued: {0}")]
-    Seal(#[from] SealError),
+    Seal(SealError),
     #[error("queueing mail: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(QueueError { Seal(SealError), Database(sqlx::Error) });
 
 impl MailQueue {
     /// Mail sealed with `envelope`, its links pointing to `public_url`, which mail needs,
