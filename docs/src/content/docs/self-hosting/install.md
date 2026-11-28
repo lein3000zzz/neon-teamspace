@@ -285,11 +285,12 @@ Compose profiles add services next to the stack:
 A profile goes on the command that starts the stack, with the same files, for example
 `docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.build.yml --profile mail up -d --build`
 in a clone. `COMPOSE_PROFILES` in `deployments/.env`, such as `COMPOSE_PROFILES=updater`,
-turns profiles on for every command instead. These are separate programs under their own
-licenses: Postgres under the PostgreSQL License, Caddy, SeaweedFS, the docker CLI and its
-plugins, and cosign under Apache-2.0, Mailpit under MIT, and the observability stack's
-Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is linked with Neon
-Teamspace's code.
+turns profiles on instead, for every command that names none with `--profile`, which replaces
+it: list every profile there, such as `COMPOSE_PROFILES=updater,mail`. These are separate
+programs under their own licenses: Postgres under the PostgreSQL License, Caddy, SeaweedFS,
+the docker CLI and its plugins, and cosign under Apache-2.0, Mailpit under MIT, and the
+observability stack's Grafana, Loki, Tempo and Pyroscope under AGPL-3.0. None of them is
+linked with Neon Teamspace's code.
 
 ### The end-to-end tests
 

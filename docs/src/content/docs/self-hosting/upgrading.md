@@ -232,9 +232,11 @@ NEON_UPDATER_TOKEN=<the output of openssl rand -hex 32>
 ```
 
 Compose gives the token to the updater, and to the server as its `updates.updater_token`
-setting, so the one value sets both. `COMPOSE_PROFILES` turns the profile on for every
-`docker compose` command of the stack, as `--profile updater` on each would, so that a later
-`up` or `down` takes the updater with the rest. Then pull its image and start it:
+setting, so the one value sets both. `COMPOSE_PROFILES` turns the profiles it lists on for
+every `docker compose` command of the stack, so that a later `up` or `down` takes the updater
+with the rest. A `--profile` on a command replaces the variable rather than adding to it:
+list every profile the instance runs with, such as `COMPOSE_PROFILES=updater,mail`, and leave
+`--profile` off the stack's commands. Then pull its image and start it:
 
 ```sh
 docker compose -f deployments/docker-compose.yml pull
