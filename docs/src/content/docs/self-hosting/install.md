@@ -455,15 +455,16 @@ make check
 
 `make check` runs everything that needs neither Docker nor, once the crates, the packages and
 the advisory database are downloaded, the network: `cargo fmt --check`, clippy with warnings
-as errors, a build, the checks that `api/openapi.json`, the web app's API types and the
-settings reference are current, the web app's, the docs' and the end-to-end tests' own
-checks, the block fixtures in both directions, the Claude Code plugin, the version check,
-which fails unless everything that states the version states the cargo workspace's, and the
-license and advisory checks, which read the packages installed in `web/`, `docs/`, `e2e/` and
-`tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
+as errors, the Rust docs with warnings as errors, a build, the checks that `api/openapi.json`,
+the web app's API types and the settings reference are current, the web app's, the docs' and
+the end-to-end tests' own checks, the block fixtures in both directions, the Claude Code
+plugin, the version check, which fails unless everything that states the version states the
+cargo workspace's, and the license and advisory checks, which read the packages installed in
+`web/`, `docs/`, `e2e/` and `tools/blocknote-fixtures/`. `make blocks-install` installs the last of those. Its build checks the SQL against the committed `.sqlx/` cache instead of a
 database; see [Data and storage](/docs/architecture/data/#queries). It builds in
-`target/offline/`, because cargo does not rebuild a crate when only `SQLX_OFFLINE` changes:
-in `target/`, it could reuse queries last checked against the database instead of the cache.
+`target/offline/`, so that switching between it and the builds checked against the database
+does not rebuild `neon-store` and every crate above it each time: `neon-store`'s build script
+makes each build read the right source, the cache or the database.
 cargo-deny reads the advisory database it last fetched and fails once that copy is more than
 90 days old; `make licenses` fetches a new one.
 
