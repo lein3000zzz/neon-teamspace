@@ -1,9 +1,9 @@
-# The end-to-end tests: both images built from the checkout, a throwaway Compose stack, and
-# the tests against it, all through make e2e. On each pull request into main; on a pull
-# request into dev only when it changes the images, the stack, the tests or the Makefile that
-# runs them; on each push to dev or main, whose run saves the images' layer cache that pull
-# requests into them read; by hand; and before each release, which calls this workflow and
-# whose run uses no cache.
+# The end-to-end tests: the images built from the checkout, a throwaway Compose stack of the
+# server and web images, and the tests against it, all through make e2e, which checks the
+# updater image too. On each pull request into main; on a pull request into dev only when it
+# changes the images, the stack, the tests or the Makefile that runs them; on each push to dev
+# or main, whose run saves the images' layer cache that pull requests into them read; by
+# hand; and before each release, which calls this workflow and whose run uses no cache.
 name: E2E
 
 on:
@@ -88,10 +88,10 @@ jobs:
       # manifest or a lockfile changes. A run reads what the last push to its branch, or to a
       # pull request's base branch, saved. As with the Rust jobs' caches, only a push to dev or
       # main saves, and a failed save does not fail the run. A tag's run neither reads nor
-      # saves, and builds both images from the checkout alone. Under make -j2 the images build
+      # saves, and builds every image from the checkout alone. Under make -j2 the images build
       # while make e2e-install installs the tests' browser and its system libraries.
-      # The server builds in Cargo's quicker e2e profile, but for a tag's run, which tests it
-      # built as the published image is, in the release profile.
+      # The server and the updater build in Cargo's quicker e2e profile, but for a tag's run,
+      # which tests them built as the published images are, in the release profile.
       - name: Build the images, start the stack, run the tests
         env:
           USE_CACHE: ${{ github.ref_type != 'tag' }}
@@ -100,7 +100,7 @@ jobs:
         run: |
           flags=""
           if [ "$USE_CACHE" = true ]; then
-            for image in server web; do
+            for image in server web updater; do
               flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
               if [ "$SAVE_CACHE" = true ]; then
                 flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"

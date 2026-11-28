@@ -1,13 +1,13 @@
 # A release, on a version tag such as v1.2.3. Each job starts only once the one before it
 # passed, so nothing is published, signed or attested unless every check did: the version
 # check, which needs the tag to name the workspace's version; the end-to-end tests of the
-# release build; the server and web images for linux/amd64 and linux/arm64 on GHCR, built from
-# the tag without a cache, with OCI labels, an SBOM and build provenance; beside them the apps,
-# desktop on each platform's runner and Android on Linux, also built from the tag without a
-# cache; and a GitHub release with the Compose archive, the apps' installers and a SHA256SUMS
-# file of them attached, whose notes name the images and their tags and link the docs, before
-# the ones GitHub generates from the merged pull requests; its job gives the apps' files their
-# build provenance. It needs no secret but the workflow's own token, and the Android
+# release build; the server, web and updater images for linux/amd64 and linux/arm64 on GHCR,
+# built from the tag without a cache, with OCI labels, an SBOM and build provenance; beside
+# them the apps, desktop on each platform's runner and Android on Linux, also built from the
+# tag without a cache; and a GitHub release with the Compose archive, the apps' installers and
+# a SHA256SUMS file of them attached, whose notes name the images and their tags and link the
+# docs, before the ones GitHub generates from the merged pull requests; its job gives the
+# apps' files their build provenance. It needs no secret but the workflow's own token, and the Android
 # keystore's, when the repository has them, to sign the APK in a job of its own. A release has
 # no iOS app: that builds on a Mac with Xcode, outside this workflow.
 #
@@ -35,8 +35,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The tag, Cargo.toml and everything that states the version agree, neon --version among
-  # them, which builds the server; make version-check lists what does not.
+  # The tag, Cargo.toml and everything that states the version agree, neon --version and
+  # neon-updater version among them, which build the server and the updater; make
+  # version-check lists what does not.
   version:
     name: Versions
     runs-on: ubuntu-24.04
@@ -94,6 +95,11 @@ jobs:
           - image: neon-teamspace-web
             dockerfile: web/Dockerfile
             description: The Neon Teamspace web app and docs, behind Caddy
+          # The Compose file's updater profile runs it: a stage of the server's Dockerfile.
+          - image: neon-teamspace-updater
+            dockerfile: deployments/Dockerfile
+            target: updater
+            description: The Neon Teamspace updater, which updates a Compose stack to a release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,6 +147,8 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          # The Dockerfile's last stage where the matrix names none.
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -155,7 +163,8 @@ jobs:
           # a cached layer could put into a signed image what no file of the tag holds. A
           # re-run of a failed release builds everything again.
           no-cache: true
-      # Every release is signed, each platform's image too, for a pull by its own digest.
+      # Every release is signed, each platform's image too, for a pull by its own digest. The
+      # updater checks these signatures before it recreates a service from an image.
       # Keyless signing records the signer, this repository and the commit in Sigstore's
       # public transparency log, so as a safety net both steps are skipped should the
       # repository ever be private, rather than publishing a private repository's details.
@@ -532,6 +541,7 @@ jobs:
 
           - \`$IMAGES/neon-teamspace-server:$version\`
           - \`$IMAGES/neon-teamspace-web:$version\`
+          - \`$IMAGES/neon-teamspace-updater:$version\`, which the Compose file's \`updater\` profile runs for [one-click updates]($FILES/docs/src/content/docs/self-hosting/upgrading.md#one-click-updates)
 
           ## Installing and upgrading
 
