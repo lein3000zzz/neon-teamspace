@@ -26,8 +26,8 @@ from source on a Mac, as [Building from source](#building-from-source) says.
 The release's `.app.tar.gz` archives, the `.sig` files and `latest.json` are what the
 installed apps [update themselves](#updates) from; installing needs none of them.
 
-A release candidate, such as `v0.2.0-rc.1`, is marked as a pre-release, and its files carry
-the candidate's version in their names, as `Neon-Teamspace_0.2.0-rc.1_x64-setup.exe`. The
+A release candidate, such as `v0.3.0-rc.1`, is marked as a pre-release, and its files carry
+the candidate's version in their names, as `Neon-Teamspace_0.3.0-rc.1_x64-setup.exe`. The
 apps in them are those of the release the candidate rehearses, and report its version.
 
 The macOS and Windows apps are not signed with a developer certificate, so the system warns
@@ -229,8 +229,8 @@ its repository, where its source is.
 An app always shows a server's own interface, so only the app itself needs updating: the
 picker and the window around the server's pages. The desktop and Android apps check for a
 newer release a few seconds after they start, and once a day while they run, without holding
-up the window. When there is one, the app asks: **Neon Teamspace 0.2.0 is available. You have
-0.1.0.**, on the desktop with the first lines of the release's notes. **Later** puts it off
+up the window. When there is one, the app asks: **Neon Teamspace 0.2.1 is available. You have
+0.2.0.**, on the desktop with the first lines of the release's notes. **Later** puts it off
 until the app starts again. A check that fails as the app starts, such as one without a
 network, only goes in the [log](#security-model).
 

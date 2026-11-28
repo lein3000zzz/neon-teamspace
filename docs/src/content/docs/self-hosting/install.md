@@ -41,7 +41,7 @@ start the stack:
 
 ```sh
 mkdir neon-teamspace && cd neon-teamspace
-curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.1.0/neon-teamspace-compose-0.1.0.tar.gz | tar -xz --strip-components=1
+curl -fsSL https://github.com/lein3000zzz/neon-teamspace/releases/download/v0.2.0/neon-teamspace-compose-0.2.0.tar.gz | tar -xz --strip-components=1
 cp deployments/.env.example deployments/.env
 openssl rand -hex 24       # a password: put it in deployments/.env as POSTGRES_PASSWORD
 docker compose -f deployments/docker-compose.yml pull
@@ -59,8 +59,8 @@ Neither the download nor the pull needs a GitHub account. The GitHub CLI, signed
 fetch the archive instead, for `tar` to unpack:
 
 ```sh
-gh release download v0.1.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
-tar -xzf neon-teamspace-compose-0.1.0.tar.gz --strip-components=1
+gh release download v0.2.0 --repo lein3000zzz/neon-teamspace --pattern 'neon-teamspace-compose-*.tar.gz'
+tar -xzf neon-teamspace-compose-0.2.0.tar.gz --strip-components=1
 ```
 
 In a clone, `docker-compose.build.yml` beside the Compose file builds both images from the
@@ -132,7 +132,7 @@ curl -s http://127.0.0.1:3000/api/v1/meta
 ```
 
 ```json
-{"name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.2.0"}
 ```
 
 ### `deployments/.env` and `deployments/server.env`
@@ -143,7 +143,7 @@ The settings are in two files beside the Compose file, both ignored by git. Comp
 | Variable | What it sets |
 |---|---|
 | `POSTGRES_PASSWORD` | The database's password. Required. Postgres reads it once, when its volume is created, so changing it later takes an `ALTER USER` in the database too. Letters and digits only, as it goes into the server's database URL. |
-| `NEON_VERSION` | The release of the published images to run, the same for both, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.1.0`, a minor version such as `0.1`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
+| `NEON_VERSION` | The release of the published images to run, the same for each, when not the one the Compose file belongs to, which it runs unless set: a version such as `0.2.0`, a minor version such as `0.2`, or `latest`; [Upgrading](/docs/self-hosting/upgrading/#releases) says what each tag follows. Images built from the clone ignore it. |
 | `NEON_DOMAIN` | The domain people reach the instance at; see [below](#a-domain-and-tls). Unset, Caddy serves plain HTTP. |
 | `NEON_HTTP_PORT`, `NEON_HTTPS_PORT` | Where the web container's ports 80 and 443 are published: a port, or an address and a port. `127.0.0.1:3000` and `127.0.0.1:3443` unless set, which only this machine reaches. |
 | `NEON_WEB_TRUSTED_PROXIES` | Address ranges, separated by spaces, of proxies in front of Caddy whose `X-Forwarded-For` it believes. None unless set. |
@@ -402,7 +402,7 @@ curl http://localhost:8080/api/v1/meta
 ```
 
 ```json
-{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.1.0"}
+{"product":"neon-teamspace","name":"Neon Teamspace","version":"0.2.0"}
 ```
 
 The name is the [`instance.name`](/docs/reference/settings/) setting. Everything else the

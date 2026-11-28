@@ -55,7 +55,7 @@ services:
   server:
     # The release's own version, the cargo workspace's; NEON_VERSION in deployments/.env runs
     # another.
-    image: ghcr.io/lein3000zzz/neon-teamspace-server:${NEON_VERSION:-0.1.0}
+    image: ghcr.io/lein3000zzz/neon-teamspace-server:${NEON_VERSION:-0.2.0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,7 +104,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/lein3000zzz/neon-teamspace-web:${NEON_VERSION:-0.1.0}
+    image: ghcr.io/lein3000zzz/neon-teamspace-web:${NEON_VERSION:-0.2.0}
     depends_on:
       server:
         condition: service_healthy
@@ -201,7 +201,7 @@ services:
   # image's signature before anything is recreated from it.
   updater:
     profiles: [updater]
-    image: ghcr.io/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:-0.1.0}
+    image: ghcr.io/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:-0.2.0}
     environment:
       # It refuses to start without one of 32 characters or more.
       NEON_UPDATER_TOKEN: ${NEON_UPDATER_TOKEN:-}

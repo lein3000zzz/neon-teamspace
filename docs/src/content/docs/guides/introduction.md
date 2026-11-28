@@ -30,7 +30,7 @@ the friends its owner lets in.
 
 ## What exists
 
-Version 0.1.0 is the first release; the
+Version 0.2.0 is the latest release; the
 [changelog](https://github.com/lein3000zzz/neon-teamspace/blob/main/CHANGELOG.md) lists what
 each release brings. What exists:
 
@@ -104,6 +104,9 @@ each release brings. What exists:
   them with Postgres; see [Install](/docs/self-hosting/install/),
   [Backups and restore](/docs/self-hosting/backups/) and
   [Upgrading](/docs/self-hosting/upgrading/).
+- Release checks in **Admin > Settings**, and one-click updates through the updater that the
+  Compose file's `updater` profile runs; see
+  [Updating from the admin settings](/docs/self-hosting/upgrading/#updating-from-the-admin-settings).
 
 ## What is planned
 

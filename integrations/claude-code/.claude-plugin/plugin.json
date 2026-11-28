@@ -1,7 +1,7 @@
 {
   "name": "neon-teamspace",
   "displayName": "Neon Teamspace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Connect Claude Code to your Neon Teamspace instance and work the cards assigned to you: claim one, do the work in your repository, write the results into the card and move it on to review.",
   "author": {
     "name": "lein3000zzz",
