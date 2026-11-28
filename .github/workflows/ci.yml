@@ -125,6 +125,7 @@ jobs:
               - crates/*/Cargo.toml
               - crates/server/src/cli.rs
               - crates/updater/src/cli.rs
+              - crates/updater/src/lib.rs
               - apps/shell/package.json
               - apps/shell/src-tauri/Cargo.toml
               - apps/shell/src-tauri/Cargo.lock
