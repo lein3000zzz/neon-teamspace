@@ -7,7 +7,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::Row as UserRow;
 
 struct Row {
@@ -44,9 +44,7 @@ impl TryFrom<Row> for ApiToken {
 pub(crate) fn parse_scopes(texts: &[String]) -> sqlx::Result<Vec<Scope>> {
     texts
         .iter()
-        .map(|text| {
-            Scope::parse(text).ok_or_else(|| decode_error(format!("unknown scope {text:?}")))
-        })
+        .map(|text| decode("scope", text, Scope::parse))
         .collect()
 }
 

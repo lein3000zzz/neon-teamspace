@@ -6,7 +6,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::{PersonColumns, parse_hue, stored_hue};
 
 /// The constraint an update breaks when another workspace has the slug.
@@ -42,9 +42,7 @@ impl TryFrom<Row> for Workspace {
             hue_override: parse_hue(row.hue)?,
             members_can_create_teamspaces: row.members_can_create_teamspaces,
             agents_enabled: row.agents_enabled,
-            agent_creation: AgentCreation::parse(&row.agent_creation).ok_or_else(|| {
-                decode_error(format!("unknown agent creation {:?}", row.agent_creation))
-            })?,
+            agent_creation: decode("agent creation", &row.agent_creation, AgentCreation::parse)?,
             created_by: row.created_by,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -53,8 +51,7 @@ impl TryFrom<Row> for Workspace {
 }
 
 pub(crate) fn parse_role(text: &str) -> sqlx::Result<WorkspaceRole> {
-    WorkspaceRole::parse(text)
-        .ok_or_else(|| decode_error(format!("unknown workspace role {text:?}")))
+    decode("workspace role", text, WorkspaceRole::parse)
 }
 
 /// Saves a new workspace, unless another has its slug: then it saves nothing and says so,

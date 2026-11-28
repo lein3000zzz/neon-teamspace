@@ -13,7 +13,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::{decode, decode_error};
 
 /// A `files` row.
 struct FileColumns {
@@ -48,12 +48,10 @@ impl TryFrom<FileColumns> for File {
             workspace_id: row.workspace_id,
             page_id: row.page_id,
             uploaded_by: row.uploaded_by,
-            kind: FileKind::parse(&row.kind)
-                .ok_or_else(|| decode_error(format!("unknown file kind {:?}", row.kind)))?,
+            kind: decode("file kind", &row.kind, FileKind::parse)?,
             key: row.storage_key,
             name: row.name,
-            media: MediaType::parse(&row.content_type)
-                .ok_or_else(|| decode_error(format!("unknown type {:?}", row.content_type)))?,
+            media: decode("type", &row.content_type, MediaType::parse)?,
             size: u64::try_from(row.size_bytes)
                 .map_err(|_| decode_error(format!("size {}", row.size_bytes)))?,
             sha256: row

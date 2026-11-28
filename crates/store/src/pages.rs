@@ -12,7 +12,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::{decode, decode_error};
 
 /// The class of the advisory locks on page trees, one per workspace: "page" in ASCII.
 const TREE_LOCK: i32 = 0x7061_6765;
@@ -72,15 +72,11 @@ impl TryFrom<PageColumns> for Page {
             icon: row.icon,
             cover: row
                 .cover
-                .map(|cover| {
-                    Cover::parse(&cover)
-                        .ok_or_else(|| decode_error(format!("unknown cover {cover:?}")))
-                })
+                .map(|cover| decode("cover", &cover, Cover::parse))
                 .transpose()?,
             cover_image: row.cover_file_id,
             style: PageStyle {
-                font: Font::parse(&row.font)
-                    .ok_or_else(|| decode_error(format!("unknown font {:?}", row.font)))?,
+                font: decode("font", &row.font, Font::parse)?,
                 small_text: row.small_text,
                 full_width: row.full_width,
             },
@@ -113,11 +109,11 @@ fn from_rank(rank: Option<i32>) -> Option<PageAccess> {
 }
 
 pub(crate) fn parse_kind(text: &str) -> sqlx::Result<PageKind> {
-    PageKind::parse(text).ok_or_else(|| decode_error(format!("unknown page kind {text:?}")))
+    decode("page kind", text, PageKind::parse)
 }
 
 pub(crate) fn parse_access(text: &str) -> sqlx::Result<PageAccess> {
-    PageAccess::parse(text).ok_or_else(|| decode_error(format!("unknown page access {text:?}")))
+    decode("page access", text, PageAccess::parse)
 }
 
 /// Locks a workspace's page tree until the transaction ends; see the module docs.
@@ -330,10 +326,7 @@ pub async fn facts(
             teamspace_access: row
                 .teamspace_access
                 .as_deref()
-                .map(|access| {
-                    TeamspaceAccess::parse(access)
-                        .ok_or_else(|| decode_error(format!("unknown access {access:?}")))
-                })
+                .map(|access| decode("access", access, TeamspaceAccess::parse))
                 .transpose()?,
             teamspace_role: row
                 .teamspace_role
