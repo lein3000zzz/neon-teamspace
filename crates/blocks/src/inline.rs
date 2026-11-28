@@ -28,7 +28,7 @@ pub(crate) struct Marks {
 
 impl Marks {
     /// The marks ProseMirror keeps of these.
-    pub fn normalized(mut self) -> Self {
+    pub(crate) fn normalized(mut self) -> Self {
         if self.styles.code {
             return Self {
                 styles: Styles {

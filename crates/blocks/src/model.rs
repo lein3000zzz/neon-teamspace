@@ -706,11 +706,13 @@ mod plain_content {
 
     use super::{Inline, StyledText};
 
-    pub fn serialize<S: Serializer>(code: &str, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(code: &str, serializer: S) -> Result<S::Ok, S::Error> {
         Inline::plain(code).serialize(serializer)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<String, D::Error> {
         let runs = Vec::<Inline>::deserialize(deserializer)?;
         let mut code = String::new();
         for run in runs {
@@ -740,11 +742,14 @@ mod link_content {
         Text(T),
     }
 
-    pub fn serialize<S: Serializer>(runs: &[StyledText], serializer: S) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(
+        runs: &[StyledText],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         serializer.collect_seq(runs.iter().map(Tagged::Text))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Vec<StyledText>, D::Error> {
         let runs = Vec::<Tagged<StyledText>>::deserialize(deserializer)?;
