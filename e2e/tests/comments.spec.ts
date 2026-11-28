@@ -53,6 +53,49 @@ async function select(page: Page, text: string) {
   }, text);
 }
 
+/**
+ * Where the caret is in the page's content: in the page's selection, and in the editor's own,
+ * ProseMirror's, which typing follows. The editor reads the page's a moment after it moves,
+ * and may write its own back over it instead.
+ */
+async function caret(page: Page) {
+  return page.evaluate(() => {
+    // TipTap, which BlockNote builds on, keeps the editor on its root element.
+    type Root = HTMLElement & {
+      editor?: {
+        view: {
+          hasFocus(): boolean;
+          state: {
+            selection: {
+              empty: boolean;
+              $from: { parentOffset: number; parent: { textContent: string } };
+            };
+          };
+        };
+      };
+    };
+    const root = document.querySelector<Root>('[aria-label="Page content"] .ProseMirror');
+    const view = root?.editor?.view;
+    const selection = document.getSelection();
+    return {
+      page: {
+        collapsed: selection?.isCollapsed ?? false,
+        offset: selection?.anchorOffset ?? -1,
+        text: selection?.anchorNode?.textContent ?? "",
+      },
+      editor:
+        view === undefined
+          ? null
+          : {
+              focused: view.hasFocus(),
+              empty: view.state.selection.empty,
+              offset: view.state.selection.$from.parentOffset,
+              text: view.state.selection.$from.parent.textContent,
+            },
+    };
+  });
+}
+
 /** The General teamspace of a workspace, where its members' pages go. */
 async function general(page: Page, workspace: Workspace): Promise<string> {
   const response = await page.request.get(`/api/v1/workspaces/${workspace.id}/teamspaces`);
@@ -169,27 +212,24 @@ test("two people comment on a passage, a mention reaches the inbox live, and ope
       adaPage.getByRole("complementary").first().getByRole("link", { name: "Inbox, 1 unread" }),
     ).toBeVisible();
 
-    // Text typed before the passage leaves the thread on it, in both editors. A key pressed
-    // straight after the click can reach the editor before the click's selection does, so
-    // the caret is placed again until it is at the start of the line.
+    // Text typed before the passage leaves the thread on it, in both editors. Home moves the
+    // page's selection at once, and the editor's own follows a moment later. The line is the
+    // page's first, though, and just after the editor takes focus, ProseMirror reads a caret
+    // at the start of the page as the browser's doing and puts the click's place back. So the
+    // test waits for the editor's selection to reach the start of the line, and places the
+    // caret again until it does.
     const line = content(bobPage).getByText("We ship", { exact: false });
+    const start = expect.stringMatching(/^We ship/);
     await expect(async () => {
       await line.click();
       await bobPage.keyboard.press("Home");
-      const caret = await bobPage.evaluate(() => {
-        const selection = document.getSelection();
-        return {
-          collapsed: selection?.isCollapsed ?? false,
-          offset: selection?.anchorOffset ?? -1,
-          text: selection?.anchorNode?.textContent ?? "",
-        };
-      });
-      expect(caret).toEqual({
-        collapsed: true,
-        offset: 0,
-        text: expect.stringMatching(/^We ship/),
-      });
-    }, "the caret is at the start of the passage's line").toPass();
+      await expect
+        .poll(() => caret(bobPage), { timeout: 2_000 })
+        .toEqual({
+          page: { collapsed: true, offset: 0, text: start },
+          editor: { focused: true, empty: true, offset: 0, text: start },
+        });
+    }, "the caret is at the start of the passage's line, in the editor too").toPass();
     await bobPage.keyboard.type("Update: ");
     await expect
       .poll(async () => (await adaPage.request.get(`/api/v1/pages/${plan.id}/export`)).text(), {
