@@ -163,7 +163,8 @@ impl Server {
         status
     }
 
-    /// Waits for the latest update to end, for tests and for stopping.
+    /// Waits for the latest update to end, for tests. Stopping the updater does not wait for
+    /// it: the update runs in a container of its own and carries on.
     pub async fn wait(&self) {
         let task = self.latest().task.take();
         if let Some(task) = task {
