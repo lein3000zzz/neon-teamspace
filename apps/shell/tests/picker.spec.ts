@@ -471,6 +471,12 @@ test("on Android, a check for updates says the app is the latest", async ({ page
     last: null,
     updates: [{ state: "current", version: "0.1.0", waits: true }],
   });
+  // The status is a live region in the page before the first press, empty, so that a screen
+  // reader announces its first message.
+  const status = page.locator("#update-status");
+  await expect(status).toBeVisible();
+  await expect(status).toHaveText("");
+  await expect(page.getByRole("status").and(status)).toHaveCount(1);
   // From the keyboard, which keeps the focus on the button in every engine: WebKit focuses no
   // button a click presses.
   const check = page.getByRole("button", { name: "Check for updates" });
