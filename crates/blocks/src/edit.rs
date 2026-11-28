@@ -799,20 +799,20 @@ fn replace_body(
         let mut placed: Vec<Placed> = changes
             .into_iter()
             .map(|change| match &change {
-                Change::Remove(container) => (at(container), 0, 0),
+                Change::Remove(container) => Placed::remove(at(container)),
                 Change::Insert(spot, run) => {
                     let position = match spot {
                         Spot::Before(container) => at(container),
                         Spot::After(container) => at(container) + 1,
                         Spot::Start => 0,
                     };
-                    (position, 1, *run)
+                    Placed::insert(position, *run)
                 }
             })
             .collect();
         // From the last back, so the places of those before stay; at one place, what goes
         // before what comes, and the later run before the earlier, which then goes in front.
-        placed.sort_by_key(|&(position, kind, run)| (Reverse(position), kind, Reverse(run)));
+        placed.sort_by_key(|p| (Reverse(p.place), p.step, Reverse(p.run)));
         steps.push((group, placed));
     }
     // Every group's writes are weighed before any is made.
@@ -835,9 +835,45 @@ fn replace_body(
     })
 }
 
-/// A change to a group at a place: `(place, 0, _)` removes the block there, `(place, 1, run)`
-/// writes a run of blocks there.
-pub(crate) type Placed = (u32, u8, usize);
+/// What a change to a group does at its place, declared in the order the changes at one
+/// place are made: a removal before an insert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Step {
+    /// Removes the block there.
+    Remove,
+    /// Writes a run of blocks there.
+    Insert,
+}
+
+/// A change to a group at a place.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Placed {
+    /// The index in the group.
+    pub place: u32,
+    pub step: Step,
+    /// The run of blocks an insert writes, by its number; 0 for a removal.
+    pub run: usize,
+}
+
+impl Placed {
+    /// Removes the block at `place`.
+    pub(crate) fn remove(place: u32) -> Self {
+        Self {
+            place,
+            step: Step::Remove,
+            run: 0,
+        }
+    }
+
+    /// Writes the run of blocks numbered `run` at `place`.
+    pub(crate) fn insert(place: u32, run: usize) -> Self {
+        Self {
+            place,
+            step: Step::Insert,
+            run,
+        }
+    }
+}
 
 /// The items making the changes of a group walks past, made as [`make_placed`] makes them:
 /// each run, of `len(run)` blocks, walks to its place once per block, and each removal of
@@ -845,16 +881,19 @@ pub(crate) type Placed = (u32, u8, usize);
 pub(crate) fn walked(placed: &[Placed], len: impl Fn(usize) -> usize) -> usize {
     let mut walked = 0usize;
     let mut removing: Option<u32> = None;
-    for &(place, kind, run) in placed {
-        if kind == 0 {
-            match removing {
-                Some(start) if place + 1 == start => {}
-                _ => walked = walked.saturating_add(place as usize),
+    for &Placed { place, step, run } in placed {
+        match step {
+            Step::Remove => {
+                match removing {
+                    Some(start) if place + 1 == start => {}
+                    _ => walked = walked.saturating_add(place as usize),
+                }
+                removing = Some(place);
             }
-            removing = Some(place);
-        } else {
-            removing = None;
-            walked = walked.saturating_add(walk(len(run), place));
+            Step::Insert => {
+                removing = None;
+                walked = walked.saturating_add(walk(len(run), place));
+            }
         }
     }
     walked
@@ -878,22 +917,25 @@ pub(crate) fn make_placed(
         Ok::<_, TooFar>(())
     };
     let mut removing: Option<(u32, u32)> = None;
-    for &(place, kind, run) in placed {
-        if kind == 0 {
-            removing = match removing {
-                Some((start, len)) if place + 1 == start => Some((place, len + 1)),
-                other => {
-                    if let Some(range) = other {
-                        remove(txn, range)?;
+    for &Placed { place, step, run } in placed {
+        match step {
+            Step::Remove => {
+                removing = match removing {
+                    Some((start, len)) if place + 1 == start => Some((place, len + 1)),
+                    other => {
+                        if let Some(range) = other {
+                            remove(txn, range)?;
+                        }
+                        Some((place, 1))
                     }
-                    Some((place, 1))
-                }
-            };
-        } else {
-            if let Some(range) = removing.take() {
-                remove(txn, range)?;
+                };
             }
-            write(txn, place, run)?;
+            Step::Insert => {
+                if let Some(range) = removing.take() {
+                    remove(txn, range)?;
+                }
+                write(txn, place, run)?;
+            }
         }
     }
     if let Some(range) = removing {
