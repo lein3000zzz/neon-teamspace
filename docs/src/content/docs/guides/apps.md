@@ -84,10 +84,12 @@ With the project's update key, the desktop builds also make the files the apps u
 themselves from, each signed with that key as Tauri's CLI bundles it. Only the step that
 bundles and signs them has the key: it runs Tauri's CLI and the bundlers it calls, such as
 linuxdeploy and NSIS. The step before it, where the crates' build scripts and the packages'
-code run, does not, and nothing is signed until the end-to-end tests have passed. The job that
-attaches the files checks each signature against the public key the apps carry, and that it
-names the release's version, before it writes `latest.json`, so a release whose files no app
-would take fails there.
+code run, does not, and nothing is signed until the end-to-end tests have passed. A job of its
+own, whose token only reads, checks each signature against the public key the apps carry, and
+that it names the release's version, before it writes `latest.json`, so a release whose files
+no app would take fails there. That job runs Bun, which nothing checks as it is downloaded, so
+the job that attaches and attests the files does not: it takes `latest.json` with its SHA-256,
+as it takes the apps' files.
 
 The workflow builds the APK unsigned. Once the end-to-end tests have passed, a job of its own
 signs it with the project's Android key, running only the Android SDK's `zipalign` and

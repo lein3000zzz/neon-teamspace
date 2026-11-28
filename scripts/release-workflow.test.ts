@@ -14,12 +14,14 @@ interface Step {
 
 interface Job {
   needs?: string | string[];
+  permissions?: string | Record<string, string>;
   env?: Record<string, string>;
   steps?: Step[];
 }
 
 interface Workflow {
   env?: Record<string, string>;
+  permissions?: string | Record<string, string>;
   jobs: Record<string, Job>;
 }
 
@@ -67,6 +69,15 @@ function steps(): { step: Step; label: string }[] {
   );
 }
 
+/** Whether job `name`'s token may write anything, an OIDC token included. */
+function writes(name: string): boolean {
+  const permissions = job(name).permissions ?? workflow.permissions ?? {};
+  if (typeof permissions === "string") {
+    return permissions !== "read-all";
+  }
+  return Object.values(permissions).some((access) => access === "write");
+}
+
 describe("release.yml", () => {
   it("gives the updater's key only to the step that bundles the desktop apps", () => {
     expect(JSON.stringify(workflow.env ?? {})).not.toMatch(UPDATER_KEY);
@@ -106,5 +117,21 @@ describe("release.yml", () => {
     for (const name of signers) {
       expect([name, waitsFor(name).has("e2e")]).toEqual([name, true]);
     }
+  });
+
+  it("runs Bun only in jobs whose token only reads", () => {
+    const bun = Object.entries(workflow.jobs)
+      .filter(([, definition]) =>
+        (definition.steps ?? []).some(
+          (step) => step.uses?.startsWith("oven-sh/setup-bun@") === true,
+        ),
+      )
+      .map(([name]) => name);
+    expect(bun.filter(writes)).toEqual([]);
+    expect(bun).toContain("feed");
+    // The feed's job reads, and the release job, which writes, takes the feed from it.
+    expect(job("feed").permissions).toEqual({ contents: "read" });
+    expect(writes("release")).toBe(true);
+    expect(waitsFor("release").has("feed")).toBe(true);
   });
 });
