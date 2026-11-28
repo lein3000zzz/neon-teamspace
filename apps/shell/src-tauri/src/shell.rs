@@ -66,7 +66,7 @@ pub struct Interrupted {
 /// What the app holds while it runs.
 pub struct Shell {
     pub store: Store,
-    pub list: Mutex<ServerList>,
+    list: Mutex<ServerList>,
     pub lock: Lock,
     pub limits: Limits,
     /// Whether the picker has been told which server to open as the app starts, which it is
