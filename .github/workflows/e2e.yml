@@ -45,11 +45,12 @@ jobs:
       # no cache at all.
       - if: github.ref_type != 'tag'
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
-      # A run by hand reads the web and updater images' layers that CI's E2E saves on a push to
-      # dev, and saves none; the server compiles without a cache. A tag's run neither reads nor
-      # saves, and builds every image from the checkout alone, the server and the updater as the
-      # published images are built, in the release profile. Under make -j2 the images build
-      # while make e2e-install installs the tests' browser and its system libraries.
+      # A run by hand reads the web and updater images' layers that CI's E2E saved on the last
+      # push to its branch, and saves none; the server compiles without a cache. A tag's run
+      # neither reads nor saves, and builds every image from the checkout alone, the server and
+      # the updater as the published images are built, in the release profile. Under make -j2
+      # the images build while make e2e-install installs the tests' browser and its system
+      # libraries.
       - name: Build the images, start the stack, run the tests
         env:
           USE_CACHE: ${{ github.ref_type != 'tag' }}
