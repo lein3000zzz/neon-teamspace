@@ -277,10 +277,17 @@ impl HistoryService {
                 .content(page_id)
                 .await
                 .map_err(ContentError::from)?;
-            let lines = diff(&document, &now);
+            // Both documents compared block by block, and the page's rendered to hash it: off
+            // the async workers.
+            let (lines, current) =
+                tokio::task::spawn_blocking(move || (diff(&document, &now), revision(&now)))
+                    .await
+                    .map_err(|error| {
+                        HistoryError::Internal(format!("a comparison's work ended: {error}"))
+                    })?;
             Ok(Comparison {
                 summary: Summary::of(&lines),
-                revision: revision(&now),
+                revision: current,
                 page,
                 version,
                 lines,

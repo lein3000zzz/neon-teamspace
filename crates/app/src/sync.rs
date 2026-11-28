@@ -533,9 +533,15 @@ impl SyncService {
             // It unloaded meanwhile, and saved everything first.
         }
         let saved = neon_store::documents::saved(&self.inner.pool, page_id).await?;
-        let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
-        let fragment = neon_blocks::fragment(&doc);
-        let read = neon_blocks::read_lenient(&doc.transact(), &fragment);
+        // The whole document assembled and read: off the async threads.
+        let read = self
+            .inner
+            .write(|| {
+                let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
+                let fragment = neon_blocks::fragment(&doc);
+                Ok::<_, LoadError>(neon_blocks::read_lenient(&doc.transact(), &fragment))
+            })
+            .await?;
         Ok(readable(page_id, read))
     }
 
@@ -570,9 +576,14 @@ impl SyncService {
             // It unloaded meanwhile, and saved everything first.
         }
         let saved = neon_store::documents::saved(&self.inner.pool, page_id).await?;
-        let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
-        let fragment = neon_blocks::fragment(&doc);
-        Ok(look(&doc, &fragment))
+        // The whole document assembled: off the async threads.
+        self.inner
+            .write(|| {
+                let doc = document::assemble(saved.snapshot.as_ref(), &saved.updates)?;
+                let fragment = neon_blocks::fragment(&doc);
+                Ok(look(&doc, &fragment))
+            })
+            .await
     }
 
     /// Where the anchors of a page's inline threads are now, each its start and end as Yjs
@@ -769,14 +780,10 @@ struct Recheck {
 impl Inner {
     /// Runs work that writes or reads a whole document, such as blocks written into it, in
     /// one of the turns of [`Limits::parallel_writes`] and on a thread where blocking is
-    /// allowed: on a runtime of several threads the others take this one's tasks meanwhile,
-    /// while on one of a single thread, as tests run, it runs in place.
+    /// allowed, as [`blocking`] runs it.
     pub(crate) async fn write<T>(&self, work: impl FnOnce() -> T) -> T {
         let _turn = self.writes.acquire().await.ok();
-        match Handle::try_current().map(|runtime| runtime.runtime_flavor()) {
-            Ok(RuntimeFlavor::MultiThread) => tokio::task::block_in_place(work),
-            _ => work(),
-        }
+        blocking(work)
     }
 
     /// Refuses `nodes` past [`Limits::max_nodes`], with that most.
@@ -880,6 +887,16 @@ fn readable(page_id: Uuid, read: neon_blocks::Lenient) -> neon_blocks::Document 
         warn!(%page_id, blocks = read.dropped, "blocks of a document do not read; left out");
     }
     read.document
+}
+
+/// Runs work that takes a while, such as reading or comparing a whole document, on a thread
+/// where blocking is allowed: on a runtime of several threads the others take this one's
+/// tasks meanwhile, while on one of a single thread, as tests run, it runs in place.
+pub(crate) fn blocking<T>(work: impl FnOnce() -> T) -> T {
+    match Handle::try_current().map(|runtime| runtime.runtime_flavor()) {
+        Ok(RuntimeFlavor::MultiThread) => tokio::task::block_in_place(work),
+        _ => work(),
+    }
 }
 
 /// How a connection ended.

@@ -34,20 +34,25 @@ pub(crate) async fn record(
     snapshot: Snapshot<'_>,
 ) -> Result<bool, sqlx::Error> {
     let page_id = snapshot.page_id;
-    let previous = versions::latest_content(&mut *conn, page_id)
-        .await?
-        .map(|content| {
+    let latest = versions::latest_content(&mut *conn, page_id).await?;
+    // The latest version read and compared, and the blocks encoded: off the async workers.
+    let compared = crate::sync::blocking(|| {
+        let previous = latest.map(|content| {
             serde_json::from_value::<Document>(content).unwrap_or_else(|error| {
                 warn!(%page_id, %error, "the latest version does not read; compared with an empty page");
                 Document::default()
             })
         });
-    if previous.as_ref() == Some(snapshot.document) {
+        if previous.as_ref() == Some(snapshot.document) {
+            return Ok(None);
+        }
+        let summary = Summary::of(&diff(&previous.unwrap_or_default(), snapshot.document));
+        serde_json::to_value(snapshot.document).map(|content| Some((summary, content)))
+    })
+    .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+    let Some((summary, content)) = compared else {
         return Ok(false);
-    }
-    let summary = Summary::of(&diff(&previous.unwrap_or_default(), snapshot.document));
-    let content = serde_json::to_value(snapshot.document)
-        .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+    };
     let count = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
     let mut authors = snapshot.authors.to_vec();
     authors.sort_unstable();
