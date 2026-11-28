@@ -1,15 +1,18 @@
 # A release, on a version tag such as v1.2.3. Each job starts only once the one before it
 # passed, so nothing is published, signed or attested unless every check did: the version
 # check, which needs the tag to name the workspace's version; the end-to-end tests of the
-# release build; the server and web images for linux/amd64 and linux/arm64 on GHCR, built from
-# the tag without a cache, with OCI labels, an SBOM and build provenance; beside them the apps,
-# desktop on each platform's runner and Android on Linux, also built from the tag without a
-# cache; and a GitHub release with the Compose archive, the apps' installers and a SHA256SUMS
-# file of them attached, whose notes name the images and their tags and link the docs, before
-# the ones GitHub generates from the merged pull requests; its job gives the apps' files their
-# build provenance. It needs no secret but the workflow's own token, and the Android
-# keystore's, when the repository has them, to sign the APK in a job of its own. A release has
-# no iOS app: that builds on a Mac with Xcode, outside this workflow.
+# release build; the server, web and updater images for linux/amd64 and linux/arm64 on GHCR,
+# built from the tag without a cache, with OCI labels, an SBOM and build provenance; beside
+# them the apps, desktop on each platform's runner and Android on Linux, also built from the
+# tag without a cache; and a GitHub release with the Compose archive, the apps' installers, the
+# desktop apps' update feed and a SHA256SUMS file of them attached, whose notes name the images
+# and their tags and link the docs, before the ones GitHub generates from the merged pull
+# requests; its job gives the apps' files their build provenance. It needs no secret but the
+# workflow's own token, the Android keystore's, when the repository has them, to sign the APK
+# in a job of its own, and the desktop apps' updater key, when the repository has it, with
+# which Tauri's CLI signs the files the apps update themselves from as it bundles them, in a
+# step apart from the one that builds the apps. A release has no iOS app: that builds on a Mac
+# with Xcode, outside this workflow.
 #
 # No job that publishes or signs reads the Actions cache, which is neither signed nor checked:
 # a tag's run restores what its own ref or the default branch saved, which any code that ran in
@@ -20,7 +23,9 @@
 # workflow's OIDC token, with which the crates' build scripts or the packages' code could attest
 # any file as this workflow's: the jobs that build or sign the apps get none, and the release
 # job attests the apps' files once it has checked them. The images build inside BuildKit, which
-# their job's OIDC token does not reach.
+# their job's OIDC token does not reach. Nor does a job that can write to the repository or
+# attest run a tool downloaded without a check: Bun, which runs the update feed's script, runs
+# in a job of its own that only reads.
 name: Release
 
 on:
@@ -35,8 +40,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The tag, Cargo.toml and everything that states the version agree, neon --version among
-  # them, which builds the server; make version-check lists what does not.
+  # The tag, Cargo.toml and everything that states the version agree, neon --version and
+  # neon-updater version among them, which build the server and the updater; make
+  # version-check lists what does not.
   version:
     name: Versions
     runs-on: ubuntu-24.04
@@ -94,6 +100,11 @@ jobs:
           - image: neon-teamspace-web
             dockerfile: web/Dockerfile
             description: The Neon Teamspace web app and docs, behind Caddy
+          # The Compose file's updater profile runs it: a stage of the server's Dockerfile.
+          - image: neon-teamspace-updater
+            dockerfile: deployments/Dockerfile
+            target: updater
+            description: The Neon Teamspace updater, which updates a Compose stack to a release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,6 +152,8 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          # The Dockerfile's last stage where the matrix names none.
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -155,7 +168,8 @@ jobs:
           # a cached layer could put into a signed image what no file of the tag holds. A
           # re-run of a failed release builds everything again.
           no-cache: true
-      # Every release is signed, each platform's image too, for a pull by its own digest.
+      # Every release is signed, each platform's image too, for a pull by its own digest. The
+      # updater checks these signatures before it recreates a service from an image.
       # Keyless signing records the signer, this repository and the commit in Sigstore's
       # public transparency log, so as a safety net both steps are skipped should the
       # repository ever be private, rather than publishing a private repository's details.
@@ -172,15 +186,28 @@ jobs:
   # say how to open them the first time. Linux builds on the oldest Ubuntu runner, as the
   # AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35, or a later
   # one. The release job attests their build provenance, not this one, which runs the crates'
-  # build scripts and the packages' code and so has no OIDC token to sign with.
-  # Nothing comes from the Actions cache, as for the images: no crates built before, nor Bun
-  # itself. Unsigned as the apps are, their attestations and checksums vouch for them, and a
-  # cached build could put into them what no file of the tag holds. Without a cache every run
-  # builds everything, as a release's first run did anyway, since no other workflow saves a
-  # cache under these jobs' keys.
+  # build scripts and the packages' code and so has no OIDC token to sign with. Nothing comes
+  # from the Actions cache, as for the images: no crates built before, nor Bun itself. Unsigned
+  # as the apps are, their attestations and checksums vouch for them, and a cached build could
+  # put into them what no file of the tag holds. Without a cache every run builds everything,
+  # as a release's first run did anyway, since no other workflow saves a cache under these
+  # jobs' keys.
+  #
+  # With the updater's key, in the repository's secrets TAURI_SIGNING_PRIVATE_KEY and
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD, each app also gets the file the installed apps update
+  # themselves from, signed with it: the macOS app as a .app.tar.gz, the Windows setup and the
+  # AppImage, each with a .sig beside it. Only the step that bundles the app has the key: it
+  # runs Tauri's CLI, which signs the files as it bundles them, and the bundlers the CLI calls,
+  # such as linuxdeploy and NSIS. The step before it builds the app, running the crates' build
+  # scripts, their proc macros and the packages' code, without the key. Both steps share a
+  # runner, so this keeps the key from code that reads it from the environment, though not from
+  # code that tampers with what the bundling step runs; what a build signs, the feed job
+  # checks against the public key the apps carry. The job starts once the end-to-end tests
+  # passed, so the key signs nothing of a release they failed. Without the key, as in a fork,
+  # the apps build without those files, and the job's summary says so.
   desktop:
     name: App (${{ matrix.name }})
-    needs: version
+    needs: [version, e2e]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -198,21 +225,23 @@ jobs:
           - name: Linux x86_64
             id: linux-x86_64
             runner: ubuntu-22.04
-            args: --bundles deb,rpm,appimage
+            bundles: deb,rpm,appimage
           - name: Windows x86_64
             id: windows-x86_64
             runner: windows-2025
-            args: --bundles nsis
+            bundles: nsis
           - name: macOS Apple silicon
             id: macos-aarch64
             runner: macos-15
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles dmg
+            arch: aarch64
+            bundles: app,dmg
           - name: macOS Intel
             id: macos-x86_64
             runner: macos-15
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles dmg
+            arch: x64
+            bundles: app,dmg
     defaults:
       run:
         shell: bash
@@ -248,21 +277,54 @@ jobs:
       - name: Packages
         working-directory: apps/shell
         run: bun install --frozen-lockfile
+      # The picker and the app's binary, without the updater's key: the crates' build scripts
+      # and proc macros, and the packages' code, run here.
       - name: Build
         working-directory: apps/shell
         env:
-          ARGS: ${{ matrix.args }}
+          TARGET: ${{ matrix.target }}
         run: |
-          read -ra args <<<"$ARGS"
-          bun run tauri build --ci "${args[@]}"
-      # The installers, named for the release without the spaces of the product's name. Tauri
-      # names them after the apps' version, which a release candidate's tag follows with -rc.
-      # and its number, so a candidate's installers are renamed for its tag, as its APK is
-      # named. Then each file's SHA-256, as this platform's output.
+          args=()
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          bun run tauri build --ci --no-bundle "${args[@]}"
+      # The installers, from the binary the build made, in the only step with the updater's
+      # key. With it, Tauri's CLI also makes the updater's files and signs them, turned on here
+      # rather than in tauri.conf.json, so that a build without the key, such as make app-build,
+      # works as it is. First the checkout must be as the tag has it: a file the build left,
+      # such as a tauri.<platform>.conf.json, which Tauri merges into its configuration, could
+      # add a command of its own to this step.
+      - name: Bundle
+        working-directory: apps/shell
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          changed="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changed" ]; then
+            printf 'The build changed the checkout, so nothing is bundled:\n%s\n' "$changed"
+            exit 1
+          fi
+          args=(--bundles "$BUNDLES")
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          else
+            echo "No updater key in the repository's secrets: this app is built without the files it updates itself from, and the release has no update feed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          bun run tauri bundle --ci "${args[@]}"
+      # The installers, and the updater's files with their signatures, named for the release
+      # without the spaces of the product's name. Tauri names them after the apps' version,
+      # which a release candidate's tag follows with -rc. and its number, so a candidate's files
+      # are renamed for its tag, as its APK is named. The macOS app's archive, which Tauri names
+      # after the product alone, gets the version and the architecture, as the disk image has.
+      # Then each file's SHA-256, as this platform's output.
       - id: collect
         name: Collect the installers
         env:
           ID: ${{ matrix.id }}
+          ARCH: ${{ matrix.arch }}
           TAG: ${{ github.ref_name }}
         run: |
           version="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' apps/shell/src-tauri/Cargo.toml | head -n 1)"
@@ -270,11 +332,15 @@ jobs:
           mkdir -p release-assets
           find apps/shell/src-tauri/target -path '*/release/bundle/*' -type f \
             \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' \
-            -o -name '*.dmg' \) -print0 |
+            -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+            -o -name '*-setup.exe.sig' -o -name '*.AppImage.sig' \) -print0 |
             while IFS= read -r -d '' file; do
               name="$(basename "$file")"
-              name="${name// /-}"
-              cp "$file" "release-assets/${name/"$version"/$release}"
+              case "$name" in
+                *.app.tar.gz | *.app.tar.gz.sig) name="Neon-Teamspace_${release}_${ARCH}.app${name#*.app}" ;;
+                *) name="${name// /-}"; name="${name/"$version"/$release}" ;;
+              esac
+              cp "$file" "release-assets/$name"
             done
           ls -l release-assets
           test -n "$(ls release-assets)"
@@ -427,9 +493,73 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # latest.json, which the desktop apps read from the latest release, written from the
+  # updater's files the desktop builds signed, each signature checked against the public key
+  # the apps carry. In a job of its own, whose token only reads: the script runs on Bun, which
+  # setup-bun downloads from its release without checking it against anything, so it runs
+  # apart from the release job's tokens, which write to the repository and attest. The feed's
+  # SHA-256 is the job's output, which the release job checks the feed against. Without the
+  # updater's files, as when the builds had no key, there is no feed, and the summary says so.
+  feed:
+    name: Update feed
+    needs: desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.feed.outputs.sha256 }}
+    steps:
+      # The tag's commit: the script, the changelog its notes link, and the public key in
+      # tauri.conf.json.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: 'app-{linux,windows,macos}-*'
+          path: release-assets
+          merge-multiple: true
+      # The desktop apps' files as the jobs that built them list them in their outputs: each
+      # of them, with its SHA-256, and no other.
+      - name: Check the desktop apps' files
+        env:
+          DESKTOP: ${{ toJSON(needs.desktop.outputs) }}
+        run: |
+          built="$RUNNER_TEMP/built.sha256"
+          jq -r '.[]' <<<"$DESKTOP" | sed '/^$/d' > "$built"
+          cut -d ' ' -f 3- "$built" | sort > "$RUNNER_TEMP/built"
+          find release-assets -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$RUNNER_TEMP/downloaded"
+          diff -u "$RUNNER_TEMP/built" "$RUNNER_TEMP/downloaded"
+          (cd release-assets && sha256sum --check --strict "$built")
+      # Bun from its release, not from the copy setup-bun keeps in the Actions cache, for the
+      # update feed's script, which needs no package.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+          no-cache: true
+      - id: feed
+        name: Update feed
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          bun scripts/updater-feed.ts --dir release-assets --tag "$TAG" --repository "$GITHUB_REPOSITORY"
+          if [ -e release-assets/latest.json ]; then
+            echo "sha256=$(sha256sum < release-assets/latest.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "No latest.json: the desktop builds had no updater key, so the installed desktop apps do not update themselves to this release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.feed.outputs.sha256 != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: feed
+          path: release-assets/latest.json
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     name: GitHub release
-    needs: [images, desktop, android-release]
+    needs: [images, desktop, android-release, feed]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -465,6 +595,20 @@ jobs:
           find release-assets -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$RUNNER_TEMP/downloaded"
           diff -u "$RUNNER_TEMP/built" "$RUNNER_TEMP/downloaded"
           (cd release-assets && sha256sum --check --strict "$built")
+      # latest.json, when the feed job wrote one: the file whose SHA-256 that job gave, and
+      # nothing else its artifact might hold.
+      - if: needs.feed.outputs.sha256 != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: feed
+          path: ${{ runner.temp }}/feed
+      - if: needs.feed.outputs.sha256 != ''
+        name: Check the update feed
+        env:
+          SHA256: ${{ needs.feed.outputs.sha256 }}
+        run: |
+          echo "$SHA256  $RUNNER_TEMP/feed/latest.json" | sha256sum --check --strict
+          cp "$RUNNER_TEMP/feed/latest.json" release-assets/
       # Each of them gets build provenance, an attestation of the workflow run and the commit
       # that made it, here rather than in the jobs that built them, which run the crates' build
       # scripts and the packages' code, and only once every check passed. As a safety net, as
@@ -474,8 +618,8 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-assets/*
-      # One file of the SHA-256 checksums of everything the release attaches, as sha256sum
-      # --check reads it.
+      # One file of the SHA-256 checksums of everything the release attaches, the update feed and
+      # the updater's signatures too, as sha256sum --check reads it.
       - name: Checksums
         run: |
           cp dist/neon-teamspace-compose-*.tar.gz release-assets/
@@ -526,12 +670,17 @@ jobs:
           if [ "$SIGNED" = true ]; then
             signed="They are signed with cosign's keyless signing; [Upgrading]($FILES/docs/src/content/docs/self-hosting/upgrading.md#checking-the-images) shows how to check them."
           fi
+          updates=" This release has no update feed, so the installed desktop apps do not update themselves to it: install it from the files below."
+          if [ -e release-assets/latest.json ]; then
+            updates=" The desktop apps update themselves from \`latest.json\`, the macOS \`.app.tar.gz\` archives, the Windows setup and the AppImage, each with its \`.sig\`; [Apps]($FILES/docs/src/content/docs/guides/apps.md#updates) says how each platform updates."
+          fi
           notes="## Images
 
           For \`linux/amd64\` and \`linux/arm64\`, with an SBOM and build provenance, tagged $tags. $signed
 
           - \`$IMAGES/neon-teamspace-server:$version\`
           - \`$IMAGES/neon-teamspace-web:$version\`
+          - \`$IMAGES/neon-teamspace-updater:$version\`, which the Compose file's \`updater\` profile runs for [one-click updates]($FILES/docs/src/content/docs/self-hosting/upgrading.md#one-click-updates)
 
           ## Installing and upgrading
 
@@ -539,6 +688,6 @@ jobs:
 
           ## Apps
 
-          The desktop installers and the Android APK are below.$apps [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server."
+          The desktop installers and the Android APK are below.$apps [Apps]($FILES/docs/src/content/docs/guides/apps.md) covers installing them, checking them against \`SHA256SUMS\` and their build provenance, and connecting them to a server.$updates"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
             --generate-notes "${start[@]}" --notes "$notes" "${prerelease[@]}" release-assets/*

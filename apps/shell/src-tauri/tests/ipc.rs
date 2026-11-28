@@ -115,11 +115,16 @@ fn no_other_origin_may_call_a_command() {
             json!({"origin": "https://neon.example.com"}),
         ),
         ("cancel_opening", json!({})),
+        ("check_for_updates", json!({})),
         (
             "plugin:opener|open_url",
             json!({"url": "https://example.com"}),
         ),
         ("plugin:log|log", json!({"level": 3, "message": "x"})),
+        ("plugin:updater|check", json!({})),
+        ("plugin:updater|download_and_install", json!({"rid": 0})),
+        ("plugin:dialog|message", json!({"message": "x"})),
+        ("plugin:process|restart", json!({})),
     ];
     for origin in [
         "https://neon.example.com/",
@@ -150,6 +155,15 @@ fn the_picker_may_not_call_plugins_either() {
             "plugin:event|listen",
             json!({"event": "x", "target": {"kind": "Any"}, "handler": 0}),
         ),
+        // The app's Rust side alone checks for updates, installs them and asks about them.
+        ("plugin:updater|check", json!({})),
+        ("plugin:updater|download", json!({"rid": 0})),
+        ("plugin:updater|install", json!({"rid": 0})),
+        ("plugin:updater|download_and_install", json!({"rid": 0})),
+        ("plugin:dialog|message", json!({"message": "x"})),
+        ("plugin:dialog|open", json!({})),
+        ("plugin:process|restart", json!({})),
+        ("plugin:process|exit", json!({"code": 0})),
     ] {
         let refused = from_picker(&app, command, args);
         assert!(denied(&refused), "the picker called {command}: {refused:?}");
@@ -185,6 +199,7 @@ async fn the_commands_run_only_while_the_window_shows_the_apps_page() {
         ),
         ("remove_server", json!({"origin": server.origin})),
         ("cancel_opening", json!({})),
+        ("check_for_updates", json!({})),
     ] {
         let error = from_picker(&app, command, args).unwrap_err();
         assert_eq!(error["code"], "not_the_picker", "{command}: {error}");
@@ -204,7 +219,14 @@ fn the_picker_starts_with_an_empty_list() {
     let app = app(dir.path());
     assert_eq!(
         from_picker(&app, "startup", json!({})),
-        Ok(json!({"servers": [], "last": null, "open": null, "interrupted": null}))
+        Ok(json!({
+            "servers": [],
+            "last": null,
+            "open": null,
+            "interrupted": null,
+            // The desktop apps check for updates from their menu.
+            "updateCheck": false,
+        }))
     );
 }
 

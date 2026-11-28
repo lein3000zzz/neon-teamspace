@@ -3,6 +3,7 @@
 
 pub(crate) mod account;
 mod admin;
+mod admin_updates;
 mod admin_workspaces;
 mod agents;
 pub(crate) mod answers;
@@ -60,6 +61,7 @@ use neon_app::search::SearchService;
 use neon_app::settings::SettingsService;
 use neon_app::sync::SyncService;
 use neon_app::transfer::TransferService;
+use neon_app::updates::UpdateService;
 use neon_app::webhooks::WebhookService;
 use neon_app::workspaces::{AgentService, WorkspaceService};
 use neon_domain::duration;
@@ -103,6 +105,7 @@ pub struct AppState {
     pub transfer: TransferService,
     pub attachments: AttachmentService,
     pub webhooks: WebhookService,
+    pub updates: UpdateService,
     pub web: Arc<WebConfig>,
     pub mcp: crate::mcp::Mcp,
 }
@@ -157,6 +160,9 @@ fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(admin::deny_join))
         .routes(routes!(admin::list_settings, admin::update_settings))
         .routes(routes!(admin::send_test_mail))
+        .routes(routes!(admin_updates::get_updates))
+        .routes(routes!(admin_updates::check_updates))
+        .routes(routes!(admin_updates::apply_update))
         .routes(routes!(admin_workspaces::admin_list_workspaces))
         .routes(routes!(admin_workspaces::set_workspace_limits))
         .routes(routes!(admin_workspaces::admin_delete_workspace))
@@ -529,6 +535,8 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(test)]
+mod updates_tests;
 #[cfg(test)]
 mod webhooks_tests;
 #[cfg(test)]

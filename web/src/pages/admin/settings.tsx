@@ -14,6 +14,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { strings } from "@/lib/strings";
 import { MailStatusPanel } from "./mail-status";
+import { UpdatesPanel } from "./updates-panel";
 
 const copy = strings.admin.settings;
 
@@ -36,7 +37,8 @@ function groupByPrefix(settings: readonly Setting[]): [string, Setting[]][] {
 }
 
 /**
- * Every runtime setting, where its value comes from, and a control for those
+ * The server's version and updates, then every runtime setting, where its value
+ * comes from, and a control for those
  * not pinned by the environment or the config file. Changes collect until
  * saved together; the server takes all of them or none, and names each one
  * it refused.
@@ -90,6 +92,8 @@ export function SettingsPage() {
 
   return (
     <div className="grid gap-10">
+      <UpdatesPanel />
+
       <p className="max-w-[62ch] text-sm text-muted-foreground">{copy.hint}</p>
 
       {settings.isPending && <Loading />}

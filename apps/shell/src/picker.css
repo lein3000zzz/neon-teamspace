@@ -374,3 +374,34 @@ label {
     background-color: CanvasText;
   }
 }
+
+/* Check for updates, on Android. */
+.updates {
+  margin-top: 0.5rem;
+}
+
+.updates .button {
+  margin-left: -1rem;
+}
+
+.updates .button[aria-disabled="true"] {
+  cursor: progress;
+}
+
+/* The status stays rendered while empty, a line high: a screen reader announces a live
+   region's changes only once the region is in the page, so one that appeared with its first
+   message would go unannounced. The footer does not move when the text comes either. */
+.update-status {
+  min-height: 1.6em;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.updates .error:empty {
+  display: none;
+}
+
+.updates .error {
+  margin: 0;
+}

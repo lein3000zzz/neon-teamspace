@@ -15,6 +15,7 @@ export const strings = {
     settings: "Settings",
     account: "Account",
     admin: "Admin",
+    adminUpdate: "Admin, an update is available",
     workspaceSettings: "Workspace settings",
     inbox: "Inbox",
     unread: (n: number) => `Inbox, ${n} unread`,
@@ -611,6 +612,73 @@ export const strings = {
         testQueued: (to: string) =>
           `A test mail to ${to} is in the queue. How the mail server takes it shows here.`,
       },
+    },
+    updates: {
+      title: "Version and updates",
+      hint: "The release this server runs, and whether a newer one is out on GitHub. The server checks once a day while updates.check is on.",
+      check: "Check now",
+      checking: "Checking…",
+      running: "Running",
+      development: (version: string) => `${version}, a development build`,
+      newest: "Newest release",
+      noneFound: "None found yet",
+      prerelease: "Pre-release",
+      published: (when: string) => `published ${when}`,
+      notesLabel: (version: string) => `Release notes of ${version}, on GitHub`,
+      lastChecked: "Last checked",
+      notChecked: "Not yet",
+      checkFailed: "Last check failed",
+      updater: "Updater",
+      updaterReady: (version: string) => `Ready, neon-updater ${version}`,
+      updaterUpdating: (version: string | undefined) =>
+        version ? `Updating the stack to ${version}` : "Updating the stack",
+      updaterFailed: (version: string | undefined) =>
+        version ? `The last update, to ${version}, failed` : "The last update failed",
+      updaterNoAnswer: "It did not answer.",
+      off: "The release check is off, so the server never asks GitHub. Turn on updates.check under Updates below to hear of new releases.",
+      upToDate: "This is the newest release.",
+      developmentNote:
+        "A development build is never behind a release: it is updated from its code.",
+      newer: (version: string) => `Neon Teamspace ${version} is out`,
+      notes: "Read its release notes",
+      notesBefore:
+        "Read the notes of every release since the one running before you update, and back up first.",
+      updaterNote:
+        "The updater pulls the release's images and restarts the server with them. The server migrates the database as it starts.",
+      update: (version: string) => `Update to ${version}`,
+      confirmTitle: (version: string) => `Update to ${version}?`,
+      confirmLede:
+        "The server restarts on the new release and migrates the database as it starts, so back it up first. Open pages reconnect once it is back, and this page reloads.",
+      confirm: "Update",
+      lastFailed: (version: string, error: string | undefined) =>
+        error
+          ? `The update to ${version} failed: ${error.replace(/\.$/, "")}. The server runs what it ran before.`
+          : `The update to ${version} failed. The server runs what it ran before.`,
+      log: "What the updater did",
+      byHand: (version: string) =>
+        `No updater is set up, so update by hand: in deployments/.env, set NEON_VERSION to ${version}.`,
+      envFile: "deployments/.env",
+      thenRun: "Then, in the directory that holds deployments/, pull the images and restart:",
+      commands: "Commands",
+      upgradingDocs: "Upgrading",
+      byHandDocs: "A release may change the Compose file too; to get it, see",
+      updaterDocs: "Set up the updater",
+      updaterDocsAfter: "to update from here instead.",
+      updating: (version: string) => `Updating to ${version}`,
+      updatingLede:
+        "This page waits while the updater works, and reloads once the server is back on the new release.",
+      phases: {
+        updating: "The updater is at work.",
+        restarting: "The server is restarting. Waiting for it to come back…",
+        done: (version: string) => `Updated to ${version}. Reloading the page…`,
+      },
+      timedOut: (version: string) =>
+        `The server did not come back on ${version} within 10 minutes. Check its log, and the updater's.`,
+      unchanged: (version: string, running: string) =>
+        `The updater finished the update to ${version}, but the server still runs ${running}.`,
+      unchangedWhy:
+        "A stack built from a clone runs images of its own, which the updater does not replace; see",
+      unchangedDocs: "One-click updates",
     },
   },
   people: {

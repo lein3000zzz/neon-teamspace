@@ -152,8 +152,10 @@ export const settingsQuery = queryOptions({
 /**
  * Saves setting changes by key, null going back to the default. All or
  * nothing: when one is invalid, none is saved and the error lists each. The
- * sign-in forms and the instance name read settings, and whether invites can
- * be mailed follows the mail settings, so those are read again.
+ * sign-in forms and the instance name read settings, whether invites can be
+ * mailed follows the mail settings, and the updates status follows the updates
+ * settings, so those are read again. The updates status asks the updater for
+ * up to 3 seconds, so the save does not wait for it.
  */
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
@@ -168,6 +170,7 @@ export function useUpdateSettings() {
       ),
     onSuccess: async (list) => {
       queryClient.setQueryData(keys.settings, list);
+      void queryClient.invalidateQueries({ queryKey: keys.updates });
       await queryClient.invalidateQueries({ queryKey: keys.authConfig });
       await queryClient.invalidateQueries({ queryKey: keys.meta });
       await queryClient.invalidateQueries({ queryKey: keys.invites });

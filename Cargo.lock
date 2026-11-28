@@ -1941,6 +1941,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "rand 0.10.4",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -1977,6 +1978,7 @@ name = "neon-domain"
 version = "0.1.0"
 dependencies = [
  "imagesize",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",
@@ -2041,11 +2043,13 @@ dependencies = [
  "neon-domain",
  "neon-observability",
  "neon-store",
+ "neon-updater",
  "object_store",
  "rcgen",
  "rmcp",
  "rpassword",
  "schemars",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -2083,6 +2087,27 @@ dependencies = [
  "time",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "neon-updater"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures-util",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3081,6 +3106,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3628,7 +3659,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

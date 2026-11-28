@@ -5,11 +5,13 @@ pub mod address;
 mod commands;
 pub mod lock;
 #[cfg(desktop)]
-mod menu;
+pub mod menu;
 pub mod meta;
 pub mod navigation;
+pub mod releases;
 pub mod servers;
 mod shell;
+pub mod updates;
 
 use std::path::PathBuf;
 
@@ -29,25 +31,34 @@ pub enum DataDir {
 }
 
 /// The app's plugins and commands on `builder`. Without the logger, which a process can only
-/// set once, and the desktop menu, which macOS only builds on the main thread: [`run`] adds
-/// both.
+/// set once, the desktop menu, which macOS only builds on the main thread, and the quiet checks
+/// for updates: [`run`] adds them.
+///
+/// The plugins' commands are granted to no page: the app's Rust side alone opens links,
+/// checks for updates and shows dialogs.
 pub fn shell<R: Runtime>(builder: Builder<R>) -> Builder<R> {
-    builder
-        .plugin(
-            // Links are judged by the origin lock in Rust; the plugin's script, which would open
-            // every link with a target in the browser from inside the server's page, stays out.
-            tauri_plugin_opener::Builder::new()
-                .open_js_links_on_click(false)
-                .build(),
-        )
-        .invoke_handler(tauri::generate_handler![
-            commands::startup,
-            commands::connect,
-            commands::open_server,
-            commands::rename_server,
-            commands::remove_server,
-            commands::cancel_opening,
-        ])
+    let builder = builder.plugin(
+        // Links are judged by the origin lock in Rust; the plugin's script, which would open
+        // every link with a target in the browser from inside the server's page, stays out.
+        tauri_plugin_opener::Builder::new()
+            .open_js_links_on_click(false)
+            .build(),
+    );
+    // The desktop apps' updates, with the endpoint and the public key in tauri.conf.json.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // The dialog that offers a newer release's APK.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    builder.invoke_handler(tauri::generate_handler![
+        commands::startup,
+        commands::connect,
+        commands::open_server,
+        commands::rename_server,
+        commands::remove_server,
+        commands::cancel_opening,
+        commands::check_for_updates,
+    ])
 }
 
 /// Reads the server list, puts the app's state in place and opens its window on the picker:
@@ -97,6 +108,8 @@ pub fn run() {
             // Tauri panics on an error here, which only stderr would show: the log has it first.
             setup(app, &DataDir::App, Limits::default())
                 .inspect_err(|error| log::error!("the app could not start: {error}"))?;
+            #[cfg(not(target_os = "ios"))]
+            updates::watch(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!());

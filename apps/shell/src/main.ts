@@ -1,6 +1,7 @@
 import "./picker.css";
 import { Picker } from "./picker";
 import { followTheSystem, setUpPaletteChoice } from "./theme";
+import { Updates } from "./updates";
 
 followTheSystem();
 setUpPaletteChoice(document.querySelector("fieldset"));
@@ -21,10 +22,17 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
+const updates = new Updates(element("updates"));
+
 void new Picker(
   element("view"),
   element("title"),
   element("status"),
   element("picker"),
   element("actions"),
+  (startup) => {
+    if (startup.updateCheck) {
+      updates.show();
+    }
+  },
 ).start();
