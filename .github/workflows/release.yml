@@ -10,8 +10,9 @@
 # gives the apps' files their build provenance. It needs no secret but the workflow's own token,
 # the Android keystore's, when the repository has them, to sign the APK in a job of its own,
 # and the desktop apps' updater key, when the repository has it, with which Tauri's CLI signs
-# the files the apps update themselves from as it builds them. A release has no iOS app: that
-# builds on a Mac with Xcode, outside this workflow.
+# the files the apps update themselves from as it bundles them, in a step apart from the one
+# that builds the apps. A release has no iOS app: that builds on a Mac with Xcode, outside this
+# workflow.
 #
 # No job that publishes or signs reads the Actions cache, which is neither signed nor checked:
 # a tag's run restores what its own ref or the default branch saved, which any code that ran in
@@ -171,25 +172,31 @@ jobs:
 
   # The desktop apps, each built on its platform's runner, as Tauri's guide has it. Unsigned:
   # signing for macOS and Windows needs certificates the project does not hold, so the apps docs
-  # say how to open them the first time. With the updater's key, in the repository's secrets
-  # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, each build also makes the
-  # file the installed apps update themselves from, signed with it: the macOS app as a
-  # .app.tar.gz, the Windows setup and the AppImage, each with a .sig beside it. Tauri's CLI
-  # signs them as it bundles, so the key is in the build step's environment, where the crates'
-  # build scripts and the packages' code run too; what a build signs, the release job checks
-  # against the public key the apps carry. Without the key, as in a fork, the apps build
-  # without those files, and the job's summary says so. Linux builds on the oldest Ubuntu
-  # runner, as the AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35,
-  # or a later one. The release job attests their build provenance, not this one, which runs
-  # the crates' build scripts and the packages' code and so has no OIDC token to sign with.
-  # Nothing comes from the Actions cache, as for the images: no crates built before, nor Bun
-  # itself. Unsigned as the apps are, their attestations and checksums vouch for them, and a
-  # cached build could put into them what no file of the tag holds. Without a cache every run
-  # builds everything, as a release's first run did anyway, since no other workflow saves a
-  # cache under these jobs' keys.
+  # say how to open them the first time. Linux builds on the oldest Ubuntu runner, as the
+  # AppImage carries that system's WebKitGTK, and the app needs its glibc, 2.35, or a later
+  # one. The release job attests their build provenance, not this one, which runs the crates'
+  # build scripts and the packages' code and so has no OIDC token to sign with. Nothing comes
+  # from the Actions cache, as for the images: no crates built before, nor Bun itself. Unsigned
+  # as the apps are, their attestations and checksums vouch for them, and a cached build could
+  # put into them what no file of the tag holds. Without a cache every run builds everything,
+  # as a release's first run did anyway, since no other workflow saves a cache under these
+  # jobs' keys.
+  #
+  # With the updater's key, in the repository's secrets TAURI_SIGNING_PRIVATE_KEY and
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD, each app also gets the file the installed apps update
+  # themselves from, signed with it: the macOS app as a .app.tar.gz, the Windows setup and the
+  # AppImage, each with a .sig beside it. Only the step that bundles the app has the key: it
+  # runs Tauri's CLI, which signs the files as it bundles them, and the bundlers the CLI calls,
+  # such as linuxdeploy and NSIS. The step before it builds the app, running the crates' build
+  # scripts, their proc macros and the packages' code, without the key. Both steps share a
+  # runner, so this keeps the key from code that reads it from the environment, though not from
+  # code that tampers with what the bundling step runs; what a build signs, the release job
+  # checks against the public key the apps carry. The job starts once the end-to-end tests
+  # passed, so the key signs nothing of a release they failed. Without the key, as in a fork,
+  # the apps build without those files, and the job's summary says so.
   desktop:
     name: App (${{ matrix.name }})
-    needs: version
+    needs: [version, e2e]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -207,23 +214,23 @@ jobs:
           - name: Linux x86_64
             id: linux-x86_64
             runner: ubuntu-22.04
-            args: --bundles deb,rpm,appimage
+            bundles: deb,rpm,appimage
           - name: Windows x86_64
             id: windows-x86_64
             runner: windows-2025
-            args: --bundles nsis
+            bundles: nsis
           - name: macOS Apple silicon
             id: macos-aarch64
             runner: macos-15
             target: aarch64-apple-darwin
             arch: aarch64
-            args: --target aarch64-apple-darwin --bundles app,dmg
+            bundles: app,dmg
           - name: macOS Intel
             id: macos-x86_64
             runner: macos-15
             target: x86_64-apple-darwin
             arch: x64
-            args: --target x86_64-apple-darwin --bundles app,dmg
+            bundles: app,dmg
     defaults:
       run:
         shell: bash
@@ -259,22 +266,43 @@ jobs:
       - name: Packages
         working-directory: apps/shell
         run: bun install --frozen-lockfile
-      # The updater's files only with its key, turned on here rather than in tauri.conf.json,
-      # so that a build without the key, such as make app-build, works as it is.
+      # The picker and the app's binary, without the updater's key: the crates' build scripts
+      # and proc macros, and the packages' code, run here.
       - name: Build
         working-directory: apps/shell
         env:
-          ARGS: ${{ matrix.args }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          args=()
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          bun run tauri build --ci --no-bundle "${args[@]}"
+      # The installers, from the binary the build made, in the only step with the updater's
+      # key. With it, Tauri's CLI also makes the updater's files and signs them, turned on here
+      # rather than in tauri.conf.json, so that a build without the key, such as make app-build,
+      # works as it is. First the checkout must be as the tag has it: a file the build left,
+      # such as a tauri.<platform>.conf.json, which Tauri merges into its configuration, could
+      # add a command of its own to this step.
+      - name: Bundle
+        working-directory: apps/shell
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          read -ra args <<<"$ARGS"
+          changed="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changed" ]; then
+            printf 'The build changed the checkout, so nothing is bundled:\n%s\n' "$changed"
+            exit 1
+          fi
+          args=(--bundles "$BUNDLES")
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
           else
             echo "No updater key in the repository's secrets: this app is built without the files it updates itself from, and the release has no update feed." >> "$GITHUB_STEP_SUMMARY"
           fi
-          bun run tauri build --ci "${args[@]}"
+          bun run tauri bundle --ci "${args[@]}"
       # The installers, and the updater's files with their signatures, named for the release
       # without the spaces of the product's name. Tauri names them after the apps' version,
       # which a release candidate's tag follows with -rc. and its number, so a candidate's files

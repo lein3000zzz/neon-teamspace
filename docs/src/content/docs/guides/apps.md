@@ -81,10 +81,13 @@ run the crates' build scripts and the packages' code, so they get no OIDC token,
 code could use to attest any file as the workflow's.
 
 With the project's update key, the desktop builds also make the files the apps update
-themselves from, each signed with that key as Tauri's CLI bundles it. The job that attaches
-them checks each signature against the public key the apps carry, and that it names the
-release's version, before it writes `latest.json`, so a release whose files no app would take
-fails there.
+themselves from, each signed with that key as Tauri's CLI bundles it. Only the step that
+bundles and signs them has the key: it runs Tauri's CLI and the bundlers it calls, such as
+linuxdeploy and NSIS. The step before it, where the crates' build scripts and the packages'
+code run, does not, and nothing is signed until the end-to-end tests have passed. The job that
+attaches the files checks each signature against the public key the apps carry, and that it
+names the release's version, before it writes `latest.json`, so a release whose files no app
+would take fails there.
 
 The workflow builds the APK unsigned. Once the end-to-end tests have passed, a job of its own
 signs it with the project's Android key, running only the Android SDK's `zipalign` and
