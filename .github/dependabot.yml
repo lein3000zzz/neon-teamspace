@@ -2,8 +2,9 @@
 # directories. Each runs the checks like any other pull request.
 #
 # In the workflows Dependabot reads only the uses: lines, so their other pins are bumped by
-# hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and cargo-deny; in
-# release.yml and e2e.yml the BuildKit image; in release.yml the SBOM scanner image. So are the
+# hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and the tools
+# install-action installs; in ci.yml, release.yml and e2e.yml the BuildKit image; in
+# release.yml the SBOM scanner image. So are the
 # cargo-chef, cargo-about and cargo-auditable downloads in deployments/Dockerfile, with their
 # checksums, and the server's tokio-tungstenite dev-dependency, which follows the version axum
 # uses, with axum.

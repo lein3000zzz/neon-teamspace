@@ -1,7 +1,9 @@
 # The checks, on each pull request into dev or main and on each push to them. A job runs only
-# when a file it checks changed; the secret scan always runs. A newer push cancels the run
-# before it on the same branch or pull request. Branch protection needs one required check,
-# `All checks`, which passes when every other job passed or was skipped.
+# when a file it checks changed; the secret scan always runs. The Rust code compiles once, in
+# the Rust build job: the Rust tests jobs run its test binaries side by side, and E2E, the
+# end-to-end tests, runs its neon binary. A newer push cancels the run before it on the same
+# branch or pull request. Branch protection needs two required checks: `All checks`, which
+# passes when every other job but E2E passed or was skipped, and `E2E`.
 name: CI
 
 on:
@@ -33,6 +35,10 @@ jobs:
       blocks: ${{ steps.filter.outputs.blocks }}
       versions: ${{ steps.filter.outputs.versions }}
       app: ${{ steps.filter.outputs.app }}
+      # Whether the end-to-end tests run: on each push and each pull request into main, and on
+      # a pull request into dev only when it changes the stack they run against, beside the
+      # server's code, or the tests themselves.
+      e2e-run: ${{ github.event_name == 'push' || github.base_ref == 'main' || steps.filter.outputs.stack == 'true' }}
     steps:
       # A push is compared, in git, with the commit the branch pointed to before it. The
       # whole history is fetched here, as without credentials the filter cannot fetch that
@@ -65,6 +71,7 @@ jobs:
               - clippy.toml
               - rustfmt.toml
               - deny.toml
+              - .config/nextest.toml
               - api/**
               # Read by the server's tests: the config test loads the example, and a test
               # compares the settings page with the settings registry.
@@ -102,6 +109,18 @@ jobs:
               - deny.toml
               - .editorconfig
               - docs/package.json
+            # What the end-to-end tests run against beside the server's code: the images, the
+            # Compose files and the crates' license notices in the server image, which the Rust
+            # build writes, and the tests.
+            stack:
+              - *shared
+              - deployments/**
+              - web/Dockerfile* # and its .dockerignore
+              - web/Caddyfile
+              - e2e/**
+              - about.toml
+              - about.hbs
+              - docs/scripts/** # the web image builds the docs
             blocks:
               - *shared
               - crates/blocks/**
@@ -152,15 +171,15 @@ jobs:
               - docs/package.json
 
   # Formatting, cargo-deny, clippy, the docs and the query cache check, on a runner beside the
-  # tests', which take longest, so that neither waits for the other. Each job keeps a cache of its
-  # own, as clippy only checks what the tests compile.
+  # build's, so that neither waits for the other. Each job keeps a cache of its own, as clippy
+  # only checks what the build compiles.
   rust-lint:
     name: Rust lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # The same Postgres and variables as the tests' job below, which reuses them: the query
+    # The same Postgres and variables as the tests' jobs below, which reuse them: the query
     # macros check each query against the database while clippy compiles too.
     services: &rust-services
       # As deployments/docker-compose.dev.yml runs it, on the runner's port 5432.
@@ -183,8 +202,8 @@ jobs:
       DATABASE_URL: postgres://neon:neon@localhost:5432/neon
       NEON_DATABASE__URL: postgres://neon:neon@localhost:5432/neon
       CARGO_TERM_COLOR: always
-      # Line tables keep test backtraces readable; without full debug info the build, and
-      # the cache restored before it, are much smaller.
+      # Line tables keep backtraces readable; without full debug info the build, and the
+      # cache restored before it, are much smaller.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -225,24 +244,29 @@ jobs:
       - name: Query cache is current
         run: make sqlx-check
 
-  rust:
-    name: Rust tests
+  # The workspace compiled once, in Cargo's ci profile, so that the dependencies compile once
+  # for both of its outputs: every test binary, in an archive that the Rust tests jobs run, and
+  # the neon binary they link, which E2E runs. The SQL is checked against the query cache, which
+  # the lint job holds to the migrations, so no database is needed. It runs for E2E too when no
+  # Rust file changed, as E2E tests the server built from the checkout.
+  rust-build:
+    name: Rust build
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.e2e-run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    services: *rust-services
-    env: *rust-env
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: true
+      # sccache keeps the workspace's own libraries in the Actions cache, which the dependency
+      # cache below leaves out. It caches no test binary, nor any crate that links, so the tests
+      # still compile and link each time. neon-store, the one crate whose macros read files
+      # rustc does not track, the query cache, embeds each migration with include_str!, which it
+      # does track, and the query cache follows from the queries and the migrations. Like the
+      # other caches, only a push writes to it.
+      SCCACHE_GHA_ENABLED: true
+      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
-      # The runner comes with SDKs this project never uses. Without removing them, the tests'
-      # build and their databases fill the disk to within 1% of full, where SeaweedFS turns its
-      # volumes read-only and the S3 tests fail.
-      - name: Free disk space
-        run: |
-          df -h /
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
-            /opt/hostedtoolcache/CodeQL
-          df -h /
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -250,28 +274,163 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
-      # The tests' dependencies, saved and read as in the lint job.
+      # The dependencies, built in the ci profile. The tools come from install-action below on
+      # each run, so the cache leaves out the installed binaries.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
-      - name: sqlx-cli
-        run: cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls
-      # The query macros need the tables before anything compiles against the database.
-      - name: Migrations
-        run: make migrate
-      - name: Tests
-        run: make test
-      # The S3 blob store against SeaweedFS in a container, with the test binary just built.
-      - name: S3 blob store
-        run: make test-s3
-      - name: Disk space left
-        if: always()
-        run: df -h /
-      # With the neon binary the tests built, as cargo builds it for the server's integration
-      # tests. make api-check alone would compile it again: built from the query cache, and
-      # without the features the tests' dependencies turn on, it shares little with their build.
+          cache-bin: false
+      # cargo-about writes the crates' license notices into the server image.
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152,cargo-about@0.9.3,sccache@0.19.0
+          fallback: none
+      # The Actions cache's URL and token, which only actions see otherwise, for sccache. Set as
+      # the compiler's wrapper only now, after the dependency cache's key is made.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: sccache
+        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+      # Every test binary of the workspace, with the features make test builds them with.
+      - name: Build
+        run: cargo nextest archive --workspace --locked --cargo-profile ci --archive-file nextest-archive.tar.zst
+      # The examples in doc comments, which nextest does not run, against the libraries just
+      # built.
+      - name: Doctests
+        run: cargo test --workspace --locked --doc --profile ci
+      # With the neon binary the build linked, as cargo builds it for the server's integration
+      # tests.
       - name: OpenAPI description is current
-        run: make api-check NEON=target/debug/neon
+        run: make api-check NEON=target/ci/neon
+      # The binary and its crates' notices, which E2E puts into the server image.
+      - name: Server image's files
+        run: |
+          make server-notices SERVER_NOTICES=server/THIRD_PARTY_NOTICES.txt
+          cp target/ci/neon server/neon
+      - name: sccache's statistics
+        run: sccache --show-stats
+      # Already compressed with zstd, so stored as they are. Kept only for the run's jobs.
+      - if: needs.changes.outputs.rust == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - if: needs.changes.outputs.e2e-run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: neon-server
+          path: server/
+          if-no-files-found: error
+          retention-days: 1
+
+  # The tests, from the build's archive, in jobs side by side, each with its own Postgres, as
+  # nextest divides them. nextest runs each test in a process of its own. The checkout is where
+  # the build's was, so the tests find the files they read, and nextest its settings.
+  rust:
+    name: Rust tests (${{ matrix.partition }}/${{ strategy.job-total }})
+    needs: [changes, rust-build]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    services: *rust-services
+    env: *rust-env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+          fallback: none
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nextest-archive
+      # As cargo-nextest itself rather than through cargo, which would install the toolchain
+      # rust-toolchain.toml names, though nothing compiles here.
+      - name: Tests
+        env:
+          PARTITION: count:${{ matrix.partition }}/${{ strategy.job-total }}
+        run: |
+          cargo-nextest nextest run --profile ci --archive-file nextest-archive.tar.zst \
+            --workspace-remap . --partition "$PARTITION"
+      # The S3 blob store against SeaweedFS in a container, in one of the jobs.
+      - if: strategy.job-index == 0
+        name: S3 blob store
+        run: |
+          make test-s3 S3_TESTS="cargo-nextest nextest run --profile ci \
+            --archive-file nextest-archive.tar.zst --workspace-remap . -E 'binary(blobs)'"
+
+  # The end-to-end tests: the build's neon binary in the server image's prebuilt target, the web
+  # image built from the checkout, a throwaway Compose stack of them, and the tests against it,
+  # all through make e2e. The release workflow's own run, in e2e.yml, builds both images from
+  # scratch instead, the server in the release profile.
+  e2e:
+    name: E2E
+    needs: [changes, rust-build]
+    # Branch protection requires this check, so it fails rather than skips when it cannot know
+    # whether to run, or what to test.
+    if: >-
+      !cancelled() &&
+      (needs.changes.result != 'success' || needs.changes.outputs.e2e-run == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - if: needs.changes.result != 'success' || needs.rust-build.result != 'success'
+        name: The server was built
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          BUILD: ${{ needs.rust-build.result }}
+        run: |
+          echo "Changes: $CHANGES. Rust build: $BUILD."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The tests run with Bun on the runner; Docker, Compose and Buildx come with the image.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      # A BuildKit container for make's bake, which, unlike Docker's own builder, reads and
+      # writes the Actions cache, from a pinned image as in release.yml. Bake loads the images
+      # it builds into Docker for Compose to run.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+      # The Actions cache's URL and token, which only actions see otherwise, for bake to reach
+      # the cache from a run step.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: neon-server
+          path: prebuilt
+      # The web image's layers, every stage's (mode=max), so that the tools, the system packages
+      # and the packages build again only when a Dockerfile or a lockfile changes. A run reads
+      # what the last push to its branch, or to a pull request's base branch, saved, and only a
+      # push saves; a failed save does not fail the run. The server image takes the build's
+      # binary, and builds in seconds without a cache. Under make -j2 the images build while
+      # make e2e-install installs the tests' browser and its system libraries.
+      - name: Build the images, start the stack, run the tests
+        env:
+          SAVE_CACHE: ${{ github.event_name == 'push' }}
+        run: |
+          flags="--set web.cache-from=type=gha,scope=e2e-web"
+          if [ "$SAVE_CACHE" = true ]; then
+            flags="$flags --set web.cache-to=type=gha,scope=e2e-web,mode=max,ignore-error=true"
+          fi
+          make -j2 e2e E2E_SERVER_PREBUILT=prebuilt E2E_BUILD_FLAGS="$flags"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
 
   web:
     name: Web app
@@ -325,8 +484,8 @@ jobs:
       - name: Licenses of the installed packages
         run: bun scripts/licenses.ts docs
 
-  # The end-to-end tests' own code. The E2E workflow runs the tests against the images.
-  e2e:
+  # The end-to-end tests' own code. The E2E job runs the tests against the images.
+  e2e-code:
     name: E2E test code
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
@@ -350,7 +509,7 @@ jobs:
         run: bun scripts/licenses.ts e2e
 
   # The block document model against BlockNote: neon-blocks reads the updates BlockNote wrote,
-  # and BlockNote loads the ones neon-blocks wrote. The Rust tests job runs the crate's tests
+  # and BlockNote loads the ones neon-blocks wrote. The Rust tests jobs run the crate's tests
   # too; this job adds the other direction, which needs BlockNote.
   blocks:
     name: Block fixtures
@@ -570,11 +729,24 @@ jobs:
             "$GITLEAKS_IMAGE" git --no-banner --redact --verbose --ignore-gitleaks-allow \
             --log-opts="$range" "${options[@]}" .
 
-  # The one check for branch protection to require, so that skipped jobs pass it.
+  # One of the two checks for branch protection to require, so that skipped jobs pass it. E2E,
+  # the other, is required on its own.
   all:
     name: All checks
     if: always()
-    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, app, app-ios, secrets]
+    needs:
+      - changes
+      - rust-lint
+      - rust-build
+      - rust
+      - web
+      - docs
+      - e2e-code
+      - blocks
+      - versions
+      - app
+      - app-ios
+      - secrets
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

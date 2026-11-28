@@ -1,16 +1,11 @@
-# The end-to-end tests: both images built from the checkout, a throwaway Compose stack, and
-# the tests against it, all through make e2e. On each pull request into main; on a pull
-# request into dev only when it changes the images, the stack, the tests or the Makefile that
-# runs them; on each push to dev or main, whose run saves the images' layer cache that pull
-# requests into them read; by hand; and before each release, which calls this workflow and
-# whose run uses no cache.
+# The end-to-end tests of the real images: both built from the checkout, a throwaway Compose
+# stack, and the tests against it, all through make e2e. Before each release, which calls this
+# workflow, with the server in the release profile and no cache; and by hand, with the server
+# in Cargo's quicker e2e profile. Pull requests and pushes run the same tests in the CI
+# workflow instead, on the server binary its Rust build compiled.
 name: E2E
 
 on:
-  pull_request:
-    branches: [dev, main]
-  push:
-    branches: [dev, main]
   workflow_dispatch:
   workflow_call:
 
@@ -18,49 +13,15 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    name: Changes
-    # Only a pull request into dev is filtered. Called from a release, the event is the
-    # tag's push, so this is skipped and the tests run, as they do on a push to a branch.
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read # the pull request's files come from the API
-    outputs:
-      e2e: ${{ steps.filter.outputs.e2e }}
-    steps:
-      - id: filter
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        with:
-          filters: |
-            e2e:
-              - deployments/**
-              - web/Dockerfile* # and its .dockerignore
-              - web/Caddyfile
-              - e2e/**
-              - Makefile
-              - about.toml # the server image's notices stage
-              - about.hbs
-              - docs/scripts/** # the web image builds the docs
-              - .github/workflows/e2e.yml
-
   e2e:
     name: E2E
-    needs: changes
-    if: >-
-      !cancelled() &&
-      (needs.changes.result == 'skipped' ||
-       (needs.changes.result == 'success' && needs.changes.outputs.e2e == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # A newer push to the pull request cancels its run; the run of a push to a branch or of a
-    # release is never cancelled, so the cache a push's run saves is whole. Named apart from
-    # the callers' groups, as a called workflow sees its caller's name.
+    # A run is never cancelled. Named apart from the callers' groups, as a called workflow sees
+    # its caller's name.
     concurrency:
-      group: e2e-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      group: e2e-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,9 +30,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: docs/package.json
-      # A BuildKit container for make's bake, which, unlike Docker's own builder, reads and
-      # writes the Actions cache, from a pinned image as in release.yml. Bake loads the images
-      # it builds into Docker for Compose to run.
+      # A BuildKit container for make's bake, which, unlike Docker's own builder, reads the
+      # Actions cache, from a pinned image as in release.yml. Bake loads the images it builds
+      # into Docker for Compose to run.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
@@ -83,29 +44,19 @@ jobs:
       # no cache at all.
       - if: github.ref_type != 'tag'
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
-      # Each image's layers, every stage's (mode=max), so that the tools, the system packages
-      # and the dependencies cargo-chef cooks build again only when a Dockerfile, Cargo.lock, a
-      # manifest or a lockfile changes. A run reads what the last push to its branch, or to a
-      # pull request's base branch, saved. As with the Rust jobs' caches, only a push to dev or
-      # main saves, and a failed save does not fail the run. A tag's run neither reads nor
-      # saves, and builds both images from the checkout alone. Under make -j2 the images build
-      # while make e2e-install installs the tests' browser and its system libraries.
-      # The server builds in Cargo's quicker e2e profile, but for a tag's run, which tests it
-      # built as the published image is, in the release profile.
+      # A run by hand reads the web image's layers that CI's E2E saves on a push to dev, and
+      # saves none; the server compiles without a cache. A tag's run neither reads nor saves,
+      # and builds both images from the checkout alone, the server as the published image is
+      # built, in the release profile. Under make -j2 the images build while make e2e-install
+      # installs the tests' browser and its system libraries.
       - name: Build the images, start the stack, run the tests
         env:
           USE_CACHE: ${{ github.ref_type != 'tag' }}
-          SAVE_CACHE: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
           E2E_CARGO_PROFILE: ${{ github.ref_type == 'tag' && 'release' || 'e2e' }}
         run: |
           flags=""
           if [ "$USE_CACHE" = true ]; then
-            for image in server web; do
-              flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
-              if [ "$SAVE_CACHE" = true ]; then
-                flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"
-              fi
-            done
+            flags="--set web.cache-from=type=gha,scope=e2e-web"
           fi
           make -j2 e2e E2E_BUILD_FLAGS="$flags"
       - if: failure()
