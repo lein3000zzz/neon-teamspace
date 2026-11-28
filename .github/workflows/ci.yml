@@ -1,7 +1,17 @@
 # The checks, on each pull request into dev or main and on each push to them. A job runs only
-# when a file it checks changed; the secret scan always runs. A newer push cancels the run
-# before it on the same branch or pull request. Branch protection needs one required check,
-# `All checks`, which passes when every other job passed or was skipped.
+# when a file it checks changed; the secret scan always runs. The Rust code compiles once, in
+# the Rust build job: the Rust tests jobs run its test binaries side by side, and E2E, the
+# end-to-end tests, runs its neon binary. A newer push cancels the run before it on the same
+# branch or pull request. Branch protection needs two required checks: `All checks`, which
+# passes when every other job but E2E passed or was skipped, and `E2E`.
+#
+# A pull request saves no Actions cache, and reads what the last push to its base branch saved.
+# A push to dev saves every job's cache, and a push to main only the Versions job's, which a
+# release's run reads. A pull request into main thus compiles the Rust build and E2E's images
+# without a cache, in about the time it waits anyway for E2E (real images), which compiles the
+# server in its image without one, as a release does; copies of those caches for main would
+# take about 2 GB more of the cache's 10 GB. The release workflow reads none but Versions', and
+# its E2E builds the real images without a cache.
 name: CI
 
 on:
@@ -33,6 +43,11 @@ jobs:
       blocks: ${{ steps.filter.outputs.blocks }}
       versions: ${{ steps.filter.outputs.versions }}
       app: ${{ steps.filter.outputs.app }}
+      server-image: ${{ steps.filter.outputs.server-image }}
+      # Whether the end-to-end tests run: on each push and each pull request into main, and on
+      # a pull request into dev only when it changes the stack they run against, beside the
+      # server's code, or the tests themselves.
+      e2e-run: ${{ github.event_name == 'push' || github.base_ref == 'main' || steps.filter.outputs.stack == 'true' }}
     steps:
       # A push is compared, in git, with the commit the branch pointed to before it. The
       # whole history is fetched here, as without credentials the filter cannot fetch that
@@ -65,6 +80,7 @@ jobs:
               - clippy.toml
               - rustfmt.toml
               - deny.toml
+              - .config/nextest.toml
               - api/**
               # Read by the server's tests: the config test loads the example, and a test
               # compares the settings page with the settings registry.
@@ -103,6 +119,24 @@ jobs:
               - deny.toml
               - .editorconfig
               - docs/package.json
+            # What the end-to-end tests run against beside the server's code: the images, the
+            # Compose files and the crates' license notices in the server image, which the
+            # Server notices job writes, and the tests.
+            stack:
+              - *shared
+              - deployments/**
+              - web/Dockerfile* # and its .dockerignore
+              - web/Caddyfile
+              - e2e/**
+              - about.toml
+              - about.hbs
+              - docs/scripts/** # the web image builds the docs
+            # What builds the images in full, as a release does, beyond what E2E builds: the
+            # server image's own stages, which E2E's prebuilt target skips.
+            server-image:
+              - deployments/Dockerfile*
+              - deployments/docker-compose.build.yml
+              - .github/workflows/e2e.yml
             blocks:
               - *shared
               - crates/blocks/**
@@ -156,15 +190,15 @@ jobs:
               - docs/package.json
 
   # Formatting, cargo-deny, clippy, the docs and the query cache check, on a runner beside the
-  # tests', which take longest, so that neither waits for the other. Each job keeps a cache of its
-  # own, as clippy only checks what the tests compile.
+  # build's, so that neither waits for the other. Each job keeps a cache of its own, as clippy
+  # only checks what the build compiles.
   rust-lint:
     name: Rust lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # The same Postgres and variables as the tests' job below, which reuses them: the query
+    # The same Postgres and variables as the tests' jobs below, which reuse them: the query
     # macros check each query against the database while clippy compiles too.
     services: &rust-services
       # As deployments/docker-compose.dev.yml runs it, on the runner's port 5432.
@@ -187,8 +221,8 @@ jobs:
       DATABASE_URL: postgres://neon:neon@localhost:5432/neon
       NEON_DATABASE__URL: postgres://neon:neon@localhost:5432/neon
       CARGO_TERM_COLOR: always
-      # Line tables keep test backtraces readable; without full debug info the build, and
-      # the cache restored before it, are much smaller.
+      # Line tables keep backtraces readable; without full debug info the build, and the
+      # cache restored before it, are much smaller.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -201,10 +235,10 @@ jobs:
           rustup toolchain install --no-self-update
           rustc --version
       # Clippy and the query cache check build from the same dependencies. Pull requests read
-      # the cache that the last push to their base branch saved, and save none of their own.
+      # the cache that the last push to dev saved, and save none of their own.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: &save-on-dev ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
       # The version and features CONTRIBUTING.md gives. The cache keeps the binary, so this
       # compiles only when the cache is cold.
       - name: sqlx-cli
@@ -229,24 +263,29 @@ jobs:
       - name: Query cache is current
         run: make sqlx-check
 
-  rust:
-    name: Rust tests
+  # The workspace compiled once, in Cargo's ci profile, so that the dependencies compile once
+  # for both of its outputs: every test binary, in an archive that the Rust tests jobs run, and
+  # the neon binary they link, which E2E runs. The SQL is checked against the query cache, which
+  # the lint job holds to the migrations, so no database is needed. It runs for E2E too when no
+  # Rust file changed, as E2E tests the server built from the checkout.
+  rust-build:
+    name: Rust build
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.e2e-run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    services: *rust-services
-    env: *rust-env
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: true
+      # sccache keeps the workspace's own libraries in the Actions cache, which the dependency
+      # cache below leaves out. It caches no test binary, nor any crate that links, so the tests
+      # still compile and link each time. neon-store, the one crate whose macros read files
+      # rustc does not track, the query cache, embeds each migration with include_str!, which it
+      # does track, and the query cache follows from the queries and the migrations. Like the
+      # other caches, only a push to dev writes to it.
+      SCCACHE_GHA_ENABLED: true
+      SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
-      # The runner comes with SDKs this project never uses. Without removing them, the tests'
-      # build and their databases fill the disk to within 1% of full, where SeaweedFS turns its
-      # volumes read-only and the S3 tests fail.
-      - name: Free disk space
-        run: |
-          df -h /
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
-            /opt/hostedtoolcache/CodeQL
-          df -h /
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -254,28 +293,225 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
-      # The tests' dependencies, saved and read as in the lint job.
+      # The dependencies, built in the ci profile. The tools come from install-action below on
+      # each run, so the cache leaves out the installed binaries.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
-      - name: sqlx-cli
-        run: cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls
-      # The query macros need the tables before anything compiles against the database.
-      - name: Migrations
-        run: make migrate
-      - name: Tests
-        run: make test
-      # The S3 blob store against SeaweedFS in a container, with the test binary just built.
-      - name: S3 blob store
-        run: make test-s3
-      - name: Disk space left
-        if: always()
-        run: df -h /
-      # With the neon binary the tests built, as cargo builds it for the server's integration
-      # tests. make api-check alone would compile it again: built from the query cache, and
-      # without the features the tests' dependencies turn on, it shares little with their build.
+          save-if: *save-on-dev
+          cache-bin: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152,sccache@0.19.0
+          fallback: none
+      # The Actions cache's URL and token, which only actions see otherwise, for sccache. Set as
+      # the compiler's wrapper only now, after the dependency cache's key is made.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: sccache
+        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+      # Every test binary of the workspace, with the features make test builds them with.
+      - name: Build
+        run: cargo nextest archive --workspace --locked --cargo-profile ci --archive-file nextest-archive.tar.zst
+      # The examples in doc comments, which nextest does not run, against the libraries just
+      # built.
+      - name: Doctests
+        run: cargo test --workspace --locked --doc --profile ci
+      # With the neon binary the build linked, as cargo builds it for the server's integration
+      # tests.
       - name: OpenAPI description is current
-        run: make api-check NEON=target/debug/neon
+        run: make api-check NEON=target/ci/neon
+      - name: sccache's statistics
+        run: sccache --show-stats
+      # Already compressed with zstd, so stored as they are. Kept only for the run's jobs.
+      - if: needs.changes.outputs.rust == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      # The binary alone, at the artifact's root, for E2E's server image.
+      - if: needs.changes.outputs.e2e-run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-binary
+          path: target/ci/neon
+          if-no-files-found: error
+          retention-days: 1
+
+  # The license notices of the crates the neon binary links, as the server image holds them, for
+  # E2E's image of the build's binary. They depend on the manifests and Cargo.lock alone, and
+  # cargo-about takes half a minute to read every crate's license files, so they are written on
+  # a runner of their own beside the build rather than after it.
+  server-notices:
+    name: Server notices
+    needs: changes
+    if: needs.changes.outputs.e2e-run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cargo-about reads the dependency graph through cargo, which needs the toolchain.
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - name: Notices
+        run: make server-notices SERVER_NOTICES=server/THIRD_PARTY_NOTICES.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-notices
+          path: server/THIRD_PARTY_NOTICES.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  # The tests, from the build's archive, in jobs side by side, each with its own Postgres, as
+  # nextest divides them. nextest runs each test in a process of its own. The checkout is where
+  # the build's was, so the tests find the files they read, and nextest its settings. The archive
+  # goes into the checkout's target/, where the build had it, rather than into a temporary
+  # directory: a test that runs one of the workspace's binaries, as the updater's run
+  # neon-updater, finds it at the path the build compiled into the test.
+  rust:
+    name: Rust tests (${{ matrix.partition }}/${{ strategy.job-total }})
+    needs: [changes, rust-build]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    services: *rust-services
+    env: *rust-env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+          fallback: none
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nextest-archive
+      # As cargo-nextest itself rather than through cargo, which would install the toolchain
+      # rust-toolchain.toml names, though nothing compiles here.
+      - name: Tests
+        env:
+          PARTITION: count:${{ matrix.partition }}/${{ strategy.job-total }}
+        run: |
+          cargo-nextest nextest run --profile ci --archive-file nextest-archive.tar.zst \
+            --workspace-remap . --extract-to . --extract-overwrite --partition "$PARTITION"
+      # The S3 blob store against SeaweedFS in a container, in one of the jobs.
+      - if: strategy.job-index == 0
+        name: S3 blob store
+        run: |
+          make test-s3 S3_TESTS="cargo-nextest nextest run --profile ci \
+            --archive-file nextest-archive.tar.zst --workspace-remap . --extract-to . \
+            --extract-overwrite -E 'binary(blobs)'"
+
+  # The end-to-end tests: the build's neon binary in the server image's prebuilt target, the web
+  # image built from the checkout, a throwaway Compose stack of them, and the tests against it,
+  # all through make e2e, which builds and checks the updater image too. The release workflow's
+  # own run, in e2e.yml, builds every image from scratch instead, the server and the updater in
+  # the release profile.
+  e2e:
+    name: E2E
+    needs: [changes, rust-build, server-notices]
+    # Branch protection requires this check, so it fails rather than skips when it cannot know
+    # whether to run, or what to test.
+    if: >-
+      !cancelled() &&
+      (needs.changes.result != 'success' || needs.changes.outputs.e2e-run == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - if: >-
+          needs.changes.result != 'success' || needs.rust-build.result != 'success' ||
+          needs.server-notices.result != 'success'
+        name: The server's files were made
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          BUILD: ${{ needs.rust-build.result }}
+          NOTICES: ${{ needs.server-notices.result }}
+        run: |
+          echo "Changes: $CHANGES. Rust build: $BUILD. Server notices: $NOTICES."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The tests run with Bun on the runner; Docker, Compose and Buildx come with the image.
+      # The Bun that docs/package.json pins in packageManager, for the whole repository: from
+      # the Actions cache on a push, and from Bun's release on a pull request, which saves no
+      # cache.
+      - &setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+          no-cache: ${{ github.event_name == 'pull_request' }}
+      # A BuildKit container for make's bake, which, unlike Docker's own builder, reads and
+      # writes the Actions cache, from a pinned image as in release.yml. Bake loads the images
+      # it builds into Docker for Compose to run.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+      # The Actions cache's URL and token, which only actions see otherwise, for bake to reach
+      # the cache from a run step.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      # The directory make e2e wraps in the server image: the binary and its notices.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-binary
+          path: prebuilt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-notices
+          path: prebuilt
+      # The web and updater images' layers, every stage's (mode=max), so that the tools, the
+      # system packages, the packages and the updater's dependencies, which cargo-chef cooks,
+      # build again only when a Dockerfile, a manifest or a lockfile changes. A run reads what
+      # the last push to dev saved, and only a push to dev saves; a failed save does not fail
+      # the run. The server image takes the build's binary, and builds in seconds without a
+      # cache. Under make -j2 the images build while make e2e-install installs the tests'
+      # browser and its system libraries.
+      - name: Build the images, start the stack, run the tests
+        env:
+          SAVE_CACHE: *save-on-dev
+        run: |
+          flags=""
+          for image in web updater; do
+            flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
+            if [ "$SAVE_CACHE" = true ]; then
+              flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"
+            fi
+          done
+          make -j2 e2e E2E_SERVER_PREBUILT=prebuilt E2E_BUILD_FLAGS="$flags"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The release's own end-to-end tests, e2e.yml: every image built in full from the checkout,
+  # the server compiled in its image rather than taken from the Rust build. On each pull request
+  # into main, the last before a release, and on each change to what builds the images, so that
+  # a change that breaks the server image's build fails here rather than first in a release's
+  # run. Its check is named "E2E (real images) / E2E", apart from the required E2E.
+  e2e-images:
+    name: E2E (real images)
+    needs: changes
+    if: github.base_ref == 'main' || needs.changes.outputs.server-image == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e.yml
 
   web:
     name: Web app
@@ -287,10 +523,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The Bun that docs/package.json pins in packageManager, for the whole repository.
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make web-install
       - name: Types, lint, formatting, API types, tests
         run: make web-check
@@ -312,9 +545,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       # The packages, and the headless Chromium that draws the diagrams. The runner image
       # already has the system libraries Chromium needs; the build fails if one is missing.
       - run: make docs-install
@@ -329,8 +560,8 @@ jobs:
       - name: Licenses of the installed packages
         run: bun scripts/licenses.ts docs
 
-  # The end-to-end tests' own code. The E2E workflow runs the tests against the images.
-  e2e:
+  # The end-to-end tests' own code. The E2E job runs the tests against the images.
+  e2e-code:
     name: E2E test code
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
@@ -340,9 +571,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       # The packages only, not make e2e-install: neither check below needs the browser, nor
       # the system libraries it installs on CI.
       - name: Packages
@@ -354,7 +583,7 @@ jobs:
         run: bun scripts/licenses.ts e2e
 
   # The block document model against BlockNote: neon-blocks reads the updates BlockNote wrote,
-  # and BlockNote loads the ones neon-blocks wrote. The Rust tests job runs the crate's tests
+  # and BlockNote loads the ones neon-blocks wrote. The Rust tests jobs run the crate's tests
   # too; this job adds the other direction, which needs BlockNote.
   blocks:
     name: Block fixtures
@@ -375,10 +604,8 @@ jobs:
           rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+          save-if: *save-on-dev
+      - *setup-bun
       - run: make blocks-install
       - name: Both directions, the fixtures current
         run: make blocks-check
@@ -406,26 +633,25 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
+      # Saved on a push to main as well as to dev, for the release.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: versions
           save-if: ${{ github.event_name == 'push' }}
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - name: Every stated version is Cargo.toml's
         run: make version-check
 
-  # The apps' Tauri project on Linux, with the system libraries its webview needs: the picker's
-  # checks, the Rust side's formatting, lints, docs and tests, the lints of its Android code,
-  # the picker in Chromium and WebKit, and a build of the Linux app. On Ubuntu 22.04, where the
-  # release builds it.
+  # The apps' Tauri project on Linux, with the system libraries its webview needs: the apps'
+  # license checks, the picker's checks, and the Rust side's formatting, lints, docs and tests.
+  # On Ubuntu 22.04, where the release builds the Linux app. The jobs after it test the picker
+  # in browsers, lint the Android code and build the Linux app, each on a runner of its own.
   app:
     name: App shell
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -433,8 +659,129 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu, and Xvfb,
-      # the display the webview check runs the app on.
+      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential \
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/shell/src-tauri -> target
+          save-if: *save-on-dev
+      # cargo-about writes the crates' notices into each build of the picker.
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.22.0,cargo-about@0.9.3
+          fallback: none
+      - *setup-bun
+      - run: make app-install
+      - name: Licenses of the crates and the installed packages
+        run: |
+          cargo deny --manifest-path apps/shell/src-tauri/Cargo.toml check
+          bun scripts/licenses.ts apps/shell
+      - name: Picker checks, Rust formatting, lints and tests
+        run: make app-check
+
+  # The picker on its own, under the app's policy, in Chromium and WebKit. Its build writes the
+  # crates' notices with cargo-about, which needs the toolchain to read the crates, but nothing
+  # compiles.
+  app-browsers:
+    name: App shell (browsers)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - *setup-bun
+      - run: make app-install
+      - name: Browsers
+        run: make app-browsers
+      - name: The picker in Chromium and WebKit
+        run: make app-test
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picker-report
+          path: apps/shell/playwright-report
+          retention-days: 7
+
+  # The Android code, which only the release builds otherwise: clippy for one of its ABIs,
+  # with the C compiler of the runner's newest NDK, at the minimum SDK tauri.conf.json sets,
+  # for the crates that build C. The build embeds the picker, so the picker is built first.
+  app-android:
+    name: App shell (Android)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-linux-android
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/shell/src-tauri -> target
+          save-if: *save-on-dev
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - *setup-bun
+      - run: make app-install
+      - run: make app-picker
+      - name: Android lints
+        run: |
+          ndk="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$ndk/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$ndk/llvm-ar"
+          cargo clippy --manifest-path apps/shell/src-tauri/Cargo.toml --target aarch64-linux-android \
+            --lib -- -D warnings
+
+  # The Linux app as a .deb, the quickest of its bundles, which the release builds all of; then
+  # the built app in WebKitGTK against a hostile server, under Xvfb. On a push, and on each pull
+  # request into main, the last gate before a release, so that a change that lets a server's
+  # page call the app's commands cannot reach a release unchecked. Not on the pull requests into
+  # dev, as the release build of the app takes longest of the app's jobs; it keeps no cache, as
+  # its cache would take a large share of the Actions cache.
+  app-linux:
+    name: App shell (Linux)
+    needs: changes
+    if: >-
+      needs.changes.outputs.app == 'true' &&
+      (github.event_name == 'push' || github.base_ref == 'main')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # As the App shell job installs them, and Xvfb, the display the webview check runs the
+      # app on.
       - name: System libraries
         run: |
           sudo apt-get update
@@ -444,41 +791,12 @@ jobs:
         run: |
           rustup toolchain install --no-self-update
           rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: apps/shell/src-tauri -> target
-          save-if: ${{ github.event_name == 'push' }}
-      # cargo-about writes the crates' notices into each build of the picker.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
-          tool: cargo-deny@0.22.0,cargo-about@0.9.3
+          tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
-      - name: Licenses of the crates and the installed packages
-        run: |
-          cargo deny --manifest-path apps/shell/src-tauri/Cargo.toml check
-          bun scripts/licenses.ts apps/shell
-      - name: Picker checks, Rust formatting, lints and tests
-        run: make app-check
-      # The Android code, which only the release builds otherwise: clippy for one of its ABIs,
-      # with the C compiler of the runner's newest NDK, at the minimum SDK tauri.conf.json
-      # sets, for the crates that build C.
-      - name: Android lints
-        run: |
-          rustup target add aarch64-linux-android
-          ndk="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$ndk/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$ndk/llvm-ar"
-          cargo clippy --manifest-path apps/shell/src-tauri/Cargo.toml --target aarch64-linux-android \
-            --lib -- -D warnings
-      - name: Browsers
-        run: make app-browsers
-      - name: The picker in Chromium and WebKit
-        run: make app-test
-      # The Linux app as a .deb, the quickest of its bundles; the release builds them all.
       - name: Linux build
         working-directory: apps/shell
         run: bun run tauri build --ci --bundles deb
@@ -486,12 +804,6 @@ jobs:
       # picker's commands, however it sends the window to the app's own origin.
       - name: The app's webview against a hostile server
         run: xvfb-run -a make app-webview-check
-      - if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: picker-report
-          path: apps/shell/playwright-report
-          retention-days: 7
 
   # The iOS code, which no workflow builds otherwise, as the iOS app builds from source:
   # clippy for the device, on macOS, where the iOS SDK is. The build embeds the picker, so
@@ -516,15 +828,13 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/shell/src-tauri -> target
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: *save-on-dev
       # cargo-about writes the crates' notices into the picker's build.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-about@0.9.3
           fallback: none
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: docs/package.json
+      - *setup-bun
       - run: make app-install
       - run: make app-picker
       - name: iOS lints
@@ -575,11 +885,29 @@ jobs:
             "$GITLEAKS_IMAGE" git --no-banner --redact --verbose --ignore-gitleaks-allow \
             --log-opts="$range" "${options[@]}" .
 
-  # The one check for branch protection to require, so that skipped jobs pass it.
+  # One of the two checks for branch protection to require, so that skipped jobs pass it. E2E,
+  # the other, is required on its own.
   all:
     name: All checks
     if: always()
-    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, app, app-ios, secrets]
+    needs:
+      - changes
+      - rust-lint
+      - rust-build
+      - server-notices
+      - rust
+      - e2e-images
+      - web
+      - docs
+      - e2e-code
+      - blocks
+      - versions
+      - app
+      - app-browsers
+      - app-android
+      - app-linux
+      - app-ios
+      - secrets
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

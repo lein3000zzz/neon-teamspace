@@ -236,6 +236,9 @@ profile, the release profile without link-time optimisation, which compiles in a
 the time; `make e2e E2E_CARGO_PROFILE=release` tests the build the published images have.
 `E2E_PROJECT`, `E2E_SERVER_IMAGE`, `E2E_WEB_IMAGE` and `E2E_WEB_PORT` name the Compose
 project, the image tags and the port, so runs from two checkouts can go side by side.
+`E2E_SERVER_PREBUILT` names a directory holding a `neon` binary built for Linux and the
+notices `make server-notices` writes, which `make e2e` then puts into the server image's
+`prebuilt` target instead of compiling the server, as CI does.
 
 `make updates-e2e` tries a one-click update for real on this machine's Docker, which CI does
 not. It builds the server, web and updater images at the workspace's version, and again at the
@@ -251,16 +254,24 @@ refuses a wrong token. The images carry no signature, so the updater runs with
 removes the stack, its registry, its images and its files however it ends.
 
 CI runs the same `make` targets. On each pull request into `dev` or `main`, and each push to
-them, a job per area runs the checks for the files that changed, the Rust ones against a
-Postgres service container, and a change to the `Makefile` or a workflow runs them all.
-The **App shell** job runs on Ubuntu 22.04 with WebKitGTK, as the release builds the Linux
-app: the apps' license checks, `make app-check`, clippy for Android, `make app-test`, a `.deb`
-build of the Linux app, and `make app-webview-check` against that build under Xvfb, and
-**App shell (iOS)** runs clippy for iOS on macOS. Gitleaks scans the new commits for
-secrets, and **All checks** passes once every other job passed or was skipped.
-The E2E workflow runs `make e2e` on each pull request into `main`, and on those into `dev`
-that touch the images, Caddy, the Compose files, the end-to-end tests or the `Makefile`; when
-the tests fail, the Playwright report is attached to the run.
+them, a job per area runs the checks for the files that changed, and a change to the
+`Makefile` or a workflow runs them all. The Rust code compiles once, in Cargo's `ci` profile:
+**Rust build** archives every test binary with [cargo-nextest](https://nexte.st), runs the
+doctests, which nextest does not run, and checks the OpenAPI description. Three **Rust tests**
+jobs share the archived tests out, each against a Postgres service container, with the
+settings in `.config/nextest.toml`, and one of them runs `make test-s3` too. **E2E** runs
+`make e2e` on the build's `neon` binary, on each push, on each pull request into `main`, and
+on those into `dev` that touch the images, Caddy, the Compose files, the end-to-end tests or
+the `Makefile`; when the tests fail, the Playwright report is attached to the run. Before a
+release, the E2E workflow runs `make e2e` on the images built in full, the server and the
+updater in the release profile. **E2E (real images)** runs that workflow in the `e2e` profile
+on each pull request into `main`, and on those that change the `Dockerfile`, the Compose file
+that builds the images or the workflow itself. The **App shell** jobs run on Ubuntu 22.04 with
+WebKitGTK, as the release builds the Linux app: the apps' license checks and
+`make app-check`; `make app-test`; clippy for Android; and on a push and on each pull request
+into `main`, a `.deb` build of the Linux app and `make app-webview-check` against that build
+under Xvfb. **App shell (iOS)** runs clippy for iOS on macOS. Gitleaks scans the new commits
+for secrets, and **All checks** passes once every job but E2E passed or was skipped.
 
 Dependabot opens one grouped pull request per ecosystem each month, into `dev`. The few pins
 it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.

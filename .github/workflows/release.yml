@@ -76,11 +76,8 @@ jobs:
     name: E2E
     needs: version
     uses: ./.github/workflows/e2e.yml
-    # The called workflow's pull request filter asks for pull-requests: read, and a called
-    # workflow may only narrow what its caller grants, even for a job that is skipped.
     permissions:
       contents: read
-      pull-requests: read
 
   images:
     name: Image (${{ matrix.image }})

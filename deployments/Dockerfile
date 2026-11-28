@@ -13,6 +13,9 @@
 # The build argument CARGO_PROFILE names the Cargo profile of each binary: release, the default,
 # for every published image, or e2e, Cargo.toml's quicker build of the same code, which make e2e
 # passes unless E2E_CARGO_PROFILE names another.
+#
+# The target prebuilt is the same image around a neon binary built outside it, and builds in
+# seconds; see its stage below.
 
 # cargo-chef, cargo-about and cargo-auditable for the builder's platform, amd64 or arm64, as
 # their projects release them, checked against the checksums those releases publish. Compiled
@@ -354,14 +357,17 @@ EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/neon-updater"]
 CMD ["serve"]
 
-# glibc, libgcc and CA certificates, no shell, running as the unprivileged user nonroot.
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:29ee70762214fe8190cea04ef1c0a84a8365879e047ce8f911ae5a5ab2355fa2
+# ----------------------------------------------------------------------------------------------
+# The server image's runtime, and its two targets: prebuilt, and the image every release
+# publishes, which stays the file's last stage, as a build that names no target builds the last.
 
-COPY --from=build /neon /usr/local/bin/neon
-COPY --from=notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
-# The data directory, attachments on local disk among it, owned by nonroot. A volume mounted
-# there takes its owner from it the first time.
-COPY --from=build --chown=65532:65532 /data /var/lib/neon
+# Nothing at all, for the prebuilt target below to make its empty data directory of.
+FROM scratch AS empty
+
+# The image's settings, which both images below share: glibc, libgcc and CA certificates, no
+# shell, running as the unprivileged user nonroot. Settings alone add no layer, so each image's
+# files go on top in the order its stage copies them.
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:29ee70762214fe8190cea04ef1c0a84a8365879e047ce8f911ae5a5ab2355fa2 AS runtime
 
 LABEL org.opencontainers.image.title="neon-teamspace-server" \
       org.opencontainers.image.description="Neon Teamspace's server, the neon binary" \
@@ -385,3 +391,27 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
 
 ENTRYPOINT ["/usr/local/bin/neon"]
 CMD ["serve"]
+
+# The target prebuilt: the image below with a neon binary built outside it, for CI's end-to-end
+# tests, which run the binary its Rust tests were built with rather than compiling the server
+# again. The build context neon-prebuilt holds the binary, built for Linux and the image's
+# platform against a glibc no newer than Debian 13's, and the crates' THIRD_PARTY_NOTICES.txt,
+# as make server-notices writes it; make e2e passes it when E2E_SERVER_PREBUILT is set. The
+# binary's mode is set here, as an artifact passed between jobs loses it. Only a build of this
+# target reads the context, so the default build needs none.
+FROM runtime AS prebuilt
+
+COPY --from=neon-prebuilt --chmod=755 /neon /usr/local/bin/neon
+COPY --from=neon-prebuilt /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
+# The data directory, empty and owned by nonroot, as the image below has it: the contents of an
+# empty stage.
+COPY --from=empty --chown=65532:65532 / /var/lib/neon
+
+# The image every release publishes, the default target.
+FROM runtime
+
+COPY --from=build /neon /usr/local/bin/neon
+COPY --from=notices /THIRD_PARTY_NOTICES.txt /usr/share/doc/neon/THIRD_PARTY_NOTICES.txt
+# The data directory, attachments on local disk among it, owned by nonroot. A volume mounted
+# there takes its owner from it the first time.
+COPY --from=build --chown=65532:65532 /data /var/lib/neon
