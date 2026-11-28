@@ -2,6 +2,7 @@
 //! hyphen, such as `0.3.0-rc.1`, as [semver.org](https://semver.org) has them. No leading `v`
 //! and no build metadata: a version is also an image tag, which takes no `+`.
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
@@ -18,6 +19,22 @@ impl Version {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Whether this version comes before `other`, a semantic version such as the updater's
+    /// own, by semantic versioning's precedence: `0.2.0` before `0.2.1`, and `0.3.0-rc.1`
+    /// before `0.3.0`. Build metadata in `other` counts for nothing. Every version comes
+    /// before text that is no semantic version, so such text lets no version through.
+    #[must_use]
+    pub fn precedes(&self, other: &str) -> bool {
+        match (
+            semver::Version::parse(&self.0),
+            semver::Version::parse(other),
+        ) {
+            (Ok(this), Ok(other)) => this.cmp_precedence(&other) == Ordering::Less,
+            // A version is a semantic version, as from_str checks: only `other` may not be.
+            _ => true,
+        }
     }
 }
 
@@ -43,7 +60,8 @@ impl FromStr for Version {
     type Err = NotAVersion;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if is_version(text) {
+        // A semantic version too, for its precedence, as every version is.
+        if is_version(text) && semver::Version::parse(text).is_ok() {
             Ok(Self(text.to_owned()))
         } else {
             Err(NotAVersion(text.to_owned()))
@@ -119,6 +137,39 @@ mod tests {
         ] {
             assert!(bad.parse::<Version>().is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn comes_before_what_semantic_versioning_puts_after_it() {
+        let version = |text: &str| text.parse::<Version>().unwrap();
+        for (older, newer) in [
+            ("0.2.0", "0.2.1"),
+            ("0.2.9", "0.10.0"),
+            ("0.9.9", "1.0.0"),
+            ("0.3.0-rc.1", "0.3.0"),
+            ("0.3.0-rc.1", "0.3.0-rc.2"),
+            ("0.3.0-rc.9", "0.3.0-rc.10"),
+            ("0.3.0-beta.1", "0.3.0-rc.1"),
+        ] {
+            assert!(version(older).precedes(newer), "{older} < {newer}");
+            assert!(!version(newer).precedes(older), "{newer} > {older}");
+        }
+        assert!(!version("0.2.1").precedes("0.2.1"), "not before itself");
+        assert!(
+            !version("0.2.1").precedes("0.2.1+build.5"),
+            "build metadata counts for nothing"
+        );
+        assert!(version("0.2.1").precedes("latest"), "lets nothing through");
+        assert!(version("0.2.1").precedes(""), "lets nothing through");
+    }
+
+    #[test]
+    fn the_updater_s_own_version_is_one() {
+        assert!(
+            crate::VERSION.parse::<Version>().is_ok(),
+            "{}",
+            crate::VERSION
+        );
     }
 
     #[test]

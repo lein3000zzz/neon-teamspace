@@ -4,7 +4,8 @@
 //! - `GET /healthz` answers `200`, without a token.
 //! - `GET /v1/status` answers `200` with the latest update's [`Status`].
 //! - `POST /v1/update` with an [`UpdateRequest`] starts an update and answers `202` with its
-//!   [`Status`]; `409` while another is under way, `400` for a version that is none.
+//!   [`Status`]; `409` while another is under way, `400` for a version that is none, or that
+//!   is older than the updater's own.
 //!
 //! The two under `/v1` take the token as `Authorization: Bearer <token>`, and answer `401`
 //! without it.

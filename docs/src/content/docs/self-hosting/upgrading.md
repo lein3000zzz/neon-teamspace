@@ -345,12 +345,19 @@ variables, of which the Compose file passes the token and `NEON_UPDATER_VERIFY` 
 ### What it may do
 
 The updater holds the Docker socket, `/var/run/docker.sock`, and whoever controls the Docker
-daemon controls the machine as root. Whoever holds the token, or takes over the updater, can
-do what root can. The updater is built to do one thing with it:
+daemon controls the machine as root. Whoever takes over the updater itself can do what root
+can. Whoever holds the token can have it update the stack and nothing else, as below: to the
+updater's own release or a newer one, signed by this repository's release workflow. With the
+signature check off, that is whatever the registry holds under such a tag, so whoever can
+push there can then do what root can too. The updater is built to do one thing with the
+socket:
 
 - It takes a release's version and nothing else: no image, command or path. A version is
   `major.minor.patch`, with a pre-release after a hyphen, such as `0.2.1` or `0.3.0-rc.1`.
-  Anything else is refused with `400`.
+  Anything else is refused with `400`, and so is a release older than the updater's own: it
+  never goes back, so the token only moves the stack forward. Its own release is taken, so
+  that a failed update can be tried again. Going back is done by hand, as
+  [Rolling back](#rolling-back) describes.
 - Every request but `/healthz` needs the token, which it compares in constant time, and a
   wrong or missing one gets `401`. It runs one update at a time, and refuses another while
   one runs with `409`.

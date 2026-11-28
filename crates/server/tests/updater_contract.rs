@@ -181,6 +181,13 @@ fn version(text: &str) -> Version {
     Version::parse(text).expect("a version")
 }
 
+/// A release `minor` minor versions after the updater's own, so that the tests hold whatever
+/// the workspace's version is.
+fn newer(minor: u64) -> Version {
+    let own = version(neon_updater::VERSION);
+    Version::new(own.major, own.minor + minor, 0)
+}
+
 #[tokio::test]
 async fn the_server_reads_an_idle_updater_s_status() {
     let running = Running::start().await;
@@ -209,14 +216,13 @@ async fn the_server_starts_an_update_follows_it_and_is_refused_a_second_meanwhil
     let running = Running::start().await;
     let client = UpdaterClient::default();
     let at = running.endpoint(TOKEN);
+    let (first, second) = (newer(1), newer(2));
+    let release = first.to_string();
 
-    let started = client
-        .update(&at, &version("0.2.1"))
-        .await
-        .expect("the update starts");
+    let started = client.update(&at, &first).await.expect("the update starts");
 
     assert_eq!(started.state, UpdaterState::Updating);
-    assert_eq!(started.version.as_deref(), Some("0.2.1"));
+    assert_eq!(started.version.as_deref(), Some(release.as_str()));
     assert!(started.started_at.is_some());
     assert_eq!(started.finished_at, None);
     assert_eq!(started.updater_version, neon_updater::VERSION);
@@ -225,27 +231,26 @@ async fn the_server_starts_an_update_follows_it_and_is_refused_a_second_meanwhil
     // end of its output so far, and a second update is refused with 409.
     let under_way = client.status(&at).await.expect("a status");
     assert_eq!(under_way.state, UpdaterState::Updating);
-    assert_eq!(under_way.version.as_deref(), Some("0.2.1"));
+    assert_eq!(under_way.version.as_deref(), Some(release.as_str()));
     assert_eq!(under_way.started_at, started.started_at);
     assert_eq!(
-        under_way.log.as_deref(),
-        Some("Updating server, web, updater to 0.2.1\n")
+        under_way.log,
+        Some(format!("Updating server, web, updater to {release}\n"))
     );
-    assert_eq!(
-        client.update(&at, &version("0.2.2")).await,
-        Err(UpdaterError::Busy)
-    );
+    assert_eq!(client.update(&at, &second).await, Err(UpdaterError::Busy));
 
     running.docker.through.add_permits(1);
     running.updater.wait().await;
 
     let done = client.status(&at).await.expect("a status");
     assert_eq!(done.state, UpdaterState::Done);
-    assert_eq!(done.version.as_deref(), Some("0.2.1"));
+    assert_eq!(done.version.as_deref(), Some(release.as_str()));
     assert_eq!(done.error, None);
     assert_eq!(
-        done.log.as_deref(),
-        Some("Updating server, web, updater to 0.2.1\npulled the release's images\n")
+        done.log,
+        Some(format!(
+            "Updating server, web, updater to {release}\npulled the release's images\n"
+        ))
     );
     assert_eq!(done.started_at, started.started_at);
     assert!(done.finished_at >= done.started_at);
@@ -254,10 +259,10 @@ async fn the_server_starts_an_update_follows_it_and_is_refused_a_second_meanwhil
     assert_eq!(runs.len(), 1, "the refused update ran nothing: {runs:?}");
     let asked = runs[0]
         .windows(2)
-        .any(|pair| pair[0] == "--version" && pair[1] == "0.2.1");
+        .any(|pair| pair[0] == "--version" && pair[1] == release);
     assert!(
         asked,
-        "the update's container is asked for 0.2.1: {:?}",
+        "the update's container is asked for {release}: {:?}",
         runs[0]
     );
 }
@@ -267,25 +272,28 @@ async fn a_failed_update_reaches_the_server_with_the_update_s_own_error() {
     let running = Running::start().await;
     let client = UpdaterClient::default();
     let at = running.endpoint(TOKEN);
-    let why = "checking the images' signatures; nothing was changed: \
-               ghcr.io/lein3000zzz/neon-teamspace-server:0.2.1 is not signed";
+    let release = newer(1);
+    let why = format!(
+        "checking the images' signatures; nothing was changed: \
+         ghcr.io/lein3000zzz/neon-teamspace-server:{release} is not signed"
+    );
     *running
         .docker
         .fail
         .lock()
-        .unwrap_or_else(PoisonError::into_inner) = Some(why.to_owned());
+        .unwrap_or_else(PoisonError::into_inner) = Some(why.clone());
     running.docker.through.add_permits(1);
 
     client
-        .update(&at, &version("0.2.1"))
+        .update(&at, &release)
         .await
         .expect("the update starts");
     running.updater.wait().await;
 
     let failed = client.status(&at).await.expect("a status");
     assert_eq!(failed.state, UpdaterState::Failed);
-    assert_eq!(failed.version.as_deref(), Some("0.2.1"));
-    assert_eq!(failed.error.as_deref(), Some(why));
+    assert_eq!(failed.version, Some(release.to_string()));
+    assert_eq!(failed.error.as_deref(), Some(why.as_str()));
     let log = failed.log.expect("the output");
     assert!(log.ends_with(&format!("{ERROR_PREFIX}{why}\n")), "{log}");
     assert!(failed.finished_at.is_some());
@@ -293,7 +301,7 @@ async fn a_failed_update_reaches_the_server_with_the_update_s_own_error() {
     // A failed update is over: the next one starts.
     running.docker.through.add_permits(1);
     let again = client
-        .update(&at, &version("0.2.1"))
+        .update(&at, &release)
         .await
         .expect("a second try starts");
     assert_eq!(again.state, UpdaterState::Updating);
@@ -310,11 +318,11 @@ async fn a_wrong_token_is_refused_and_starts_nothing() {
 
     assert_eq!(client.status(&at).await, Err(UpdaterError::Refused));
     assert_eq!(
-        client.update(&at, &version("0.2.1")).await,
+        client.update(&at, &newer(1)).await,
         Err(UpdaterError::Refused)
     );
     let refused = client
-        .update(&at, &version("0.2.1"))
+        .update(&at, &newer(1))
         .await
         .expect_err("refused")
         .to_string();
@@ -349,6 +357,36 @@ async fn a_version_the_updater_does_not_take_is_refused_with_its_reason() {
         ))
     );
     assert!(running.runs().is_empty());
+}
+
+/// The updater never goes back: a release older than its own is refused with `400`, which
+/// reaches the server with the updater's reason, and nothing runs. Its own release is taken,
+/// as when a failed update is tried again. `0.0.1` comes before every version the workspace
+/// has had, from 0.1.0 on.
+#[tokio::test]
+async fn an_older_release_is_refused_with_the_updater_s_reason() {
+    let running = Running::start().await;
+    let client = UpdaterClient::default();
+    let at = running.endpoint(TOKEN);
+
+    assert_eq!(
+        client.update(&at, &version("0.0.1")).await,
+        Err(UpdaterError::Rejected(format!(
+            "0.0.1 is older than the updater's {}: the updater never goes back",
+            neon_updater::VERSION
+        )))
+    );
+    assert!(running.runs().is_empty());
+    let status = client.status(&at).await.expect("a status");
+    assert_eq!(status.state, UpdaterState::Idle);
+
+    running.docker.through.add_permits(1);
+    let same = client
+        .update(&at, &version(neon_updater::VERSION))
+        .await
+        .expect("its own release starts");
+    assert_eq!(same.state, UpdaterState::Updating);
+    running.updater.wait().await;
 }
 
 /// An updater URL whose path the updater does not serve: its `404`, in the API's error shape,

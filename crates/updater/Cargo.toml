@@ -19,6 +19,8 @@ anyhow.workspace = true
 # Not the workspace's axum, which keeps the default features: only what three routes use.
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 clap.workspace = true
+# A version's precedence, so that the updater never goes back to an older release.
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # The token is compared by its SHA-256, in constant time.

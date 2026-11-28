@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use support::{TOKEN, eventually, lines, path, program, request};
 
 /// The fake docker: `inspect` and `ps` answer from the files beside it, and `run`, the
-/// update's container, prints, waits for the file `go`, and fails if the file `fail` is there,
-/// saying why as `neon-updater apply` does.
+/// update's container, prints the release its label names, waits for the file `go`, and fails
+/// if the file `fail` is there, saying why as `neon-updater apply` does.
 const DOCKER: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$FAKE_DOCKER_DIR/calls"
 case "$1" in
@@ -26,14 +26,17 @@ inspect)
     esac ;;
 ps) echo def456 ;;
 run)
-    echo "Pulling server, web at 0.2.1"
+    for arg; do
+        case "$arg" in neon.update=*) version="${arg#neon.update=}" ;; esac
+    done
+    echo "Pulling server, web at $version"
     while [ ! -e "$FAKE_DOCKER_DIR/go" ]; do sleep 0.02; done
     echo "a warning on stderr" >&2
     if [ -e "$FAKE_DOCKER_DIR/fail" ]; then
         echo "neon-updater: pulling the images: docker compose: exit status 1" >&2
         exit 1
     fi
-    echo "Updated to 0.2.1" ;;
+    echo "Updated to $version" ;;
 *) echo "unexpected: $*" >&2; exit 2 ;;
 esac
 "#;
@@ -47,6 +50,18 @@ const SERVER: &str = r#"[{"Image": "sha256:server", "Config": {"Labels": {
     "com.docker.compose.project": "neon", "com.docker.compose.service": "server",
     "com.docker.compose.project.config_files": "/srv/neon/deployments/docker-compose.yml",
     "com.docker.compose.project.working_dir": "/srv/neon/deployments"}}}]"#;
+
+/// A release `minor` minor versions after the updater's own, so that the tests hold whatever
+/// the workspace's version is.
+fn newer(minor: u64) -> String {
+    let own = semver::Version::parse(env!("CARGO_PKG_VERSION")).expect("a semantic version");
+    semver::Version::new(own.major, own.minor + minor, 0).to_string()
+}
+
+/// An update request's body for `version`.
+fn asking(version: &str) -> String {
+    format!(r#"{{"version": "{version}"}}"#)
+}
 
 /// The updater, stopped when dropped, and every line it logged.
 struct Updater {
@@ -106,6 +121,7 @@ fn serves_updates_one_at_a_time_through_docker() {
     std::fs::write(dir.join("server.json"), SERVER).unwrap();
     let updater = start(dir);
     let addr = updater.addr.as_str();
+    let (first, second) = (newer(1), newer(2));
 
     let health = request(addr, "GET", "/healthz", None, "");
     assert_eq!((health.status, health.body.as_str()), (200, "ok\n"));
@@ -121,38 +137,31 @@ fn serves_updates_one_at_a_time_through_docker() {
         serde_json::json!({"state": "idle", "updater_version": env!("CARGO_PKG_VERSION")})
     );
 
-    let started = request(
-        addr,
-        "POST",
-        "/v1/update",
-        Some(TOKEN),
-        r#"{"version": "0.2.1"}"#,
-    );
+    let older = request(addr, "POST", "/v1/update", Some(TOKEN), &asking("0.0.1"));
+    assert_eq!(older.status, 400, "{}", older.body);
+    assert_eq!(older.json()["error"]["code"], "older_release");
+
+    let started = request(addr, "POST", "/v1/update", Some(TOKEN), &asking(&first));
     assert_eq!(started.status, 202, "{}", started.body);
     assert_eq!(started.json()["state"], "updating");
 
-    let busy = request(
-        addr,
-        "POST",
-        "/v1/update",
-        Some(TOKEN),
-        r#"{"version": "0.2.2"}"#,
-    );
+    let busy = request(addr, "POST", "/v1/update", Some(TOKEN), &asking(&second));
     assert_eq!(busy.status, 409, "{}", busy.body);
     assert_eq!(busy.json()["error"]["code"], "update_in_progress");
 
     // The update's output, as it comes.
+    let pulling = format!("Pulling server, web at {first}");
     let running = eventually("the update's first line", || {
         let status = request(addr, "GET", "/v1/status", Some(TOKEN), "").json();
         status["log"]
             .as_str()
-            .is_some_and(|log| log.contains("Pulling server, web at 0.2.1"))
+            .is_some_and(|log| log.contains(&pulling))
             .then_some(status)
     });
     assert_eq!(running["state"], "updating");
     assert_eq!(
         running["log"].as_str().unwrap().lines().next(),
-        Some("Updating server, web, updater to 0.2.1")
+        Some(format!("Updating server, web, updater to {first}").as_str())
     );
 
     std::fs::write(dir.join("go"), "").unwrap();
@@ -161,11 +170,11 @@ fn serves_updates_one_at_a_time_through_docker() {
         (status["state"] != "updating").then_some(status)
     });
     assert_eq!(done["state"], "done", "{done}");
-    assert_eq!(done["version"], "0.2.1");
+    assert_eq!(done["version"], first.as_str());
     // Both streams, each read as it comes, so the two lines may come in either order.
     let log = done["log"].as_str().unwrap();
     assert!(log.contains("a warning on stderr\n"), "{log}");
-    assert!(log.contains("Updated to 0.2.1\n"), "{log}");
+    assert!(log.contains(&format!("Updated to {first}\n")), "{log}");
     assert!(done["finished_at"].is_string());
 
     let calls = lines(dir, "calls");
@@ -180,32 +189,29 @@ fn serves_updates_one_at_a_time_through_docker() {
     );
     assert_eq!(
         calls[3],
-        "run --rm --name neon-update --label neon.update=0.2.1 --sig-proxy=false \
-         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-         --workdir /srv/neon/deployments --entrypoint /usr/local/bin/neon-updater \
-         --mount type=bind,source=/srv/neon/deployments,target=/srv/neon/deployments,readonly \
-         --mount type=bind,source=/srv/neon/deployments/.env,target=/srv/neon/deployments/.env \
-         sha256:updater apply --version 0.2.1 --project neon --project-directory /srv/neon/deployments \
-         --file /srv/neon/deployments/docker-compose.yml --env-file /srv/neon/deployments/.env \
-         --service server --service web --self updater"
+        format!(
+            "run --rm --name neon-update --label neon.update={first} --sig-proxy=false \
+             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+             --workdir /srv/neon/deployments --entrypoint /usr/local/bin/neon-updater \
+             --mount type=bind,source=/srv/neon/deployments,target=/srv/neon/deployments,readonly \
+             --mount type=bind,source=/srv/neon/deployments/.env,target=/srv/neon/deployments/.env \
+             sha256:updater apply --version {first} --project neon \
+             --project-directory /srv/neon/deployments \
+             --file /srv/neon/deployments/docker-compose.yml --env-file /srv/neon/deployments/.env \
+             --service server --service web --self updater"
+        )
     );
 
     // Each line of the update's output is in the updater's own log too.
     let logged = updater.log.lock().unwrap().join("\n");
     assert!(
-        logged.contains(r#""output":"Pulling server, web at 0.2.1""#),
+        logged.contains(&format!(r#""output":"{pulling}""#)),
         "{logged}"
     );
 
     // Another update may start once one ended, and its failure is kept.
     std::fs::write(dir.join("fail"), "").unwrap();
-    let again = request(
-        addr,
-        "POST",
-        "/v1/update",
-        Some(TOKEN),
-        r#"{"version": "0.2.1"}"#,
-    );
+    let again = request(addr, "POST", "/v1/update", Some(TOKEN), &asking(&first));
     assert_eq!(again.status, 202, "{}", again.body);
     let failed = eventually("the second update to end", || {
         let status = request(addr, "GET", "/v1/status", Some(TOKEN), "").json();

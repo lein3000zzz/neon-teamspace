@@ -301,6 +301,20 @@ async fn update(State(server): State<Server>, body: Body) -> Response {
             );
         }
     };
+    // Never back: an older release, signed as it may be, can have flaws fixed since, and the
+    // token would otherwise move the stack, the updater included, back to one. The server asks
+    // for newer releases alone, and going back is a backup's restore, by hand. The updater's
+    // own version passes, so that a failed update can be tried again.
+    if version.precedes(crate::VERSION) {
+        return refusal(
+            StatusCode::BAD_REQUEST,
+            "older_release",
+            format!(
+                "{version} is older than the updater's {}: the updater never goes back",
+                crate::VERSION
+            ),
+        );
+    }
     match server.start(version) {
         Ok(status) => (StatusCode::ACCEPTED, axum::Json(status)).into_response(),
         Err(under_way) => refusal(
@@ -338,6 +352,18 @@ mod tests {
     use crate::output::Output;
 
     const TOKEN: &str = "test-token-not-a-secret-0123456789";
+
+    /// A release `minor` minor versions after the updater's own, so that the tests hold
+    /// whatever the workspace's version is.
+    fn newer(minor: u64) -> String {
+        let own = semver::Version::parse(crate::VERSION).unwrap();
+        semver::Version::new(own.major, own.minor + minor, 0).to_string()
+    }
+
+    /// An update request's body for `version`.
+    fn asking(version: &str) -> String {
+        format!(r#"{{"version": "{version}"}}"#)
+    }
 
     /// A job that says it was asked, waits to be let through, prints, then fails as told.
     struct Gate {
@@ -539,6 +565,7 @@ mod tests {
     #[tokio::test]
     async fn one_update_at_a_time_from_idle_to_done_or_failed() {
         let (server, gate, mut asked) = server(1);
+        let (first, second) = (newer(1), newer(2));
 
         let (code, body) = call(&server, "GET", "/v1/status", Some(TOKEN), "").await;
         assert_eq!(code, StatusCode::OK);
@@ -547,41 +574,30 @@ mod tests {
             json!({"state": "idle", "updater_version": crate::VERSION})
         );
 
-        let (code, body) = call(
-            &server,
-            "POST",
-            "/v1/update",
-            Some(TOKEN),
-            r#"{"version": "0.2.1"}"#,
-        )
-        .await;
+        let (code, body) = call(&server, "POST", "/v1/update", Some(TOKEN), &asking(&first)).await;
         assert_eq!(code, StatusCode::ACCEPTED);
         assert_eq!(body["state"], "updating");
-        assert_eq!(body["version"], "0.2.1");
+        assert_eq!(body["version"], first.as_str());
         assert!(body["started_at"].is_string());
         assert!(body.get("finished_at").is_none());
-        assert_eq!(asked.recv().await.unwrap(), "0.2.1");
+        assert_eq!(asked.recv().await.unwrap(), first);
 
-        let (code, body) = call(
-            &server,
-            "POST",
-            "/v1/update",
-            Some(TOKEN),
-            r#"{"version": "0.2.2"}"#,
-        )
-        .await;
+        let (code, body) = call(&server, "POST", "/v1/update", Some(TOKEN), &asking(&second)).await;
         assert_eq!(code, StatusCode::CONFLICT);
         assert_eq!(
             body,
-            json!({"error": {"code": "update_in_progress", "message": "an update is under way already, to 0.2.1"}})
+            json!({"error": {
+                "code": "update_in_progress",
+                "message": format!("an update is under way already, to {first}"),
+            }})
         );
 
         gate.through.add_permits(1);
         server.wait().await;
         let (_, body) = call(&server, "GET", "/v1/status", Some(TOKEN), "").await;
         assert_eq!(body["state"], "done");
-        assert_eq!(body["version"], "0.2.1");
-        assert_eq!(body["log"], "pulled 0.2.1\n");
+        assert_eq!(body["version"], first.as_str());
+        assert_eq!(body["log"], format!("pulled {first}\n"));
         assert!(body.get("error").is_none());
         let started = body["started_at"].as_str().unwrap();
         let finished = body["finished_at"].as_str().unwrap();
@@ -590,16 +606,9 @@ mod tests {
         // The last one done, another may start, and fail.
         *gate.fail.lock().unwrap() =
             Some("pulling the images: docker compose: exit status 1".to_owned());
-        let (code, _) = call(
-            &server,
-            "POST",
-            "/v1/update",
-            Some(TOKEN),
-            r#"{"version": "0.2.2"}"#,
-        )
-        .await;
+        let (code, _) = call(&server, "POST", "/v1/update", Some(TOKEN), &asking(&second)).await;
         assert_eq!(code, StatusCode::ACCEPTED);
-        assert_eq!(asked.recv().await.unwrap(), "0.2.2");
+        assert_eq!(asked.recv().await.unwrap(), second);
         let (_, body) = call(&server, "GET", "/v1/status", Some(TOKEN), "").await;
         assert_eq!(body["state"], "updating");
         assert!(body.get("error").is_none() && body.get("finished_at").is_none());
@@ -607,11 +616,47 @@ mod tests {
         server.wait().await;
         let (_, body) = call(&server, "GET", "/v1/status", Some(TOKEN), "").await;
         assert_eq!(body["state"], "failed");
-        assert_eq!(body["version"], "0.2.2");
+        assert_eq!(body["version"], second.as_str());
         assert_eq!(
             body["error"],
             "pulling the images: docker compose: exit status 1"
         );
+    }
+
+    /// `0.0.1` comes before every version the workspace has had, from 0.1.0 on.
+    #[tokio::test]
+    async fn an_older_release_is_refused_and_the_updater_s_own_taken() {
+        let (server, gate, mut asked) = server(1);
+
+        let (code, body) = call(&server, "POST", "/v1/update", Some(TOKEN), &asking("0.0.1")).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body,
+            json!({"error": {
+                "code": "older_release",
+                "message": format!(
+                    "0.0.1 is older than the updater's {}: the updater never goes back",
+                    crate::VERSION
+                ),
+            }})
+        );
+        assert!(asked.try_recv().is_err(), "the job was never asked");
+        assert_eq!(server.status(), Status::idle());
+
+        // The same release again, as when a failed update is tried again.
+        let (code, body) = call(
+            &server,
+            "POST",
+            "/v1/update",
+            Some(TOKEN),
+            &asking(crate::VERSION),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED, "{body}");
+        assert_eq!(asked.recv().await.unwrap(), crate::VERSION);
+        gate.through.add_permits(1);
+        server.wait().await;
+        assert_eq!(server.status().state, UpdateState::Done);
     }
 
     /// A job that panics.
@@ -638,7 +683,7 @@ mod tests {
             "POST",
             "/v1/update",
             Some(TOKEN),
-            r#"{"version": "0.2.1"}"#,
+            &asking(&newer(1)),
         )
         .await;
         assert_eq!(code, StatusCode::ACCEPTED);
@@ -654,7 +699,7 @@ mod tests {
             "POST",
             "/v1/update",
             Some(TOKEN),
-            r#"{"version": "0.2.1"}"#,
+            &asking(&newer(1)),
         )
         .await;
         assert_eq!(code, StatusCode::ACCEPTED, "another may start");
@@ -664,12 +709,13 @@ mod tests {
     #[tokio::test]
     async fn the_status_holds_the_end_of_the_log_while_it_runs_and_after() {
         let (server, gate, mut asked) = server(2000);
+        let version = newer(1);
         call(
             &server,
             "POST",
             "/v1/update",
             Some(TOKEN),
-            r#"{"version": "0.2.1"}"#,
+            &asking(&version),
         )
         .await;
         asked.recv().await.unwrap();
@@ -678,8 +724,9 @@ mod tests {
         gate.through.add_permits(1);
         server.wait().await;
         let log = server.status().log.unwrap();
+        let line = format!("pulled {version}\n");
         assert!(log.len() <= MAX_LOG_BYTES);
-        assert!(log.len() > MAX_LOG_BYTES - "pulled 0.2.1\n".len());
-        assert!(log.ends_with("pulled 0.2.1\n"));
+        assert!(log.len() > MAX_LOG_BYTES - line.len());
+        assert!(log.ends_with(&line));
     }
 }
