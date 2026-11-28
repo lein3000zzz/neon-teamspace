@@ -36,6 +36,20 @@ pub const MAX_NAME: usize = 255;
 pub const UNNAMED: &str = "file";
 
 text_enum! {
+    /// Where uploaded files are kept, as the `attachments.storage` setting names it.
+    StorageBackend {
+        /// The attachments directory under the server's data directory. The default.
+        Local => "local",
+        /// A bucket of an S3-compatible store.
+        S3 => "s3",
+    }
+}
+
+impl StorageBackend {
+    pub const DEFAULT: Self = Self::Local;
+}
+
+text_enum! {
     /// What a file is uploaded for: the kind of block it backs, or a page's cover, which
     /// takes images.
     FileKind {

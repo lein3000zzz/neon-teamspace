@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use neon_domain::attachments::{File, FileKind, file_id};
+use neon_domain::attachments::{File, FileKind, StorageBackend, file_id};
 use neon_domain::auth::Principal;
 use neon_domain::settings::Snapshot;
 use neon_domain::workspaces::{Action, Limits};
@@ -118,7 +118,7 @@ enum Where {
 
 impl Where {
     fn of(settings: &Snapshot, data_dir: &std::path::Path) -> Self {
-        if settings.get(keys::STORAGE) == "s3" {
+        if StorageBackend::parse(settings.get(keys::STORAGE)) == Some(StorageBackend::S3) {
             Self::S3(S3Location {
                 endpoint: settings.get(keys::S3_ENDPOINT).to_owned(),
                 bucket: settings.get(keys::S3_BUCKET).to_owned(),
