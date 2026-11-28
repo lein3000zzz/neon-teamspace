@@ -13,3 +13,9 @@ fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 3 }
 # A failing test's output as it fails, and again with the summary at the end.
 failure-output = "immediate-final"
+
+# That slowest test starts first, so that its wait passes while the other tests of its share
+# run, rather than after them.
+[[profile.ci.overrides]]
+filter = "package(neon-server) & test(=http::mcp_tests::changes_within_the_interval_are_told_together_once_it_ends)"
+priority = 100
