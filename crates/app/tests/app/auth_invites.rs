@@ -707,6 +707,9 @@ async fn a_denied_address_is_told_and_waits_30_days(pool: PgPool) {
 
     h.auth.deny_join(&admin, id).await.expect("denies");
     h.auth.settle().await;
+    let denied = h.auth.list_join_requests(&admin).await.expect("lists");
+    assert_eq!(denied[0].status(), JoinRequestStatus::Denied);
+    assert_eq!(denied[0].invite_id, None);
 
     let mails = h.mails().await;
     assert_eq!(mails.len(), 1);

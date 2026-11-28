@@ -2,7 +2,7 @@
 
 use neon_domain::auth::email_token::MAX_LINK_TOKEN;
 use neon_domain::auth::join_request::{
-    DENIED_WAIT, LINK_TTL, MAX_OPEN, MAX_UNCONFIRMED_PER_SOURCE, RETENTION, check_note,
+    DENIED_WAIT, LINK_TTL, MAX_OPEN, MAX_UNCONFIRMED_PER_SOURCE, RETENTION, Verdict, check_note,
 };
 use neon_domain::auth::{Email, JoinRequest, JoinRequestStatus, Principal};
 use neon_domain::network::client_source;
@@ -223,7 +223,8 @@ impl AuthService {
             let created = self
                 .new_invite(&mut tx, actor, code, Some(request.email.clone()), 1, now + self.invite_ttl())
                 .await?;
-            if !join_requests::decide(&mut *tx, id, true, actor.user.id, now, Some(created.invite.id)).await? {
+            let verdict = Verdict::Approved { invite_id: created.invite.id };
+            if !join_requests::decide(&mut *tx, id, verdict, actor.user.id, now).await? {
                 return Err(AuthError::NotFound("the request is not waiting for an admin"));
             }
             let queued = self.mail_configured();
@@ -244,7 +245,9 @@ impl AuthService {
         self.observe("deny_join", async {
             let request = self.pending_request(actor, id).await?;
             let mut tx = self.pool().begin().await?;
-            if !join_requests::decide(&mut *tx, id, false, actor.user.id, self.now(), None).await? {
+            if !join_requests::decide(&mut *tx, id, Verdict::Denied, actor.user.id, self.now())
+                .await?
+            {
                 return Err(AuthError::NotFound(
                     "the request is not waiting for an admin",
                 ));
