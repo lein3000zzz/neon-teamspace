@@ -57,6 +57,7 @@ impl WorkspaceService {
 /// cleans up attachments, after the trash and the versions so the files of pages purged and
 /// of versions thinned out go in the same run; one failing does not keep the others from
 /// running.
+#[must_use = "dropping the handle leaves the task running with no way to stop it"]
 pub struct Cleanup(Periodic);
 
 impl Cleanup {

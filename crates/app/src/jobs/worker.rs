@@ -216,6 +216,7 @@ fn default_span(job: &Job) -> Span {
 
 /// A running worker. It runs until [`stop`](Self::stop) is called, even if the handle is
 /// dropped.
+#[must_use = "dropping the handle leaves the worker running with no way to stop it"]
 #[derive(Debug)]
 pub struct WorkerHandle {
     id: String,

@@ -61,6 +61,7 @@ impl OAuthService {
 }
 
 /// The running cleanup: once at start, then every interval until stopped.
+#[must_use = "dropping the handle leaves the task running with no way to stop it"]
 pub struct Cleanup(Periodic);
 
 impl Cleanup {
