@@ -247,8 +247,7 @@ a file for each platform, with its signature. Each app carries the public key of
 project's update key, and installs a file only when its signature holds for that key and names
 the version `latest.json` announced, so an older release cannot pass for a newer one. A
 download that fails the check is refused, and the installed version stays as it was. The
-checks send no account and no cookie. A release built without the update key, as in a fork,
-has no `latest.json`, and the apps installed from it do not update themselves.
+checks send no account and no cookie.
 
 | Install | How it updates |
 |---|---|
@@ -261,6 +260,12 @@ A development build, which `make app-dev` runs, does not update itself: its offe
 release page. A copy installed from what `make app-build` makes updates from the project's
 releases as the release's installer of the same kind does. One installed from the Windows
 `.msi`, which no release has, opens the release page too.
+
+A release built without the update key has no `latest.json`: no app updates itself to it, and
+while it is the latest release the apps find no update. An app built from a fork still reads
+this project's feed and trusts this project's key, which `plugins.updater` in
+`tauri.conf.json` names, so it updates to this project's releases unless the fork changes
+them.
 
 ### Android
 
