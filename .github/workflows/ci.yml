@@ -42,6 +42,7 @@ jobs:
       blocks: ${{ steps.filter.outputs.blocks }}
       versions: ${{ steps.filter.outputs.versions }}
       app: ${{ steps.filter.outputs.app }}
+      server-image: ${{ steps.filter.outputs.server-image }}
       # Whether the end-to-end tests run: on each push and each pull request into main, and on
       # a pull request into dev only when it changes the stack they run against, beside the
       # server's code, or the tests themselves.
@@ -129,6 +130,12 @@ jobs:
               - about.toml
               - about.hbs
               - docs/scripts/** # the web image builds the docs
+            # What builds the images in full, as a release does, beyond what E2E builds: the
+            # server image's own stages, which E2E's prebuilt target skips.
+            server-image:
+              - deployments/Dockerfile*
+              - deployments/docker-compose.build.yml
+              - .github/workflows/e2e.yml
             blocks:
               - *shared
               - crates/blocks/**
@@ -492,6 +499,19 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The release's own end-to-end tests, e2e.yml: every image built in full from the checkout,
+  # the server compiled in its image rather than taken from the Rust build. On each pull request
+  # into main, the last before a release, and on each change to what builds the images, so that
+  # a change that breaks the server image's build fails here rather than first in a release's
+  # run. Its check is named "E2E (real images) / E2E", apart from the required E2E.
+  e2e-images:
+    name: E2E (real images)
+    needs: changes
+    if: github.base_ref == 'main' || needs.changes.outputs.server-image == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e.yml
 
   web:
     name: Web app
@@ -872,6 +892,7 @@ jobs:
       - rust-build
       - server-notices
       - rust
+      - e2e-images
       - web
       - docs
       - e2e-code

@@ -1,9 +1,10 @@
 # The end-to-end tests of the real images: the images built from the checkout, a throwaway
 # Compose stack of the server and web images, and the tests against it, all through make e2e,
 # which checks the updater image too. Before each release, which calls this workflow, with the
-# server and the updater in the release profile and no cache; and by hand, in Cargo's quicker
-# e2e profile. Pull requests and pushes run the same tests in the CI workflow instead, on the
-# server binary its Rust build compiled.
+# server and the updater in the release profile and no cache. In Cargo's quicker e2e profile:
+# from the CI workflow, on each pull request into main and on each change to what builds the
+# images; and by hand. Pull requests and pushes run the same tests in the CI workflow's E2E job
+# as well, on the server binary its Rust build compiled.
 name: E2E
 
 on:
@@ -18,8 +19,9 @@ jobs:
     name: E2E
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # A run is never cancelled. Named apart from the callers' groups, as a called workflow sees
-    # its caller's name.
+    # A newer run of the group waits for this one rather than cancelling it; a run the CI
+    # workflow called ends when a newer push cancels CI's own. Named apart from the callers'
+    # groups, as a called workflow sees its caller's name.
     concurrency:
       group: e2e-${{ github.ref }}
       cancel-in-progress: false
@@ -28,9 +30,11 @@ jobs:
         with:
           persist-credentials: false
       # The tests run with Bun on the runner; Docker, Compose and Buildx come with the image.
+      # From Bun's release on a pull request, which saves no cache, as in the CI workflow.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: docs/package.json
+          no-cache: ${{ github.event_name == 'pull_request' }}
       # A BuildKit container for make's bake, which, unlike Docker's own builder, reads the
       # Actions cache, from a pinned image as in release.yml. Bake loads the images it builds
       # into Docker for Compose to run.
@@ -45,12 +49,12 @@ jobs:
       # no cache at all.
       - if: github.ref_type != 'tag'
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
-      # A run by hand reads the web and updater images' layers that CI's E2E saved on the last
-      # push to its branch, and saves none; the server compiles without a cache. A tag's run
-      # neither reads nor saves, and builds every image from the checkout alone, the server and
-      # the updater as the published images are built, in the release profile. Under make -j2
-      # the images build while make e2e-install installs the tests' browser and its system
-      # libraries.
+      # A run by hand or from CI reads the web and updater images' layers that CI's E2E saved on
+      # the last push to its branch, or to a pull request's base branch, and saves none; the
+      # server compiles without a cache. A tag's run neither reads nor saves, and builds every
+      # image from the checkout alone, the server and the updater as the published images are
+      # built, in the release profile. Under make -j2 the images build while make e2e-install
+      # installs the tests' browser and its system libraries.
       - name: Build the images, start the stack, run the tests
         env:
           USE_CACHE: ${{ github.ref_type != 'tag' }}
