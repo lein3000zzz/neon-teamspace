@@ -123,11 +123,7 @@ impl WorkspaceService {
             let mut withdrawn = Vec::new();
             if current != role {
                 let owners = repo::count_owners(&mut *tx, workspace_id).await?;
-                check_owner_remains(
-                    owners,
-                    current == WorkspaceRole::Owner,
-                    role == WorkspaceRole::Owner,
-                )?;
+                check_owner_remains(owners, current, Some(role))?;
                 self.set_role(&mut tx, workspace_id, user_id, current, role)
                     .await?;
                 if current.manages() && !role.manages() {
@@ -172,7 +168,7 @@ impl WorkspaceService {
             let target = target(&mut tx, workspace_id, user_id).await?;
             check_member(principal, &membership, &target, Action::RemoveMember)?;
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
-            check_owner_remains(owners, target.role == WorkspaceRole::Owner, false)?;
+            check_owner_remains(owners, target.role, None)?;
             repo::remove_member(&mut *tx, workspace_id, user_id).await?;
             webhooks::lapse(&mut tx, workspace_id, user_id, self.now()).await?;
             let withdrawn = self
@@ -208,12 +204,12 @@ impl WorkspaceService {
             membership.check(Action::Leave)?;
             let role = membership.role()?;
             let owners = repo::count_owners(&mut *tx, workspace_id).await?;
-            check_owner_remains(owners, role == WorkspaceRole::Owner, false)?;
+            check_owner_remains(owners, role, None)?;
             // The workspace's lock keeps every teamspace's owners as they are meanwhile.
             for owners in
                 teamspaces::owners_where_owner(&mut *tx, workspace_id, principal.user.id).await?
             {
-                check_teamspace_owner_remains(owners, true, false, role.manages())?;
+                check_teamspace_owner_remains(owners, TeamspaceRole::Owner, None, role.manages())?;
             }
             repo::remove_member(&mut *tx, workspace_id, principal.user.id).await?;
             webhooks::lapse(&mut tx, workspace_id, principal.user.id, self.now()).await?;
