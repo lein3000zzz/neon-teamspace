@@ -412,8 +412,9 @@ jobs:
         run: make version-check
 
   # The apps' Tauri project on Linux, with the system libraries its webview needs: the picker's
-  # checks, the Rust side's formatting, lints and tests, the picker in Chromium and WebKit, and
-  # a build of the Linux app. On Ubuntu 22.04, where the release builds it.
+  # checks, the Rust side's formatting, lints, docs and tests, the lints of its Android code,
+  # the picker in Chromium and WebKit, and a build of the Linux app. On Ubuntu 22.04, where the
+  # release builds it.
   app:
     name: App shell
     needs: changes
@@ -457,6 +458,17 @@ jobs:
           bun scripts/licenses.ts apps/shell
       - name: Picker checks, Rust formatting, lints and tests
         run: make app-check
+      # The Android code, which only the release builds otherwise: clippy for one of its ABIs,
+      # with the C compiler of the runner's newest NDK, at the minimum SDK tauri.conf.json
+      # sets, for the crates that build C.
+      - name: Android lints
+        run: |
+          rustup target add aarch64-linux-android
+          ndk="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$ndk/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$ndk/llvm-ar"
+          cargo clippy --manifest-path apps/shell/src-tauri/Cargo.toml --target aarch64-linux-android \
+            --lib -- -D warnings
       - name: Browsers
         run: make app-browsers
       - name: The picker in Chromium and WebKit
@@ -475,6 +487,45 @@ jobs:
           name: picker-report
           path: apps/shell/playwright-report
           retention-days: 7
+
+  # The iOS code, which no workflow builds otherwise, as the iOS app builds from source:
+  # clippy for the device, on macOS, where the iOS SDK is. The build embeds the picker, so
+  # the picker is built first.
+  app-ios:
+    name: App shell (iOS)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-apple-ios
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/shell/src-tauri -> target
+          save-if: ${{ github.event_name == 'push' }}
+      # cargo-about writes the crates' notices into the picker's build.
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make app-install
+      - run: make app-picker
+      - name: iOS lints
+        run: |
+          cargo clippy --manifest-path apps/shell/src-tauri/Cargo.toml --target aarch64-apple-ios \
+            --lib -- -D warnings
 
   secrets:
     name: Secret scan
@@ -523,7 +574,7 @@ jobs:
   all:
     name: All checks
     if: always()
-    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, app, secrets]
+    needs: [changes, rust-lint, rust, web, docs, e2e, blocks, versions, app, app-ios, secrets]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
