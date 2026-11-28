@@ -315,16 +315,16 @@ impl InboxService {
     ) -> Result<u64, InboxError> {
         self.observe("mark_many", async {
             let mut tx = self.pool().begin().await?;
-            for id in ids {
-                repo::get(&mut *tx, principal.user.id, *id)
-                    .await?
-                    .filter(|notification| reaches(principal, notification))
-                    .ok_or(InboxError::NotFound(NO_NOTIFICATION))?;
+            let reached: HashSet<Uuid> = repo::by_ids(&mut *tx, principal.user.id, ids)
+                .await?
+                .iter()
+                .filter(|notification| reaches(principal, notification))
+                .map(|notification| notification.id)
+                .collect();
+            if !ids.iter().all(|id| reached.contains(id)) {
+                return Err(InboxError::NotFound(NO_NOTIFICATION));
             }
-            let now = self.now();
-            for id in ids {
-                repo::mark(&mut *tx, principal.user.id, *id, Some(read), None, now).await?;
-            }
+            repo::mark_read_by_ids(&mut *tx, principal.user.id, ids, read, self.now()).await?;
             tx.commit().await?;
             self.changed(principal.user.id);
             Ok(u64::try_from(ids.len()).unwrap_or(u64::MAX))

@@ -553,6 +553,61 @@ async fn notifications_are_read_archived_and_listed_a_part_at_a_time(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "neon_store::MIGRATOR")]
+async fn many_notifications_are_marked_at_once_all_or_none(pool: PgPool) {
+    let t = team(pool).await;
+    for n in 0..3 {
+        t.post(&t.bea, &format!("{} {n}", mention(&t.cy))).await;
+    }
+    let read_at = async || {
+        t.inbox
+            .inbox(&t.cy, InboxQuery::default())
+            .await
+            .expect("read")
+            .notifications
+            .into_iter()
+            .map(|shown| (shown.notification.id, shown.notification.read_at))
+            .collect::<Vec<_>>()
+    };
+    let ids: Vec<Uuid> = read_at().await.into_iter().map(|(id, _)| id).collect();
+    t.inbox
+        .mark(&t.cy, ids[0], Some(true), None)
+        .await
+        .expect("read");
+    let first_read = read_at().await[0].1.expect("read");
+
+    t.h.time.advance(Duration::from_secs(60));
+    // Each id counts, one named twice too; one read already keeps when it was read.
+    let marked = t
+        .inbox
+        .mark_many(&t.cy, &[ids[0], ids[1], ids[1]], true)
+        .await;
+    assert_eq!(marked.ok(), Some(3));
+    let now = first_read + Duration::from_secs(60);
+    assert_eq!(
+        read_at().await,
+        vec![
+            (ids[0], Some(first_read)),
+            (ids[1], Some(now)),
+            (ids[2], None)
+        ]
+    );
+
+    // One that is someone else's, or that does not exist, marks none of them.
+    for (who, among) in [(&t.bea, ids[2]), (&t.cy, Uuid::now_v7())] {
+        let refused = t.inbox.mark_many(who, &[ids[2], among], true).await;
+        assert!(
+            matches!(refused, Err(InboxError::NotFound(_))),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(read_at().await[2], (ids[2], None));
+
+    let marked = t.inbox.mark_many(&t.cy, &[ids[0], ids[1]], false).await;
+    assert_eq!(marked.ok(), Some(2));
+    assert!(read_at().await.iter().all(|(_, read)| read.is_none()));
+}
+
+#[sqlx::test(migrator = "neon_store::MIGRATOR")]
 async fn an_inbox_opened_live_hears_each_change_to_it(pool: PgPool) {
     let t = team(pool).await;
     let (outbox, mut heard) = Outbox::new(8, 4096);
