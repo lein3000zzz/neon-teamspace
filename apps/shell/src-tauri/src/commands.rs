@@ -258,7 +258,8 @@ pub fn cancel_opening<R: Runtime>(
     Ok(shell::cancel_opening(&app)?)
 }
 
-#[tauri::command]
+/// Renames a saved server. It runs off the main thread, as saving the list waits for the disk.
+#[tauri::command(async)]
 pub fn rename_server(
     shell: State<'_, Shell>,
     origin: String,
@@ -271,8 +272,9 @@ pub fn rename_server(
     Ok(ListView::from(&*list))
 }
 
-/// Forgets a server, and loads none of its pages in the app any more.
-#[tauri::command]
+/// Forgets a server, and loads none of its pages in the app any more. It runs off the main
+/// thread, as [`rename_server`] does.
+#[tauri::command(async)]
 pub fn remove_server<R: Runtime>(
     app: AppHandle<R>,
     shell: State<'_, Shell>,
