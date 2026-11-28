@@ -359,6 +359,39 @@ describe("the version and updates", () => {
     expect(panel.queryByText("Updating to 0.2.0")).toBeNull();
   });
 
+  it("follows an update another admin started when the server refuses this one", async () => {
+    useFakeClock();
+    const { user, panel } = await renderPanel(withUpdater());
+    const theirs = updaterStatus({
+      state: "updating",
+      version: "0.2.0",
+      log: "Pulling server, web at 0.2.0\n",
+    });
+    let refused = false;
+    server.use(
+      http.post("/api/v1/admin/updates/apply", () => {
+        refused = true;
+        return apiError(409, "update_in_progress", "an update is under way already");
+      }),
+      http.get("/api/v1/admin/updates", () =>
+        HttpResponse.json(withUpdater(refused ? theirs : updaterStatus())),
+      ),
+    );
+
+    await user.click(panel.getByRole("button", { name: "Update to 0.2.0" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Update" }),
+    );
+
+    expect(await panel.findByText("Updating to 0.2.0")).toBeInTheDocument();
+    expect(panel.queryByRole("button", { name: "Update to 0.2.0" })).toBeNull();
+    await nextPoll();
+    expect(await panel.findByLabelText("What the updater did")).toHaveTextContent(
+      "Pulling server, web at 0.2.0",
+    );
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
   it("says when the updater cannot be asked", async () => {
     const { panel } = await renderPanel({
       ...NEWER,

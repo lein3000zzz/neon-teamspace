@@ -28,7 +28,9 @@ export function useCheckUpdates() {
 
 /**
  * Has the updater update the stack to a release, which answers once the updater has
- * started; updateProgressQuery follows it from there.
+ * started; updateProgressQuery follows it from there. A refusal reads the status again
+ * without waiting for it: another admin may have started an update, which the panel then
+ * follows, or changed what the server may update to.
  */
 export function useApplyUpdate() {
   const queryClient = useQueryClient();
@@ -36,6 +38,7 @@ export function useApplyUpdate() {
     mutationFn: (version: string) =>
       call(api.POST("/api/v1/admin/updates/apply", { body: { version } })),
     onSuccess: (updates) => queryClient.setQueryData(keys.updates, updates),
+    onError: () => void queryClient.invalidateQueries({ queryKey: keys.updates }),
   });
 }
 
