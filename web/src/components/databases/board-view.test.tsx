@@ -295,8 +295,8 @@ describe("a long board", () => {
 });
 
 describe("a database's list", () => {
-  // The page loads the editor on demand; loaded once here, so no test waits on it. Left to
-  // the first page a test opens, the import would run on into the tests after it.
+  // The row this test opens loads the editor on demand, and the import runs while the test
+  // waits for the row's properties. Loaded once here, it cannot use up that wait.
   beforeAll(async () => {
     await import("@/components/editor/page-editor");
   });
