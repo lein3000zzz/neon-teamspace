@@ -141,7 +141,7 @@ fn status_of(schema: &Schema, cells: &Json) -> Option<TaskStatus> {
 }
 
 impl DatabaseService {
-    /// Claims a row for the caller, as [the module docs](self) set out: names them in the
+    /// Claims a row for the caller, as the module docs set out: names them in the
     /// person property `person`, or the first, and moves the row to the first status in
     /// progress, while that property names nobody, for those who edit the row. Otherwise
     /// [`DatabaseError::AlreadyClaimed`] says who holds it.
@@ -224,8 +224,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, data.database_id, &context))
         })
         .await

@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 /// Each unit with its length in milliseconds and the names it is written as. The first
-/// name is the one [`format`] writes.
+/// name is the one [`format`](fn@format) writes.
 const UNITS: [(u64, &[&str]); 6] = [
     (7 * DAY, &["w", "week", "weeks"]),
     (DAY, &["d", "day", "days"]),

@@ -45,7 +45,7 @@ impl Jemalloc {
 // SAFETY: every method passes its arguments unchanged to `tikv_jemallocator::Jemalloc`, whose
 // implementation upholds the `GlobalAlloc` contract, and returns its result unchanged. The
 // only addition is an atomic flag, which neither allocates nor panics.
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "GlobalAlloc is an unsafe trait")]
 unsafe impl GlobalAlloc for Jemalloc {
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {

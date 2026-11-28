@@ -12,11 +12,11 @@
 //!   target alone.
 //! - **The URL** is `/hooks/in/` and a token of 256 random bits, shown once; only its
 //!   SHA-256 is kept. A new one replaces it at once. A webhook may also check signatures,
-//!   as [`signature`](super::signature) describes, with a secret it makes, shows once and
+//!   as [`signature`] describes, with a secret it makes, shows once and
 //!   keeps sealed; a rotated secret still verifies for a day.
 //! - **Requests** are limited per client address and per webhook, read up to
 //!   [`MAX_INCOMING_BODY`](super::MAX_INCOMING_BODY), and refused while the webhook is off or its integration does not
-//!   work. What they ask, in the format [`payload`](super::payload) describes, goes through
+//!   work. What they ask, in the format [`payload`] describes, goes through
 //!   the database and sync services as the integration. Each answer but a rate limit's is
 //!   logged: its status, action, client address and time, never the body.
 
@@ -740,7 +740,7 @@ impl WebhookService {
         self.inner
             .envelope
             .seal(secret.as_bytes(), &incoming_aad(id))
-            .map_err(|_| WebhookError::NoSecretKey)
+            .map_err(WebhookError::from)
     }
 
     /// Where the principal stands in a workspace whose incoming webhooks the rules let

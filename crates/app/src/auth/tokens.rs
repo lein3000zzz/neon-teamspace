@@ -68,12 +68,12 @@ impl AuthService {
     /// admin scope is for an instance admin's token across the instance, or for a token
     /// bound to a workspace its owner owns or administers, for that workspace's admin work.
     /// Its secret is returned once; only its hash is kept. Only from a browser session.
-    pub async fn create_api_token<S: AsRef<str> + Sync>(
+    pub async fn create_api_token(
         &self,
         principal: &Principal,
         name: &str,
         expires_at: Option<OffsetDateTime>,
-        scopes: &[S],
+        scopes: &[Scope],
         workspace_id: Option<Uuid>,
     ) -> Result<(Secret, ApiToken), AuthError> {
         self.observe("create_api_token", async {

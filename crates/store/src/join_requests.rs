@@ -1,6 +1,7 @@
 //! Requests to join.
 
 use neon_domain::auth::JoinRequest;
+use neon_domain::auth::join_request::Verdict;
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -210,11 +211,14 @@ pub async fn list(
 pub async fn decide(
     executor: impl PgExecutor<'_>,
     id: Uuid,
-    approved: bool,
+    verdict: Verdict,
     by: Uuid,
     now: OffsetDateTime,
-    invite_id: Option<Uuid>,
 ) -> sqlx::Result<bool> {
+    let (approved, invite_id) = match verdict {
+        Verdict::Approved { invite_id } => (true, Some(invite_id)),
+        Verdict::Denied => (false, None),
+    };
     let result = sqlx::query!(
         "UPDATE join_requests
          SET decided_at = $4, decided_by = $3, approved = $2, invite_id = $5

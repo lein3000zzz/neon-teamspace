@@ -7,7 +7,7 @@ use sqlx::postgres::types::PgInterval;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::PersonColumns;
 
 /// A notification as made, with what it is about.
@@ -175,8 +175,7 @@ impl TryFrom<Row> for Notification {
             id: row.id,
             user_id: row.user_id,
             workspace_id: row.workspace_id,
-            kind: NotificationKind::parse(&row.kind)
-                .ok_or_else(|| decode_error(format!("unknown notification {:?}", row.kind)))?,
+            kind: decode("notification", &row.kind, NotificationKind::parse)?,
             actor_id: row.actor_id,
             page_id: row.page_id,
             thread_id: row.thread_id,
@@ -212,6 +211,28 @@ pub async fn get(
     .await?
     .map(Notification::try_from)
     .transpose()
+}
+
+/// The notifications of `ids` that are `user_id`'s, in no order.
+pub async fn by_ids(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    ids: &[Uuid],
+) -> sqlx::Result<Vec<Notification>> {
+    sqlx::query_as!(
+        Row,
+        "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,
+                block_id, excerpt, property_id, invitation_id, created_at, read_at, archived_at,
+                mailed_at
+         FROM notifications WHERE id = ANY($1) AND user_id = $2",
+        ids,
+        user_id,
+    )
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(Notification::try_from)
+    .collect()
 }
 
 /// An inbox's notifications, newest first, before `before` when given, at most `limit`, as
@@ -353,6 +374,28 @@ pub async fn mark(
     .execute(executor)
     .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Marks `user_id`'s notifications of `ids` read at `at`, or unread, as [`mark`] marks one:
+/// one read already keeps the time it was read.
+pub async fn mark_read_by_ids(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    ids: &[Uuid],
+    read: bool,
+    at: OffsetDateTime,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE notifications SET read_at = CASE WHEN $3 THEN COALESCE(read_at, $4) END
+         WHERE id = ANY($1) AND user_id = $2",
+        ids,
+        user_id,
+        read,
+        at,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 /// Marks read every unread notification of an inbox, its invitations those that still
@@ -566,8 +609,7 @@ pub async fn preference(
     .fetch_optional(executor)
     .await?
     .map(|row| {
-        let mail = MailPreference::parse(&row.mail)
-            .ok_or_else(|| decode_error(format!("unknown mail preference {:?}", row.mail)))?;
+        let mail = decode("mail preference", &row.mail, MailPreference::parse)?;
         Ok((mail, row.digest_sent_at))
     })
     .transpose()

@@ -3295,7 +3295,7 @@ export interface components {
             /** @description `authorization_code`, and `refresh_token`, when given. */
             grant_types?: string[] | null;
             /**
-             * @description One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any
+             * @description One to ten: https, http to this machine (`127.0.0.1`, `[::1]` or `localhost`) on any
              *     port, or a scheme of a native app's own.
              */
             redirect_uris?: string[] | null;

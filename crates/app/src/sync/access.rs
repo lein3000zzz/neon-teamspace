@@ -78,7 +78,7 @@ impl AccessChange {
     /// for them, or for the owner of an agent or integration, whose access bounds its own.
     /// Which pages a change to a teamspace reaches is the rules' to say again, so every
     /// page of the workspace counts; a change to a page is narrowed further by
-    /// [`subtree`](Self::subtree). A change to whom tokens act as concerns every agent and
+    /// `subtree`. A change to whom tokens act as concerns every agent and
     /// integration, and every token bound to a workspace, as OAuth's acting as people are.
     pub fn concerns(&self, workspace_id: Uuid, principal: &Principal) -> bool {
         let (workspace, user) = match *self {

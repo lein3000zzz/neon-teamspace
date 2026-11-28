@@ -66,7 +66,7 @@ pub struct Interrupted {
 /// What the app holds while it runs.
 pub struct Shell {
     pub store: Store,
-    pub list: Mutex<ServerList>,
+    list: Mutex<ServerList>,
     pub lock: Lock,
     pub limits: Limits,
     /// Whether the picker has been told which server to open as the app starts, which it is
@@ -145,7 +145,7 @@ pub fn setup<R: Runtime>(
     );
     let config = main_config(app.handle())?;
     let origin = app_origin(app);
-    let picker = picker_url(&origin, &config).ok_or(tauri::Error::WebviewNotFound)?;
+    let picker = picker_url(&origin, &config).map_err(tauri::Error::InvalidUrl)?;
     log::info!("the picker is {picker}");
     app.manage(Shell {
         store,
@@ -175,12 +175,12 @@ fn main_config<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WindowConfig> {
 
 /// Where the picker is: the window's page on the app's own origin, as Tauri loads it. Worked
 /// out from the configuration, as a webview only knows its URL once it has started loading.
-fn picker_url(app: &Origin, config: &WindowConfig) -> Option<Url> {
+fn picker_url(app: &Origin, config: &WindowConfig) -> Result<Url, url::ParseError> {
     let page = match &config.url {
         WebviewUrl::App(path) => path.to_string_lossy().into_owned(),
         _ => String::new(),
     };
-    Url::parse(&format!("{app}/")).ok()?.join(&page).ok()
+    Url::parse(&format!("{app}/"))?.join(&page)
 }
 
 /// The origin the app's own pages are served from: `tauri://localhost` on macOS, iOS and
@@ -325,9 +325,7 @@ pub fn open_server<R: Runtime>(
 ) -> tauri::Result<bool> {
     let shell = app.state::<Shell>();
     let _changing = shell.window_changes();
-    let opened =
-        Origin::of(address.url()).is_some_and(|origin| shell.lock.open_server(origin, attempt));
-    if !opened {
+    if !shell.lock.open_server(Origin::from(address), attempt) {
         return Ok(false);
     }
     log::info!("opening {address}");
@@ -389,9 +387,7 @@ pub fn cancel_opening<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<bool> {
 
 /// Closes the lock to a server removed from the list.
 pub fn forget_server<R: Runtime>(app: &AppHandle<R>, address: &ServerAddress) {
-    if let Some(origin) = Origin::of(address.url()) {
-        app.state::<Shell>().lock.forget(&origin);
-    }
+    app.state::<Shell>().lock.forget(&Origin::from(address));
 }
 
 /// Shows the picker again: a blank page first, which replaces the server's, and the picker
@@ -463,7 +459,13 @@ fn on_new_window<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 /// Downloads from the server's origin are saved where the webview proposes, the downloads
 /// directory; others are refused. A finished one is shown in its folder on desktop; on mobile
 /// the system tells of it, so where it went is of no use there.
-#[cfg_attr(mobile, allow(unused_variables))]
+#[cfg_attr(
+    mobile,
+    expect(
+        unused_variables,
+        reason = "only desktop shows a finished download in its folder"
+    )
+)]
 fn on_download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) -> bool {
     let shell = app.state::<Shell>();
     match event {
@@ -520,7 +522,7 @@ fn allow_back_gesture<R: Runtime>(window: &WebviewWindow<R>) {
         let view = webview.inner().cast::<objc2::runtime::AnyObject>();
         // SAFETY: on iOS the handle is the window's WKWebView, alive while the closure runs
         // on the main thread, and the setter takes a BOOL.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "objc2::msg_send! is unsafe")]
         unsafe {
             let _: () = objc2::msg_send![&*view, setAllowsBackForwardNavigationGestures: true];
         }
@@ -561,7 +563,7 @@ mod tests {
         ] {
             assert_eq!(
                 picker_url(&origin, &config).map(String::from).as_deref(),
-                Some(picker)
+                Ok(picker)
             );
         }
     }

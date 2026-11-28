@@ -1,0 +1,209 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, workspace_id, kind, actor_id, page_id, thread_id, comment_id,\n                block_id, excerpt, property_id, invitation_id, created_at, read_at, archived_at,\n                mailed_at\n         FROM notifications WHERE id = ANY($1) AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "page_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "page_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "thread_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "thread_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "comment_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "comment_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "block_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "block_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "excerpt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "excerpt"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "property_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "property_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "invitation_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "invitation_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "read_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "read_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "archived_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "mailed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "mailed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "26dd3adf0b22fb55038ce19d46a6f3e79cc46dd85fa8337646d1c5c964d10a2f"
+}

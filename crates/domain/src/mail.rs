@@ -3,40 +3,21 @@
 
 use std::net::IpAddr;
 
-/// How the connection to the mail server is secured.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Security {
-    /// A plain connection upgraded with STARTTLS. A server that does not offer it is
-    /// refused, so nothing goes in the clear.
-    StartTls,
-    /// TLS from the first byte, as on port 465.
-    Tls,
-    /// A plain connection, for a relay on this host or a network the operator trusts.
-    None,
+text_enum! {
+    /// How the connection to the mail server is secured.
+    Security {
+        /// A plain connection upgraded with STARTTLS. A server that does not offer it is
+        /// refused, so nothing goes in the clear.
+        StartTls => "starttls",
+        /// TLS from the first byte, as on port 465.
+        Tls => "tls",
+        /// A plain connection, for a relay on this host or a network the operator trusts.
+        None => "none",
+    }
 }
 
 impl Security {
-    /// The setting's options, in the order the docs list them.
-    pub const OPTIONS: &'static [&'static str] = &["starttls", "tls", "none"];
-
     pub const DEFAULT: Self = Self::StartTls;
-
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "starttls" => Some(Self::StartTls),
-            "tls" => Some(Self::Tls),
-            "none" => Some(Self::None),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::StartTls => "starttls",
-            Self::Tls => "tls",
-            Self::None => "none",
-        }
-    }
 
     /// Whether the connection is encrypted before anything but the greeting is sent.
     pub fn encrypts(self) -> bool {
@@ -95,7 +76,7 @@ mod tests {
 
     #[test]
     fn security_options_round_trip() {
-        for option in Security::OPTIONS {
+        for option in Security::TEXTS {
             let security = Security::parse(option).expect("an option");
             assert_eq!(security.as_str(), *option);
         }

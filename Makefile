@@ -61,7 +61,7 @@ E2E_INSTANCE  := Neon E2E
 E2E_ADMIN     := admin@e2e.example
 # The neon binary, built from the .sqlx/ query cache, so generating files needs no database.
 NEON          := SQLX_OFFLINE=true $(CARGO) run --quiet -p neon-server --
-# Where check builds, so that its offline build never reuses one checked against a database.
+# Where check builds, apart from the builds checked against a database.
 OFFLINE_TARGET_DIR := $(CURDIR)/target/offline
 # The apps' Tauri project: the bundled server picker in APP_DIR, and its Rust side, a Cargo
 # workspace of its own, which builds into its own target directory, where Tauri's CLI looks
@@ -146,6 +146,10 @@ fmt-check: ## Fail if any Rust file needs formatting
 .PHONY: lint
 lint: ## Run clippy on every target, warnings as errors
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
+
+.PHONY: doc-check
+doc-check: ## Build the Rust docs, private items included, warnings as errors
+	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps --document-private-items
 
 .PHONY: test
 test: ## Run the Rust tests (needs the dev database: make db-up and make migrate)
@@ -322,10 +326,11 @@ app-dev: ## Run the desktop app, the picker reloading as it changes
 	cd $(APP_DIR) && $(BUN) run tauri dev
 
 .PHONY: app-check
-app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint and test the app's Rust side
+app-check: app-picker ## Type-check, lint and format-check the picker; format-check, lint, doc-check and test the app's Rust side
 	cd $(APP_DIR) && $(BUN) run check
 	$(CARGO) fmt --manifest-path $(APP_MANIFEST) --all --check
 	$(APP_CARGO) clippy --manifest-path $(APP_MANIFEST) --all-targets -- -D warnings
+	RUSTDOCFLAGS="-D warnings" $(APP_CARGO) doc --manifest-path $(APP_MANIFEST) --no-deps --document-private-items
 	$(APP_CARGO) test --manifest-path $(APP_MANIFEST)
 
 .PHONY: app-test
@@ -396,13 +401,15 @@ licenses: ## Run cargo-deny's license, advisory, ban and source checks; check th
 
 .PHONY: check
 # Offline. The build checks SQL against the committed .sqlx/ cache rather than a database, in
-# a target directory of its own: cargo does not rebuild a crate when only SQLX_OFFLINE changes,
-# so in target/ it would reuse queries last checked against the database. cargo-deny reads the
-# advisory database it last fetched, and fails when that copy is more than 90 days old.
+# a target directory of its own: neon-store's build script rebuilds it whenever SQLX_OFFLINE or
+# DATABASE_URL changes, so that each build reads the right source, and in target/ each switch
+# between this build and one checked against a database would rebuild neon-store and every
+# crate above it. cargo-deny reads the advisory database it last fetched, and fails when that
+# copy is more than 90 days old.
 check: export SQLX_OFFLINE := true
 check: export CARGO_TARGET_DIR := $(OFFLINE_TARGET_DIR)
 check: DENY_FLAGS := --offline
-check: fmt-check lint build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
+check: fmt-check lint doc-check build api-check web-check docs-check e2e-check blocks-check plugin-check app-check version-check licenses ## Every check that needs no Docker or network (all but sqlx-check, test, e2e and app-test)
 	@echo "all checks passed"
 
 .PHONY: clean

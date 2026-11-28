@@ -110,6 +110,16 @@ impl JoinRequest {
     }
 }
 
+/// An admin's decision on a confirmed request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Approved, with the invite the approval made.
+    Approved {
+        invite_id: Uuid,
+    },
+    Denied,
+}
+
 /// A note that cannot be kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("a note has at most {MAX_NOTE} characters, and no NUL characters")]

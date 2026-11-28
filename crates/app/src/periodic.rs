@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
 /// A running periodic task: once at start, then every interval until stopped.
+#[must_use = "dropping the handle leaves the task running with no way to stop it"]
 pub struct Periodic {
     name: &'static str,
     stop: CancellationToken,

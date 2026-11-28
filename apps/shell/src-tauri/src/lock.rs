@@ -146,14 +146,22 @@ struct State {
     /// What opened outside the app last, and when.
     last_outside: Option<(Instant, Url)>,
     /// The number of the latest attempt to open a server.
-    attempt: Attempt,
+    attempt: u64,
     /// The attempt whose server's page the window has asked for and which has not started
     /// loading yet, with that server.
     pending: Option<(Attempt, Origin)>,
 }
 
-/// The number of an attempt to open a server.
-pub type Attempt = u64;
+impl State {
+    /// The latest attempt to open a server.
+    fn latest(&self) -> Attempt {
+        Attempt(self.attempt)
+    }
+}
+
+/// An attempt to open a server, which only [`Lock::begin_opening`] hands out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Attempt(u64);
 
 /// The origin lock of the app's window.
 #[derive(Debug)]
@@ -206,7 +214,7 @@ impl Lock {
         let mut state = self.state();
         state.attempt += 1;
         state.pending = None;
-        state.attempt
+        state.latest()
     }
 
     /// Opens the lock to `origin`, the server the window is about to load for `attempt`, and
@@ -214,7 +222,7 @@ impl Lock {
     /// does nothing and says so.
     pub fn open_server(&self, origin: Origin, attempt: Attempt) -> bool {
         let mut state = self.state();
-        if state.attempt != attempt {
+        if state.latest() != attempt {
             return false;
         }
         state.servers.retain(|opened| *opened != origin);
@@ -225,7 +233,7 @@ impl Lock {
 
     /// Whether `attempt` is still the latest attempt to open a server.
     pub fn still_opening(&self, attempt: Attempt) -> bool {
-        self.state().attempt == attempt
+        self.state().latest() == attempt
     }
 
     /// Cancels the attempt to open a server under way: the server whose page the window is

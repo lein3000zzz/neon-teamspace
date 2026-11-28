@@ -335,7 +335,7 @@ fn unreadable(rejection: &BytesRejection, code: ErrorCode, too_large: &str) -> R
 /// is ignored.
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
 pub struct ClientRegistration {
-    /// One to ten: https, http to this machine (127.0.0.1, [::1] or localhost) on any
+    /// One to ten: https, http to this machine (`127.0.0.1`, `[::1]` or `localhost`) on any
     /// port, or a scheme of a native app's own.
     pub redirect_uris: Option<Vec<String>>,
     /// Shown on the consent page as the client's own word; at most 100 characters kept.

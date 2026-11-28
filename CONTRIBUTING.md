@@ -128,7 +128,7 @@ needs [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/) for its
 make app-install           # the picker's packages and Tauri's CLI, pinned in apps/shell/bun.lock
 make app-dev               # the desktop app, the picker reloading as it changes
 make app-check             # the picker's types, lints and formatting; the Rust side's
-                           # formatting, clippy and tests (part of make check)
+                           # formatting, clippy, docs and tests (part of make check)
 make app-browsers          # once: the headless Chromium and WebKit for the next line
 make app-test              # the picker on its own, in Chromium and WebKit at desktop and phone sizes
 make app-build             # this machine's desktop app and installers
@@ -186,27 +186,27 @@ runs, so commit it with the route change.
 ## Checks
 
 A pull request must pass `make check`, the tests and the end-to-end tests. One that changes
-the apps must pass `make app-test` and CI's **App shell** job too.
+the apps must pass `make app-test` and CI's **App shell** jobs too.
 
 `make check` runs every check that needs no Docker and, once the crates, the packages and the
-advisory database are downloaded, no network: formatting, clippy with warnings as errors, a
-build from the `.sqlx/` cache, the generated files, the web app's, the docs' and the
-end-to-end tests' own checks, the block fixtures in both directions, the Claude Code plugin,
-the apps' picker checks and their Rust side's formatting, clippy and tests, the version
-check, and the license and advisory checks. It reads the packages of every JS project, so
-install them first:
+advisory database are downloaded, no network: formatting, clippy with warnings as errors, the
+Rust docs with warnings as errors, a build from the `.sqlx/` cache, the generated files, the
+web app's, the docs' and the end-to-end tests' own checks, the block fixtures in both
+directions, the Claude Code plugin, the apps' picker checks and their Rust side's formatting,
+clippy, docs and tests, the version check, and the license and advisory checks. It reads
+the packages of every JS project, so install them first:
 
 ```sh
 make web-install docs-install e2e-install blocks-install app-install
 make check
 ```
 
-Its cargo commands for the server build in `target/offline/`: cargo does not rebuild a crate
-when only `SQLX_OFFLINE` changes, so in `target/` the build could reuse queries last checked
-against the database instead of the cache. The apps' Rust side builds in
-`apps/shell/src-tauri/target/`, where Tauri's CLI looks for it. cargo-deny reads the advisory
-database it last fetched and fails once that copy is more than 90 days old; `make licenses`
-fetches a new one.
+Its cargo commands for the server build in `target/offline/`, so that switching between them
+and the builds checked against the database does not rebuild `neon-store` and every crate
+above it each time: `neon-store`'s build script makes each build read the right source, the
+cache or the database. The apps' Rust side builds in `apps/shell/src-tauri/target/`, where
+Tauri's CLI looks for it. cargo-deny reads the advisory database it last fetched and fails
+once that copy is more than 90 days old; `make licenses` fetches a new one.
 
 `make web-build` and `make docs-build` build the web app and the docs, as CI does too. The
 docs' build fails on a broken link or anchor, so run it after changing a page.
@@ -235,15 +235,37 @@ CI runs the same `make` targets. On each pull request into `dev` or `main`, and 
 them, a job per area runs the checks for the files that changed, the Rust ones against a
 Postgres service container, and a change to the `Makefile` or a workflow runs them all.
 The **App shell** job runs on Ubuntu 22.04 with WebKitGTK, as the release builds the Linux
-app: the apps' license checks, `make app-check`, `make app-test`, a `.deb` build of the Linux
-app, and `make app-webview-check` against that build under Xvfb. Gitleaks scans the new
-commits for secrets, and **All checks** passes once every other job passed or was skipped.
+app: the apps' license checks, `make app-check`, clippy for Android, `make app-test`, a `.deb`
+build of the Linux app, and `make app-webview-check` against that build under Xvfb, and
+**App shell (iOS)** runs clippy for iOS on macOS. Gitleaks scans the new commits for
+secrets, and **All checks** passes once every other job passed or was skipped.
 The E2E workflow runs `make e2e` on each pull request into `main`, and on those into `dev`
 that touch the images, Caddy, the Compose files, the end-to-end tests or the `Makefile`; when
 the tests fail, the Playwright report is attached to the run.
 
 Dependabot opens one grouped pull request per ecosystem each month, into `dev`. The few pins
 it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
+
+## Rust code
+
+- A module with submodules lives in `foo.rs` beside its directory `foo/`, never in
+  `foo/mod.rs`: clippy's `mod_module_files` fails `make check` on one. The code that an
+  integration test's files share stays in `tests/support/mod.rs`, so that cargo does not
+  build it as a test of its own.
+- `neon-app`'s integration tests are the modules of one binary, `crates/app/tests/app/`,
+  which links the crate once for all of them. A new file of them goes there and in its
+  `main.rs`, unless it needs spans or logs recorded, as the `*_telemetry.rs` files and
+  `webhooks.rs` do: such a file is a binary of its own, as tracing decides whether a span or
+  an event is enabled for every thread of the process at once.
+- The lints are the root `Cargo.toml`'s `[workspace.lints]`, which the apps' crate repeats
+  in its own `[lints]`. A lint is silenced only where a fix would be wrong, on the item it
+  fires on and with a reason: `#[expect(lint, reason = "...")]`, which fails once the lint no
+  longer fires, or `#[allow(lint, reason = "...")]` where it fires on some builds only. Each
+  `unsafe` block has a `// SAFETY:` comment that says why it is sound.
+- Doc comments name other items with intra-doc links, which `make doc-check` checks: it
+  builds the docs of every crate, private items included, and fails on a warning, such as a
+  link that resolves to nothing or one from a public item's docs to a private item. Public
+  docs name a private item in a code span instead.
 
 ## Branches and commits
 
@@ -252,8 +274,8 @@ it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
 - Write commits as [Conventional Commits](https://www.conventionalcommits.org): a type, an
   optional scope, and a summary in the imperative, such as
   `fix(web): keep table columns at their saved widths`. The types in use are `feat`, `fix`,
-  `docs`, `test`, `ci`, `build` and `chore`, and a scope names a part, such as `web`,
-  `server`, `e2e` or `deps`.
+  `refactor`, `docs`, `test`, `ci`, `build` and `chore`, and a scope names a part, such as
+  `web`, `server`, `e2e` or `deps`.
 - Keep each commit to one change, with the generated files it needs. A pull request lands on
   `dev` as one commit with its title as the subject, so write the title the same way.
 

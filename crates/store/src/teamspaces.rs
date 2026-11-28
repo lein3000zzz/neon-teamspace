@@ -7,7 +7,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::decode;
 use crate::users::{PersonColumns, parse_hue, stored_hue};
 
 /// The constraint an insert breaks when the user is in the teamspace already.
@@ -35,8 +35,7 @@ impl TryFrom<Row> for Teamspace {
             name: row.name,
             icon: row.icon,
             hue_override: parse_hue(row.hue)?,
-            access: TeamspaceAccess::parse(&row.access)
-                .ok_or_else(|| decode_error(format!("unknown access {:?}", row.access)))?,
+            access: decode("access", &row.access, TeamspaceAccess::parse)?,
             created_by: row.created_by,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -45,8 +44,7 @@ impl TryFrom<Row> for Teamspace {
 }
 
 pub(crate) fn parse_role(text: &str) -> sqlx::Result<TeamspaceRole> {
-    TeamspaceRole::parse(text)
-        .ok_or_else(|| decode_error(format!("unknown teamspace role {text:?}")))
+    decode("teamspace role", text, TeamspaceRole::parse)
 }
 
 /// Saves a new teamspace. Fails on the unique index `teamspaces_one_default` for a second

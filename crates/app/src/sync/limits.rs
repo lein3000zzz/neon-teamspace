@@ -20,8 +20,8 @@ pub struct Limits {
     /// version restored. More is refused before any is written, as what writing takes, in
     /// time and in memory, grows with them.
     pub max_nodes: usize,
-    /// How many such writes run at once on the server, each on a thread of its own; one more
-    /// waits for its turn.
+    /// How many such writes, and loads, reads or compactions of a whole document, run at
+    /// once on the server, each on a thread of its own; one more waits for its turn.
     pub parallel_writes: usize,
     /// How long the server's writes of blocks into a page that holds some already, an
     /// edit's, the blocks appended or a version restored, may take. They are tried on a

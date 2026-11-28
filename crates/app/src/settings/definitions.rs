@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use neon_domain::agents::IdentityMode;
+use neon_domain::attachments::StorageBackend;
 use neon_domain::auth::invite::MAX_LIFETIME;
 use neon_domain::auth::password::{DEFAULT_MIN_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH_BOUNDS};
 use neon_domain::auth::{Email, RegistrationMode, session};
@@ -156,9 +157,6 @@ pub mod attachments {
     pub const ORPHAN_GRACE: Key<Duration> = Key::new("attachments.orphan_grace");
 }
 
-/// What `attachments.storage` may be.
-pub const STORAGE_OPTIONS: &[&str] = &["local", "s3"];
-
 /// The bounds of the largest file an upload takes: 1 KiB to 5 GiB.
 const MAX_FILE_BYTES_BOUNDS: (i64, i64) = (1024, 5 * 1024 * 1024 * 1024);
 
@@ -274,7 +272,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::enumeration(
             auth::REGISTRATION,
-            RegistrationMode::OPTIONS,
+            RegistrationMode::TEXTS,
             RegistrationMode::DEFAULT.as_str(),
             "Who may create an account: anyone (open), people with an invite an admin made \
              (invite), or nobody but admins, who add accounts themselves (closed).",
@@ -394,7 +392,7 @@ pub fn registry() -> Registry {
         .define(
             Definition::enumeration(
                 mail::TLS,
-                Security::OPTIONS,
+                Security::TEXTS,
                 Security::DEFAULT.as_str(),
                 "How the connection is secured. starttls upgrades it with STARTTLS and \
                  refuses a server that does not offer it; tls speaks TLS from the start; none \
@@ -452,7 +450,7 @@ pub fn registry() -> Registry {
         ))
         .define(Definition::enumeration(
             workspaces::CREATION,
-            WorkspaceCreation::OPTIONS,
+            WorkspaceCreation::TEXTS,
             WorkspaceCreation::DEFAULT.as_str(),
             "Who may create a workspace: every account (anyone), or instance admins only \
              (admins). Workspaces made before a change stay.",
@@ -491,7 +489,7 @@ pub fn registry() -> Registry {
         )
         .define(Definition::set(
             mcp::IDENTITIES,
-            IdentityMode::OPTIONS,
+            IdentityMode::TEXTS,
             IdentityMode::DEFAULT,
             "Whom MCP clients may act as: the person who connects them (user), one of that \
              person's agents (agent), or both. Without user, /mcp refuses people's tokens, \
@@ -705,8 +703,8 @@ pub fn registry() -> Registry {
         .define(
             Definition::enumeration(
                 attachments::STORAGE,
-                STORAGE_OPTIONS,
-                "local",
+                StorageBackend::TEXTS,
+                StorageBackend::DEFAULT.as_str(),
                 "Where uploaded files are kept: local, in the attachments directory under \
                  server.data_dir, or s3, in the bucket attachments.s3.bucket of an \
                  S3-compatible store such as SeaweedFS. Applies to files uploaded from now; \
@@ -797,7 +795,7 @@ pub fn registry() -> Registry {
         )
         // An S3 store needs a bucket.
         .rule(attachments::S3_BUCKET.name(), |settings| {
-            if settings.get(attachments::STORAGE) == "s3"
+            if StorageBackend::parse(settings.get(attachments::STORAGE)) == Some(StorageBackend::S3)
                 && settings.get(attachments::S3_BUCKET).is_empty()
             {
                 Err("must name a bucket while attachments.storage is s3".to_owned())

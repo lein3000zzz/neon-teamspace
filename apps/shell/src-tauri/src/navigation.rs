@@ -23,11 +23,13 @@
 //! and load where they are asked for.
 //!
 //! Which page may go to the app's own origin, and how often something opens outside, is the
-//! lock's state, in [`crate::lock`].
+//! lock's state, in [`crate::lock`](mod@crate::lock).
 
 use std::fmt;
 
 use url::Url;
+
+use crate::address::ServerAddress;
 
 /// What happens to a navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +94,18 @@ impl Origin {
             host: host.to_owned(),
             port: url.port_or_known_default(),
         })
+    }
+}
+
+/// A server's origin, which its address always has: an `https` or `http` scheme and a host.
+impl From<&ServerAddress> for Origin {
+    fn from(address: &ServerAddress) -> Self {
+        let url = address.url();
+        Self {
+            scheme: url.scheme().to_owned(),
+            host: url.host_str().unwrap_or_default().to_owned(),
+            port: url.port_or_known_default(),
+        }
     }
 }
 
@@ -314,6 +328,23 @@ mod tests {
                 Verdict::Load(Place::Server),
                 "{url}"
             );
+        }
+    }
+
+    #[test]
+    fn a_servers_origin_is_the_origin_of_its_address() {
+        for input in [
+            "https://neon.example.com/w/acme",
+            "https://neon.example.com:8443",
+            "http://192.168.1.20:3000",
+            "http://[::1]:8080",
+            "https://bücher.example",
+            "http://nas.local.",
+        ] {
+            let address = ServerAddress::parse(input).unwrap();
+            let origin = Origin::from(&address);
+            assert_eq!(Origin::of(address.url()).as_ref(), Some(&origin), "{input}");
+            assert_eq!(origin.to_string(), address.origin(), "{input}");
         }
     }
 

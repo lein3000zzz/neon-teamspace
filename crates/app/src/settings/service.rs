@@ -46,8 +46,10 @@ pub enum LoadError {
     #[error("invalid settings: {}", list(.0))]
     Invalid(Vec<Problem>),
     #[error("reading saved settings: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(LoadError { Database(sqlx::Error) });
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
@@ -55,8 +57,10 @@ pub enum UpdateError {
     #[error("invalid settings: {}", list(.0))]
     Invalid(Vec<Problem>),
     #[error("saving settings: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(UpdateError { Database(sqlx::Error) });
 
 fn list(problems: &[Problem]) -> String {
     problems

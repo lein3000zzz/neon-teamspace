@@ -3,7 +3,7 @@
 
 use neon_domain::auth::{Credential, Principal, Scope};
 use neon_domain::settings::Secret;
-use neon_domain::webhooks::{EventType, check_events, check_url};
+use neon_domain::webhooks::{AttemptOutcome, EventType, check_events, check_url};
 use neon_domain::workspaces::{Action, Person};
 use neon_store::webhooks::{self as repo, Attempt, Listed, Webhook};
 use neon_store::{users, workspaces};
@@ -61,8 +61,8 @@ pub struct NewWebhook {
     /// The identity whose events it delivers.
     pub user_id: Uuid,
     pub url: String,
-    /// Event types, such as `row.assigned`: at least one.
-    pub events: Vec<String>,
+    /// At least one.
+    pub events: Vec<EventType>,
     pub include_own: bool,
 }
 
@@ -70,7 +70,7 @@ pub struct NewWebhook {
 #[derive(Debug, Clone, Default)]
 pub struct WebhookUpdate {
     pub url: Option<String>,
-    pub events: Option<Vec<String>>,
+    pub events: Option<Vec<EventType>>,
     pub include_own: Option<bool>,
     /// Turns it on, clearing its failures, or off.
     pub enabled: Option<bool>,
@@ -85,8 +85,7 @@ pub struct DeliveryAttempt {
     pub event_id: Uuid,
     pub event_type: String,
     pub attempt: i32,
-    /// `delivered`, `retrying`, `failed` or `skipped`.
-    pub outcome: String,
+    pub outcome: AttemptOutcome,
     pub status_code: Option<i32>,
     pub latency_ms: Option<i32>,
     /// Why it failed or was skipped, such as `timeout` or `no_access`.
@@ -668,6 +667,6 @@ impl WebhookService {
         self.inner
             .envelope
             .seal(secret.as_bytes(), &aad(id))
-            .map_err(|_| WebhookError::NoSecretKey)
+            .map_err(WebhookError::from)
     }
 }

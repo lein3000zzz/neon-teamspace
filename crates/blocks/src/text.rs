@@ -4,7 +4,7 @@ use crate::inline::plain_text;
 use crate::model::{BlockKind, Document, Inline, Mention};
 
 /// The mentions of inline content, in order.
-pub fn mentions_in(content: &[Inline]) -> impl Iterator<Item = &Mention> {
+pub(crate) fn mentions_in(content: &[Inline]) -> impl Iterator<Item = &Mention> {
     content.iter().filter_map(|run| match run {
         Inline::Mention(mention) => Some(mention),
         Inline::Text(_) | Inline::Link(_) => None,

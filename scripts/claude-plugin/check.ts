@@ -157,8 +157,15 @@ export function codeNames(rustSource: string): Set<string> {
 export function readServer(root: string): Server {
   const mcp = join(root, "crates/server/src/mcp");
   const names = apiNames(JSON.parse(readFileSync(join(root, "api/openapi.json"), "utf8")));
-  for (const file of readdirSync(mcp).filter((entry) => entry.endsWith(".rs"))) {
-    for (const name of codeNames(readFileSync(join(mcp, file), "utf8"))) {
+  // The module's own file, mcp.rs beside the directory, and the files directly in it.
+  const files = [
+    `${mcp}.rs`,
+    ...readdirSync(mcp)
+      .filter((entry) => entry.endsWith(".rs"))
+      .map((entry) => join(mcp, entry)),
+  ];
+  for (const file of files) {
+    for (const name of codeNames(readFileSync(file, "utf8"))) {
       names.add(name);
     }
   }

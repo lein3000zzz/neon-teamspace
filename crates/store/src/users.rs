@@ -10,7 +10,7 @@ use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::decode_error;
+use crate::{decode, decode_error};
 
 /// The constraint an insert breaks when an account has the address already.
 pub const EMAIL_TAKEN: &str = "users_email_normalized_key";
@@ -53,11 +53,11 @@ impl TryFrom<Row> for User {
 }
 
 pub(crate) fn parse_role(text: &str) -> sqlx::Result<Role> {
-    Role::parse(text).ok_or_else(|| decode_error(format!("unknown role {text:?}")))
+    decode("role", text, Role::parse)
 }
 
 pub(crate) fn parse_kind(text: &str) -> sqlx::Result<UserKind> {
-    UserKind::parse(text).ok_or_else(|| decode_error(format!("unknown kind {text:?}")))
+    decode("kind", text, UserKind::parse)
 }
 
 /// What lists read of an identity, with its owner's, for an agent or integration: select

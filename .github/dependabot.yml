@@ -5,7 +5,8 @@
 # hand: in ci.yml the Postgres service image, the gitleaks image, sqlx-cli and cargo-deny; in
 # release.yml and e2e.yml the BuildKit image; in release.yml the SBOM scanner image. So are the
 # cargo-chef, cargo-about and cargo-auditable downloads in deployments/Dockerfile, with their
-# checksums.
+# checksums, and the server's tokio-tungstenite dev-dependency, which follows the version axum
+# uses, with axum.
 version: 2
 
 updates:
@@ -21,6 +22,11 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+    ignore:
+      # The real-time sync tests' WebSocket client, on the version axum's server side uses, so
+      # that the tests build one tungstenite and not two.
+      - dependency-name: tokio-tungstenite
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
 
   # Bun's text lockfile, bun.lock, in each JS project. tools/blocknote-fixtures pins the
   # BlockNote packages the web app uses, so a bump there regenerates the block fixtures

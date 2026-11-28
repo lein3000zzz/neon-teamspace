@@ -9,28 +9,29 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Not the workspace's axum, which keeps the default features: only what the admin listener uses.
 axum = { version = "0.8.9", default-features = false, features = ["http1", "matched-path", "query", "tokio"] }
 http = "1.5.0"
-metrics = "0.24.6"
+metrics.workspace = true
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
-opentelemetry = { version = "0.33.1", default-features = false, features = ["internal-logs", "trace"] }
+opentelemetry = { workspace = true, features = ["internal-logs", "trace"] }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "internal-logs", "reqwest-blocking-client", "trace"] }
-opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["internal-logs", "trace"] }
+opentelemetry_sdk = { workspace = true, features = ["internal-logs", "trace"] }
 pin-project-lite = "0.2.18"
 prost = { version = "0.14.6", default-features = false, features = ["std"] }
 pyroscope = { version = "2.1.5", default-features = false, features = ["backend-pprof-rs"] }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
-tower = "0.5.3"
-tracing = "0.1.44"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tracing.workspace = true
 tracing-appender = "0.2.5"
 tracing-log = "0.2.0"
-tracing-opentelemetry = { version = "0.34.0", default-features = false, features = ["tracing-log"] }
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
-url = "2.5.9"
-uuid = { version = "1.29.3", features = ["v7"] }
+tracing-opentelemetry = { workspace = true, features = ["tracing-log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+url.workspace = true
+uuid.workspace = true
 
 # Heap profiles come from jemalloc, which only produces usable backtraces on Linux. It is built
 # from its C sources, so Linux builds need a C compiler and make.
@@ -41,10 +42,10 @@ tikv-jemallocator = { version = "0.7.0", features = ["profiling"] }
 
 [dev-dependencies]
 flate2 = "1.1.11"
-metrics-util = { version = "0.20.4", default-features = false, features = ["debugging"] }
-opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["testing", "trace"] }
-tokio = { version = "1.54.1", features = ["macros", "rt", "test-util"] }
-tower = { version = "0.5.3", features = ["util"] }
+metrics-util.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["testing", "trace"] }
+tokio = { workspace = true, features = ["test-util"] }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

@@ -8,7 +8,7 @@ use super::{Audience, Client, Endpoints, ErrorCode};
 use crate::auth::Scope;
 
 /// The longest `state` a client may send, in bytes.
-pub const MAX_STATE: usize = 1024;
+pub(crate) const MAX_STATE: usize = 1024;
 
 /// An authorization request as its client sent it: each parameter, if it was there.
 /// Parameters this server does not know are left out, as RFC 6749 says.
@@ -206,7 +206,7 @@ pub fn check_request(
 
 /// A PKCE challenge of the S256 method, the one method allowed: `plain` would send the
 /// verifier itself through the browser.
-pub fn check_challenge(method: Option<&str>, challenge: &str) -> Result<(), RequestProblem> {
+pub(crate) fn check_challenge(method: Option<&str>, challenge: &str) -> Result<(), RequestProblem> {
     if method != Some("S256") {
         return Err(RequestProblem::PkceRequired);
     }
@@ -232,7 +232,7 @@ pub fn check_verifier(verifier: &str) -> bool {
 
 /// The scopes a `scope` parameter names, space-separated: each once, in [`Scope::ALL`]
 /// order. `None` when it names one that does not exist; empty when it names none.
-pub fn parse_scope(text: &str) -> Option<Vec<Scope>> {
+pub(crate) fn parse_scope(text: &str) -> Option<Vec<Scope>> {
     let mut scopes = text
         .split(' ')
         .filter(|name| !name.is_empty())

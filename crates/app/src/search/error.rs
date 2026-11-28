@@ -28,8 +28,10 @@ pub enum SearchError {
     #[error("the search took longer than {}: try more words or filters", duration::format(*.0))]
     TimedOut(Duration),
     #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
 }
+
+from_cause!(SearchError { Database(sqlx::Error) });
 
 impl SearchError {
     /// When to try again after [`Busy`](Self::Busy).

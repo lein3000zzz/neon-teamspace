@@ -26,6 +26,7 @@ use super::{
     DatabaseError, DatabaseService, NO_DATABASE, NO_ROW, NO_VIEW, RowView, StoredRow, cell_keys,
     domain_row, fitted_views, names_people, not_found, row_view,
 };
+use crate::Read;
 use crate::notifications::mentions::{self, Assignment};
 use crate::notifications::notify::Notifier;
 use crate::pages::PageService;
@@ -189,7 +190,9 @@ impl DatabaseService {
             let offset = input.after.as_deref().map(cursor).transpose()?.unwrap_or(0);
             let utc = utc_offset(input.utc_offset_minutes)?;
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            let opened = self
+                .open(&mut conn, principal, database_id, Read::Plain)
+                .await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let view = match input.view_id {
                 Some(view_id) => {
@@ -241,18 +244,6 @@ impl DatabaseService {
             } else {
                 member_names(&mut conn, opened.database.workspace_id).await?
             };
-            let rows: Vec<_> = listed
-                .iter()
-                .map(|listed| {
-                    let row =
-                        domain_row(&opened.schema, &listed.page, listed.number, &listed.cells);
-                    if members_hidden {
-                        row.without_people(&opened.schema)
-                    } else {
-                        row
-                    }
-                })
-                .collect();
             let now = self.now().to_offset(utc);
             let today = Today {
                 me: principal.user.id,
@@ -260,9 +251,21 @@ impl DatabaseService {
                 today: now.date(),
             };
             let schema = opened.schema.clone();
-            // Up to every row of the database, filtered and sorted: off the async workers.
-            let outcome = tokio::task::spawn_blocking(move || {
-                query::run(
+            // Up to every row of the database, read into the domain's rows, filtered and
+            // sorted: off the async workers. The rows as listed come back for the part.
+            let (outcome, listed) = tokio::task::spawn_blocking(move || {
+                let rows: Vec<_> = listed
+                    .iter()
+                    .map(|listed| {
+                        let row = domain_row(&schema, &listed.page, listed.number, &listed.cells);
+                        if members_hidden {
+                            row.without_people(&schema)
+                        } else {
+                            row
+                        }
+                    })
+                    .collect();
+                let outcome = query::run(
                     &schema,
                     Query {
                         filter: filter.as_ref(),
@@ -272,7 +275,8 @@ impl DatabaseService {
                     &rows,
                     &today,
                     &names,
-                )
+                );
+                (outcome, listed)
             })
             .await
             .map_err(|error| DatabaseError::Internal(format!("a query's work ended: {error}")))?;
@@ -352,7 +356,9 @@ impl DatabaseService {
                 .await?
                 .ok_or(DatabaseError::NotFound(NO_DATABASE))?;
             pages_repo::lock_tree(&mut *tx, database_page.workspace_id).await?;
-            let opened = self.open(&mut tx, principal, database_id, true).await?;
+            let opened = self
+                .open(&mut tx, principal, database_id, Read::Locked)
+                .await?;
             Self::check(&opened.context, Action::EditPage)?;
             let rows = repo::count_rows(&mut *tx, database_id).await?;
             if usize::try_from(rows).unwrap_or(usize::MAX) >= MAX_ROWS {
@@ -445,8 +451,7 @@ impl DatabaseService {
                 number,
                 cells,
             };
-            self.publish(database_id, &Event::RowCreated(&snapshot))
-                .await;
+            self.publish(database_id, &Event::RowCreated(&snapshot));
             let access = opened.context.access().unwrap_or(PageAccess::Edit);
             Ok(row_view(
                 &opened.schema,
@@ -479,7 +484,9 @@ impl DatabaseService {
     ) -> Result<RowView, DatabaseError> {
         self.observe("get_row_by_unique_id", async {
             let mut conn = self.pages().pool().acquire().await?;
-            let opened = self.open(&mut conn, principal, database_id, false).await?;
+            let opened = self
+                .open(&mut conn, principal, database_id, Read::Plain)
+                .await?;
             Self::check(&opened.context, Action::ViewPage)?;
             let number = parse_unique_id(unique_id, opened.prefix())?;
             let row_id = repo::row_by_number(&mut *conn, database_id, number)
@@ -569,8 +576,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, data.database_id, &context))
         })
         .await
@@ -668,8 +674,7 @@ impl DatabaseService {
                     row: &snapshot,
                     properties: &changes.properties,
                 },
-            )
-            .await;
+            );
             Ok(snapshot_view(&snapshot, database_id, &context))
         })
         .await

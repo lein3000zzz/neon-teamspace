@@ -48,11 +48,7 @@ pub fn file_name(title: &str) -> String {
             name.push(c);
         }
     }
-    let mut end = name.len().min(MAX_NAME);
-    while !name.is_char_boundary(end) {
-        end -= 1;
-    }
-    name.truncate(end);
+    name.truncate(name.floor_char_boundary(MAX_NAME));
     let name = name.trim_matches(|c: char| c == '.' || c == ' ');
     if name.is_empty() {
         return UNTITLED.to_owned();

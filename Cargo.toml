@@ -52,6 +52,9 @@ metrics-util = { version = "0.20.4", default-features = false, features = ["debu
 # server's own, hyper on rustls with ring, so neither reqwest nor aws-lc comes in. Requests
 # are signed with ring.
 object_store = { version = "0.14.2", default-features = false, features = ["fs", "aws-base", "ring"] }
+# Traces over OpenTelemetry, whose crates move between versions together.
+opentelemetry = { version = "0.33.1", default-features = false }
+opentelemetry_sdk = { version = "0.33.1", default-features = false }
 # The CommonMark and GFM parser of the block converter, without its command line and HTML
 # renderer.
 pulldown-cmark = { version = "0.13.6", default-features = false }
@@ -89,6 +92,7 @@ tokio-util = "0.7.20"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "sensitive-headers"] }
 tracing = "0.1.44"
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = "0.3.23"
 url = "2.5.9"
 utoipa = "6.0.0"
@@ -104,14 +108,22 @@ zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2
 [workspace.lints.rust]
 unsafe_code = "deny"
 unused_must_use = "deny"
+# The 2018 edition's idioms, among them naming the lifetime a path hides: Formatter<'_>.
+rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
+unimplemented = "warn"
 unwrap_used = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+# Every allow or expect of a lint gives its reason.
+allow_attributes_without_reason = "warn"
+# Every unsafe block says why it is sound, in a SAFETY comment.
+undocumented_unsafe_blocks = "warn"
+# Modules as foo.rs beside foo/, never foo/mod.rs; tests/ may keep mod.rs for shared code.
+mod_module_files = "warn"
 
 [profile.release]
 lto = "thin"
