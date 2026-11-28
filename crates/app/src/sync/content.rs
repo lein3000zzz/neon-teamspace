@@ -242,7 +242,7 @@ impl SyncService {
                 });
             }
             let made = self
-                .send(view.page.workspace_id, page_id, |done| Command::Restore {
+                .send(page_id, view.page.workspace_id, |done| Command::Restore {
                     author: principal.user.id,
                     blocks: blocks.clone(),
                     from,
@@ -301,7 +301,7 @@ impl SyncService {
         edits: Vec<Edit>,
         base: Option<String>,
     ) -> Result<Made, ContentError> {
-        self.send(workspace_id, page_id, |done| Command::Edit {
+        self.send(page_id, workspace_id, |done| Command::Edit {
             author,
             edits: edits.clone(),
             base: base.clone(),
@@ -314,8 +314,8 @@ impl SyncService {
     /// unload meanwhile, and reads what it made.
     async fn send(
         &self,
-        workspace_id: Uuid,
         page_id: Uuid,
+        workspace_id: Uuid,
         command: impl Fn(oneshot::Sender<Result<Made, Unedited>>) -> Command,
     ) -> Result<Made, ContentError> {
         for _ in 0..JOIN_ATTEMPTS {
