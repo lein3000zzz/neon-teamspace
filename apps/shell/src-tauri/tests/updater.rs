@@ -152,7 +152,7 @@ async fn an_update_signed_with_the_trusted_key_is_downloaded_and_verified() {
     let origin = release(NEWER, &sign(&keys, UPDATE, Some(NEWER))).await;
     let update = announced(&app, &origin, &key).await;
     assert_eq!(update.version, NEWER);
-    assert_eq!(update.current_version, "0.1.0");
+    assert_eq!(update.current_version, env!("CARGO_PKG_VERSION"));
     assert_eq!(update.body.as_deref(), Some("A release for the tests."));
     // The download verifies the signature, and gives the bytes only when it holds.
     let bytes = update
@@ -212,7 +212,11 @@ async fn an_older_release_signed_with_the_key_cannot_pass_for_a_newer_one() {
 async fn a_release_no_newer_than_the_app_is_no_update() {
     let app = app();
     let (keys, key) = keys();
-    for version in ["0.1.0", "0.0.9", "0.1.0-rc.1"] {
+    // The app's own version, an older one, and a release candidate of the app's version, which
+    // comes before it: whatever version the app has.
+    let current = env!("CARGO_PKG_VERSION");
+    let candidate = format!("{current}-rc.1");
+    for version in [current, "0.0.9", candidate.as_str()] {
         let origin = release(version, &sign(&keys, UPDATE, Some(version))).await;
         let found = check(&app, &origin, &key)
             .await
