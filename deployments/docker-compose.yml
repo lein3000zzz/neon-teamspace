@@ -25,6 +25,10 @@
 #   observability   Grafana's otel-lgtm image (Grafana, Prometheus, Tempo, Loki, Pyroscope
 #                   and an OpenTelemetry collector) on http://127.0.0.1:3001, with a dashboard
 #                   of the server's metrics. `make obs-up` starts it alone, for `make run`.
+#   updater         The updater, which updates the server and web to a release when an admin
+#                   presses Update in Admin > Settings. It needs NEON_UPDATER_TOKEN in
+#                   deployments/.env, and holds the Docker socket; the docs' Upgrading page
+#                   says what that means.
 name: neon
 
 services:
@@ -76,6 +80,9 @@ services:
       # profile's collector, unless NEON_OBSERVABILITY__TRACING__ENDPOINT in server.env names
       # another.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+      # The updater profile's token, which the server sends the updater: one value in
+      # deployments/.env sets both. Blank, the server has no updater to ask.
+      NEON_SETTINGS__UPDATES__UPDATER_TOKEN: ${NEON_UPDATER_TOKEN:-}
     # Attachments on local disk, the default: the image's data directory, owned by the
     # server's user, kept across new images.
     volumes:
@@ -180,6 +187,38 @@ services:
       retries: 3
       start_period: 2m
       start_interval: 2s
+    restart: unless-stopped
+
+  # Updates the server and web to a release when the server asks, with the token both read
+  # from NEON_UPDATER_TOKEN in deployments/.env. Not published: the server reaches it at
+  # http://updater:8080 on the stack's network. It holds the Docker socket, which is root on
+  # this machine: anything that controls the updater controls the host. Leave the profile off
+  # to update by hand. Each update runs in a container of its own, started from this image,
+  # that sees the stack's Compose files and env file at the paths it was started with, and
+  # checks each image's signature before anything is recreated from it.
+  updater:
+    profiles: [updater]
+    image: ghcr.io/lein3000zzz/neon-teamspace-updater:${NEON_VERSION:-0.1.0}
+    environment:
+      # It refuses to start without one of 32 characters or more.
+      NEON_UPDATER_TOKEN: ${NEON_UPDATER_TOKEN:-}
+      # false only for images built and pushed outside the release workflow, which signs none.
+      NEON_UPDATER_VERIFY: ${NEON_UPDATER_VERIFY:-true}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # It starts as root only to look at the socket's group, then serves as an unprivileged user
+    # in it, where the group may use the socket; it needs no other capability for that.
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
     restart: unless-stopped
 
 volumes:
