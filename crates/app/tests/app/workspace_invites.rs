@@ -1,6 +1,6 @@
 //! Invitations into workspaces, invite links, and the member limit they meet.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

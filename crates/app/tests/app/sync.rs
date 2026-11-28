@@ -3,7 +3,7 @@
 //! document, the limits on sync requests, awareness and connections, updates out of
 //! order, and the metrics.
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::sync::Arc;

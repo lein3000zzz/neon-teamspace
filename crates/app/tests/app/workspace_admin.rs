@@ -1,7 +1,7 @@
 //! What instance admins do with workspaces, and the RED metrics and spans of the workspace
 //! use cases.
 
-mod support;
+use crate::support;
 
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};

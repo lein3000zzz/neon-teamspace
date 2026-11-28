@@ -4,7 +4,7 @@
 //! workspace or an upload that never finished; restoring a version that shows files; and the
 //! storage limit, which uploads and imports that reach it at once keep to.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 use std::time::Duration;

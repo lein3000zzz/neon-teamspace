@@ -1,6 +1,6 @@
 //! Signing in, sessions and API tokens.
 
-mod support;
+use crate::support;
 
 use std::collections::HashSet;
 use std::sync::Arc;

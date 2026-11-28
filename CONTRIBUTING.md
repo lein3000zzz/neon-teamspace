@@ -251,6 +251,11 @@ it cannot read, which `.github/dependabot.yml` lists, are bumped by hand.
   `foo/mod.rs`: clippy's `mod_module_files` fails `make check` on one. The code that an
   integration test's files share stays in `tests/support/mod.rs`, so that cargo does not
   build it as a test of its own.
+- `neon-app`'s integration tests are the modules of one binary, `crates/app/tests/app/`,
+  which links the crate once for all of them. A new file of them goes there and in its
+  `main.rs`, unless it needs spans or logs recorded, as the `*_telemetry.rs` files and
+  `webhooks.rs` do: such a file is a binary of its own, as tracing decides whether a span or
+  an event is enabled for every thread of the process at once.
 - The lints are the root `Cargo.toml`'s `[workspace.lints]`, which the apps' crate repeats
   in its own `[lints]`. A lint is silenced only where a fix would be wrong, on the item it
   fires on and with a reason: `#[expect(lint, reason = "...")]`, which fails once the lint no

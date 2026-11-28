@@ -1,6 +1,6 @@
 //! The admin's work on accounts, the first admin, and the hourly cleanup.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

@@ -2,7 +2,7 @@
 //! options, views, queries, rows made, changed, moved, trashed and found by unique id,
 //! who may do what, the cap on rows, the changes told to followers, and the metrics.
 
-mod support;
+use crate::support;
 
 use metrics_util::MetricKind;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};

@@ -2,7 +2,7 @@
 //! stands for, read again as live connections do, the access changes a revoked grant
 //! tells, and using a grant while it ends, which neither side fails over.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
 //! Invites and requests to join.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 use std::time::Duration;

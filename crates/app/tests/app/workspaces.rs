@@ -1,7 +1,7 @@
 //! Workspaces: creating them with their default teamspace, slugs, who may create them,
 //! changing and deleting them, and their members' roles, with the last owner kept.
 
-mod support;
+use crate::support;
 
 use neon_app::auth::{AuthError, ProfileUpdate};
 use neon_app::workspaces::{DEFAULT_TEAMSPACE_NAME, NewWorkspace, WorkspaceError, WorkspaceUpdate};

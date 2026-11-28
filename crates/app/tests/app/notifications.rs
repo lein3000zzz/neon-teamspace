@@ -4,7 +4,7 @@
 //! live room, notification mail and digests with their links that stop them, and the
 //! webhook events of mentions and replies.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

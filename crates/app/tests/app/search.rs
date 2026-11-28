@@ -3,7 +3,7 @@
 //! of caller; ranking, snippets, unicode, short queries and loose titles; parts of the
 //! results; refusals; and rebuilding the text.
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeSet;
 use std::io;

@@ -1,6 +1,6 @@
 //! Signing up, verifying addresses, changing and resetting passwords.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

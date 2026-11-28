@@ -2,7 +2,7 @@
 //! written and sent by the mail job, retried or dropped as the mail server answers, and
 //! never kept once done.
 
-mod support;
+use crate::support;
 
 use std::future::Future;
 use std::sync::{Arc, Mutex};

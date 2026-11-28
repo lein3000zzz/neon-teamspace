@@ -2,7 +2,7 @@
 //! for their owners, suspension, handing them over and deleting them, how they are named,
 //! and tokens bound to one workspace.
 
-mod support;
+use crate::support;
 
 use std::fmt::Debug;
 use std::time::Duration;

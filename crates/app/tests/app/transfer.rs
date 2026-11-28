@@ -2,7 +2,7 @@
 //! and limits around them, exports of pages, their subpages and teamspaces, the live
 //! document's content in an export, and a round trip.
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read as _, Write as _};

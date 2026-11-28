@@ -1,7 +1,7 @@
 //! Pages: where they are and who reaches them, nesting and order, moving, the trash,
 //! shares, favorites, the trees, and the access changes the services tell.
 
-mod support;
+use crate::support;
 
 use std::fmt::Debug;
 use std::time::Duration;

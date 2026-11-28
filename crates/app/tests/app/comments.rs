@@ -3,7 +3,7 @@
 //! say, anchors that keep to their text through two clients' concurrent edits and come
 //! apart once it is deleted, threads on a block's text, and what a mention may name.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 use std::time::Duration;

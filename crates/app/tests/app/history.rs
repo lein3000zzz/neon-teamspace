@@ -2,7 +2,7 @@
 //! reading and comparing them as the rules allow, restoring one through the live document,
 //! with editors connected and typing, beside the page's comments, and thinning them out.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

@@ -1,7 +1,7 @@
 //! Teamspaces: who sees each kind, who joins and leaves, who manages their members, and
 //! the default teamspace that stays as it is.
 
-mod support;
+use crate::support;
 
 use neon_app::workspaces::{NewTeamspace, TeamspaceUpdate, WorkspaceError, WorkspaceUpdate};
 use neon_domain::auth::Principal;
