@@ -245,10 +245,10 @@ settings in `.config/nextest.toml`, and one of them runs `make test-s3` too. **E
 on those into `dev` that touch the images, Caddy, the Compose files, the end-to-end tests or
 the `Makefile`; when the tests fail, the Playwright report is attached to the run. Before a
 release, the E2E workflow runs `make e2e` on both images built in full, the server in the
-release profile. The **App shell** job runs on Ubuntu 22.04 with WebKitGTK, as the release
-builds the Linux app: the apps' license checks, `make app-check`, clippy for Android,
-`make app-test`, a `.deb` build of the Linux app, and `make app-webview-check` against that
-build under Xvfb, and **App shell (iOS)** runs clippy for iOS on macOS. Gitleaks
+release profile. The **App shell** jobs run on Ubuntu 22.04 with WebKitGTK, as the release
+builds the Linux app: the apps' license checks and `make app-check`; `make app-test`; clippy
+for Android; and on a push, a `.deb` build of the Linux app and `make app-webview-check`
+against that build under Xvfb. **App shell (iOS)** runs clippy for iOS on macOS. Gitleaks
 scans the new commits for secrets, and **All checks** passes once every job but E2E passed
 or was skipped.
 

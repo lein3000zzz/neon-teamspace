@@ -570,16 +570,16 @@ jobs:
       - name: Every stated version is Cargo.toml's
         run: make version-check
 
-  # The apps' Tauri project on Linux, with the system libraries its webview needs: the picker's
-  # checks, the Rust side's formatting, lints, docs and tests, the lints of its Android code,
-  # the picker in Chromium and WebKit, and a build of the Linux app. On Ubuntu 22.04, where the
-  # release builds it.
+  # The apps' Tauri project on Linux, with the system libraries its webview needs: the apps'
+  # license checks, the picker's checks, and the Rust side's formatting, lints, docs and tests.
+  # On Ubuntu 22.04, where the release builds the Linux app. The jobs after it test the picker
+  # in browsers, lint the Android code and build the Linux app, each on a runner of its own.
   app:
     name: App shell
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -587,13 +587,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu, and Xvfb,
-      # the display the webview check runs the app on.
+      # WebKitGTK and the rest of what Tauri's prerequisites list for Debian and Ubuntu.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential \
-            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Toolchain
         run: |
           rustup toolchain install --no-self-update
@@ -617,22 +616,119 @@ jobs:
           bun scripts/licenses.ts apps/shell
       - name: Picker checks, Rust formatting, lints and tests
         run: make app-check
-      # The Android code, which only the release builds otherwise: clippy for one of its ABIs,
-      # with the C compiler of the runner's newest NDK, at the minimum SDK tauri.conf.json
-      # sets, for the crates that build C.
+
+  # The picker on its own, under the app's policy, in Chromium and WebKit. Its build writes the
+  # crates' notices with cargo-about, which needs the toolchain to read the crates, but nothing
+  # compiles.
+  app-browsers:
+    name: App shell (browsers)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make app-install
+      - name: Browsers
+        run: make app-browsers
+      - name: The picker in Chromium and WebKit
+        run: make app-test
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picker-report
+          path: apps/shell/playwright-report
+          retention-days: 7
+
+  # The Android code, which only the release builds otherwise: clippy for one of its ABIs,
+  # with the C compiler of the runner's newest NDK, at the minimum SDK tauri.conf.json sets,
+  # for the crates that build C. The build embeds the picker, so the picker is built first.
+  app-android:
+    name: App shell (Android)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-linux-android
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/shell/src-tauri -> target
+          save-if: ${{ github.event_name == 'push' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make app-install
+      - run: make app-picker
       - name: Android lints
         run: |
-          rustup target add aarch64-linux-android
           ndk="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$ndk/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$ndk/llvm-ar"
           cargo clippy --manifest-path apps/shell/src-tauri/Cargo.toml --target aarch64-linux-android \
             --lib -- -D warnings
-      - name: Browsers
-        run: make app-browsers
-      - name: The picker in Chromium and WebKit
-        run: make app-test
-      # The Linux app as a .deb, the quickest of its bundles; the release builds them all.
+
+  # The Linux app as a .deb, the quickest of its bundles, which the release builds all of; then
+  # the built app in WebKitGTK against a hostile server, under Xvfb. On a push only, as the
+  # release build of the app takes longest of the app's jobs, and its cache would take a
+  # large share of the Actions cache.
+  app-linux:
+    name: App shell (Linux)
+    needs: changes
+    if: needs.changes.outputs.app == 'true' && github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # As the App shell job installs them, and Xvfb, the display the webview check runs the
+      # app on.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential \
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+      - name: Toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-about@0.9.3
+          fallback: none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: docs/package.json
+      - run: make app-install
       - name: Linux build
         working-directory: apps/shell
         run: bun run tauri build --ci --bundles deb
@@ -640,12 +736,6 @@ jobs:
       # picker's commands, however it sends the window to the app's own origin.
       - name: The app's webview against a hostile server
         run: xvfb-run -a make app-webview-check
-      - if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: picker-report
-          path: apps/shell/playwright-report
-          retention-days: 7
 
   # The iOS code, which no workflow builds otherwise, as the iOS app builds from source:
   # clippy for the device, on macOS, where the iOS SDK is. The build embeds the picker, so
@@ -745,6 +835,9 @@ jobs:
       - blocks
       - versions
       - app
+      - app-browsers
+      - app-android
+      - app-linux
       - app-ios
       - secrets
     runs-on: ubuntu-24.04
