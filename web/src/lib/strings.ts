@@ -668,6 +668,11 @@ export const strings = {
       },
       timedOut: (version: string) =>
         `The server did not come back on ${version} within 10 minutes. Check its log, and the updater's.`,
+      unchanged: (version: string, running: string) =>
+        `The updater finished the update to ${version}, but the server still runs ${running}.`,
+      unchangedWhy:
+        "A stack built from a clone runs images of its own, which the updater does not replace; see",
+      unchangedDocs: "One-click updates",
     },
   },
   people: {

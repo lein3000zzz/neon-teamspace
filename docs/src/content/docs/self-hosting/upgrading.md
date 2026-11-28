@@ -299,8 +299,9 @@ recreates the server and web, then updates itself.
 It updates a stack that runs the published images, as installed from a Compose archive. A
 stack built from a clone with `docker-compose.build.yml` runs images of its own, which the
 updater can neither pull nor check. With the signature check on, it refuses to update such a
-stack; with it off, it reports the update done while recreating nothing. Update a stack built
-from a clone by checking out the new tag, as in [Built from a clone](#built-from-a-clone).
+stack; with it off, it reports the update done while recreating nothing, and the panel says
+at once that the server still runs the release it ran. Update a stack built from a clone by
+checking out the new tag, as in [Built from a clone](#built-from-a-clone).
 
 0.1.0 has no updater. The update to 0.2.0, the first release with one, is by hand, and the
 profile can be turned on from there.

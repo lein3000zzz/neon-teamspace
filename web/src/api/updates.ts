@@ -54,12 +54,15 @@ export const PROGRESS_FOR_MS = 10 * 60 * 1000;
  * - `updating`: the old server answers, and with it the updater's status, when it could ask;
  * - `restarting`: nothing answers, as the server or the web origin restarts;
  * - `failed`: the updater says this update failed; its error and log say how far it got;
+ * - `unchanged`: the updater says this update is done, yet the server still runs `running`,
+ *   as when the stack runs images built from a clone, which the updater does not replace;
  * - `done`: the server runs the new release, and the updater is no longer at work.
  */
 export type Progress =
   | { phase: "updating"; status: UpdaterStatus | undefined }
   | { phase: "restarting" }
   | { phase: "failed"; status: UpdaterStatus }
+  | { phase: "unchanged"; status: UpdaterStatus; running: string }
   | { phase: "done" };
 
 /**
@@ -95,6 +98,11 @@ export function updateProgressQuery(version: string) {
       }
       if (ours && status?.state === "failed") {
         return { phase: "failed", status };
+      }
+      // The updater replaces the server before it says an update is done, so the server that
+      // answers then is the one the update left.
+      if (ours && status?.state === "done" && meta !== undefined) {
+        return { phase: "unchanged", status, running: meta.version };
       }
       if (meta === undefined && updates === undefined) {
         return { phase: "restarting" };

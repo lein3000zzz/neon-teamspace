@@ -454,6 +454,56 @@ describe("the version and updates", () => {
     expect(panel.getByRole("button", { name: "Update to 0.2.0" })).toBeEnabled();
   });
 
+  it("says at once when the updater is done but the server still runs the release it ran", async () => {
+    useFakeClock();
+    const { user, panel } = await renderPanel(withUpdater());
+    const started = updaterStatus({ state: "updating", version: "0.2.0" });
+    const done = updaterStatus({
+      state: "done",
+      version: "0.2.0",
+      log: "Pulling server, web at 0.2.0\nUpdated to 0.2.0\n",
+    });
+    let stage: "old" | "done" = "old";
+    let polls = 0;
+    server.use(
+      http.post("/api/v1/admin/updates/apply", () =>
+        HttpResponse.json(withUpdater(started), { status: 202 }),
+      ),
+      http.get("/api/v1/meta", () => HttpResponse.json({ ...testMeta, version: "0.1.0" })),
+      http.get("/api/v1/admin/updates", () => {
+        polls += 1;
+        return HttpResponse.json(withUpdater(stage === "done" ? done : started));
+      }),
+    );
+
+    await user.click(panel.getByRole("button", { name: "Update to 0.2.0" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Update" }),
+    );
+    expect(await panel.findByText("Updating to 0.2.0")).toBeInTheDocument();
+    stage = "done";
+    await nextPoll();
+
+    expect(await panel.findByRole("alert")).toHaveTextContent(
+      "The updater finished the update to 0.2.0, but the server still runs 0.1.0.",
+    );
+    expect(panel.getByRole("link", { name: "One-click updates" })).toHaveAttribute(
+      "href",
+      "/docs/self-hosting/upgrading/#one-click-updates",
+    );
+    expect(panel.getByRole("figure", { name: "What the updater did" })).toHaveTextContent(
+      "Updated to 0.2.0",
+    );
+    expect(panel.queryByText("The updater is at work.")).toBeNull();
+
+    // It asks no more, and neither reloads nor gives up later.
+    const asked = polls;
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(polls).toBe(asked);
+    expect(panel.queryByText(/did not come back/)).toBeNull();
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
   it("keeps the updater's log out of the live regions, which say in short where the update stands", async () => {
     useFakeClock();
     const { panel } = await renderPanel(

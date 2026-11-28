@@ -307,7 +307,7 @@ type UpdateProgressProps = {
 /**
  * An update under way, asked after every few seconds through the restart, until the server
  * runs the new release, when the page reloads for its app; or until the updater says it
- * failed, or ten minutes pass.
+ * failed, or that it is done while the server runs what it ran, or ten minutes pass.
  */
 function UpdateProgress({ version, onFailed }: UpdateProgressProps) {
   const queryClient = useQueryClient();
@@ -317,7 +317,9 @@ function UpdateProgress({ version, onFailed }: UpdateProgressProps) {
     ...updateProgressQuery(version),
     refetchInterval: (query) => {
       const phase = query.state.data?.phase;
-      return timedOut || phase === "done" || phase === "failed" ? false : PROGRESS_EVERY_MS;
+      return timedOut || phase === "done" || phase === "failed" || phase === "unchanged"
+        ? false
+        : PROGRESS_EVERY_MS;
     },
     refetchIntervalInBackground: true,
   });
@@ -347,6 +349,28 @@ function UpdateProgress({ version, onFailed }: UpdateProgressProps) {
 
   // The log is never inside a live region, which would have it read out whole each time it
   // changes: the short sentences beside it say where the update stands.
+  if (progress.data?.phase === "unchanged") {
+    const { status, running } = progress.data;
+    return (
+      <div className="grid gap-2">
+        <Alert tone="error" live="assertive">
+          <AlertTitle>{copy.updating(version)}</AlertTitle>
+          <AlertDescription>
+            <p className="text-foreground">{copy.unchanged(version, running)}</p>
+            <p>
+              {copy.unchangedWhy}{" "}
+              <a href={UPDATER_DOCS} target="_blank" rel="noreferrer" className={link}>
+                {copy.unchangedDocs}
+              </a>
+              .
+            </p>
+          </AlertDescription>
+        </Alert>
+        {status.log && <UpdaterLog log={status.log} />}
+      </div>
+    );
+  }
+
   if (timedOut && phase !== "done") {
     return (
       <div className="grid gap-2">
