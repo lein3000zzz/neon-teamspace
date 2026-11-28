@@ -10,7 +10,8 @@ use neon_domain::mail::{self as rules, Security};
 use neon_domain::oauth::{
     ACCESS_TTL_BOUNDS, DEFAULT_ACCESS_TTL, DEFAULT_REFRESH_TTL, REFRESH_TTL_BOUNDS,
 };
-use neon_domain::settings::{Definition, Key, Registry, Snapshot, checks};
+use neon_domain::settings::{Definition, Key, Registry, Secret, Snapshot, checks};
+use neon_domain::updates::{check_updater_token, check_updater_url};
 use neon_domain::workspaces::WorkspaceCreation;
 
 /// The instance's name, shown in the interface, in mail and by `GET /api/v1/meta`.
@@ -201,6 +202,21 @@ pub mod notifications {
     pub const MAIL_DELAY: Key<Duration> = Key::new("notifications.mail_delay");
     /// How often, at most, someone who wants a digest gets one.
     pub const DIGEST_INTERVAL: Key<Duration> = Key::new("notifications.digest_interval");
+}
+
+/// Release checks and updates: whether the server asks GitHub for newer releases, and the
+/// updater that moves the stack to one.
+pub mod updates {
+    use neon_domain::settings::{Key, Secret};
+
+    /// The server asks GitHub once a day for the newest release.
+    pub const CHECK: Key<bool> = Key::new("updates.check");
+    /// Pre-releases count as newer releases too.
+    pub const PRERELEASES: Key<bool> = Key::new("updates.prereleases");
+    /// Where the server reaches the updater.
+    pub const UPDATER_URL: Key<str> = Key::new("updates.updater_url");
+    /// The token the updater takes; empty, no updater is set up.
+    pub const UPDATER_TOKEN: Key<Secret> = Key::new("updates.updater_token");
 }
 
 /// Whether the settings name a mail server to use: mail switched on, with a host and a
@@ -793,6 +809,41 @@ pub fn registry() -> Registry {
             )
             .check(between(MIN_ORPHAN_GRACE, MAX_ORPHAN_GRACE)),
         )
+        .define(Definition::bool(
+            updates::CHECK,
+            true,
+            "Asks GitHub once a day for the newest release of Neon Teamspace, and when an \
+             admin presses Check now, to show in Admin > Settings beside the server's version. \
+             A check sends GitHub the server's version in its User-Agent, from the server's \
+             address, and nothing else. Off, the server never asks GitHub.",
+        ))
+        .define(Definition::bool(
+            updates::PRERELEASES,
+            false,
+            "Counts pre-releases, such as 0.3.0-rc.1, as newer releases too, to update to \
+             before they are stable. Off, only stable releases count.",
+        ))
+        .define(
+            Definition::string(
+                updates::UPDATER_URL,
+                "http://updater:8080",
+                "Where the server reaches the updater, which updates the stack to a release \
+                 when an admin asks in Admin > Settings. The Compose file's updater profile \
+                 runs it at http://updater:8080.",
+            )
+            .check(check_updater_url)
+            .browser_only(),
+        )
+        .define(
+            Definition::secret(
+                updates::UPDATER_TOKEN,
+                "The token the updater takes, the same as its NEON_UPDATER_TOKEN: at least 32 \
+                 characters, such as the output of openssl rand -hex 32. Empty, no updater is \
+                 set up, and Admin > Settings shows the commands to update by hand. Saved \
+                 here, it is kept encrypted, which needs secrets.keys.",
+            )
+            .check(|token: &Secret| check_updater_token(token.expose())),
+        )
         // An S3 store needs a bucket.
         .rule(attachments::S3_BUCKET.name(), |settings| {
             if StorageBackend::parse(settings.get(attachments::STORAGE)) == Some(StorageBackend::S3)
@@ -1009,6 +1060,10 @@ mod tests {
             *snapshot.get(pages::TRASH_RETENTION),
             Duration::from_secs(30 * 24 * 3600)
         );
+        assert!(*snapshot.get(updates::CHECK));
+        assert!(!*snapshot.get(updates::PRERELEASES));
+        assert_eq!(snapshot.get(updates::UPDATER_URL), "http://updater:8080");
+        assert_eq!(snapshot.get(updates::UPDATER_TOKEN).expose(), "");
         assert!(!mail_set_up(&snapshot));
         assert!(snapshot.iter().all(|(_, r)| r.source == Source::Default));
         assert_eq!(registry.check_rules(&snapshot), Ok(()));
@@ -1141,6 +1196,17 @@ mod tests {
             refuse("mail.from_name", "Neon\r\nBcc: everyone@example.com"),
             "must not hold line breaks or other control characters"
         );
+        assert_eq!(
+            refuse("updates.updater_url", "updater:8080"),
+            "want an http or https URL, such as http://updater:8080"
+        );
+        let short = "not-long-enough";
+        let refused = refuse("updates.updater_token", short);
+        assert!(
+            refused.starts_with("must be at least 32 characters"),
+            "{refused}"
+        );
+        assert!(!refused.contains(short));
     }
 
     #[test]
@@ -1167,6 +1233,8 @@ mod tests {
                 "mail.port",
                 "mail.tls",
                 "mail.username",
+                "updates.updater_token",
+                "updates.updater_url",
                 "webhooks.allow_private"
             ]
         );
