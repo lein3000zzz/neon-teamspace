@@ -1,9 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { apiError } from "@/test/fixtures";
+import { apiError, grace, signedInAs } from "@/test/fixtures";
 import { renderApp } from "@/test/render-app";
-import { server } from "@/test/server";
+import { server, testUpdates } from "@/test/server";
 import { design, fakeWorkspaces, studio, summaryOf, teamspaces } from "@/test/workspaces";
 
 /** The sidebar's column, once the signed-in shell is up. */
@@ -124,5 +124,55 @@ describe("the sidebar in a workspace", () => {
       "href",
       "/w/design/settings",
     );
+  });
+});
+
+describe("the Admin entry", () => {
+  it("is marked for an instance admin while a newer release is out", async () => {
+    server.use(
+      signedInAs(grace),
+      http.get("/api/v1/admin/updates", () =>
+        HttpResponse.json({
+          ...testUpdates,
+          latest: {
+            version: "0.2.0",
+            prerelease: false,
+            url: "https://github.com/lein3000zzz/neon-teamspace/releases/tag/v0.2.0",
+          },
+          newer: true,
+        }),
+      ),
+    );
+    renderApp("/account");
+    const sidebar = await column();
+
+    expect(
+      await sidebar.findByRole("link", { name: "Admin, an update is available" }),
+    ).toHaveAttribute("href", "/admin");
+  });
+
+  it("is plain while the server runs the newest release", async () => {
+    server.use(signedInAs(grace));
+    renderApp("/account");
+    const sidebar = await column();
+
+    expect(await sidebar.findByRole("link", { name: "Admin" })).toBeInTheDocument();
+    expect(sidebar.queryByRole("link", { name: /an update is available/ })).toBeNull();
+  });
+
+  it("is not there for anyone else, who never asks about updates", async () => {
+    let asked = 0;
+    server.use(
+      http.get("/api/v1/admin/updates", () => {
+        asked += 1;
+        return HttpResponse.json(testUpdates);
+      }),
+    );
+    renderApp("/account");
+    const sidebar = await column();
+
+    expect(await sidebar.findByRole("link", { name: "Account" })).toBeInTheDocument();
+    expect(sidebar.queryByRole("link", { name: /Admin/ })).toBeNull();
+    expect(asked).toBe(0);
   });
 });
