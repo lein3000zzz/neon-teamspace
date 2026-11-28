@@ -131,7 +131,8 @@ to update the stack, and the updater pulls the release's images and restarts the
 the web container with them, as [What happens](#what-happens) describes; the new server
 migrates the database as it starts. The page follows the update with the end of the
 updater's log, waits through the restart, and reloads once `GET /api/v1/meta` answers with
-the new version, so it runs the new release's app. An update that fails before the server
+the new version, so it runs the new release's app. For a release candidate, that is the
+version it rehearses: 0.3.0 for 0.3.0-rc.1. An update that fails before the server
 and web are recreated, as when a pull or the signature check fails, leaves the stack as it
 was, and the panel shows the updater's error and its log. One that fails later, as when the
 new server does not start, leaves `deployments/.env` naming the new release while no server
@@ -149,6 +150,12 @@ within 10 seconds, the server logs a warning instead, ending `the update may be 
 with the admin's id, the version and why. Read the notes and take a
 [backup](/docs/self-hosting/backups/) first, as for any upgrade: the panel cannot undo a
 migration either.
+
+A release candidate's server states the version it rehearses: on 0.3.0-rc.1,
+`GET /api/v1/meta` and the panel say 0.3.0. So the server of an instance on a candidate
+offers neither a later candidate of that version nor its release; update to those by hand,
+as [Upgrading a Compose install](#upgrading-a-compose-install) describes. A later version,
+such as 0.3.1, is offered as usual.
 
 The same is in the API, for instance admins: `GET /api/v1/admin/updates` for the status,
 `POST /api/v1/admin/updates/check` to check now, and `POST /api/v1/admin/updates/apply`, with

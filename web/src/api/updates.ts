@@ -63,10 +63,21 @@ export type Progress =
   | { phase: "done" };
 
 /**
+ * The version a release's server reports in /api/v1/meta. A release candidate, such as
+ * 0.3.0-rc.1, rehearses its release on the same code, so its server reports 0.3.0; any other
+ * release, a workspace version that is itself a pre-release such as 0.3.0-beta.1 included,
+ * reports itself.
+ */
+export function reportedVersion(version: string): string {
+  return version.replace(/-rc\.(?:0|[1-9]\d*)$/, "");
+}
+
+/**
  * How the update to `version` goes. Every failure to answer is a step of the update rather
  * than an error: the server and the web origin restart in the middle of it.
  */
 export function updateProgressQuery(version: string) {
+  const reports = reportedVersion(version);
   return queryOptions({
     queryKey: keys.updateProgress(version),
     queryFn: async ({ signal }): Promise<Progress> => {
@@ -76,7 +87,10 @@ export function updateProgressQuery(version: string) {
       ]);
       const status = updates?.updater.status ?? undefined;
       const ours = status?.version === version;
-      if (meta?.version === version && !(ours && status?.state === "updating")) {
+      // The server runs only releases older than `version` until the update: it never offers
+      // one whose version it runs already, so a candidate's release version cannot match early.
+      const arrived = meta?.version === version || meta?.version === reports;
+      if (arrived && !(ours && status?.state === "updating")) {
         return { phase: "done" };
       }
       if (ours && status?.state === "failed") {

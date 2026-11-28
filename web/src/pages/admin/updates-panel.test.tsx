@@ -282,6 +282,56 @@ describe("the version and updates", () => {
     expect(reloadPage).toHaveBeenCalledTimes(1);
   });
 
+  it("counts an update to a release candidate done once the server reports the release it rehearses", async () => {
+    useFakeClock();
+    const candidate: Release = { ...RELEASE, version: "0.3.0-rc.1", prerelease: true };
+    const offering = (status: UpdaterStatus): Updates => ({
+      ...withUpdater(status),
+      prereleases: true,
+      latest: candidate,
+    });
+    const started = updaterStatus({ state: "updating", version: "0.3.0-rc.1" });
+    let stage: "old" | "new" = "old";
+    const { user, panel } = await renderPanel(offering(updaterStatus()));
+    server.use(
+      http.post("/api/v1/admin/updates/apply", () =>
+        HttpResponse.json(offering(started), { status: 202 }),
+      ),
+      // A candidate's server states its release's version. Its updater, replaced last, starts
+      // idle and knows of no update.
+      http.get("/api/v1/meta", () =>
+        HttpResponse.json({ ...testMeta, version: stage === "new" ? "0.3.0" : "0.1.0" }),
+      ),
+      http.get("/api/v1/admin/updates", () =>
+        HttpResponse.json(
+          stage === "new"
+            ? {
+                ...offering(updaterStatus({ updater_version: "0.3.0" })),
+                current: "0.3.0",
+                newer: false,
+              }
+            : offering(started),
+        ),
+      ),
+    );
+
+    await user.click(panel.getByRole("button", { name: "Update to 0.3.0-rc.1" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Update" }),
+    );
+    expect(await panel.findByText("Updating to 0.3.0-rc.1")).toBeInTheDocument();
+    await nextPoll();
+    expect(await panel.findByText("The updater is at work.")).toBeInTheDocument();
+
+    stage = "new";
+    await nextPoll();
+    expect(
+      await panel.findByText("Updated to 0.3.0-rc.1. Reloading the page…"),
+    ).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+  });
+
   it("follows an update under way when the page opens", async () => {
     useFakeClock();
     const { panel } = await renderPanel(
