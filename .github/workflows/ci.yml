@@ -408,8 +408,9 @@ jobs:
 
   # The end-to-end tests: the build's neon binary in the server image's prebuilt target, the web
   # image built from the checkout, a throwaway Compose stack of them, and the tests against it,
-  # all through make e2e. The release workflow's own run, in e2e.yml, builds both images from
-  # scratch instead, the server in the release profile.
+  # all through make e2e, which builds and checks the updater image too. The release workflow's
+  # own run, in e2e.yml, builds every image from scratch instead, the server and the updater in
+  # the release profile.
   e2e:
     name: E2E
     needs: [changes, rust-build, server-notices]
@@ -462,20 +463,24 @@ jobs:
         with:
           name: server-notices
           path: prebuilt
-      # The web image's layers, every stage's (mode=max), so that the tools, the system packages
-      # and the packages build again only when a Dockerfile or a lockfile changes. A run reads
-      # what the last push to dev saved, and only a push to dev saves; a failed save does not
-      # fail the run. The server image takes the build's binary, and builds in seconds without
-      # a cache. Under make -j2 the images build while make e2e-install installs the tests'
+      # The web and updater images' layers, every stage's (mode=max), so that the tools, the
+      # system packages, the packages and the updater's dependencies, which cargo-chef cooks,
+      # build again only when a Dockerfile, a manifest or a lockfile changes. A run reads what
+      # the last push to dev saved, and only a push to dev saves; a failed save does not fail
+      # the run. The server image takes the build's binary, and builds in seconds without a
+      # cache. Under make -j2 the images build while make e2e-install installs the tests'
       # browser and its system libraries.
       - name: Build the images, start the stack, run the tests
         env:
           SAVE_CACHE: *save-on-dev
         run: |
-          flags="--set web.cache-from=type=gha,scope=e2e-web"
-          if [ "$SAVE_CACHE" = true ]; then
-            flags="$flags --set web.cache-to=type=gha,scope=e2e-web,mode=max,ignore-error=true"
-          fi
+          flags=""
+          for image in web updater; do
+            flags="$flags --set $image.cache-from=type=gha,scope=e2e-$image"
+            if [ "$SAVE_CACHE" = true ]; then
+              flags="$flags --set $image.cache-to=type=gha,scope=e2e-$image,mode=max,ignore-error=true"
+            fi
+          done
           make -j2 e2e E2E_SERVER_PREBUILT=prebuilt E2E_BUILD_FLAGS="$flags"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
