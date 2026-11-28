@@ -363,7 +363,10 @@ jobs:
 
   # The tests, from the build's archive, in jobs side by side, each with its own Postgres, as
   # nextest divides them. nextest runs each test in a process of its own. The checkout is where
-  # the build's was, so the tests find the files they read, and nextest its settings.
+  # the build's was, so the tests find the files they read, and nextest its settings. The archive
+  # goes into the checkout's target/, where the build had it, rather than into a temporary
+  # directory: a test that runs one of the workspace's binaries, as the updater's run
+  # neon-updater, finds it at the path the build compiled into the test.
   rust:
     name: Rust tests (${{ matrix.partition }}/${{ strategy.job-total }})
     needs: [changes, rust-build]
@@ -394,13 +397,14 @@ jobs:
           PARTITION: count:${{ matrix.partition }}/${{ strategy.job-total }}
         run: |
           cargo-nextest nextest run --profile ci --archive-file nextest-archive.tar.zst \
-            --workspace-remap . --partition "$PARTITION"
+            --workspace-remap . --extract-to . --extract-overwrite --partition "$PARTITION"
       # The S3 blob store against SeaweedFS in a container, in one of the jobs.
       - if: strategy.job-index == 0
         name: S3 blob store
         run: |
           make test-s3 S3_TESTS="cargo-nextest nextest run --profile ci \
-            --archive-file nextest-archive.tar.zst --workspace-remap . -E 'binary(blobs)'"
+            --archive-file nextest-archive.tar.zst --workspace-remap . --extract-to . \
+            --extract-overwrite -E 'binary(blobs)'"
 
   # The end-to-end tests: the build's neon binary in the server image's prebuilt target, the web
   # image built from the checkout, a throwaway Compose stack of them, and the tests against it,
