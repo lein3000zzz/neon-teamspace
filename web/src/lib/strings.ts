@@ -661,8 +661,7 @@ export const strings = {
       thenRun: "Then, in the directory that holds deployments/, pull the images and restart:",
       commands: "Commands",
       upgradingDocs: "Upgrading",
-      byHandDocs:
-        "A release may change the Compose file too; the upgrading docs show how to get it.",
+      byHandDocs: "A release may change the Compose file too; to get it, see",
       updaterDocs: "Set up the updater",
       updaterDocsAfter: "to update from here instead.",
       updating: (version: string) => `Updating to ${version}`,

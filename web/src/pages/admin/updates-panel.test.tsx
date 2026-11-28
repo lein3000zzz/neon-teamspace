@@ -250,9 +250,10 @@ describe("the version and updates", () => {
       "docker compose -f deployments/docker-compose.yml pull\n" +
         "docker compose -f deployments/docker-compose.yml up -d --wait",
     );
-    expect(panel.getByRole("link", { name: "Upgrading" })).toHaveAttribute(
-      "href",
-      "/docs/self-hosting/upgrading/",
+    const upgrading = panel.getByRole("link", { name: "Upgrading" });
+    expect(upgrading).toHaveAttribute("href", "/docs/self-hosting/upgrading/");
+    expect(upgrading.parentElement).toHaveTextContent(
+      "A release may change the Compose file too; to get it, see Upgrading. Set up the updater to update from here instead.",
     );
     expect(panel.getByRole("link", { name: "Set up the updater" })).toHaveAttribute(
       "href",
