@@ -292,9 +292,13 @@ impl UpdateService {
         }
     }
 
-    /// Asks GitHub, and keeps what it answers.
+    /// Asks GitHub, and keeps what it answers. While a check is under way already, it waits
+    /// for that one instead, whose answer is as fresh, so a check never waits for two.
     async fn check(&self) {
-        let _turn = self.inner.checking.lock().await;
+        let Ok(_turn) = self.inner.checking.try_lock() else {
+            drop(self.inner.checking.lock().await);
+            return;
+        };
         let found = self.inner.releases.list().await;
         let now = self.inner.clock.now();
         let prereleases = *self.settings().get(keys::PRERELEASES);

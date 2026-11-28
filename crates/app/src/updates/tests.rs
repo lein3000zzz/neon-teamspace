@@ -22,11 +22,12 @@ const START: OffsetDateTime = datetime!(2026-11-28 09:00 UTC);
 const TOKEN: &str = "fake-updater-token-for-the-tests-only";
 
 /// GitHub, answering from a queue that keeps its last answer, and counting the times it
-/// was asked.
+/// was asked. With a gate, each answer waits for a permit of it.
 #[derive(Default)]
 struct FakeReleases {
     answers: Mutex<VecDeque<Result<Vec<Release>, ReleasesError>>>,
     asked: AtomicUsize,
+    gate: Option<Arc<tokio::sync::Semaphore>>,
 }
 
 impl FakeReleases {
@@ -45,6 +46,9 @@ impl FakeReleases {
 impl Releases for FakeReleases {
     async fn list(&self) -> Result<Vec<Release>, ReleasesError> {
         self.asked.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.gate {
+            gate.acquire().await.expect("open").forget();
+        }
         let mut answers = self.answers.lock().expect("unpoisoned");
         if answers.len() > 1 {
             answers.pop_front().expect("an answer")
@@ -201,7 +205,11 @@ impl Fixture {
     }
 
     fn build(running: &str, development: bool) -> Self {
-        let releases = Arc::new(FakeReleases::default());
+        Self::with_releases(running, development, FakeReleases::default())
+    }
+
+    fn with_releases(running: &str, development: bool, releases: FakeReleases) -> Self {
+        let releases = Arc::new(releases);
         let updater = Arc::new(FakeUpdater::default());
         let settings = Arc::new(Mutex::new(snapshot(&[])));
         let time = ManualTime::new(START);
@@ -675,4 +683,36 @@ fn the_updater_s_token_never_shows_in_its_endpoint() {
     };
 
     assert!(!format!("{endpoint:?}").contains(TOKEN));
+}
+
+#[tokio::test]
+async fn a_check_asked_during_another_waits_for_it_instead_of_asking_again() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let releases = FakeReleases {
+        gate: Some(Arc::clone(&gate)),
+        ..FakeReleases::default()
+    };
+    releases.answer(Ok(vec![release("0.2.0")]));
+    let fixture = Fixture::with_releases("0.1.0", false, releases);
+
+    let periodic = tokio::spawn({
+        let updates = fixture.updates.clone();
+        async move { updates.look().await }
+    });
+    while fixture.releases.asked() == 0 {
+        tokio::task::yield_now().await;
+    }
+    let asked = tokio::spawn({
+        let updates = fixture.updates.clone();
+        let admin = fixture.admin.clone();
+        async move { updates.check_now(&admin).await }
+    });
+    tokio::task::yield_now().await;
+    // Enough for two answers, so asking twice would show in the count, not hang.
+    gate.add_permits(2);
+
+    let status = asked.await.expect("joined").expect("the status");
+    periodic.await.expect("joined");
+    assert_eq!(fixture.releases.asked(), 1);
+    assert_eq!(latest(&status).as_deref(), Some("0.2.0"));
 }
